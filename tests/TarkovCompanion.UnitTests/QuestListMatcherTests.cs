@@ -12,6 +12,7 @@ public sealed class QuestListMatcherTests
     [InlineData("Sh0rtage", "shortage")]
     [InlineData("Postrnan Pat - Part l", "postman-pat-1")]
     [InlineData("The Tarkov Shoter Part 1", "tarkov-shooter-1")]
+    [InlineData("Balancing - Part 1 [Season PvP]", "balancing-1")]
     public void RealCatalogNamesSurvivePunctuationGlyphAndDroppedCharacterNoise(
         string line,
         string expectedTaskId)
@@ -80,6 +81,7 @@ public sealed class QuestListMatcherTests
         Task("tarkov-shooter-1", "The Tarkov Shooter - Part 1"),
         Task("gunsmith-1", "Gunsmith - Part 1"),
         Task("gunsmith-2", "Gunsmith - Part 2"),
+        Task("balancing-1", "Balancing - Part 1 [PVP ZONE]"),
         Task("survivalist-unprotected", "The Survivalist Path - Unprotected but Dangerous"),
     ];
 

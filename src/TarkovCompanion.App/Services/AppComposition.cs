@@ -555,9 +555,11 @@ public static class AppComposition
         // [#667] Quest onboarding reads only player-picked files or recent files from the
         // already-discovered screenshot folder. Analysis remains preview-only until confirmed.
         services.AddSingleton<QuestListMatcher>();
+        services.AddSingleton<QuestListMatchMerger>();
         services.AddSingleton<QuestHistoryInference>();
         services.AddSingleton<QuestScreenshotSyncService>();
         services.AddSingleton<IQuestScreenshotImageSource, QuestScreenshotImageSource>();
+        services.AddSingleton<IQuestTaskColumnRegionDetector, QuestTaskColumnRegionDetector>();
         services.AddSingleton(provider => new QuestScreenshotSyncViewModel(
             provider.GetRequiredService<QuestScreenshotSyncService>(),
             provider.GetRequiredService<IQuestScreenshotImageSource>(),

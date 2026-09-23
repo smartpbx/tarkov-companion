@@ -131,6 +131,19 @@ internal static class Program
                 MonitorService: monitorDemo,
                 WindowPlacementController: placementDemo));
 
+            if (StringOption(args, "--quest-region") is { } questScreenshot)
+            {
+                var image = services.GetRequiredService<IScreenshotImageLoader>()
+                    .LoadAsync(questScreenshot, CancellationToken.None).GetAwaiter().GetResult()
+                    ?? throw new InvalidOperationException($"Could not load '{questScreenshot}'.");
+                var detected = services
+                    .GetRequiredService<TarkovCompanion.Application.Services.Quests.IQuestTaskColumnRegionDetector>()
+                    .Detect(image);
+                var region = detected.Region;
+                Console.WriteLine($"Quest {detected.Layout} region: {region.X},{region.Y} {region.Width}x{region.Height} of {image.Width}x{image.Height}");
+                return 0;
+            }
+
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
                 .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })

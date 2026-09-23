@@ -29,6 +29,34 @@ public sealed class QuestScreenshotSyncServiceTests
     }
 
     [Fact]
+    public async Task OverlappingScreenshotsShowEachQuestAndLineOnce()
+    {
+        var fixture = Fixture();
+
+        var preview = await fixture.Service.AnalyzeAsync(
+            [Image("first-screenful"), Image("overlapping-screenful")],
+            CancellationToken.None);
+
+        Assert.Equal(2, preview.ImageCount);
+        Assert.Equal(3, preview.Lines.Count);
+        Assert.Single(preview.Lines, line => line.Kind == QuestListLineKind.Matched);
+        Assert.Single(preview.Lines, line => line.Kind == QuestListLineKind.Ambiguous);
+        Assert.Single(preview.Lines, line => line.Kind == QuestListLineKind.Unmatched);
+    }
+
+    [Fact]
+    public async Task OperationalNamesAreNeverAppliedAgainstTheCatalogByNameAlone()
+    {
+        var fixture = Fixture(new OperationalFullFrame());
+
+        var preview = await fixture.Service.AnalyzeAsync([Image("operational")], CancellationToken.None);
+
+        Assert.Empty(preview.ConfirmedTaskIds);
+        Assert.Equal(3, preview.Lines.Count(line => line.Kind == QuestListLineKind.Unmatched));
+        Assert.Empty(preview.History.Changes);
+    }
+
+    [Fact]
     public async Task ConfirmationRechecksThenAppliesPrerequisiteBeforeActiveQuest()
     {
         var fixture = Fixture();
@@ -100,7 +128,7 @@ public sealed class QuestScreenshotSyncServiceTests
         Assert.False(viewModel.ShowEmptyOffer);
     }
 
-    private static TestFixture Fixture()
+    private static TestFixture Fixture(IQuestTaskColumnRegionDetector? detector = null)
     {
         var catalog = Catalog(
             Quest("debut", "Debut"),
@@ -115,7 +143,9 @@ public sealed class QuestScreenshotSyncServiceTests
             store,
             commands,
             new FixtureOcr(),
+            detector ?? new FullFrameTaskColumn(),
             new QuestListMatcher(),
+            new QuestListMatchMerger(),
             new QuestHistoryInference(),
             new QuestTrackingOptions());
         return new(service, store, commands);
@@ -186,6 +216,18 @@ public sealed class QuestScreenshotSyncServiceTests
                 ],
                 TimeSpan.FromMilliseconds(10),
                 "fixture OCR"));
+    }
+
+    private sealed class FullFrameTaskColumn : IQuestTaskColumnRegionDetector
+    {
+        public QuestScreenshotTextRegion Detect(CapturedImage image) =>
+            new(QuestScreenshotLayout.SideTaskList, new PixelRect(0, 0, image.Width, image.Height));
+    }
+
+    private sealed class OperationalFullFrame : IQuestTaskColumnRegionDetector
+    {
+        public QuestScreenshotTextRegion Detect(CapturedImage image) =>
+            new(QuestScreenshotLayout.OperationalTaskList, new PixelRect(0, 0, image.Width, image.Height));
     }
 
     private sealed class StubCatalog(QuestCatalogSnapshot value) : IQuestCatalog
