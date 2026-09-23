@@ -50,15 +50,14 @@ public sealed class ScreenshotFilenameParserTests
     }
 
     /// <summary>
-    /// The time in the name is not in a zone the companion can identify; the file's is.
+    /// The capture time stays with the coordinate-bearing filename even when mtime differs.
     /// </summary>
     /// <remarks>
-    /// On a live installation the two ran hours apart, and every position was then thrown away
-    /// as older than the raid already on screen. The coordinates still come from the name,
-    /// because only the name has them.
+    /// A filesystem stamp is mutable metadata, not screenshot identity. A future-dated mtime
+    /// caused every later position to be rejected after the workstation clock was corrected.
     /// </remarks>
     [Fact]
-    public void TakesTheTimeFromTheFileAndTheCoordinatesFromTheName()
+    public void TakesCaptureTimeAndCoordinatesFromTheName()
     {
         var parser = new ScreenshotFilenameParser();
         var directory = Directory.CreateTempSubdirectory("tarkov-screenshot-time");
@@ -73,7 +72,9 @@ public sealed class ScreenshotFilenameParserTests
 
             Assert.True(parser.TryParseFile(path, TimeSpan.FromHours(-4), out var position));
             Assert.NotNull(position);
-            Assert.Equal(new DateTimeOffset(written, TimeSpan.Zero), position.Timestamp);
+            Assert.Equal(
+                new DateTimeOffset(2026, 9, 11, 19, 16, 0, TimeSpan.FromHours(-4)),
+                position.Timestamp);
             Assert.Equal(80.02, position.Position.X, 3);
             Assert.Equal(-51.06, position.Position.Z, 3);
         }
@@ -110,10 +111,9 @@ public sealed class ScreenshotFilenameParserTests
     }
 
     /// <summary>
-    /// A OneDrive-synced folder can rewrite a file's write time to whenever it synced, hours
-    /// away from when the shot was actually taken. Read at 05:37Z off a name naming 21:37 local
-    /// (-8) on a live installation, the write time then disagreed with the name by eight hours
-    /// and every position that arrived was stamped hours in the future.
+    /// A OneDrive-synced folder can rewrite a file's write time to whenever it synced. Read at
+    /// 05:37Z off a name naming 21:37 local (-8) on a live installation, the write time was
+    /// eight hours away; the immutable name still says when the player requested the capture.
     /// </summary>
     [Fact]
     public void KeepsTheNamesTimeWhenTheFilesTimeDisagreesByHours()
@@ -157,7 +157,7 @@ public sealed class ScreenshotFilenameParserTests
                 directory.FullName,
                 "2026-09-16[21-37]_80.02, 1.39, -51.06_-0.00242, 0.84404, 0.00393, 0.53626_9.91 (0).png");
             File.WriteAllBytes(path, [0]);
-            // Close enough to the name to be trusted, but still three hours ahead of "now".
+            // The filesystem time is irrelevant; the name itself is three hours ahead of "now".
             File.SetLastWriteTimeUtc(path, new DateTime(2026, 9, 17, 5, 37, 34, DateTimeKind.Utc));
 
             Assert.True(parser.TryParseFile(path, TimeSpan.FromHours(-8), out var position));

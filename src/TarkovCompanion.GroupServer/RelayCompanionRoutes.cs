@@ -43,6 +43,9 @@ public sealed record RelayDeviceClaim(
 
 public sealed record RelayOwnerStatus(bool Claimed, string? OwnerDeviceId);
 
+/// <summary>A time-window refusal with the relay's measured server-minus-claim offset.</summary>
+public sealed record RelayClockSkewRefusal(string Code, long OffsetSeconds);
+
 public sealed record RelaySessionCredentialResponse(
     Guid SessionId,
     Guid ChannelId,
@@ -695,7 +698,7 @@ public static class RelayCompanionRoutes
                 .ConfigureAwait(false);
             return resumed.Succeeded
                 ? Results.Ok(RelaySessionCredentialResponse.From(resumed.Value!))
-                : Results.BadRequest(resumed.Code);
+                : ClaimRefusal(resumed);
         });
 
         // [#553] A desktop registering itself, or coming back. Two things are asked of it and both
@@ -754,7 +757,7 @@ public static class RelayCompanionRoutes
             var registered = await directory.RegisterDesktopAsync(room, attempt, cancellationToken).ConfigureAwait(false);
             return registered.Succeeded
                 ? Results.Ok(RelaySessionCredentialResponse.From(registered.Value!))
-                : Results.BadRequest(registered.Code);
+                : ClaimRefusal(registered);
         });
 
         // A paired device coming back. It proves the key this relay has on record for it and is
@@ -943,8 +946,17 @@ public static class RelayCompanionRoutes
             .ConfigureAwait(false);
         return recovered.Succeeded
             ? Results.Ok(RelaySessionCredentialResponse.From(recovered.Value!))
-            : Results.BadRequest(recovered.Code);
+            : ClaimRefusal(recovered);
     }
+
+    /// <summary>
+    /// Clock skew is the one claim refusal with data a person can act on. Every older refusal
+    /// keeps its string code body so existing clients continue to read exactly what they read now.
+    /// </summary>
+    private static IResult ClaimRefusal(RelayMutationResult<RelaySessionCredential> refusal) =>
+        refusal is { Code: "clock-skew", OffsetSeconds: { } offsetSeconds }
+            ? Results.BadRequest(new RelayClockSkewRefusal(refusal.Code, offsetSeconds))
+            : Results.BadRequest(refusal.Code);
 
     /// <summary>Set on a frame read that held (or could have): the caller may skip the ack route.</summary>
     public const string FramesHeldHeader = "X-Relay-Frames-Held";

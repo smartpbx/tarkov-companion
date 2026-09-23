@@ -9,7 +9,8 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer"
-             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Resources>
     <!-- [Issue 551] A mark on the plan is a button with nothing of the theme's button about it:
          no background in any state (the hover square), no pressed scale, no clip. A theme of its
@@ -885,7 +886,7 @@
                  The most valuable first, more as the plan is zoomed in (MapLootRanking), each a
                  small light disc tinted by its value tier; "+N" badges count the rest per area and
                  zoom in on it when pressed. -->
-            <ItemsControl ItemsSource="{Binding LootMarkers}"
+            <ItemsControl prim:StagedItems.Batch="12" prim:StagedItems.Source="{Binding LootMarkers}"
                           Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
@@ -918,7 +919,7 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <ItemsControl ItemsSource="{Binding LootBadges}"
+            <ItemsControl prim:StagedItems.Batch="12" prim:StagedItems.Source="{Binding LootBadges}"
                           Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
@@ -952,7 +953,7 @@
             <!-- V2 rough package 22: place names, written on the plan like V1's "Place names"
                  layer. Text rather than markers, never hit-testable: a street name is not a
                  thing you click. -->
-            <ItemsControl ItemsSource="{Binding LabelObjects}" IsHitTestVisible="False"
+            <ItemsControl prim:StagedItems.Batch="16" prim:StagedItems.Source="{Binding LabelObjects}" IsHitTestVisible="False"
                           Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
@@ -976,7 +977,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <ItemsControl ItemsSource="{Binding PointMarkers}"
+            <ItemsControl prim:StagedItems.Source="{Binding PointMarkers}"
                           Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
               <ItemsControl.Styles>
                 <Style Selector="ItemsControl > ContentPresenter" x:DataType="vm:MapSceneRendererObjectViewModel">

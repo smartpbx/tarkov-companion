@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Profiles;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -51,6 +52,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly ILogger<RaidObservationService> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ICaptureStageTimeline? _stageTimeline;
+    private readonly QuestScreenshotBurstCollector? _questScreenshotBursts;
     private readonly CancellationTokenSource _stopping = new();
     private readonly object _screenshotScanGate = new();
     private readonly HashSet<Task> _screenshotScans = [];
@@ -99,10 +101,13 @@ public sealed class RaidObservationService : IAsyncDisposable
         ICaptureContextSource? captureContext = null,
         // #572: starts a scan's timeline the moment its file is considered settled - see
         // ICaptureStageTimeline's own remarks.
-        ICaptureStageTimeline? stageTimeline = null)
+        ICaptureStageTimeline? stageTimeline = null,
+        // #703: passively recognised TASKS frames become one review-only offer outside raids.
+        QuestScreenshotBurstCollector? questScreenshotBursts = null)
     {
         _captureContext = captureContext;
         _stageTimeline = stageTimeline;
+        _questScreenshotBursts = questScreenshotBursts;
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
         _screenshotWatcher = screenshotWatcher;
@@ -435,7 +440,6 @@ public sealed class RaidObservationService : IAsyncDisposable
     {
         // The game writes the player's own position and heading into the screenshot filename.
         // That file is created by the game at the player's request; nothing is captured here.
-        var offset = LocalTime.Zone.GetUtcOffset(_timeProvider.GetUtcNow());
         var currentRoot = screenshotRoot;
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -499,6 +503,10 @@ public sealed class RaidObservationService : IAsyncDisposable
                     }
 
                     // So: place the player, then read the picture.
+                    // Asked per sighting rather than once when the watcher starts: a companion
+                    // left open across a daylight-saving transition must parse the next local
+                    // filename with the new offset.
+                    var offset = LocalTime.Zone.GetUtcOffset(_timeProvider.GetUtcNow());
                     if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
                     {
                         _logger.LogInformation(
@@ -814,6 +822,13 @@ public sealed class RaidObservationService : IAsyncDisposable
                 MaskScreenshotName(Path.GetFileName(path)),
                 outcome.Context,
                 outcome.Status);
+
+            if (outcome.Context == ScanContext.QuestTasks)
+            {
+                var raidActive = _stateStore.Current.Raid.State is
+                    RaidLifecycleState.LoadingRaid or RaidLifecycleState.InRaid;
+                _questScreenshotBursts?.Observe(path, outcome.ObservedUtc, raidActive);
+            }
 
             PublishScreenshotOutcome(sourceGeneration, scanOrdinal, outcome);
         }

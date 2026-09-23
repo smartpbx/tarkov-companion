@@ -20,9 +20,11 @@ using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Services.V2.Appearance;
 using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.Application.Services.Personalization;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
@@ -130,6 +132,11 @@ internal static class Program
                 HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0)),
                 MonitorService: monitorDemo,
                 WindowPlacementController: placementDemo));
+
+            if (args.Contains("--clock-skew-demo"))
+            {
+                services.GetRequiredService<RelayClockOffsetTracker>().ObserveOffsetSeconds(-14_400);
+            }
 
             if (StringOption(args, "--quest-region") is { } questScreenshot)
             {
@@ -444,6 +451,30 @@ internal static class Program
             if (shell?.SetupWorkspace?.QuestSync is { } questSync && args.Contains("--quest-sync-demo"))
             {
                 DrainUntilComplete(questSync.LoadFixtureAsync(
+                    ["Flint", "Gunsmith Part", "CHARACTER TASKS"]));
+                Pump(20);
+            }
+
+            // #703: the passive watcher groups a scroll into one global review offer. These
+            // paths are never opened in the banner render; the preview flag below drives the
+            // same matcher/history view with fixture OCR because dev has no Windows OCR.
+            if (shell is not null && IntOption(args, "--quest-sync-offer-demo", 0) is var offerCount and > 0)
+            {
+                var bursts = services.GetRequiredService<QuestScreenshotBurstCollector>();
+                var first = DateTimeOffset.UtcNow;
+                for (var index = 0; index < offerCount; index++)
+                {
+                    bursts.Observe($"fixture-task-{index}.png", first.AddSeconds(index), raidActive: false);
+                }
+
+                Pump(20);
+            }
+
+            if (shell?.SetupWorkspace?.QuestSync is { } passiveQuestSync &&
+                IntOption(args, "--quest-sync-passive-demo", 0) is var passiveCount and > 0)
+            {
+                DrainUntilComplete(passiveQuestSync.LoadPassiveFixtureAsync(
+                    passiveCount,
                     ["Flint", "Gunsmith Part", "CHARACTER TASKS"]));
                 Pump(20);
             }
@@ -1507,6 +1538,11 @@ internal static class Program
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
                 var demo = RaidDemo(viewModel.Map.RenderModel, IntOption(args, "--raid-minutes", 14));
+                if (args.Contains("--raid-left"))
+                {
+                    demo = SquadAfterRaidDemo.Apply(demo);
+                }
+
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });

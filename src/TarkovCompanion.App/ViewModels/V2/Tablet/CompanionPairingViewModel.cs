@@ -168,6 +168,8 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     private readonly RelayMarksBridge? _relayMarksBridge;
     private readonly HttpClient? _relay;
     private readonly RelayOwnerClaimClient? _claimClient;
+    private readonly RelayClockOffsetTracker? _clockOffset;
+    private readonly RelayRegistrationRetryLoop? _registrationRetry;
     private readonly Func<CancellationToken, Task<string?>>? _groupKey;
     private readonly PairedDeviceResumeService? _resume;
     private Uri? _relayOrigin;
@@ -200,7 +202,8 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         DesktopCompanionAuthority authority,
         CompanionPairingAvailability availability,
         TimeProvider timeProvider,
-        RelayMarksBridge? relayMarksBridge = null)
+        RelayMarksBridge? relayMarksBridge = null,
+        RelayClockOffsetTracker? clockOffset = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(availability);
@@ -208,16 +211,30 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         _coordinator = availability.Coordinator;
         _identitySigner = availability.IdentitySigner;
         _relayMarksBridge = relayMarksBridge;
+        _clockOffset = clockOffset;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _relayOrigin = availability.RelayOrigin;
         _groupKey = availability.GroupKey;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
-            _relay = new HttpClient { BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/") };
+            _relay = _clockOffset is null
+                ? new HttpClient()
+                : new HttpClient(new RelayClockTrackingHandler(_clockOffset, _timeProvider));
+            _relay.BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/");
             _relayMarksBridge?.Configure(origin);
             if (availability.IdentitySigner is { } signer)
             {
-                _claimClient = new RelayOwnerClaimClient(_relay, signer, authority, _relayMarksBridge, availability.GroupKey);
+                _claimClient = new RelayOwnerClaimClient(
+                    _relay,
+                    signer,
+                    authority,
+                    _relayMarksBridge,
+                    availability.GroupKey,
+                    _clockOffset);
+                _registrationRetry = new RelayRegistrationRetryLoop(
+                    RegisterWithRelayAsync,
+                    _timeProvider,
+                    _clockOffset);
                 if (_relayMarksBridge is not null)
                 {
                     // [#289] The relay ends an owner session after twelve hours, or two idle. The
@@ -237,6 +254,10 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
 
         _authority.PairingOutOfDateChanged += OnPairingOutOfDateChanged;
+        if (_clockOffset is not null)
+        {
+            _clockOffset.Changed += OnClockOffsetChanged;
+        }
         RefreshDevices();
         StartPairingCommand = new AsyncDelegateCommand(StartPairingAsync);
         ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
@@ -732,6 +753,17 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
 
     public bool HasRelayClaimMessage => !string.IsNullOrEmpty(RelayClaimMessage);
 
+    /// <summary>The actionable clock warning shared by Team &gt; Tablet and Setup &gt; Diagnostics.</summary>
+    public bool HasClockSkewNotice => _clockOffset?.Current?.IsSkewed == true;
+
+    public string ClockSkewNotice => _clockOffset?.Current is { IsSkewed: true } offset
+        ? DescribeClockSkew(offset.OffsetSeconds)
+        : string.Empty;
+
+    public string ClockSkewHelp =>
+        "Windows: Settings > Time & language > Sync now. Dual boot: set RealTimeIsUniversal=1 " +
+        "in Windows or run timedatectl set-local-rtc 1 in Linux.";
+
     /// <summary>[#553] Something stands between this desktop and the relay, and there are words for it.</summary>
     public bool ShowsRelayProblem => NeedsClaim && HasRelayClaimMessage;
 
@@ -742,6 +774,8 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     {
         RelayClaimOutcome.Claimed =>
             (RelayOwnerClaimState.ClaimedByThisDesktop, "Connected to the relay."),
+        _ when result is { Code: "clock-skew", ClockOffsetSeconds: { } offset } =>
+            (current, DescribeClockSkew(offset)),
         RelayClaimOutcome.GroupKeyRefused =>
             (RelayOwnerClaimState.NotClaimed, "This relay did not accept your group key."),
         // [#553] Only a relay from before desktops registered themselves leaves a desktop that
@@ -755,6 +789,16 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
             ? $"The relay refused this desktop: {code}."
             : "The relay refused this desktop."),
     };
+
+    internal static string DescribeClockSkew(long offsetSeconds)
+    {
+        var absoluteSeconds = offsetSeconds < 0 ? -(decimal)offsetSeconds : offsetSeconds;
+        var amount = absoluteSeconds >= 60 * 60
+            ? $"{Math.Max(1, (long)Math.Round(absoluteSeconds / 3600m, MidpointRounding.AwayFromZero))} h"
+            : $"{Math.Max(1, (long)Math.Round(absoluteSeconds / 60m, MidpointRounding.AwayFromZero))} min";
+        var direction = offsetSeconds < 0 ? "ahead of" : "behind";
+        return $"Your PC clock is {amount} {direction} real time. Pairing won't work until it's fixed.";
+    }
 
     /// <summary>Completes once the kept claim has been looked for; a test waits on it.</summary>
     internal Task RelayLinkRestored { get; } = Task.CompletedTask;
@@ -788,7 +832,14 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
                 // [#553] Nothing kept from an earlier run: a first run, or a relay that was
                 // forgotten. Registering needs nothing from the player, so it is not left for
                 // them to ask for.
-                await RegisterWithRelayAsync().ConfigureAwait(true);
+                if (_registrationRetry is not null)
+                {
+                    await _registrationRetry.StartAsync(_lifetime.Token).ConfigureAwait(true);
+                }
+                else
+                {
+                    await RegisterWithRelayAsync(_lifetime.Token).ConfigureAwait(true);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -801,16 +852,16 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     /// [#553] Registers this desktop on the relay with its group key and identity key, or comes
     /// back to the registration it already has. True when the relay issued it a session.
     /// </summary>
-    private async Task<bool> RegisterWithRelayAsync()
+    private async Task<bool> RegisterWithRelayAsync(CancellationToken cancellationToken)
     {
         if (_claimClient is null)
         {
             return false;
         }
 
-        var result = await _claimClient.ClaimByKeyAsync(Now(), _lifetime.Token).ConfigureAwait(true);
+        var result = await _claimClient.ClaimByKeyAsync(Now(), cancellationToken).ConfigureAwait(true);
         if (result.Outcome == RelayClaimOutcome.KeyNotRecognised &&
-            string.IsNullOrWhiteSpace(_groupKey is null ? null : await _groupKey(_lifetime.Token).ConfigureAwait(true)))
+            string.IsNullOrWhiteSpace(_groupKey is null ? null : await _groupKey(cancellationToken).ConfigureAwait(true)))
         {
             // Without a group key there was nothing to register with; only a claim made by an
             // older build could have answered, and this relay holds none for this desktop.
@@ -836,6 +887,24 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     }
 
     private void OnPairingOutOfDateChanged(CompanionDeviceId deviceId) => RefreshDevicesOnUiThread();
+
+    private void OnClockOffsetChanged(RelayClockOffset _)
+    {
+        void Changed()
+        {
+            OnPropertyChanged(nameof(HasClockSkewNotice));
+            OnPropertyChanged(nameof(ClockSkewNotice));
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            Changed();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(Changed);
+        }
+    }
 
     /// <summary>Completes when no returning tablet is being answered; a test waits on it.</summary>
     internal Task ResumesSettled => _resume?.WhenIdleAsync() ?? Task.CompletedTask;
@@ -878,6 +947,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
                 // [#553] Reached only after registering again was refused too, and that refusal's
                 // own words are already showing; this is what is said when there were none.
                 RelayClaimMessage ??= "The relay refused this desktop. Check the group key in Team > Group.";
+                _ = _registrationRetry?.StartAsync(_lifetime.Token);
                 break;
         }
     }
@@ -887,6 +957,10 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     public void Dispose()
     {
         _authority.PairingOutOfDateChanged -= OnPairingOutOfDateChanged;
+        if (_clockOffset is not null)
+        {
+            _clockOffset.Changed -= OnClockOffsetChanged;
+        }
         if (_relayMarksBridge is not null)
         {
             _relayMarksBridge.CanonicalStateChanged -= OnCanonicalStateChanged;
@@ -901,6 +975,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
 
         _ceremony?.Cancel();
         _ceremony?.Dispose();
+        _registrationRetry?.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
         _relay?.Dispose();
@@ -932,7 +1007,8 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         // [#553] It used to stop here and ask for the relay's admin key. A desktop registers
         // itself now, so the press that starts a pairing is also what registers it when startup
         // has not already (no group key then, or the relay was away).
-        if (RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop && !await RegisterWithRelayAsync().ConfigureAwait(true))
+        if (RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop &&
+            !await RegisterWithRelayAsync(_lifetime.Token).ConfigureAwait(true))
         {
             StatusMessage = RelayClaimMessage;
             return;

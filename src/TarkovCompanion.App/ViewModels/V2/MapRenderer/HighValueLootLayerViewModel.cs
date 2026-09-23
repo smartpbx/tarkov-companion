@@ -68,6 +68,32 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     public string Heading => Text("Map.Loot.Heading");
     public string FilterHeading => Text("Map.Loot.Filters");
     public string Legend => _result.CompactLegend;
+    /// <summary>Short, visible context beside the loot switch in the Raid Layers menu.</summary>
+    public string LayerMenuStatus
+    {
+        get
+        {
+            if (_result.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable)
+            {
+                return $"No loot data for {MapName(_result.MapId)}";
+            }
+
+            if (_result.Status.Completeness != ResultCompleteness.Partial)
+            {
+                return "Complete";
+            }
+
+            if (_result.Diagnostics.Any(diagnostic => diagnostic.Code == "snapshot.transform-stale"))
+            {
+                return "Partial · map changed";
+            }
+
+            var incomplete = _result.Diagnostics.Count(diagnostic => diagnostic.AffectsCompleteness);
+            return incomplete > 0
+                ? $"Partial · {Number(incomplete)} incomplete"
+                : "Partial · source coverage";
+        }
+    }
     public string StateMessage { get; private set; } = string.Empty;
     public string FreshnessMessage { get; private set; } = string.Empty;
     public bool HasFreshnessMessage => !string.IsNullOrWhiteSpace(FreshnessMessage);
@@ -451,6 +477,10 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         ? Text("Map.Loot.Threshold.Any")
         : Format("Map.Loot.Threshold.Amount", (threshold / 1000).ToString("N0", _presentation.Culture));
 
+    private static string MapName(string mapId) => string.Join(' ', mapId
+        .Split('-', StringSplitOptions.RemoveEmptyEntries)
+        .Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
+
     private string DescribeTier(LootSpawnValueTier tier) => Text($"Map.Loot.Tier.{tier}");
 
     private static int TierRank(LootSpawnValueTier tier) => tier switch
@@ -547,7 +577,7 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     {
         foreach (var property in new[]
                  {
-                     nameof(Legend), nameof(StateMessage), nameof(FreshnessMessage), nameof(HasFreshnessMessage),
+                     nameof(Legend), nameof(LayerMenuStatus), nameof(StateMessage), nameof(FreshnessMessage), nameof(HasFreshnessMessage),
                      nameof(CoverageLabel), nameof(HasCoverage),
                      nameof(ValueBasisChoices), nameof(CompactValueBasisChoices), nameof(ValueThresholdChoices),
                      nameof(HasPerSlotValues),

@@ -164,6 +164,41 @@ public sealed class RelayLinkTwoDesktopsTests
     }
 
     [Fact]
+    public async Task ADesktopRetriesImmediatelyWhenItsFourHourClockSkewIsFixed()
+    {
+        var relayNow = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var relayClock = new RelayTestClock(relayNow);
+        var desktopClock = new RelayTestClock(relayNow.AddHours(4));
+        var offset = new RelayClockOffsetTracker();
+        await using var relay = await LinkRelay.StartAsync(
+            relayClock,
+            Loopback,
+            certificate: null,
+            GroupKeyOfTheSquad);
+        using var disk = new DesktopDisk();
+        await using var desktop = await DesktopRun.StartAsync(
+            disk,
+            relay.Origin,
+            desktopClock,
+            groupKey: GroupKeyOfTheSquad,
+            clockOffset: offset);
+
+        Assert.False(desktop.Panel.IsClaimedByThisDesktop);
+        Assert.Equal(
+            "Your PC clock is 4 h ahead of real time. Pairing won't work until it's fixed.",
+            desktop.Panel.ClockSkewNotice);
+
+        desktopClock.Advance(TimeSpan.FromHours(-4));
+        offset.ObserveOffsetSeconds(0);
+        await LinkWait.UntilAsync(
+            () => desktop.Panel.IsClaimedByThisDesktop,
+            "the corrected clock to interrupt registration back-off");
+
+        Assert.False(desktop.Panel.HasClockSkewNotice);
+        Assert.True(desktop.Panel.IsClaimedByThisDesktop, desktop.Panel.RelayClaimMessage);
+    }
+
+    [Fact]
     public async Task ADesktopThatClaimedBeforeTenancyKeepsItsTabletWhenItStartsRegistering()
     {
         // Production today: one desktop claimed the relay with the admin key and paired a tablet.

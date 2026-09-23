@@ -1839,7 +1839,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 IsLayerVisible(layer.Id),
                 _presentation,
                 visible => SetLayerVisibility(layer.Id, visible),
-                counts.TryGetValue(layer.Id, out var count) ? count : 0))
+                counts.TryGetValue(layer.Id, out var count) ? count : 0,
+                layer.Id == HighValueLootLayerService.LayerId
+                    ? HighValueLoot?.LayerMenuStatus
+                    : null))
             .ToArray();
     }
 
@@ -3006,7 +3009,8 @@ public sealed class MapSceneRendererLayerViewModel
         // [V2 rough package 39] How many objects this layer would draw if it were on. Defaulted
         // so the hosts that build a layer row without a scene behind it (the gallery, a test)
         // keep working; every real scene passes the real count.
-        int count = 0)
+        int count = 0,
+        string? status = null)
     {
         Layer = layer ?? throw new ArgumentNullException(nameof(layer));
         IsVisible = isVisible;
@@ -3014,9 +3018,10 @@ public sealed class MapSceneRendererLayerViewModel
         ToggleLabel = presentation.Format(isVisible ? "Map.Layer.Hide" : "Map.Layer.Show", layer.Name);
         // The switch itself carries the count, so "Extracts" reads "Extracts 12" and a player
         // can see what turning it on would give them without turning it on.
-        Label = Count == 0
+        var countedLabel = Count == 0
             ? presentation.Format("Map.Layer.Empty", layer.Name)
             : presentation.Format("Map.Layer.Count", layer.Name, presentation.Number(Count));
+        Label = string.IsNullOrWhiteSpace(status) ? countedLabel : $"{countedLabel} · {status}";
         StateLabel = Count == 0
             ? presentation.Get("Map.Layer.NothingToShow")
             : presentation.Get(isVisible ? "Map.Layer.Visible" : "Map.Layer.Hidden");

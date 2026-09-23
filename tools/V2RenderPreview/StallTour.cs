@@ -40,6 +40,10 @@ internal static class StallTour
         var only = StringOption(args, "--stall-tour-only")?.Split(',');
         bool Wants(string part) => only is null || only.Contains(part, StringComparer.OrdinalIgnoreCase);
         UiStallMeter.Report("before the tour");
+        if (IntOption(args, "--tree-census", 0) is > 0 and var census)
+        {
+            TreeCensus.Print(window, census);
+        }
 
         Step("navigate raid", () => Navigate(shell, "raid"));
         if (raid is not null && Wants("maps"))

@@ -167,6 +167,10 @@ learns about them without polling anything:
 height, which matters for a map with floors. The reply is the created mark, including the `id`
 the server assigned, so two members marking at once cannot collide.
 
+The V2 desktop sends every ping and waypoint placed on its Raid map (or on a paired tablet) this
+way, keeps the returned `id`, and deletes it when the mark is removed, moved or expires (#707).
+A member in `PostRaid` or `Menu` publishes no position or trail, and is not drawn on the map.
+
 ### Reaching, removing, clearing
 
     POST   /waypoints/{id}/reached      { "by": "MaxGooner" }
@@ -401,6 +405,9 @@ The claim is kept (2026-09-20, #289). The session the relay issues is stored in 
 protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
 panel reads claimed after a restart with nothing typed; "Forget this relay" drops it.
 
+The desktop measures the relay's HTTP `Date` header, names clock skew in Team and Diagnostics, and
+retries a refused registration after 30 s, 1 m, 2 m, 4 m, then every 5 m (#704).
+
 The admin key is typed once per machine, not once per day (2026-09-20, #289). A session still lives
 twelve hours and an owner two idle, and the owner-recovery rule is unchanged for anybody holding
 only the admin key: it never replaces an owner the relay still counts as live. What the relay can
@@ -424,6 +431,8 @@ pairing offer, answers the ticket with the offer's code
 (`POST …/resume/requests/{ticket}/offer`), and the pairing handshake runs with the code entry and
 the six-digit comparison left out, both long-term keys being already pinned. A revoke now also
 marks a device that had merely expired, so going quiet is not a way around being revoked.
+The tablet keeps a confirmed **Pair again** escape visible throughout this wait, and a fresh QR
+link always starts its new pairing attempt instead of restoring the remembered desktop (#708).
 `POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
 reaches the relay, and an owner registering a tablet whose device key is already known replaces
 that tablet's old record.
@@ -437,7 +446,9 @@ Refusals name their cause rather than sharing one code: `claim-not-completed`,
 `claim-grant-mismatch`, `owner-already-live`, `recovery-grant-rejected`. An establishment is
 timestamped on the desktop, so it is compared against the relay's clock with the protocol's
 one-minute skew allowance — requiring the two clocks to agree exactly refused every claim from a
-desktop a fraction of a second ahead (package 48).
+desktop a fraction of a second ahead (package 48). Outside that allowance the claim routes answer
+`{"code":"clock-skew","offsetSeconds":-14400}` (server minus claim time); every other refusal
+keeps its existing string code body.
 
 Once claimed, the owner registers each paired tablet on the relay too (separately from the
 desktop's own local `DesktopCompanionAuthority` record of it), bearer-authenticated with the

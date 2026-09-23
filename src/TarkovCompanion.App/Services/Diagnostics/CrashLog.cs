@@ -27,6 +27,7 @@ public static class CrashLog
     private static string? _directory;
     private static bool _subscribed;
     private static string _lastEntry = string.Empty;
+    private static string _lastCategory = string.Empty;
     private static int _repeats;
     private static DateTimeOffset _repeatsSince;
 
@@ -44,6 +45,7 @@ public static class CrashLog
             // first line of the new log against the last line of the old one and, when they
             // match — which for the started line they always do — writes nothing at all.
             _lastEntry = string.Empty;
+            _lastCategory = string.Empty;
             _repeats = 0;
         }
 
@@ -102,6 +104,7 @@ public static class CrashLog
         {
             _directory = null;
             _lastEntry = string.Empty;
+            _lastCategory = string.Empty;
             _repeats = 0;
         }
     }
@@ -148,11 +151,12 @@ public static class CrashLog
                 {
                     Append(path, string.Create(
                         CultureInfo.InvariantCulture,
-                        $"{DateTimeOffset.UtcNow:O} [repeat] still failing ({_repeats + 1}x) since {_repeatsSince:HH:mm}{Environment.NewLine}"));
+                        $"{DateTimeOffset.UtcNow:O} [repeat] [{_lastCategory}] still failing ({_repeats + 1}x) since {_repeatsSince:HH:mm}{Environment.NewLine}"));
                     _repeats = 0;
                 }
 
                 _lastEntry = line;
+                _lastCategory = category;
                 _repeatsSince = DateTimeOffset.UtcNow;
                 Roll(path);
                 Append(path, entry);

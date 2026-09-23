@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -12,6 +14,229 @@ public sealed class StableScreenshotIntakeTests
 {
     private static readonly byte[] Png = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
+    /// <summary>A future filesystem stamp must not become an ordering gate.</summary>
+    [Fact]
+    public async Task FutureDatedHandledFileDoesNotBlockNewFilesWithCorrectMtimes()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var captured = DateTimeOffset.UtcNow;
+            var future = Path.Combine(root, ScreenshotName(captured, 0));
+            await File.WriteAllBytesAsync(future, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(future, captured.UtcDateTime.AddHours(4));
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10))
+                .WatchSettledAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+
+            Assert.True(await NextAsync(enumerator, stopping.Token));
+            Assert.Equal(future, enumerator.Current);
+
+            var first = Path.Combine(root, ScreenshotName(captured, 1));
+            await File.WriteAllBytesAsync(first, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(first, captured.UtcDateTime);
+            Assert.True(await NextAsync(enumerator, stopping.Token));
+            Assert.Equal(first, enumerator.Current);
+
+            var second = Path.Combine(root, ScreenshotName(captured, 2));
+            await File.WriteAllBytesAsync(second, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(second, captured.UtcDateTime.AddSeconds(1));
+            Assert.True(await NextAsync(enumerator, stopping.Token));
+            Assert.Equal(second, enumerator.Current);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>The singleton's handled identities survive a source restart without ordering new files.</summary>
+    [Fact]
+    public async Task RestartWithExistingFutureDatedStateStillProcessesANewFile()
+    {
+        var root = NewDirectory();
+        try
+        {
+            var captured = DateTimeOffset.UtcNow;
+            var future = Path.Combine(root, ScreenshotName(captured, 0));
+            await File.WriteAllBytesAsync(future, Png);
+            File.SetLastWriteTimeUtc(future, captured.UtcDateTime.AddHours(4));
+            var watcher = new WindowsScreenshotWatcher(pollInterval: TimeSpan.FromMilliseconds(10));
+
+            using (var firstRun = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+            {
+                await using var first = watcher
+                    .WatchSettledAsync(root, firstRun.Token)
+                    .GetAsyncEnumerator(firstRun.Token);
+                Assert.True(await NextAsync(first, firstRun.Token));
+                Assert.Equal(future, first.Current);
+            }
+
+            var current = Path.Combine(root, ScreenshotName(captured, 1));
+            await File.WriteAllBytesAsync(current, Png);
+            File.SetLastWriteTimeUtc(current, captured.UtcDateTime);
+            using var secondRun = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var second = watcher
+                .WatchSettledAsync(root, secondRun.Token)
+                .GetAsyncEnumerator(secondRun.Token);
+            Assert.True(await NextAsync(second, secondRun.Token));
+            Assert.Equal(current, second.Current);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>A poll-sized burst is identity work, not a newest-file contest.</summary>
+    [Fact]
+    public async Task BurstOfTwelveFilesIsDeliveredExactlyOnce()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10))
+                .WatchSettledAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var firstDelivery = enumerator.MoveNextAsync().AsTask();
+            var captured = DateTimeOffset.UtcNow;
+            var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < 12; index++)
+            {
+                var path = Path.Combine(root, ScreenshotName(captured, index));
+                await File.WriteAllBytesAsync(path, Png, stopping.Token);
+                expected.Add(path);
+            }
+
+            var delivered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Assert.True(await firstDelivery.WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
+            delivered.Add(enumerator.Current);
+            while (delivered.Count < expected.Count)
+            {
+                Assert.True(await NextAsync(enumerator, stopping.Token));
+                Assert.True(delivered.Add(enumerator.Current), "a screenshot was delivered more than once");
+            }
+
+            Assert.True(expected.SetEquals(delivered));
+            var extra = enumerator.MoveNextAsync().AsTask();
+            await Task.Delay(80, stopping.Token);
+            Assert.False(extra.IsCompleted);
+            stopping.Cancel();
+            Assert.False(await extra);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>Old files with misleading future mtimes stay history when a large folder is opened.</summary>
+    [Fact]
+    public async Task StartupUsesFilenameTimeToIgnoreOldHistory()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var now = DateTimeOffset.UtcNow;
+            for (var index = 0; index < 24; index++)
+            {
+                var old = Path.Combine(root, ScreenshotName(now.AddDays(-1), index));
+                await File.WriteAllBytesAsync(old, Png, stopping.Token);
+                File.SetLastWriteTimeUtc(old, now.UtcDateTime.AddHours(4).AddSeconds(index));
+            }
+
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10),
+                    maximumTrackedFiles: 16)
+                .WatchSettledAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var next = enumerator.MoveNextAsync().AsTask();
+            var current = Path.Combine(root, ScreenshotName(now, 99));
+            await File.WriteAllBytesAsync(current, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(current, now.UtcDateTime);
+
+            Assert.True(await next.WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
+            Assert.Equal(current, enumerator.Current);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task StartupLogsTheFolderAndEachSkippedIdentityOnlyOnce()
+    {
+        var root = NewDirectory();
+        try
+        {
+            var old = Path.Combine(root, ScreenshotName(DateTimeOffset.UtcNow.AddDays(-1), 0));
+            await File.WriteAllBytesAsync(old, Png);
+            var logger = new RecordingLogger<WindowsScreenshotWatcher>();
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10),
+                    logger: logger)
+                .WatchSettledAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var next = enumerator.MoveNextAsync().AsTask();
+
+            await UntilAsync(() => logger.Messages.Any(message =>
+                message.Contains("Skipped startup screenshot", StringComparison.Ordinal)));
+            await Task.Delay(80, stopping.Token);
+
+            Assert.Contains(logger.Messages, message => message.Contains(root, StringComparison.Ordinal));
+            Assert.Single(logger.Messages, message =>
+                message.Contains("Skipped startup screenshot", StringComparison.Ordinal));
+            stopping.Cancel();
+            Assert.False(await next);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EitherOccurrenceOfARepeatedDstMinuteIsRecentAtStartup()
+    {
+        using var zone = LocalTime.UseZone(EasternLike());
+        var occurrences = new[]
+        {
+            new DateTimeOffset(2026, 11, 1, 5, 30, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 11, 1, 6, 30, 0, TimeSpan.Zero),
+        };
+
+        foreach (var now in occurrences)
+        {
+            var root = NewDirectory();
+            try
+            {
+                var path = Path.Combine(root, ScreenshotName(now, 0));
+                await File.WriteAllBytesAsync(path, Png);
+                File.SetLastWriteTimeUtc(path, now.UtcDateTime.AddDays(-1));
+                using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await using var enumerator = new WindowsScreenshotWatcher(
+                        pollInterval: TimeSpan.FromMilliseconds(10),
+                        timeProvider: new FixedTimeProvider(now))
+                    .WatchSettledAsync(root, stopping.Token)
+                    .GetAsyncEnumerator(stopping.Token);
+
+                Assert.True(await NextAsync(enumerator, stopping.Token));
+                Assert.Equal(path, enumerator.Current);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
 
     [Fact]
     public async Task WatcherWaitsForACompleteStableSharedRead()
@@ -134,13 +359,43 @@ public sealed class StableScreenshotIntakeTests
 
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
             Assert.Equal(path, enumerator.Current);
-            var changed = Png.ToArray();
-            changed[24] ^= 0x01;
+            var changed = new byte[Png.Length + 1];
+            Png.CopyTo(changed, 0);
+            changed[^1] = 1;
             await File.WriteAllBytesAsync(path, changed, stopping.Token);
             File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(1));
 
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
             Assert.Equal(path, enumerator.Current);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HandledNameAndSizeAreNotRedeliveredWhenOnlyMtimeChanges()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var path = Path.Combine(root, "mtime-only.png");
+            await File.WriteAllBytesAsync(path, Png, stopping.Token);
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10))
+                .WatchSettledAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            Assert.True(await NextAsync(enumerator, stopping.Token));
+
+            var next = enumerator.MoveNextAsync().AsTask();
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(4));
+            await Task.Delay(80, stopping.Token);
+
+            Assert.False(next.IsCompleted);
+            stopping.Cancel();
+            Assert.False(await next);
         }
         finally
         {
@@ -400,10 +655,62 @@ public sealed class StableScreenshotIntakeTests
         }
     }
 
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Messages.Enqueue(formatter(state, exception));
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     private static string NewDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), $"capture-intake-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         return root;
+    }
+
+    private static async Task<bool> NextAsync(
+        IAsyncEnumerator<string> enumerator,
+        CancellationToken cancellationToken) =>
+        await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+
+    private static string ScreenshotName(DateTimeOffset captured, int suffix)
+    {
+        var local = TimeZoneInfo.ConvertTime(captured, LocalTime.Zone);
+        return $"{local:yyyy-MM-dd[HH-mm]}_shot-{suffix:D2}.png";
+    }
+
+    private static TimeZoneInfo EasternLike()
+    {
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+            DateTime.MinValue.Date,
+            DateTime.MaxValue.Date,
+            TimeSpan.FromHours(1),
+            TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
+                new DateTime(1, 1, 1, 2, 0, 0), 3, 2, DayOfWeek.Sunday),
+            TimeZoneInfo.TransitionTime.CreateFloatingDateRule(
+                new DateTime(1, 1, 1, 2, 0, 0), 11, 1, DayOfWeek.Sunday));
+        return TimeZoneInfo.CreateCustomTimeZone(
+            "Screenshot watcher Eastern-like",
+            TimeSpan.FromHours(-5),
+            "Eastern-like",
+            "Standard",
+            "Daylight",
+            [rule]);
     }
 }

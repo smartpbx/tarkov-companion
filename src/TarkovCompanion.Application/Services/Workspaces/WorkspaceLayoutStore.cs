@@ -43,6 +43,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 701] Whether potential loot is ranked per item or per inventory slot.</summary>
     public const string RaidLootValueBasis = "raid.loot-value-basis";
 
+    /// <summary>[Issue 702] Whether a new screenshot moves the raid map back to the player.</summary>
+    public const string RaidFollow = "raid.follow";
+
     /// <summary>[Issue 572] Seconds before an automatic Loot result returns to the map, or "off".</summary>
     public const string LootAutoReturnSeconds = "loot.auto-return-seconds";
 

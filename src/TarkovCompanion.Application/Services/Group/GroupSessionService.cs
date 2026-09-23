@@ -408,12 +408,28 @@ public sealed class GroupSessionService : IAsyncDisposable
         WorldPosition position,
         string? label,
         bool isPing,
+        CancellationToken cancellationToken) =>
+        await SendMarkAsync(mapId, position, label, isPing, cancellationToken).ConfigureAwait(false) is not null;
+
+    /// <summary>
+    /// The same as <see cref="MarkAsync"/>, answering with the id the relay gave the mark.
+    /// </summary>
+    /// <remarks>
+    /// [#707] The V2 map's own marks are forwarded to the group, and a forwarded mark has to be
+    /// taken off the relay when it is taken off the map, which needs its id. Zero when the relay
+    /// accepted the mark but its answer carried none; null when it was not sent.
+    /// </remarks>
+    public async Task<long?> SendMarkAsync(
+        string mapId,
+        WorldPosition position,
+        string? label,
+        bool isPing,
         CancellationToken cancellationToken)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsUsable || string.IsNullOrWhiteSpace(mapId))
         {
-            return false;
+            return null;
         }
 
         try
@@ -433,12 +449,12 @@ public sealed class GroupSessionService : IAsyncDisposable
             // The mark is drawn from the next exchange like everybody else's, so that exchange
             // happens now rather than at the end of whatever hold was already running.
             Interrupt();
-            return true;
+            return await ReadMarkIdAsync(response, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(exception, "Could not mark a place for the group.");
-            return false;
+            return null;
         }
     }
 
@@ -513,6 +529,23 @@ public sealed class GroupSessionService : IAsyncDisposable
             "Could not clear the group's marks.",
             cancellationToken).ConfigureAwait(false);
     }
+
+    private static async Task<long> ReadMarkIdAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var added = await response.Content
+                .ReadFromJsonAsync<MarkIdDto>(Json, cancellationToken)
+                .ConfigureAwait(false);
+            return added?.Id ?? 0;
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
+    private sealed record MarkIdDto([property: JsonPropertyName("id")] long Id);
 
     /// <summary>One DELETE, said once, because the two above differ only in where they point.</summary>
     private async Task<bool> SendAsync(
@@ -759,7 +792,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var raid = snapshot.Raid;
-        if (room?.Waypoints is not { Count: > 0 } waypoints ||
+        // [#707] A player who has left the raid reaches nothing: their last screenshot would
+        // tick off a waypoint they drop beside their own extract for a squadmate still inside.
+        if (SquadRaidPresence.HasLeftRaid(raid.State) ||
+            room?.Waypoints is not { Count: > 0 } waypoints ||
             raid.MapId is not { Length: > 0 } mapId ||
             raid.LastKnownPosition is not { } position)
         {
@@ -822,7 +858,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         IReadOnlyList<ObservedKit> observed)
     {
         var raid = snapshot.Raid;
-        var position = raid.LastKnownPosition;
+        // [#707] Out of the raid, the last screenshot is where the player *was*. Published, it drew
+        // a "you" marker at an extract on the maps of squadmates still inside, looking live.
+        var hasLeft = SquadRaidPresence.HasLeftRaid(raid.State);
+        var position = hasLeft ? null : raid.LastKnownPosition;
         return new(
             settings.DisplayName!,
             raid.MapId,
@@ -850,7 +889,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                     ScavLockedUntilUnix = kit.ScavLockedUntil?.ToUnixTimeSeconds(),
                 })
                 .ToArray(),
-            Trail = DescribeTrail(snapshot),
+            Trail = hasLeft ? [] : DescribeTrail(snapshot),
             // Only a scav's own screen differs. In a PMC party the offered exits are the same
             // for everybody, which is what makes this shareable; a scav's are not, so a scav
             // publishes none and nobody is handed a list that was never theirs.

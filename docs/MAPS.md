@@ -234,6 +234,8 @@ against it: the plan stops with its edge on the card's edge, and an axis whose v
 wider than the plan is centred rather than pinned to one side. The clamp during a drag is the
 clamp the drag commits, so releasing the pointer never moves the plan somewhere else.
 
+Follow on/off is remembered across restarts, map switches and raids; a manual pan still turns it off.
+
 ### Stacked floors
 
 `MapSceneMode.FloorStack2D` is drawn, not reported unavailable. A scene that wants it declares one

@@ -242,9 +242,12 @@
                own DataContext is overridden to Renderer below, and a binding on the same element
                would resolve against that override instead of this page's view model. -->
           <ContentControl IsVisible="{Binding HasRenderer}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+            <!-- [#678] The map view joins a turn after the page (StagedHost). -->
+            <prim:StagedHost>
             <map:MapSceneRendererView DataContext="{Binding Renderer}" DocksPresentation="True"
                                        PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
+            </prim:StagedHost>
           </ContentControl>
           <!-- The only thing on the page when there is no map: the renderer, and its own
                background-status line with it, is collapsed above. Named for automation so the
@@ -319,6 +322,23 @@
                        AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
             <TextBlock Classes="v2-label" VerticalAlignment="Center"
                        Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
+            <!-- [#707] Out of the raid with a squadmate still inside: whose map this is, or one
+                 press to go to it. -->
+            <TextBlock Classes="v2-label" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="v2-raid-squad-watch"
+                       Text="{Binding SquadWatchLabel}">
+              <TextBlock.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="HasSquadWatch" />
+                  <Binding Path="!CanFollowSquadmate" />
+                </MultiBinding>
+              </TextBlock.IsVisible>
+            </TextBlock>
+            <Button Classes="v2-chip" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="v2-raid-follow-squadmate"
+                    IsVisible="{Binding CanFollowSquadmate}"
+                    Command="{Binding FollowSquadmateCommand}"
+                    Content="{Binding SquadWatchLabel}" />
           </StackPanel>
           <!-- The starred column: when the Raid plan is dragged wide the mode segment and the floor
                ladder wrap onto a second line here instead of pushing the buttons off the strip
@@ -617,7 +637,7 @@
             Width="{Binding ContextPanelWidth}" IsVisible="{Binding ShowsContextPanel}">
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
       <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="12" Margin="16,12,16,16">
+        <prim:StagedStack Spacing="12" Margin="16,12,16,16">
           <TextBlock Classes="v2-heading-2" Text="Raid plan" AutomationProperties.HeadingLevel="2" />
 
           <!-- Header card: the map, the raid phase, and what this map offers at a glance. Mode is a
@@ -804,7 +824,7 @@
   
                 <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
                   <!-- Right margin: the scroll bar draws over the content, and it sat on the checks. -->
-                  <ItemsControl ItemsSource="{Binding QuestObjectives}" Margin="0,0,12,0">
+                  <ItemsControl prim:StagedItems.Source="{Binding QuestObjectives}" Margin="0,0,12,0">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
@@ -897,7 +917,7 @@
                      window, so the panel was one endless list instead of the concept's short
                      extract card followed by the rest of the plan. It scrolls within its own card. -->
                 <ScrollViewer MaxHeight="330" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding MapExtracts}">
+                <ItemsControl prim:StagedItems.Source="{Binding MapExtracts}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
                   </ItemsControl.ItemsPanel>
@@ -1463,7 +1483,7 @@
           <Border Classes="v2-card v2-raid-section" Padding="4">
             <raid:RaidCorrectionsView DataContext="{Binding Corrections}" />
           </Border>
-        </StackPanel>
+        </prim:StagedStack>
       </ScrollViewer>
     </Border>
   </Grid>

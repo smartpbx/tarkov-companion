@@ -29,16 +29,6 @@ public enum ScreenshotNameKind
 
 public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider = null) : IScreenshotFilenameParser
 {
-    /// <summary>How far the file's write time may disagree with its name before it is not trusted.</summary>
-    /// <remarks>
-    /// The write time is ordinarily seconds behind the name, because the game names the file
-    /// and the filesystem stamps it in the same instant. A OneDrive-synced, copied or restored
-    /// Screenshots folder can rewrite that stamp to whenever the sync happened, hours away from
-    /// when the shot was actually taken. A disagreement this large is the sync artifact, not a
-    /// better clock, so the name's own time stands instead.
-    /// </remarks>
-    private static readonly TimeSpan MaximumClockDrift = TimeSpan.FromHours(1);
-
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public bool TryParse(string filename, TimeSpan localUtcOffset, out ScreenshotPosition? position)
@@ -113,18 +103,12 @@ public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider 
             return false;
         }
 
-        // A missing or unreadable file leaves the name's own time in place. That is worse
-        // than the file's, but it is the only one available and the position is still real.
-        var written = LastWrittenUtc(path);
-        if (written is { } moment && (moment - position.Timestamp).Duration() <= MaximumClockDrift)
-        {
-            position = position with { Timestamp = moment };
-        }
-
-        // Whichever clock won, it must not be ahead of this one. A future timestamp would
-        // never be overtaken by a real, later screenshot: it would sit at the front of the
-        // trail forever and hold the raid's "last seen" time in the future while real time
-        // caught up to it.
+        // The game's name is the capture clock. Filesystem stamps can be rewritten by sync,
+        // copied profiles, clock corrections, or daylight-saving transitions and are never an
+        // ordering cursor. The name's time must still not be ahead of this clock: a future
+        // position would never be overtaken by a real, later screenshot. It would sit at the
+        // front of the trail forever and hold the raid's "last seen" time in the future while
+        // real time caught up to it.
         var now = _timeProvider.GetUtcNow();
         if (position.Timestamp > now)
         {
@@ -132,19 +116,6 @@ public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider 
         }
 
         return true;
-    }
-
-    private static DateTimeOffset? LastWrittenUtc(string path)
-    {
-        try
-        {
-            var info = new FileInfo(path);
-            return info.Exists ? new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero) : null;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            return null;
-        }
     }
 
     public static double HeadingDegrees(QuaternionOrientation orientation)
