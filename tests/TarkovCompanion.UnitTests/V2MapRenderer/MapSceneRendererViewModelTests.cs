@@ -135,23 +135,35 @@ public sealed class MapSceneRendererViewModelTests
         var objects = new[]
         {
             extract,
-            SwitchObject(power, 30),
-            SwitchObject(door, 40),
+            SwitchObject(power, 25),
+            SwitchObject(door, 25),
         };
         var renderer = Renderer(Scene(firstFloorObjects: objects));
 
         Assert.Equal(["D-2"], renderer.SpatialObjects.Select(item => item.Label));
 
         renderer.HoverRequirementObject(extract.Id);
-        Assert.Equal("1", renderer.SpatialObjects.Single(item => item.Label == "Power button").MarkerGlyph);
-        Assert.Equal("2", renderer.SpatialObjects.Single(item => item.Label == "Door switch").MarkerGlyph);
+        var powerStep = renderer.SpatialObjects.Single(item => item.Label == "Power button");
+        var doorStep = renderer.SpatialObjects.Single(item => item.Label == "Door switch");
+        Assert.Equal("1", powerStep.MarkerGlyph);
+        Assert.Equal("2", doorStep.MarkerGlyph);
+        Assert.False(powerStep.ShowsPersistentName);
+        Assert.False(doorStep.ShowsPersistentName);
+        Assert.NotEqual((powerStep.PinOffsetX, powerStep.PinOffsetY), (doorStep.PinOffsetX, doorStep.PinOffsetY));
+        Assert.NotEqual((0d, 0d), (powerStep.PinOffsetX, powerStep.PinOffsetY));
+        Assert.NotEqual((0d, 0d), (doorStep.PinOffsetX, doorStep.PinOffsetY));
 
         renderer.HoverRequirementObject(null);
         Assert.Equal(["D-2"], renderer.SpatialObjects.Select(item => item.Label));
 
         renderer.SelectObject(extract.Id);
-        Assert.Equal("1", renderer.SpatialObjects.Single(item => item.Label == "Power button").MarkerGlyph);
-        Assert.Equal("2", renderer.SpatialObjects.Single(item => item.Label == "Door switch").MarkerGlyph);
+        powerStep = renderer.SpatialObjects.Single(item => item.Label == "Power button");
+        doorStep = renderer.SpatialObjects.Single(item => item.Label == "Door switch");
+        var selectedExtract = renderer.SpatialObjects.Single(item => item.Label == "D-2");
+        Assert.Equal("1", powerStep.MarkerGlyph);
+        Assert.Equal("2", doorStep.MarkerGlyph);
+        Assert.True(powerStep.ZOrder > selectedExtract.ZOrder);
+        Assert.True(doorStep.ZOrder > selectedExtract.ZOrder);
     }
 
     [Fact]
