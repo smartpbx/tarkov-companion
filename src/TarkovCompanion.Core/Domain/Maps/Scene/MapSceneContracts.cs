@@ -28,6 +28,7 @@ public enum MapSceneObjectKind
     LootContainer,
     Hazard,
     Lock,
+    Switch,
     QuestObjective,
     Route,
     Risk,
@@ -358,7 +359,10 @@ public sealed record MapSceneObject
         // Issue 584: a ping's own fixed disappearance time, stamped once at creation and never
         // touched again — never set for anything but a ping. A waypoint has none, which is what
         // "stays until removed" means.
-        DateTimeOffset? expiresUtc = null)
+        DateTimeOffset? expiresUtc = null,
+        string? catalogId = null,
+        MapExtractRequirements? extractRequirements = null,
+        MapSwitch? mapSwitch = null)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(floorIds);
@@ -411,6 +415,21 @@ public sealed record MapSceneObject
             throw new ArgumentException("A scene object's expiry is UTC.", nameof(expiresUtc));
         }
 
+        if (catalogId?.Length > 160)
+        {
+            throw new ArgumentOutOfRangeException(nameof(catalogId));
+        }
+
+        if (extractRequirements is not null && kind != MapSceneObjectKind.Extract)
+        {
+            throw new ArgumentException("Only extracts may carry extract requirements.", nameof(extractRequirements));
+        }
+
+        if (mapSwitch is not null && kind != MapSceneObjectKind.Switch)
+        {
+            throw new ArgumentException("Only switch objects may carry switch metadata.", nameof(mapSwitch));
+        }
+
         Id = id;
         LayerId = layerId;
         Kind = kind;
@@ -429,6 +448,9 @@ public sealed record MapSceneObject
         HeadingDegrees = headingDegrees;
         IsCompleted = isCompleted;
         ExpiresUtc = expiresUtc;
+        CatalogId = catalogId;
+        ExtractRequirements = extractRequirements;
+        MapSwitch = mapSwitch;
     }
 
     public MapSceneObjectId Id { get; }
@@ -464,6 +486,13 @@ public sealed record MapSceneObject
     /// <summary>Issue 584: when a ping stops meaning "now"; null for everything that is not one.</summary>
     public DateTimeOffset? ExpiresUtc { get; }
 
+    /// <summary>The public catalog identity shared by an extract requirement and its switch.</summary>
+    public string? CatalogId { get; }
+
+    public MapExtractRequirements? ExtractRequirements { get; }
+
+    public MapSwitch? MapSwitch { get; }
+
     public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
 
     /// <summary>
@@ -489,6 +518,9 @@ public sealed record MapSceneObject
             OfferState == other.OfferState &&
             HeadingDegrees == other.HeadingDegrees &&
             IsCompleted == other.IsCompleted &&
+            string.Equals(CatalogId, other.CatalogId, StringComparison.Ordinal) &&
+            SameRequirements(ExtractRequirements, other.ExtractRequirements) &&
+            SameSwitch(MapSwitch, other.MapSwitch) &&
             string.Equals(Label, other.Label, StringComparison.Ordinal) &&
             string.Equals(Detail, other.Detail, StringComparison.Ordinal) &&
             Geometry.HasSamePointsAs(other.Geometry) &&
@@ -498,6 +530,21 @@ public sealed record MapSceneObject
             Provenance.SourceUpdatedUtc == other.Provenance.SourceUpdatedUtc &&
             Provenance.Reference == other.Provenance.Reference &&
             Equals(Provenance.Confidence, other.Provenance.Confidence)));
+
+    private static bool SameRequirements(MapExtractRequirements? left, MapExtractRequirements? right) =>
+        left is null && right is null ||
+        left is not null && right is not null &&
+        Equals(left.Transfer, right.Transfer) &&
+        left.RequiresCoOp == right.RequiresCoOp &&
+        left.IsOneTime == right.IsOneTime &&
+        left.SwitchChain.Select(item => item.Id).SequenceEqual(right.SwitchChain.Select(item => item.Id), StringComparer.Ordinal);
+
+    private static bool SameSwitch(MapSwitch? left, MapSwitch? right) =>
+        left is null && right is null ||
+        left is not null && right is not null &&
+        left.Id == right.Id && left.Name == right.Name && left.SwitchType == right.SwitchType &&
+        left.Position == right.Position && left.ActivatedById == right.ActivatedById &&
+        left.Activates.SequenceEqual(right.Activates);
 }
 
 public sealed record MapSceneAsset

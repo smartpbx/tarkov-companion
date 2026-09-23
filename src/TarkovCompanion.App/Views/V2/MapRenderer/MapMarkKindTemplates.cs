@@ -68,6 +68,7 @@ public sealed class MapMarkIconGeometry : IValueConverter
         MapSceneMarkerIcon.Loot => "V2.Icon.Gem",
         MapSceneMarkerIcon.Hazard => "V2.Icon.Hazard",
         MapSceneMarkerIcon.Lock => "V2.Icon.Lock",
+        MapSceneMarkerIcon.Switch => "V2.Icon.Gear",
         MapSceneMarkerIcon.Route => "V2.Icon.Route",
         MapSceneMarkerIcon.Risk => "V2.Icon.Hazard",
         MapSceneMarkerIcon.Generic => "V2.Icon.Target",

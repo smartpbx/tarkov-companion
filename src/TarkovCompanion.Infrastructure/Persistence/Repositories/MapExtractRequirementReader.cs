@@ -60,7 +60,16 @@ internal static class MapExtractRequirementReader
     {
         ArgumentNullException.ThrowIfNull(switches);
         var ids = ReadSwitchIds(extract);
-        var chain = Order(ids.Select(id => switches.GetValueOrDefault(id)).OfType<MapSwitch>().ToArray());
+        var chain = Order(ids.Select(id => switches.GetValueOrDefault(id)).OfType<MapSwitch>().ToArray()).ToList();
+        // The singular field is the control directly attached to the exit. Some real payloads
+        // omit its graph edge, but still include it first in the plural list. It is the last
+        // action after every explicitly ordered prerequisite, not an invented dependency.
+        if (ReadIdentifier(extract, "switch") is { } finalId && chain.Count > 1 &&
+            chain.FirstOrDefault(item => item.Id == finalId) is { } final)
+        {
+            chain.Remove(final);
+            chain.Add(final);
+        }
         var transfer = ReadTransfer(extract, itemName);
         var name = ReadText(extract, "name") ?? string.Empty;
         return new(

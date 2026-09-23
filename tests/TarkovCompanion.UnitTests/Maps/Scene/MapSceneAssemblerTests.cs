@@ -60,6 +60,30 @@ public sealed class MapSceneAssemblerTests
     }
 
     [Fact]
+    public void Preserves_catalog_switch_identity_and_extract_chain_through_the_legacy_boundary()
+    {
+        var power = new MapSwitch("power", "Power button", "Open", new(1, 2, 3), null, []);
+        var requirements = new MapExtractRequirements([power], null, false, false);
+        var extract = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Elevator")
+        {
+            CatalogId = "extract",
+            ExtractRequirements = requirements,
+        };
+        var mapSwitch = new MapOverlayElement(MapOverlayKind.Switches, new(40, 50), power.Name)
+        {
+            CatalogId = power.Id,
+            Switch = power,
+        };
+
+        var scene = Assert.IsType<MapSceneSnapshot>(
+            new MapSceneAssembler().Build(Request(Model([extract, mapSwitch]))).Scene);
+
+        Assert.Equal("power", scene.Objects.Single(item => item.Kind == MapSceneObjectKind.Switch).CatalogId);
+        Assert.Equal("Power button", Assert.Single(scene.Objects
+            .Single(item => item.Kind == MapSceneObjectKind.Extract).ExtractRequirements!.SwitchChain).Name);
+    }
+
+    [Fact]
     public void Missing_active_extract_join_stays_unknown_instead_of_claiming_not_offered()
     {
         var extract = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Crossroads");

@@ -125,6 +125,36 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void Selecting_or_hovering_an_extract_reveals_its_numbered_switch_chain_even_when_the_layer_is_off()
+    {
+        var power = new MapSwitch("power", "Power button", "Open", new(10, 0, 10), null,
+            [new("Unlock", "door")]);
+        var door = new MapSwitch("door", "Door switch", "Open", new(20, 0, 20), "power", []);
+        var requirements = new MapExtractRequirements([power, door], null, false, false);
+        var extract = Extract("d2", "D-2", "first", MapSceneOfferState.Unknown, requirements: requirements);
+        var objects = new[]
+        {
+            extract,
+            SwitchObject(power, 30),
+            SwitchObject(door, 40),
+        };
+        var renderer = Renderer(Scene(firstFloorObjects: objects));
+
+        Assert.Equal(["D-2"], renderer.SpatialObjects.Select(item => item.Label));
+
+        renderer.HoverRequirementObject(extract.Id);
+        Assert.Equal("1", renderer.SpatialObjects.Single(item => item.Label == "Power button").MarkerGlyph);
+        Assert.Equal("2", renderer.SpatialObjects.Single(item => item.Label == "Door switch").MarkerGlyph);
+
+        renderer.HoverRequirementObject(null);
+        Assert.Equal(["D-2"], renderer.SpatialObjects.Select(item => item.Label));
+
+        renderer.SelectObject(extract.Id);
+        Assert.Equal("1", renderer.SpatialObjects.Single(item => item.Label == "Power button").MarkerGlyph);
+        Assert.Equal("2", renderer.SpatialObjects.Single(item => item.Label == "Door switch").MarkerGlyph);
+    }
+
+    [Fact]
     public void Semantic_glyphs_and_text_keep_truth_faction_and_offer_states_distinct()
     {
         var renderer = Renderer(Scene(firstFloorObjects:
@@ -1450,21 +1480,23 @@ public sealed class MapSceneRendererViewModelTests
         bool includeHighValueLoot = false)
     {
         var extracts = new MapSceneLayer(new("extracts"), "Extracts", 10, true);
+        var switches = new MapSceneLayer(new("switches"), "Switches", 15, false);
         var loot = new MapSceneLayer(new("loot"), "Loot", 20, false);
         var hazards = new MapSceneLayer(new("hazards"), "Hazards", 25, true);
         var estimates = new MapSceneLayer(new("estimates"), "Historical estimates", 30, true);
         IReadOnlyList<MapSceneLayer> layers = includeHighValueLoot
-            ? [extracts, loot, hazards, estimates, HighValueLootLayerService.Layer]
-            : [extracts, loot];
+            ? [extracts, switches, loot, hazards, estimates, HighValueLootLayerService.Layer]
+            : [extracts, switches, loot];
         IReadOnlyList<MapSceneLayerState> layerStates = includeHighValueLoot
             ? [
                 new(extracts.Id, true),
+                new(switches.Id, false),
                 new(loot.Id, false),
                 new(hazards.Id, true),
                 new(estimates.Id, true),
                 new(HighValueLootLayerService.LayerId, false),
             ]
-            : [new(extracts.Id, true), new(loot.Id, false)];
+            : [new(extracts.Id, true), new(switches.Id, false), new(loot.Id, false)];
         var objects = firstFloorObjects ?? [Extract("crossroads", "Crossroads", "first", MapSceneOfferState.Unknown)];
         return new(
             revision,
@@ -1489,7 +1521,8 @@ public sealed class MapSceneRendererViewModelTests
         string floor,
         MapSceneOfferState offerState,
         MapFeatureFaction faction = MapFeatureFaction.Pmc,
-        double x = 25) => new(
+        double x = 25,
+        MapExtractRequirements? requirements = null) => new(
             new($"extract:{id}"),
             new("extracts"),
             MapSceneObjectKind.Extract,
@@ -1500,7 +1533,21 @@ public sealed class MapSceneRendererViewModelTests
             [floor],
             Provenance(),
             faction: faction,
-            offerState: offerState);
+            offerState: offerState,
+            extractRequirements: requirements);
+
+    private static MapSceneObject SwitchObject(MapSwitch item, double x) => new(
+        new($"switch:{item.Id}"),
+        new("switches"),
+        MapSceneObjectKind.Switch,
+        MapSceneTruthKind.StaticReference,
+        item.Name,
+        "Map switch",
+        MapSceneGeometry.At(new(x, 50)),
+        ["first"],
+        Provenance(),
+        catalogId: item.Id,
+        mapSwitch: item);
 
     private static MapSceneObject Point(
         string id,

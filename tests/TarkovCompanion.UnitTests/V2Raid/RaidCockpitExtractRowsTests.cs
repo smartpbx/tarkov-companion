@@ -84,6 +84,20 @@ public sealed class RaidCockpitExtractRowsTests
     }
 
     [Fact]
+    public void Requirement_icons_have_the_same_plain_words_as_the_selected_extract()
+    {
+        var power = new MapSwitch("power", "D-2 Power Switch", "Open", new(1, 2, 3), null, []);
+        var requirements = new MapExtractRequirements([power], null, false, false);
+        var row = Assert.Single(RaidCockpitViewModel.BuildExtractRows([
+            Object("d2", MapSceneObjectKind.Extract, "D-2", MapFeatureFaction.Pmc, MapSceneOfferState.Unknown, requirements),
+        ]));
+
+        Assert.True(row.HasRequirements);
+        Assert.True(row.NeedsSwitch);
+        Assert.Equal("Needs power: D-2 Power Switch", row.RequirementText);
+    }
+
+    [Fact]
     public void Rows_built_again_from_the_same_extracts_read_the_same_and_a_changed_offer_does_not()
     {
         // [#453] The cockpit keeps the list it shows when a rebuild's rows read the same, so the
@@ -106,7 +120,8 @@ public sealed class RaidCockpitExtractRowsTests
         MapSceneObjectKind kind,
         string label,
         MapFeatureFaction faction,
-        MapSceneOfferState offerState) => new(
+        MapSceneOfferState offerState,
+        MapExtractRequirements? requirements = null) => new(
         new(id),
         new("extracts"),
         kind,
@@ -117,5 +132,6 @@ public sealed class RaidCockpitExtractRowsTests
         [],
         new DataProvenance("test", NowUtc),
         faction: faction,
-        offerState: offerState);
+        offerState: offerState,
+        extractRequirements: requirements);
 }

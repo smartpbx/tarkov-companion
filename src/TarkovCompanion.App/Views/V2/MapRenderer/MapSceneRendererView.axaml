@@ -159,9 +159,10 @@
                  carries one of these three. -->
             <Border Classes="v2-map-marker-chip" Classes.extract="{Binding IsExtractIcon}"
                     Classes.transit="{Binding IsTransitIcon}"
+                    Classes.switch="{Binding IsSwitchMark}"
                     Classes.pmc="{Binding IsPmc}" Classes.scav="{Binding IsScav}"
                     Classes.shared="{Binding IsSharedFaction}" IsHitTestVisible="False">
-              <Grid Width="26" Height="26" Classes.extract="{Binding IsExtractIcon}"
+              <Grid Width="{Binding ChipExtent}" Height="{Binding ChipExtent}" Classes.extract="{Binding IsExtractIcon}"
                     Classes.transit="{Binding IsTransitIcon}">
                 <TextBlock Classes="v2-map-marker-number" HorizontalAlignment="Center" VerticalAlignment="Center"
                            IsVisible="{Binding HasMarkerNumber}" Text="{Binding MarkerGlyph}" />
@@ -193,7 +194,7 @@
                  (Co-op)") wraps to two rather than truncating. PlanViewport's own clip
                  (ClipToBounds="True") still keeps it from drawing outside the map card
                  itself. -->
-            <Border Classes="v2-map-chip v2-map-selected-name" IsVisible="{Binding ShowsSelectedName}"
+            <Border Classes="v2-map-chip v2-map-selected-name" IsVisible="{Binding ShowsPersistentName}"
                     Classes.near-right-edge="{Binding IsNearRightEdge}"
                     Classes.near-bottom-edge="{Binding IsNearBottomEdge}"
                     IsHitTestVisible="False" Width="184" Padding="5,2" Opacity="0.95">
@@ -245,6 +246,12 @@
            take the pointer. Each mark's own shape does (see v2-map-mark-hit below), and hover
            and selection are drawn on that shape. -->
       <Setter Property="ClipToBounds" Value="False" />
+    </Style>
+    <Style Selector="Border.v2-map-marker-chip.switch">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Opacity" Value="0.72" />
     </Style>
     <!-- [Issue 551] What takes the pointer for a mark: its own outline, drawn invisibly and a
          few pixels fat so the target is the shape plus a margin rather than the 44px square. -->
@@ -1005,6 +1012,8 @@
                                 AutomationProperties.Name="{Binding AutomationName}"
                                 AutomationProperties.HelpText="{Binding Detail}"
                                 Command="{Binding SelectCommand}"
+                                PointerEntered="MapMarkerPointerEntered"
+                                PointerExited="MapMarkerPointerExited"
                                 ToolTip.Tip="{Binding Label}"
                                 Content="{Binding}" ContentTemplate="{StaticResource V2.MapMarkKinds}">
                     <ToggleButton.RenderTransform>

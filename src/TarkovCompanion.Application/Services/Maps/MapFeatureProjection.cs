@@ -49,10 +49,7 @@ public static class MapFeatureProjection
             // Loot never becomes a marker. Eight hundred of them would bury the exits, and
             // falling through to the extract layer -- which is what the layer mapping below
             // does with anything it does not recognise -- would draw a duffle bag as a way out.
-            // Switches become their own quiet scene layer once the V2 host asks for them. Until
-            // then they must not fall through the layer switch below and masquerade as extracts.
-            if (feature.Kind is MapFeatureKind.Loot or MapFeatureKind.Switch ||
-                !transform.TryProject(feature.Position, out var point))
+            if (feature.Kind == MapFeatureKind.Loot || !transform.TryProject(feature.Position, out var point))
             {
                 continue;
             }
@@ -64,7 +61,9 @@ public static class MapFeatureProjection
                 RotationDegrees: 0,
                 // Extracts read larger than spawns because they are what somebody is looking
                 // for when it matters; a spawn is context.
-                SizePercent: feature.Kind is MapFeatureKind.Extract or MapFeatureKind.Transit ? 130 : 80,
+                SizePercent: feature.Kind is MapFeatureKind.Extract or MapFeatureKind.Transit ? 130
+                    : feature.Kind == MapFeatureKind.Switch ? 70
+                    : 80,
                 // The height is the floor filter's input, and a feature sits at one height
                 // rather than spanning a range.
                 MinimumHeight: feature.Position.Y,
@@ -72,6 +71,9 @@ public static class MapFeatureProjection
             {
                 Faction = feature.Side,
                 Detail = feature.Detail,
+                CatalogId = feature.CatalogId,
+                Switch = feature.Switch,
+                ExtractRequirements = feature.ExtractRequirements,
             });
         }
 
@@ -82,6 +84,7 @@ public static class MapFeatureProjection
     {
         MapFeatureKind.Spawn => MapOverlayKind.Spawns,
         MapFeatureKind.Lock => MapOverlayKind.Keys,
+        MapFeatureKind.Switch => MapOverlayKind.Switches,
         _ => MapOverlayKind.Extracts,
     };
 

@@ -275,6 +275,7 @@
                         Classes="markerDisc"
                         Classes.transit="{Binding IsTransit}"
                         Classes.locked="{Binding IsLock}"
+                        Classes.switch="{Binding IsSwitch}"
                         Classes.spawn="{Binding IsSpawn}"
                         Classes.pmc="{Binding IsPmc}"
                         Classes.scav="{Binding IsScav}"
@@ -838,6 +839,7 @@
                             Classes="markerDisc"
                             Classes.spawn="{Binding IsSpawns}"
                             Classes.locked="{Binding IsKeys}"
+                            Classes.switch="{Binding IsSwitches}"
                             Classes.quest="{Binding IsQuestObjectives}"
                             IsVisible="{Binding HasDiscSwatch}" />
                         <TextBlock

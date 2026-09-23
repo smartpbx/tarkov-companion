@@ -92,6 +92,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private readonly Func<string, double?>? _floorElevationResolver;
     private MapSceneSnapshot _scene;
     private MapSceneObjectId? _selectedObjectId;
+    private MapSceneObjectId? _hoveredRequirementObjectId;
     private string _rendererNotice = string.Empty;
     private MapSceneViewChange? _lastRequestedChange;
     private long? _pendingRevision;
@@ -849,6 +850,24 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         ApplySelection(objectId);
+    }
+
+    /// <summary>Temporarily reveals the switch chain for an extract under the pointer.</summary>
+    public void HoverRequirementObject(MapSceneObjectId? objectId)
+    {
+        var next = objectId is { } id && _scene.Objects.FirstOrDefault(item => item.Id == id) is
+            { Kind: MapSceneObjectKind.Extract, ExtractRequirements: { RequiresSwitch: true } }
+                ? id
+                : (MapSceneObjectId?)null;
+        if (_hoveredRequirementObjectId == next)
+        {
+            return;
+        }
+
+        _hoveredRequirementObjectId = next;
+        RebuildProjectedObjects();
+        RebuildListItems();
+        BuildDenseSceneNotice(VisibleObjects());
     }
 
     public bool TrySelectAt(double viewportX, double viewportY)
@@ -2014,7 +2033,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                     offsets[index].DeltaX,
                     offsets[index].DeltaY,
                     _canvasWidth,
-                    _canvasHeight))
+                    _canvasHeight,
+                    SwitchStepGlyph(item)))
                 .ToArray();
         }
 
@@ -2143,7 +2163,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 () => SelectObject(item.Id),
                 _styleResolver?.Invoke(item),
                 canvasWidth: _canvasWidth,
-                canvasHeight: _canvasHeight);
+                canvasHeight: _canvasHeight,
+                markerGlyphOverride: SwitchStepGlyph(item));
         }
 
         return MapSceneRendererObjectViewModel.ForCluster(
@@ -2188,6 +2209,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void ApplySelection(MapSceneObjectId? next)
     {
+        var previousRequirements = ActiveSwitchSteps();
         var previous = _selectedObjectId;
         _selectedObjectId = next;
         foreach (var marker in SpatialObjects.Where(item => item.ObjectId == previous || item.ObjectId == next))
@@ -2216,6 +2238,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         SelectedLootEntry = lootEntry is null ? null : CreateLootEntry(lootEntry);
+        if (!SameSwitchSteps(previousRequirements, ActiveSwitchSteps()))
+        {
+            RebuildProjectedObjects();
+            RebuildListItems();
+            BuildDenseSceneNotice(VisibleObjects());
+        }
+
         RaiseSelectionChanged();
     }
 
@@ -2233,7 +2262,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 () => SelectObject(item.Id),
                 _styleResolver?.Invoke(item),
                 canvasWidth: _canvasWidth,
-                canvasHeight: _canvasHeight);
+                canvasHeight: _canvasHeight,
+                markerGlyphOverride: SwitchStepGlyph(item));
     }
 
     private (int Column, int Row) ClusterCell(MapScenePoint point)
@@ -2361,7 +2391,24 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private IReadOnlyList<MapSceneObject> VisibleObjects()
     {
-        var visible = _scene.VisibleObjects;
+        IReadOnlyList<MapSceneObject> visible = _scene.VisibleObjects;
+        var required = ActiveSwitchSteps();
+        if (required.Count > 0)
+        {
+            var shown = visible.Select(item => item.Id).ToHashSet();
+            var selectedFloor = _scene.View.SelectedFloorId;
+            visible = visible.Concat(_scene.Objects.Where(item =>
+                    item.Kind == MapSceneObjectKind.Switch &&
+                    item.CatalogId is { } catalogId && required.ContainsKey(catalogId) &&
+                    !shown.Contains(item.Id) &&
+                    (selectedFloor is null || item.FloorIds.Count == 0 ||
+                        item.FloorIds.Contains(selectedFloor, StringComparer.OrdinalIgnoreCase))))
+                .OrderBy(item => _scene.Layers.Single(layer => layer.Id == item.LayerId).ZIndex)
+                .ThenBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Id.Value, StringComparer.Ordinal)
+                .ToArray();
+        }
+
         if (HighValueLoot is null)
         {
             return visible;
@@ -2372,6 +2419,30 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                            HighValueLoot.VisibleObjectIds.Contains(item.Id))
             .ToArray();
     }
+
+    private IReadOnlyDictionary<string, int> ActiveSwitchSteps()
+    {
+        MapExtractRequirements? RequirementsFor(MapSceneObjectId? id) => id is { } definite
+            ? _scene.Objects.FirstOrDefault(item => item.Id == definite)?.ExtractRequirements
+            : null;
+
+        var requirements = RequirementsFor(_selectedObjectId) ?? RequirementsFor(_hoveredRequirementObjectId);
+        return requirements is null
+            ? new Dictionary<string, int>(StringComparer.Ordinal)
+            : requirements.SwitchChain
+                .Select((item, index) => (item.Id, Step: index + 1))
+                .ToDictionary(item => item.Id, item => item.Step, StringComparer.Ordinal);
+    }
+
+    private string? SwitchStepGlyph(MapSceneObject item) =>
+        item.Kind == MapSceneObjectKind.Switch && item.CatalogId is { } id && ActiveSwitchSteps().TryGetValue(id, out var step)
+            ? step.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+
+    private static bool SameSwitchSteps(
+        IReadOnlyDictionary<string, int> left,
+        IReadOnlyDictionary<string, int> right) =>
+        left.Count == right.Count && left.All(entry => right.TryGetValue(entry.Key, out var value) && value == entry.Value);
 
     private HighValueLootEntry? HighValueLootEntryFor(MapSceneObjectId objectId) => HighValueLoot is null
         ? null
@@ -3281,6 +3352,11 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// place name uses; hovering (ToolTip.Tip, bound to Label) is what says it for every other one.
     /// </summary>
     public bool ShowsSelectedName => IsSelected && (IsExtractIcon || IsTransitIcon);
+    /// <summary>
+    /// A switch in the active extract chain keeps its short catalog name beside its numbered
+    /// step. The quiet background layer remains glyph-only until an extract gives it context.
+    /// </summary>
+    public bool ShowsPersistentName => ShowsSelectedName || (IsSwitchMark && HasMarkerNumber);
 
     /// <summary>
     /// [Issue 594] "RUAF Roadblock" read as "RU…" near the card's right edge, clipped by
@@ -3341,6 +3417,10 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 
     /// <summary>A ping is a transient pulse, drawn at its own point, never a pin.</summary>
     public bool IsPingMark => Icon == MapSceneMarkerIcon.Ping;
+
+    public bool IsSwitchMark => Icon == MapSceneMarkerIcon.Switch;
+
+    public double ChipExtent => IsSwitchMark ? 20 : 26;
 
     /// <summary>The letter or number written on the pin's head; empty for an unnumbered, unnamed waypoint.</summary>
     public string PinLabel => MarkerGlyph;
@@ -3411,6 +3491,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         {
             OnPropertyChanged(nameof(ZOrder));
             OnPropertyChanged(nameof(ShowsSelectedName));
+            OnPropertyChanged(nameof(ShowsPersistentName));
             OnPropertyChanged(nameof(IsShownOnPlan));
             // The selected mark is drawn full size whatever the zoom, so it and its name read.
             if (SetProperty(ref _markerInverseZoom, MarkerScale / _cameraZoom, nameof(MarkerInverseZoom)))
@@ -3542,7 +3623,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         double pinOffsetX = 0,
         double pinOffsetY = 0,
         double canvasWidth = double.PositiveInfinity,
-        double canvasHeight = double.PositiveInfinity)
+        double canvasHeight = double.PositiveInfinity,
+        string? markerGlyphOverride = null)
     {
         var formatter = new MapSceneRendererSemanticText(presentation);
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
@@ -3570,7 +3652,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             anchor.Y - (MapSceneRendererViewModel.MarkerExtent / 2),
             1 / camera.Zoom,
             camera.BearingDegrees,
-            MarkerFor(sceneObject),
+            markerGlyphOverride ?? MarkerFor(sceneObject),
             IconFor(sceneObject),
             // A pin (a waypoint or a quest objective) never carries the truth-glyph badge: its
             // shape and colour already say what it is, and the badge was never drawn anywhere —
@@ -3664,6 +3746,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
                 MapSceneObjectKind.Ping => "•",
                 MapSceneObjectKind.Hazard => "!",
                 MapSceneObjectKind.Lock => "⌑",
+                MapSceneObjectKind.Switch => "",
                 MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => "$",
                 MapSceneObjectKind.Route => "↝",
                 MapSceneObjectKind.LastKnownPosition => "◉",
@@ -3719,6 +3802,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         MapSceneObjectKind.Ping => MapSceneMarkerIcon.Ping,
         MapSceneObjectKind.Hazard => MapSceneMarkerIcon.Hazard,
         MapSceneObjectKind.Lock => MapSceneMarkerIcon.Lock,
+        MapSceneObjectKind.Switch => MapSceneMarkerIcon.Switch,
         MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => MapSceneMarkerIcon.Loot,
         MapSceneObjectKind.SpawnArea => MapSceneMarkerIcon.Spawn,
         MapSceneObjectKind.Route => MapSceneMarkerIcon.Route,
@@ -3967,6 +4051,7 @@ public enum MapSceneMarkerIcon
     Loot,
     Hazard,
     Lock,
+    Switch,
     Route,
     Risk,
     Cluster,

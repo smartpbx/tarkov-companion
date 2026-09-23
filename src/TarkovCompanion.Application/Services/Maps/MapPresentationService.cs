@@ -29,6 +29,7 @@ public enum MapOverlayKind
     Extracts,
     Spawns,
     Keys,
+    Switches,
     Labels,
     Routes,
     RiskAndTraffic,
@@ -88,6 +89,15 @@ public sealed record MapOverlayElement(
     /// projection was dropping it.
     /// </remarks>
     public string? Detail { get; init; }
+
+    /// <summary>The stable primary-catalog id, where the payload publishes one.</summary>
+    public string? CatalogId { get; init; }
+
+    /// <summary>The typed switch graph node represented by this marker.</summary>
+    public MapSwitch? Switch { get; init; }
+
+    /// <summary>The typed requirements represented by this extract marker.</summary>
+    public MapExtractRequirements? ExtractRequirements { get; init; }
 
     /// <summary>
     /// Whether this is one the player has actually been offered this raid.
@@ -224,7 +234,7 @@ public sealed class MapPresentationService
             background,
             transformAvailability,
             transformMessage,
-            CreateDefaultOverlays(),
+            CreateDefaultOverlays(location.Id),
             overlayElements,
             floors,
             selectedFloor,
@@ -310,7 +320,7 @@ public sealed class MapPresentationService
     /// actually on, because the projection filters to active and pinned. A layer that draws
     /// what you asked for can be on; a layer that draws everything cannot.
     /// </remarks>
-    private static IReadOnlyList<MapOverlayLayer> CreateDefaultOverlays() =>
+    private static IReadOnlyList<MapOverlayLayer> CreateDefaultOverlays(string locationId) =>
     [
         new(MapOverlayKind.QuestObjectives, "Quest objectives", true, false),
         new(MapOverlayKind.CompanionMarkers, "Companion markers", true, false),
@@ -318,6 +328,11 @@ public sealed class MapPresentationService
         new(MapOverlayKind.Labels, "Labels", true, false),
         new(MapOverlayKind.Spawns, "Spawns", false, false),
         new(MapOverlayKind.Keys, "Locked doors", false, false),
+        new(
+            MapOverlayKind.Switches,
+            "Switches",
+            locationId is "the-lab" or "reserve" or "interchange",
+            false),
         new(MapOverlayKind.Routes, "Routes", true, false),
         new(MapOverlayKind.RiskAndTraffic, "Risk / traffic", true, false),
         new(MapOverlayKind.Filters, "Filters", true, false),
