@@ -101,6 +101,22 @@ public sealed class ScreenshotTidyPreviewTests : IDisposable
     }
 
     [Fact]
+    public void AParentTraversalRootIsRefusedBeforeAnythingIsMoved()
+    {
+        Write("2026-09-10[14-05]_1_a.png", Now.AddDays(-5), 100);
+        Write("2026-09-19[19-59]_4_a.png", Now.AddMinutes(-1), 100);
+        var child = Directory.CreateDirectory(Path.Combine(_folder, "child")).FullName;
+        var bin = new RecordingBin();
+
+        var result = Service(bin).Run(Path.Combine(child, ".."), On, dryRun: false);
+
+        Assert.True(result.Plan.IsRefused);
+        Assert.Contains("parent", result.Plan.Refusal, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(bin.Calls);
+        Assert.Equal(2, Directory.GetFiles(_folder).Length);
+    }
+
+    [Fact]
     public void ASymbolicLinkNamedLikeAScreenshotIsLeftAloneAndWhatItPointsAtIsUntouched()
     {
         var target = Path.Combine(Directory.CreateTempSubdirectory("tarkov-tidy-target").FullName, "precious.png");
@@ -191,6 +207,65 @@ public sealed class ScreenshotTidyPreviewTests : IDisposable
     }
 
     [Fact]
+    public void APermissionChangeBetweenPlanAndMoveLeavesThatFileAndContinues()
+    {
+        var first = Write("2026-09-01[10-00]_1_a.png", Now.AddDays(-9), 10);
+        var permissionChanged = Write("2026-09-02[10-00]_2_a.png", Now.AddDays(-8), 10);
+        Write("2026-09-19[19-59]_z_a.png", Now.AddMinutes(-1), 10);
+        var bin = new RecordingBin();
+        bin.OnRecycle = path =>
+        {
+            if (path.EndsWith(first, StringComparison.Ordinal))
+            {
+                bin.Throw[permissionChanged] = new UnauthorizedAccessException("permissions changed");
+            }
+        };
+
+        var result = Service(bin).Run(_folder, On, dryRun: false);
+
+        Assert.Equal(1, result.Moved);
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(permissionChanged, failure.Name);
+        Assert.Contains("permission", failure.Reason, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(_folder, permissionChanged)));
+    }
+
+    [Fact]
+    public void ADiskFullFailureLeavesThatFileAndContinuesWithTheNextOne()
+    {
+        var full = Write("2026-09-01[10-00]_1_a.png", Now.AddDays(-9), 10);
+        var next = Write("2026-09-02[10-00]_2_a.png", Now.AddDays(-8), 10);
+        Write("2026-09-19[19-59]_z_a.png", Now.AddMinutes(-1), 10);
+        var bin = new RecordingBin();
+        bin.Throw[full] = new IOException("There is not enough space on the disk.");
+
+        var result = Service(bin).Run(_folder, On, dryRun: false);
+
+        Assert.Equal(1, result.Moved);
+        Assert.Contains(result.Failures, failure =>
+            failure.Name == full && failure.Reason.Contains("disk refused", StringComparison.Ordinal));
+        Assert.True(File.Exists(Path.Combine(_folder, full)));
+        Assert.False(File.Exists(Path.Combine(_folder, next)));
+    }
+
+    [Fact]
+    public void AnInterruptedMoveIsReportedAndDoesNotStopTheRest()
+    {
+        var interrupted = Write("2026-09-01[10-00]_1_a.png", Now.AddDays(-9), 10);
+        var next = Write("2026-09-02[10-00]_2_a.png", Now.AddDays(-8), 10);
+        Write("2026-09-19[19-59]_z_a.png", Now.AddMinutes(-1), 10);
+        var bin = new RecordingBin();
+        bin.DeleteThenThrow.Add(interrupted);
+
+        var result = Service(bin).Run(_folder, On, dryRun: false);
+
+        Assert.Equal(1, result.Moved);
+        Assert.Contains(result.Failures, failure => failure.Name == interrupted);
+        Assert.False(File.Exists(Path.Combine(_folder, interrupted)));
+        Assert.False(File.Exists(Path.Combine(_folder, next)));
+    }
+
+    [Fact]
     public void ARunThatDidNothingLeavesNoLedgerEntryAndALedgerThatFailsDoesNotFailTheRun()
     {
         Write("2026-09-19[19-59]_z_a.png", Now.AddMinutes(-1), 10);
@@ -264,7 +339,9 @@ public sealed class ScreenshotTidyPreviewTests : IDisposable
 
         public HashSet<string> Refuse { get; } = [];
 
-        public Action<string>? OnRecycle { get; init; }
+        public HashSet<string> DeleteThenThrow { get; } = [];
+
+        public Action<string>? OnRecycle { get; set; }
 
         public bool IsAvailable => true;
 
@@ -281,6 +358,12 @@ public sealed class ScreenshotTidyPreviewTests : IDisposable
             if (Refuse.Contains(name))
             {
                 return false;
+            }
+
+            if (DeleteThenThrow.Contains(name))
+            {
+                File.Delete(path);
+                throw new IOException("The recycle operation was interrupted after it moved the file.");
             }
 
             File.Delete(path);

@@ -111,6 +111,15 @@ public sealed partial class ScreenshotRetentionService(
             return ScreenshotTidyPlan.Refused(screenshotRoot ?? string.Empty, hours, "There is no screenshot folder yet.");
         }
 
+        // A destructive root must name the folder directly. Normalising a parent segment here
+        // would silently turn a configured child folder into permission to tidy its parent.
+        if (screenshotRoot.Split(
+                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries).Any(segment => segment == ".."))
+        {
+            return ScreenshotTidyPlan.Refused(screenshotRoot, hours, "That folder path contains a parent traversal.");
+        }
+
         string root;
         try
         {
