@@ -66,6 +66,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private V2CaptureAttention? _attention;
     private bool _disposed;
     private CaptureCorrelationId? _latestLootRecognition;
+    private CancellationTokenSource? _manualBatchCancellation;
+    private string? _manualBatchId;
+    private CaptureSessionId? _manualBatchSessionId;
 
     public V2ShellCaptureBridge(
         V2ShellViewModel shell,
@@ -126,6 +129,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _lootScanHandoff.LootScanStarted += OnLootScanStarted;
         _intelHandoff.ItemIdentified += OnItemIdentified;
         _shell.ManualImageRequested += OnManualImageRequested;
+        _shell.ManualImageBatchRequested += OnManualImageBatchRequested;
+        _shell.ManualImageBatchCancelRequested += OnManualImageBatchCancelRequested;
         _shell.CaptureCandidateChosen += OnCaptureCandidateChosen;
         Push();
     }
@@ -187,6 +192,132 @@ public sealed class V2ShellCaptureBridge : IDisposable
         {
             _logger.LogWarning(exception, "Could not take in a picture the player chose.");
             _shell.ReportManualImage("That picture could not be read");
+        }
+    }
+
+    /// <summary>Queues a bounded set under one armed intent while keeping every row visible.</summary>
+    private async void OnManualImageBatchRequested(object? sender, V2ManualImageBatch batch)
+    {
+        CancellationTokenSource? cancellation = null;
+        try
+        {
+            if (_manualIntake is null)
+            {
+                foreach (var item in batch.Items)
+                {
+                    _shell.ReportManualImageBatchItem(batch.BatchId, item.Id, "Unavailable", true);
+                }
+
+                _shell.ReportManualImageBatch("Pictures cannot be read here");
+                return;
+            }
+
+            var waiting = _captureSessions.Snapshot.Sessions.LastOrDefault(session =>
+                !session.IsTerminal && !session.IntentClaimed && !session.CancellationRequested);
+            if (waiting is null)
+            {
+                long revision;
+                lock (_gate)
+                {
+                    revision = _intentRevision;
+                }
+
+                OnCaptureArmRequested(
+                    this,
+                    new(batch.Intent, new StateRevision(revision), V2NavigationContext.ThisDesktop));
+                waiting = _captureSessions.Snapshot.Sessions.LastOrDefault(session =>
+                    !session.IsTerminal && !session.IntentClaimed && !session.CancellationRequested);
+            }
+
+            if (waiting is null)
+            {
+                throw new InvalidOperationException("The batch could not claim an armed capture session.");
+            }
+
+            cancellation = new CancellationTokenSource();
+            lock (_gate)
+            {
+                _manualBatchCancellation?.Cancel();
+                _manualBatchCancellation?.Dispose();
+                _manualBatchCancellation = cancellation;
+                _manualBatchId = batch.BatchId;
+                _manualBatchSessionId = waiting.Request.SessionId;
+            }
+
+            var outcome = await _manualIntake.SubmitBatchAsync(
+                    [.. batch.Items.Select(item => new ManualImageInput(
+                        item.Id,
+                        item.Label,
+                        item.FilePath,
+                        item.Pixels))],
+                    batch.Origin switch
+                    {
+                        V2ManualImageOrigin.Paste => ManualImageOrigin.Paste,
+                        V2ManualImageOrigin.Drop => ManualImageOrigin.Drop,
+                        _ => ManualImageOrigin.Picker,
+                    },
+                    batch.BatchId,
+                    waiting.Request.SessionId,
+                    update => _shell.ReportManualImageBatchItem(
+                        batch.BatchId,
+                        update.Id,
+                        update.Status,
+                        update.IsTerminal,
+                        update.CorrelationId),
+                    cancellation.Token)
+                .ConfigureAwait(false);
+            _shell.ReportManualImageBatch(
+                $"Queued {outcome.Accepted} · {outcome.Failed} not queued · {outcome.Cancelled} cancelled");
+        }
+        catch (OperationCanceledException) when (cancellation?.IsCancellationRequested == true)
+        {
+            _shell.ReportManualImageBatch("Batch cancelled");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not take in a batch of pictures the player chose.");
+            foreach (var item in batch.Items)
+            {
+                var row = _shell.CaptureBatchItems.FirstOrDefault(existing => existing.Id == item.Id);
+                if (row is not null && !row.IsTerminal)
+                {
+                    _shell.ReportManualImageBatchItem(batch.BatchId, item.Id, "Could not be read", true);
+                }
+            }
+
+            _shell.ReportManualImageBatch("The picture batch could not be read");
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_manualBatchCancellation, cancellation))
+                {
+                    _manualBatchCancellation = null;
+                }
+            }
+
+            cancellation?.Dispose();
+        }
+    }
+
+    private void OnManualImageBatchCancelRequested(object? sender, string batchId)
+    {
+        CaptureSessionId? sessionId;
+        lock (_gate)
+        {
+            if (!string.Equals(_manualBatchId, batchId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _manualBatchCancellation?.Cancel();
+            sessionId = _manualBatchSessionId;
+        }
+
+        if (sessionId is { } id)
+        {
+            _captureSessions.Cancel(id, V2NavigationContext.ThisDesktop);
         }
     }
 
@@ -559,7 +690,74 @@ public sealed class V2ShellCaptureBridge : IDisposable
         }
     }
 
-    private void OnCaptureSessionsChanged(object? sender, EventArgs eventArgs) => Push();
+    private void OnCaptureSessionsChanged(object? sender, EventArgs eventArgs)
+    {
+        RefreshManualBatchStatuses();
+        Push();
+    }
+
+    private void RefreshManualBatchStatuses()
+    {
+        string? batchId;
+        CaptureSessionId? sessionId;
+        lock (_gate)
+        {
+            batchId = _manualBatchId;
+            sessionId = _manualBatchSessionId;
+        }
+
+        if (batchId is null || sessionId is null)
+        {
+            return;
+        }
+
+        var session = _captureSessions.Snapshot.Sessions.FirstOrDefault(item => item.Request.SessionId == sessionId);
+        if (session is null)
+        {
+            return;
+        }
+
+        foreach (var row in _shell.CaptureBatchItems.Where(row => !row.IsTerminal))
+        {
+            var artifact = row.CorrelationId is { } correlation
+                ? session.Artifacts.FirstOrDefault(item => item.CorrelationId == correlation)
+                : null;
+            if (artifact is not null)
+            {
+                var (status, terminal) = artifact.Disposition switch
+                {
+                    CaptureArtifactDisposition.Accepted => ("Done", true),
+                    CaptureArtifactDisposition.NoChange when session.CancellationRequested => ("Cancelled", true),
+                    CaptureArtifactDisposition.NoChange => ("No change", true),
+                    CaptureArtifactDisposition.RetryRequested => ("Retry requested", true),
+                    _ when artifact.Review is not null => ("Needs review", false),
+                    _ => ("Reading", false),
+                };
+                _shell.ReportManualImageBatchItem(batchId, row.Id, status, terminal, row.CorrelationId);
+            }
+            else if (session.IsTerminal)
+            {
+                _shell.ReportManualImageBatchItem(
+                    batchId,
+                    row.Id,
+                    session.CancellationRequested ? "Cancelled" : "Not completed",
+                    true,
+                    row.CorrelationId);
+            }
+        }
+
+        if (!_shell.HasActiveManualImageBatch)
+        {
+            lock (_gate)
+            {
+                if (string.Equals(_manualBatchId, batchId, StringComparison.Ordinal))
+                {
+                    _manualBatchId = null;
+                    _manualBatchSessionId = null;
+                }
+            }
+        }
+    }
 
     /// <summary>#572: told apart from a loot container, whatever the shell was showing because it
     /// opened Loot for itself mid-raid returns to the map now instead of waiting for the countdown.</summary>
@@ -641,6 +839,14 @@ public sealed class V2ShellCaptureBridge : IDisposable
         }
 
         _shell.ManualImageRequested -= OnManualImageRequested;
+        _shell.ManualImageBatchRequested -= OnManualImageBatchRequested;
+        _shell.ManualImageBatchCancelRequested -= OnManualImageBatchCancelRequested;
         _shell.CaptureCandidateChosen -= OnCaptureCandidateChosen;
+        lock (_gate)
+        {
+            _manualBatchCancellation?.Cancel();
+            _manualBatchCancellation?.Dispose();
+            _manualBatchCancellation = null;
+        }
     }
 }

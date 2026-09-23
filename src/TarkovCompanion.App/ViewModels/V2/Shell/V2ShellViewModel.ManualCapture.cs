@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Recognition;
 
@@ -15,6 +16,26 @@ public enum V2ManualImageOrigin
 
 /// <summary>A picture the player chose: a file on disk, or pixels from the clipboard.</summary>
 public sealed record V2ManualImage(V2ManualImageOrigin Origin, string? FilePath, CapturedImage? Pixels, ScanIntent Intent);
+
+/// <summary>One named picture selected for a manual batch.</summary>
+public sealed record V2ManualImageItem(string Id, string Label, string? FilePath, CapturedImage? Pixels);
+
+/// <summary>Several pictures submitted together under one frozen intent and context.</summary>
+public sealed record V2ManualImageBatch(
+    string BatchId,
+    V2ManualImageOrigin Origin,
+    IReadOnlyList<V2ManualImageItem> Items,
+    ScanIntent Intent);
+
+public sealed record V2ManualImageBatchItemViewModel(
+    string Id,
+    string Label,
+    string Status,
+    bool IsTerminal,
+    CaptureCorrelationId? CorrelationId = null)
+{
+    public string AutomationId => $"v2-shell-capture-batch-{Id}";
+}
 
 /// <summary>One thing a capture might have been, offered so a wrong answer can be put right.</summary>
 public sealed class V2CaptureCandidateViewModel(V2CaptureCandidate candidate, bool isChosen, Action<V2CaptureCandidate> choose)
@@ -37,24 +58,33 @@ public sealed class V2CaptureCandidateViewModel(V2CaptureCandidate candidate, bo
 public sealed partial class V2ShellViewModel
 {
     private ICommand? _pickCaptureImageCommand;
+    private ICommand? _cancelManualImageBatchCommand;
     private string _captureManualStatus = string.Empty;
+    private string? _activeManualBatchId;
+    private IReadOnlyList<V2ManualImageBatchItemViewModel> _captureBatchItems = [];
     private V2CaptureReview? _candidatesBuiltFor;
     private IReadOnlyList<V2CaptureCandidateViewModel> _captureReviewCandidates = [];
 
     /// <summary>Raised when the player pastes, drops or picks a picture. The capture bridge submits it.</summary>
     public event EventHandler<V2ManualImage>? ManualImageRequested;
 
+    public event EventHandler<V2ManualImageBatch>? ManualImageBatchRequested;
+
+    public event EventHandler<string>? ManualImageBatchCancelRequested;
+
     /// <summary>Raised when the player says a capture was a different candidate.</summary>
     public event EventHandler<V2CaptureCandidate>? CaptureCandidateChosen;
 
     /// <summary>Opens the platform's file picker. Set by the view, which owns the window.</summary>
-    public Func<Task<string?>>? CaptureImagePicker { get; set; }
+    public Func<Task<IReadOnlyList<string>>>? CaptureImagePicker { get; set; }
 
     public string CaptureManualHeading => "Or use a picture you already have";
 
-    public string CaptureManualHint => "Paste with Ctrl+V, drop a file on the window, or choose one.";
+    public string CaptureManualHint => "Paste, drop, or choose one or more pictures.";
 
-    public string CapturePickLabel => "Choose a picture";
+    public string CapturePickLabel => "Choose pictures";
+
+    public string CaptureBatchCancelLabel => "Cancel remaining";
 
     public string CaptureCandidatesHeading => "Not that? Pick what it was";
 
@@ -73,6 +103,16 @@ public sealed partial class V2ShellViewModel
     public bool HasCaptureManualStatus => CaptureManualStatus.Length > 0;
 
     public ICommand PickCaptureImageCommand => _pickCaptureImageCommand ??= new AsyncDelegateCommand(PickCaptureImageAsync);
+
+    public ICommand CancelManualImageBatchCommand =>
+        _cancelManualImageBatchCommand ??= new DelegateCommand(CancelManualImageBatch);
+
+    public IReadOnlyList<V2ManualImageBatchItemViewModel> CaptureBatchItems => _captureBatchItems;
+
+    public bool HasCaptureBatchItems => CaptureBatchItems.Count > 0;
+
+    public bool HasActiveManualImageBatch => _activeManualBatchId is not null
+        && CaptureBatchItems.Any(item => !item.IsTerminal);
 
     /// <summary>What else the reviewed capture might have been, the answer first.</summary>
     public IReadOnlyList<V2CaptureCandidateViewModel> CaptureReviewCandidates
@@ -115,6 +155,103 @@ public sealed partial class V2ShellViewModel
         requested(this, new(origin, filePath, pixels, SelectedCaptureIntent));
     }
 
+    /// <summary>Hands an ordered image batch to the capture bridge under the selected intent.</summary>
+    public void SubmitManualImages(V2ManualImageOrigin origin, IReadOnlyList<V2ManualImageItem> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        if (items.Count == 0)
+        {
+            CaptureManualStatus = "No pictures were selected";
+            return;
+        }
+
+        if (ManualImageBatchRequested is not { } requested)
+        {
+            CaptureManualStatus = V2ShellText.Get("V2.Shell.Announce.CaptureUnavailable");
+            return;
+        }
+
+        if (!TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.IsSupported(SelectedCaptureIntent))
+        {
+            CaptureManualStatus = $"{IntentLabel(SelectedCaptureIntent)} is {TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.NotSupportedYet}";
+            return;
+        }
+
+        if (HasActiveManualImageBatch)
+        {
+            CaptureManualStatus = "Cancel the current batch first";
+            return;
+        }
+
+        var batchId = $"manual-{Guid.NewGuid():N}";
+        _activeManualBatchId = batchId;
+        _captureBatchItems = [.. items.Select((item, index) => new V2ManualImageBatchItemViewModel(
+            item.Id,
+            string.IsNullOrWhiteSpace(item.Label) ? $"Picture {index + 1}" : item.Label,
+            "Queued",
+            false))];
+        CaptureManualStatus = $"Queued {items.Count} picture{(items.Count == 1 ? string.Empty : "s")}";
+        OnPropertyChanged(nameof(CaptureBatchItems));
+        OnPropertyChanged(nameof(HasCaptureBatchItems));
+        OnPropertyChanged(nameof(HasActiveManualImageBatch));
+        requested(this, new(batchId, origin, items, SelectedCaptureIntent));
+    }
+
+    /// <summary>Updates one visible row as intake and recognition advance.</summary>
+    public void ReportManualImageBatchItem(
+        string batchId,
+        string itemId,
+        string status,
+        bool isTerminal,
+        CaptureCorrelationId? correlationId = null)
+    {
+        void Apply()
+        {
+            if (!string.Equals(_activeManualBatchId, batchId, StringComparison.Ordinal)
+                && !CaptureBatchItems.Any(item => item.Id == itemId))
+            {
+                return;
+            }
+
+            _captureBatchItems = [.. CaptureBatchItems.Select(item => item.Id == itemId
+                ? item with
+                {
+                    Status = status,
+                    IsTerminal = isTerminal,
+                    CorrelationId = correlationId ?? item.CorrelationId,
+                }
+                : item)];
+            if (_captureBatchItems.All(item => item.IsTerminal))
+            {
+                _activeManualBatchId = null;
+            }
+
+            OnPropertyChanged(nameof(CaptureBatchItems));
+            OnPropertyChanged(nameof(HasCaptureBatchItems));
+            OnPropertyChanged(nameof(HasActiveManualImageBatch));
+        }
+
+        Dispatch(Apply);
+    }
+
+    public void ReportManualImageBatch(string status) => ReportManualImage(status);
+
+    /// <summary>Render-preview seam for the visible state while three files wait in intake.</summary>
+    internal void ShowManualImageBatchPreview(IReadOnlyList<string> labels)
+    {
+        ArgumentNullException.ThrowIfNull(labels);
+        _activeManualBatchId = "manual-render-preview";
+        _captureBatchItems = [.. labels.Select((label, index) => new V2ManualImageBatchItemViewModel(
+            $"preview-{index + 1}",
+            label,
+            "Queued",
+            false))];
+        CaptureManualStatus = $"Queued {labels.Count} pictures";
+        OnPropertyChanged(nameof(CaptureBatchItems));
+        OnPropertyChanged(nameof(HasCaptureBatchItems));
+        OnPropertyChanged(nameof(HasActiveManualImageBatch));
+    }
+
     /// <summary>What became of the last picture, in one short line under the button.</summary>
     public void ReportManualImage(string status)
     {
@@ -137,9 +274,47 @@ public sealed partial class V2ShellViewModel
             return;
         }
 
-        if (await pick().ConfigureAwait(true) is { } path)
+        var paths = await pick().ConfigureAwait(true);
+        if (paths.Count == 1)
         {
-            SubmitManualImage(V2ManualImageOrigin.Picker, path, null);
+            SubmitManualImage(V2ManualImageOrigin.Picker, paths[0], null);
+        }
+        else if (paths.Count > 1)
+        {
+            SubmitManualImages(
+                V2ManualImageOrigin.Picker,
+                [.. paths.Select(path => new V2ManualImageItem(
+                    Guid.NewGuid().ToString("N"),
+                    Path.GetFileName(path),
+                    path,
+                    null))]);
+        }
+    }
+
+    private void CancelManualImageBatch()
+    {
+        if (_activeManualBatchId is not { } batchId)
+        {
+            return;
+        }
+
+        _captureBatchItems = [.. CaptureBatchItems.Select(item => item.IsTerminal
+            ? item
+            : item with { Status = "Cancelling" })];
+        CaptureManualStatus = "Cancelling remaining pictures";
+        OnPropertyChanged(nameof(CaptureBatchItems));
+        ManualImageBatchCancelRequested?.Invoke(this, batchId);
+    }
+
+    private void Dispatch(Action apply)
+    {
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => apply(), null);
         }
     }
 

@@ -589,6 +589,9 @@ entity and prior scan come from the router's own navigation context, which the s
 current. The profile's stable id, never its display name — a context that named the player would
 put their handle into every report.
 
+Manual picker, drop and clipboard-file intake accepts up to 32 pictures as one ordered batch;
+the Capture panel shows each picture's status, and cancelling stops the remaining session work.
+
 To see either state without a game: `tools/V2RenderPreview --capture-demo
 disagreement|unknown|identified`.
 

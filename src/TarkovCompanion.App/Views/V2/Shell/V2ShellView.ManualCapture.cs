@@ -31,20 +31,20 @@ public sealed partial class V2ShellView
         AddHandler(KeyDownEvent, ManualCaptureKeyDown, RoutingStrategies.Bubble);
     }
 
-    private async Task<string?> PickCaptureImageAsync()
+    private async Task<IReadOnlyList<string>> PickCaptureImageAsync()
     {
         if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storage)
         {
-            return null;
+            return [];
         }
 
         var picked = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            AllowMultiple = false,
-            Title = "Choose a screenshot",
+            AllowMultiple = true,
+            Title = "Choose screenshots",
             FileTypeFilter = [FilePickerFileTypes.ImageAll],
         }).ConfigureAwait(true);
-        return picked.Count == 0 ? null : picked[0].TryGetLocalPath();
+        return [.. picked.Select(file => file.TryGetLocalPath()).Where(path => path is not null).Cast<string>()];
     }
 
     private void ManualCaptureDragOver(object? sender, DragEventArgs eventArgs)
@@ -61,10 +61,14 @@ public sealed partial class V2ShellView
             return;
         }
 
-        var path = eventArgs.DataTransfer.TryGetFiles()?.Select(item => item.TryGetLocalPath()).FirstOrDefault(local => local is not null);
-        if (path is not null)
+        var paths = eventArgs.DataTransfer.TryGetFiles()?
+            .Select(item => item.TryGetLocalPath())
+            .Where(path => path is not null)
+            .Cast<string>()
+            .ToArray() ?? [];
+        if (paths.Length > 0)
         {
-            Submit(shell, V2ManualImageOrigin.Drop, path, null);
+            SubmitFiles(shell, V2ManualImageOrigin.Drop, paths);
             eventArgs.Handled = true;
         }
         else if (eventArgs.DataTransfer.TryGetBitmap() is { } bitmap)
@@ -97,10 +101,14 @@ public sealed partial class V2ShellView
         try
         {
             var files = await clipboard.TryGetFilesAsync().ConfigureAwait(true);
-            var path = files?.Select(item => item.TryGetLocalPath()).FirstOrDefault(local => local is not null);
-            if (path is not null)
+            var paths = files?
+                .Select(item => item.TryGetLocalPath())
+                .Where(path => path is not null)
+                .Cast<string>()
+                .ToArray() ?? [];
+            if (paths.Length > 0)
             {
-                Submit(shell, V2ManualImageOrigin.Paste, path, null);
+                SubmitFiles(shell, V2ManualImageOrigin.Paste, paths);
                 return;
             }
 
@@ -125,6 +133,31 @@ public sealed partial class V2ShellView
         }
 
         shell.SubmitManualImage(origin, path, pixels);
+    }
+
+    private static void SubmitFiles(
+        V2ShellViewModel shell,
+        V2ManualImageOrigin origin,
+        IReadOnlyList<string> paths)
+    {
+        if (!shell.IsCaptureOpen)
+        {
+            shell.CaptureCommand.Execute(null);
+        }
+
+        if (paths.Count == 1)
+        {
+            shell.SubmitManualImage(origin, paths[0], null);
+            return;
+        }
+
+        shell.SubmitManualImages(
+            origin,
+            [.. paths.Select(path => new V2ManualImageItem(
+                Guid.NewGuid().ToString("N"),
+                Path.GetFileName(path),
+                path,
+                null))]);
     }
 
     /// <summary>Copies a bitmap into the BGRA buffer the recogniser reads. Nothing is written to disk.</summary>
