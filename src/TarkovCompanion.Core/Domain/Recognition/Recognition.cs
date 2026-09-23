@@ -1,4 +1,5 @@
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.Core.Domain.Recognition;
 
@@ -264,7 +265,12 @@ public sealed record FleaListing(
     int? Quantity,
     Confidence Confidence,
     PixelRect Bounds,
-    string? SourceText = null);
+    string? SourceText = null,
+    string CurrencyCode = "RUB",
+    long? OriginalPrice = null,
+    long CurrencyRateRoubles = 1,
+    DataProvenance? CurrencyRateProvenance = null,
+    ItemConditionReading? Condition = null);
 
 public sealed record FleaRecognitionResult(
     IReadOnlyList<FleaListing> Listings,

@@ -2,7 +2,10 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Recognition;
+using ItemConditionKind = TarkovCompanion.Core.Abstractions.V2.ItemConditionKind;
+using ItemConditionReading = TarkovCompanion.Core.Abstractions.V2.ItemConditionReading;
 
 namespace TarkovCompanion.Infrastructure.Recognition;
 
@@ -11,7 +14,7 @@ public sealed class FleaListingParser
     private static readonly Regex PricePattern = new(
         // Not straight after an "x" or a digit: "x3 189 999 ₽" is three of something at 189 999,
         // not a price of 3 189 999.
-        @"(?<![x×\d])(?<price>\d[\d\s,.\u00a0]*)\s*(?:₽|RUB(?:LES?)?)",
+        @"(?<![x×\d])(?<price>\d[\d\s,.\u00a0]*)\s*(?<currency>₽|RUB(?:LES?)?|€|EUR(?:OS?)?|\$|USD(?:OLLARS?)?)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private static readonly Regex QuantityPattern = new(
@@ -24,7 +27,11 @@ public sealed class FleaListingParser
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex LoneCurrencyPattern = new(
-        @"^(?:₽|RUB(?:LES?)?)$",
+        @"^(?:₽|RUB(?:LES?)?|€|EUR(?:OS?)?|\$|USD(?:OLLARS?)?)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex ConditionPattern = new(
+        @"(?<kind>durability|dur|condition|uses?|charges?|resource)\s*:?\s*(?<current>\d{1,4}(?:[.,]\d{1,2})?)\s*/\s*(?<maximum>\d{1,4}(?:[.,]\d{1,2})?)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     /// <summary>
@@ -33,10 +40,9 @@ public sealed class FleaListingParser
     /// <remarks>
     /// This only binds where a price has no neighbour to share the space with (the first and last
     /// row of a page, or a page with one row): between two prices a line belongs to the nearer, so
-    /// no reach is needed there. It is a guess about a row's height, not a measurement. No real
-    /// flea screenshot has been read yet, so the number is chosen to cover a name above and a
-    /// quantity below a price (about a line and a half either way) and to stop short of the next
-    /// row's text, which is a whole row pitch away. Measure it on one before trusting it.
+    /// no reach is needed there. The 2026-09-22 3840x1080 browse screenshot confirmed separate
+    /// name, total/limit and RUB/EUR price runs, but its OCR line boxes have not been measured, so
+    /// this reach remains conservative rather than pretending the visible row pitch calibrated it.
     /// </remarks>
     private const double ReachInLineHeights = 2.5;
 
@@ -56,10 +62,11 @@ public sealed class FleaListingParser
     public IReadOnlyList<FleaListing> ParseVisible(
         OcrResult ocr,
         CapturedImage image,
+        IReadOnlyDictionary<string, CurrencyRoubleRate>? currencyRates = null,
         CancellationToken cancellationToken = default)
     {
         var listings = new List<FleaListing>();
-        ParseVisibleInto(listings, ocr, image, cancellationToken);
+        ParseVisibleInto(listings, ocr, image, currencyRates, cancellationToken);
         return Order(listings);
     }
 
@@ -81,6 +88,7 @@ public sealed class FleaListingParser
         List<FleaListing> listings,
         OcrResult ocr,
         CapturedImage image,
+        IReadOnlyDictionary<string, CurrencyRoubleRate>? currencyRates,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(listings);
@@ -103,9 +111,20 @@ public sealed class FleaListingParser
             }
 
             var priceText = _normalizer.NormalizeNumber(priceMatch.Groups["price"].Value);
-            if (long.TryParse(priceText, NumberStyles.None, CultureInfo.InvariantCulture, out var price) && price > 0)
+            var currencyCode = CurrencyCode(priceMatch.Groups["currency"].Value);
+            var rate = CurrencyRate(currencyCode, currencyRates);
+            if (rate is not null &&
+                long.TryParse(priceText, NumberStyles.None, CultureInfo.InvariantCulture, out var price) &&
+                price > 0)
             {
-                anchors.Add(new(fragment, price, priceMatch, []));
+                try
+                {
+                    anchors.Add(new(fragment, checked(price * rate.RoublesPerUnit), price, currencyCode, rate, priceMatch, []));
+                }
+                catch (OverflowException)
+                {
+                    // An OCR-corrupted number outside Int64 is not an offer price.
+                }
             }
         }
 
@@ -127,6 +146,28 @@ public sealed class FleaListingParser
             listings.Add(ToListing(anchor));
         }
     }
+
+    private static CurrencyRoubleRate? CurrencyRate(
+        string currencyCode,
+        IReadOnlyDictionary<string, CurrencyRoubleRate>? currencyRates)
+    {
+        if (currencyCode == "RUB")
+        {
+            return new("RUB", 1, new DataProvenance("roubles", DateTimeOffset.UnixEpoch));
+        }
+
+        return currencyRates is not null && currencyRates.TryGetValue(currencyCode, out var rate) && rate.RoublesPerUnit > 0
+            ? rate
+            : null;
+    }
+
+    private static string CurrencyCode(string text) => text.Trim().ToUpperInvariant() switch
+    {
+        "₽" or "RUBLE" or "RUBLES" or "RUB" => "RUB",
+        "€" or "EURO" or "EUROS" or "EUR" => "EUR",
+        "$" or "USDOLLAR" or "USDOLLARS" or "USD" => "USD",
+        _ => throw new ArgumentOutOfRangeException(nameof(text), text, "Unsupported flea currency."),
+    };
 
     private static void Attach(List<PriceAnchor> anchors, OcrLine fragment)
     {
@@ -185,6 +226,12 @@ public sealed class FleaListingParser
             contributors.AddRange(found.Select(item => item.Line));
         }
 
+        var condition = ReadCondition(anchor);
+        if (condition is { Line: { } conditionLine })
+        {
+            contributors.Add(conditionLine);
+        }
+
         var bounds = anchor.Attached.Aggregate(anchor.Line.Bounds, (union, fragment) => Union(union, fragment.Bounds));
         var text = string.Join(
             " | ",
@@ -198,8 +245,55 @@ public sealed class FleaListingParser
         // way, and a missing opinion becomes a confident one rather than a worthless one. A
         // value read from a second line is only as sure as the least sure line it came from.
         var confidence = new Confidence(Math.Clamp(contributors.Min(line => line.Confidence?.Value ?? 1) * 0.98, 0, 1));
-        return new(anchor.Value, quantity, confidence, bounds, text);
+        return new(
+            anchor.Value,
+            quantity,
+            confidence,
+            bounds,
+            text,
+            anchor.CurrencyCode,
+            anchor.OriginalValue,
+            anchor.Rate.RoublesPerUnit,
+            anchor.CurrencyCode == "RUB" ? null : anchor.Rate.Provenance,
+            condition?.Reading);
     }
+
+    private static (ItemConditionReading Reading, OcrLine Line)? ReadCondition(PriceAnchor anchor)
+    {
+        var readings = new List<(ItemConditionReading Reading, OcrLine Line)>();
+        foreach (var line in anchor.Attached.Prepend(anchor.Line))
+        {
+            var match = ConditionPattern.Match(line.Text);
+            if (!match.Success ||
+                !TryConditionNumber(match.Groups["current"].Value, out var current) ||
+                !TryConditionNumber(match.Groups["maximum"].Value, out var maximum) ||
+                maximum <= 0 || current < 0 || current > maximum)
+            {
+                continue;
+            }
+
+            var kind = match.Groups["kind"].Value.ToLowerInvariant() switch
+            {
+                "use" or "uses" => ItemConditionKind.Uses,
+                "charge" or "charges" => ItemConditionKind.Charges,
+                "resource" => ItemConditionKind.Resource,
+                _ => ItemConditionKind.Durability,
+            };
+            readings.Add((new ItemConditionReading(kind, current, maximum), line));
+        }
+
+        return readings
+            .DistinctBy(value => value.Reading)
+            .Take(2)
+            .ToArray() switch
+        {
+            [var only] => only,
+            _ => null,
+        };
+    }
+
+    private static bool TryConditionNumber(string text, out double value) =>
+        double.TryParse(text.Replace(',', '.'), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value);
 
     private static void AddQuantity(List<(int Quantity, OcrLine Line)> found, string text, OcrLine line)
     {
@@ -273,7 +367,14 @@ public sealed class FleaListingParser
             Math.Max(left.Y + left.Height, right.Y + right.Height) - y);
     }
 
-    private sealed record PriceAnchor(OcrLine Line, long Value, Match Price, List<OcrLine> Attached);
+    private sealed record PriceAnchor(
+        OcrLine Line,
+        long Value,
+        long OriginalValue,
+        string CurrencyCode,
+        CurrencyRoubleRate Rate,
+        Match Price,
+        List<OcrLine> Attached);
 
     internal static IReadOnlyList<FleaListing> Order(IEnumerable<FleaListing> listings) =>
         listings
@@ -287,15 +388,18 @@ public sealed class FleaRecognitionService : IFleaRecognitionService
     private readonly IOcrEngine _ocrEngine;
     private readonly FleaListingParser _parser;
     private readonly OcrPipelineOptions _pipeline;
+    private readonly IItemMarketFactSource? _market;
 
     public FleaRecognitionService(
         IOcrEngine ocrEngine,
         FleaListingParser? parser = null,
-        OcrPipelineOptions? pipelineOptions = null)
+        OcrPipelineOptions? pipelineOptions = null,
+        IItemMarketFactSource? market = null)
     {
         _ocrEngine = ocrEngine ?? throw new ArgumentNullException(nameof(ocrEngine));
         _parser = parser ?? new FleaListingParser();
         _pipeline = OcrPipelineDeadline.Validate(pipelineOptions);
+        _market = market;
     }
 
     /// <summary>Reads and parses the visible rows under the frame's one deadline.</summary>
@@ -334,7 +438,20 @@ public sealed class FleaRecognitionService : IFleaRecognitionService
         string? cut = null;
         try
         {
-            _parser.ParseVisibleInto(parsed, ocr, image, deadline.Token);
+            IReadOnlyDictionary<string, CurrencyRoubleRate>? currencyRates = null;
+            if (_market is not null)
+            {
+                try
+                {
+                    currencyRates = await _market.GetCurrencyRoubleRatesAsync(deadline.Token).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    currencyRates = null;
+                }
+            }
+
+            _parser.ParseVisibleInto(parsed, ocr, image, currencyRates, deadline.Token);
         }
         catch (OperationCanceledException) when (deadline.IsExpired)
         {

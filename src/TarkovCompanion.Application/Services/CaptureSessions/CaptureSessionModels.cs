@@ -322,7 +322,16 @@ public sealed record CaptureIdentifiedItem(
 /// Pixel-free, like the rest of <see cref="CaptureAnalysis"/>. It is read from a screenshot the
 /// player took and nothing else; the companion never asks the market for anything.
 /// </remarks>
-public sealed record CaptureFleaListing(long PriceRoubles, int? Quantity, Confidence Confidence, string? SourceText);
+public sealed record CaptureFleaListing(
+    long PriceRoubles,
+    int? Quantity,
+    Confidence Confidence,
+    string? SourceText,
+    string CurrencyCode = "RUB",
+    long? OriginalPrice = null,
+    long CurrencyRateRoubles = 1,
+    DataProvenance? CurrencyRateProvenance = null,
+    ItemConditionReading? Condition = null);
 
 public sealed record CaptureAnalysis(
     string ResultId,

@@ -1,4 +1,6 @@
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Infrastructure.Recognition;
 
@@ -12,8 +14,8 @@ namespace TarkovCompanion.RecognitionTests;
 /// </summary>
 /// <remarks>
 /// The fixtures are laid out the way a list of rows is (a name above, a quantity below, the price
-/// to the right), but no real flea screenshot has been read yet, so the pixel positions are
-/// invented and only the relations between them are asserted: which lines are near which price.
+/// to the right). A real 3840x1080 browse screenshot confirmed that shape and a EUR row, but OCR
+/// line boxes remain synthetic here, so only the relations between them are asserted.
 /// </remarks>
 public sealed class FleaRowGeometryTests
 {
@@ -166,6 +168,50 @@ public sealed class FleaRowGeometryTests
             Line("2 000 ₽", 1200, 300, 150));
 
         Assert.Equal([1_000L, 2_000L, 3_000L], listings.Select(row => row.PriceRoubles));
+    }
+
+    [Fact]
+    public void A_euro_price_uses_the_catalog_exchange_rate_and_keeps_the_original_quote()
+    {
+        var image = new CapturedImage(
+            new byte[1920 * 1080],
+            1920,
+            1080,
+            1920,
+            PixelFormat.Gray8,
+            new DateTimeOffset(2026, 9, 22, 12, 0, 0, TimeSpan.Zero),
+            "fixture://flea-eur");
+        var rate = new CurrencyRoubleRate("EUR", 222, new DataProvenance("fixture catalog", image.CapturedUtc));
+
+        var row = Assert.Single(Parser.ParseVisible(
+            new OcrResult([Line("1 €", 1200, 300, 80)], TimeSpan.Zero, "fixture-ocr"),
+            image,
+            new Dictionary<string, CurrencyRoubleRate>(StringComparer.Ordinal) { ["EUR"] = rate }));
+
+        Assert.Equal(222, row.PriceRoubles);
+        Assert.Equal(1, row.OriginalPrice);
+        Assert.Equal("EUR", row.CurrencyCode);
+        Assert.Equal(222, row.CurrencyRateRoubles);
+        Assert.Equal(rate.Provenance, row.CurrencyRateProvenance);
+    }
+
+    [Theory]
+    [InlineData("durability 41.5/60", ItemConditionKind.Durability, 41.5, 60)]
+    [InlineData("uses 3/5", ItemConditionKind.Uses, 3, 5)]
+    public void A_labelled_condition_is_kept_with_its_kind(
+        string text,
+        ItemConditionKind kind,
+        double current,
+        double maximum)
+    {
+        var row = Assert.Single(Parse(
+            Line("84 000 ₽", 1200, 300, 180),
+            Line(text, 300, 325, 180)));
+
+        Assert.NotNull(row.Condition);
+        Assert.Equal(kind, row.Condition.Kind);
+        Assert.Equal(current, row.Condition.Current);
+        Assert.Equal(maximum, row.Condition.Maximum);
     }
 
     private static (long Price, int? Quantity) Shape(FleaListing listing) => (listing.PriceRoubles, listing.Quantity);

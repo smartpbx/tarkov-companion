@@ -50,20 +50,22 @@ public sealed class FleaCaptureHandoffTests
         Assert.Contains("24 h average ₽337,352", page.AverageLabel, StringComparison.Ordinal);
         Assert.Contains($"after a ₽{fee.ToString("N0", CultureInfo.InvariantCulture)} fee", page.AverageLabel, StringComparison.Ordinal);
         Assert.Equal(["#1 best buy", "#2", "#3", "#4", "#5"], page.Rows.Select(row => row.RankLabel));
-        Assert.Equal(["₽100,000 each", "₽290,000 each", "₽320,000 each", "₽400,000 each", "₽400,000 each"], page.Rows.Select(row => row.PriceLabel));
+        Assert.Equal(["₽100,000 each", "₽290,000 each", "₽400,000 each", "₽400,000 each", "₽320,000 each"], page.Rows.Select(row => row.PriceLabel));
 
-        // Cheaper than the trader pays: certain profit.
-        Assert.Equal(FleaRowVerdict.ProfitToTrader, page.Rows[0].Verdict);
-        Assert.Equal("Therapist pays ₽20,000 more than this", page.Rows[0].WhyLabel);
+        // The engine chooses the stronger resale path rather than stopping at the first profitable one.
+        Assert.Equal(FleaRowVerdict.ProfitOnFlea, page.Rows[0].Verdict);
+        Assert.Contains("roubles more than it costs", page.Rows[0].WhyLabel, StringComparison.Ordinal);
         // Under what the average returns after its fee: pays to resell. Three units, priced each.
         Assert.Equal(FleaRowVerdict.ProfitOnFlea, page.Rows[1].Verdict);
         Assert.Equal("₽290,000 each", page.Rows[1].PriceLabel);
         Assert.Equal("3 units · ₽870,000 for the lot", page.Rows[1].StackLabel);
-        // Under the average, but the fee eats the difference.
-        Assert.Equal(337_352 - fee < 320_000, page.Rows[2].Verdict == FleaRowVerdict.UnderAverage);
-        Assert.Equal("count not read", page.Rows[2].StackLabel);
-        Assert.Equal(FleaRowVerdict.OverAverage, page.Rows[3].Verdict);
-        Assert.False(page.Rows[3].IsGoodBuy);
+        Assert.Equal(FleaRowVerdict.OverAverage, page.Rows[2].Verdict);
+        Assert.False(page.Rows[2].IsGoodBuy);
+        // The 70%-sure row is below the shared policy's confidence floor and is ranked for review.
+        Assert.Equal(FleaRowVerdict.Unknown, page.Rows[4].Verdict);
+        Assert.Contains("ambiguous", page.Rows[4].WhyLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("count not read", page.Rows[4].StackLabel);
+        Assert.All(read.Rows, row => Assert.Equal("recommendation-274.2", row.Recommendation.RulesetVersion));
     }
 
     [Fact]
@@ -99,6 +101,48 @@ public sealed class FleaCaptureHandoffTests
         Assert.Equal("Offers you photographed", page.Heading);
         Assert.Equal(FleaRowVerdict.Unknown, Assert.Single(page.Rows).Verdict);
         Assert.Equal("No comparison", page.Rows[0].VerdictLabel);
+    }
+
+    [Fact]
+    public async Task ConditionCurrencyAndAlternativeIdentitiesReachTheEngineResult()
+    {
+        var catalog = new LootScanFactFixtures.Catalog();
+        var condition = new ItemConditionReading(ItemConditionKind.Uses, 3, 5);
+        var read = await new FleaCaptureHandoff(catalog, catalog).BuildAsync(
+            Request(
+                [
+                    new("gpu", "Graphics card", new Confidence(0.91), "Graphics card"),
+                    new("bolts", "Bolts", new Confidence(0.52), "Bolts"),
+                ],
+                new CaptureFleaListing(
+                    99_900,
+                    1,
+                    new Confidence(0.93),
+                    "uses 3/5 | 450 EUR",
+                    "EUR",
+                    450,
+                    222,
+                    new DataProvenance("fixture currency", Now.AddMinutes(-5)),
+                    condition)),
+            CancellationToken.None);
+
+        var row = Assert.Single(read.Rows);
+        Assert.Equal(condition, row.Condition);
+        Assert.Equal("EUR", row.CurrencyCode);
+        Assert.Equal(450, row.OriginalPrice);
+        Assert.Equal(222, row.CurrencyRateRoubles);
+        Assert.Equal(RecommendationAction.Take, row.Recommendation.Decision.Value!.Action);
+        Assert.Contains("60 % condition", row.Recommendation.Decision.Value.Reasons.Single(
+            reason => reason.Category == RecommendationReasonCategory.Economics).Explanation, StringComparison.Ordinal);
+        var alternative = Assert.Single(row.Alternatives);
+        Assert.Equal("bolts", alternative.ItemId);
+        Assert.Equal("recommendation-274.2", alternative.Recommendation.RulesetVersion);
+        Assert.Equal(RecommendationAction.Review, alternative.Recommendation.Decision.Value!.Action);
+
+        var page = new FleaScanViewModel(read, CultureInfo.InvariantCulture);
+        Assert.Equal("€450 · ₽99,900 each", Assert.Single(page.Rows).PriceLabel);
+        Assert.Equal("Uses 3/5", page.Rows[0].ConditionLabel);
+        Assert.Contains("Bolts — review", page.Rows[0].AlternativesLabel, StringComparison.Ordinal);
     }
 
     [Fact]
