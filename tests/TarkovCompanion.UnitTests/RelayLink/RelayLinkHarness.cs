@@ -297,7 +297,8 @@ internal sealed class DesktopRun : IAsyncDisposable
         bool protectedStorage = true,
         string relyingPartyId = RelyingPartyId,
         string tabletOrigin = TabletOrigin,
-        string? groupKey = null)
+        string? groupKey = null,
+        Microsoft.Extensions.Logging.ILogger? logger = null)
     {
         var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial(disk.DesktopDeviceId));
         var coordinator = new DesktopPairingCoordinator(
@@ -308,7 +309,8 @@ internal sealed class DesktopRun : IAsyncDisposable
             authority,
             disk.Marks,
             clock,
-            protectedStorage ? new RelayLinkVault(disk.Secrets) : null);
+            protectedStorage ? new RelayLinkVault(disk.Secrets) : null,
+            logger);
         var panel = new CompanionPairingViewModel(
             authority,
             // [#553] With a group key the desktop registers itself at startup, as the app does;

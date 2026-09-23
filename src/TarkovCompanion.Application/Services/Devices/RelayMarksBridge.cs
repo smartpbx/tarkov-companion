@@ -136,13 +136,18 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         DesktopCompanionAuthority authority,
         IRaidMarkStore marks,
         TimeProvider timeProvider,
-        RelayLinkVault? vault = null)
+        RelayLinkVault? vault = null,
+        Microsoft.Extensions.Logging.ILogger? logger = null)
     {
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _clock = timeProvider ?? TimeProvider.System;
         _vault = vault;
+        Log = logger is null ? null : new RelayLinkLog(logger, _clock);
     }
+
+    /// <summary>[#693] Where the relay link says what it did; null writes nothing.</summary>
+    internal RelayLinkLog? Log { get; }
 
     /// <summary>
     /// Points the bridge at a relay. Naming a different relay than before drops the old one's
@@ -384,6 +389,14 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             _ownerLink = next;
         }
 
+        Log?.Write("owner-link:" + next, next switch
+        {
+            RelayOwnerLinkState.Verified => "owner session verified; this desktop is on the relay.",
+            RelayOwnerLinkState.Rejected => "owner session refused and not regained; this desktop is off the relay until it registers again.",
+            RelayOwnerLinkState.Unreachable => "relay unreachable; the owner session is kept and retried.",
+            RelayOwnerLinkState.Restored => "owner session restored from the last run; checking it.",
+            _ => "no owner session.",
+        });
         OwnerLinkChanged?.Invoke(next);
     }
 
@@ -423,6 +436,7 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
         if (relay is null || owner is null)
         {
+            Log?.Write("resume-answer:no-owner", "resume ticket not answered: no owner session.", Microsoft.Extensions.Logging.LogLevel.Warning);
             return false;
         }
 
@@ -430,7 +444,17 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         request.Headers.Add("Tarkov-Pairing-Code", pairingCode);
         AddBearer(request, owner);
         using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        return response.IsSuccessStatusCode;
+        if (response.IsSuccessStatusCode)
+        {
+            Log?.Write("resume-answer:posted", "resume answer posted.");
+            return true;
+        }
+
+        Log?.Write(
+            "resume-answer:failed",
+            $"resume answer refused by the relay: HTTP {(int)response.StatusCode}.",
+            Microsoft.Extensions.Logging.LogLevel.Warning);
+        return false;
     }
 
     /// <summary>
@@ -484,6 +508,11 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         {
             var refusal = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             refusal = refusal.Trim().Trim('"');
+            Log?.Write(
+                "device-register:failed",
+                $"paired device not registered on the relay: HTTP {(int)response.StatusCode}" +
+                    (refusal.Length is > 0 and <= 64 ? $" ({refusal})." : "."),
+                Microsoft.Extensions.Logging.LogLevel.Warning);
             return new RelayDeviceRegistration(
                 false,
                 refusal.Length is > 0 and <= 64 ? refusal : $"relay-{(int)response.StatusCode}");
@@ -554,6 +583,21 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         foreach (var delivery in session.Mutation.Deliveries)
         {
             await PublishDeliveryAsync(state, delivery, _authority.Snapshot.CanonicalState, cancellationToken).ConfigureAwait(false);
+        }
+
+        Log?.Write("device-register:done", "paired device registered on the relay.");
+        // [#693] With no tablet, the map was kept here rather than sent; this one needs it now.
+        byte[]? heldSurface;
+        TabletMapArtworkBytes? heldArtwork;
+        lock (_gate)
+        {
+            heldSurface = _currentSurfaceJson;
+            heldArtwork = _currentArtwork;
+        }
+
+        if (heldSurface is not null)
+        {
+            await UploadMapAsync(relay, owner, heldSurface, heldArtwork, cancellationToken).ConfigureAwait(false);
         }
 
         return RelayDeviceRegistration.Done;
@@ -711,6 +755,13 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             if (OwnerReclaim is { } reclaim)
             {
                 var reclaimed = await reclaim(cancellationToken).ConfigureAwait(false);
+                Log?.Write(
+                    "owner-reclaim:" + reclaimed.Outcome,
+                    $"owner session ended by the relay (HTTP 401); asked again on this desktop's key: {reclaimed.Outcome}" +
+                        (reclaimed.Code is { } reclaimCode ? $" ({reclaimCode})." : "."),
+                    reclaimed.Outcome == RelayClaimOutcome.Claimed
+                        ? Microsoft.Extensions.Logging.LogLevel.Information
+                        : Microsoft.Extensions.Logging.LogLevel.Warning);
                 if (reclaimed.Outcome == RelayClaimOutcome.Claimed)
                 {
                     return default; // adopted; the next read is on the new session
@@ -772,6 +823,7 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
             if (first)
             {
+                Log?.Write("resume-ticket", "a paired device asked to come back; resume ticket seen.");
                 ResumeRequested?.Invoke(ticket);
             }
         }
@@ -990,6 +1042,7 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         ArgumentNullException.ThrowIfNull(surfaceJson);
         HttpClient? relay;
         OwnerCredential? owner;
+        bool noTablet;
         lock (_gate)
         {
             // Kept whether or not it can be sent now. What the relay holds is reconciled against
@@ -999,11 +1052,21 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             _currentArtwork = artwork;
             relay = _relay;
             owner = _owner;
+            noTablet = _sessionsById.Count == 0;
         }
 
         if (relay is null || owner is null)
         {
             return false;
+        }
+
+        if (noTablet)
+        {
+            // [#693] Nothing on the relay reads this desktop's map until a tablet is paired, and a
+            // raid republishes it several times a second: three desktops with no tablet between
+            // them were sending the relay eight surfaces a second, up to 400 KB each. It is kept
+            // above and sent when a tablet registers (RegisterPairedDeviceAsync).
+            return true;
         }
 
         return await UploadMapAsync(relay, owner, surfaceJson, artwork, cancellationToken).ConfigureAwait(false);
@@ -1081,13 +1144,15 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
     {
         byte[]? surface;
         TabletMapArtworkBytes? artwork;
+        bool noTablet;
         lock (_gate)
         {
             surface = _currentSurfaceJson;
             artwork = _currentArtwork;
+            noTablet = _sessionsById.Count == 0;
         }
 
-        if (held is null || surface is null)
+        if (held is null || surface is null || noTablet)
         {
             return;
         }

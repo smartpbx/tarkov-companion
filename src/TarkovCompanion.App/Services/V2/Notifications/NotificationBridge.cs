@@ -171,7 +171,14 @@ public sealed class NotificationBridge : IDisposable
         }
         finally
         {
-            _gate.Release();
+            try
+            {
+                _gate.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Disposed while a timer tick was inside; that tick crashed the whole test host.
+            }
         }
     }
 

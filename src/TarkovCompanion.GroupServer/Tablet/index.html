@@ -1887,7 +1887,8 @@
 
   /**
    * Asks to be let back in without a code. Resolves "resumed", "waiting" (the desktop has not
-   * answered: it is off, or not updated yet), "refused" (this tablet WAS paired and the relay no
+   * answered: it is off, or not updated yet), "offline" (the relay has not heard from the desktop
+   * lately, so it was not asked), "refused" (this tablet WAS paired and the relay no
    * longer lets it back in — revoked, or claimed by somebody else) or "never-paired" (this
    * browser has no memory of ever pairing, so there is nothing to be refused from).
    */
@@ -1923,6 +1924,8 @@
         return "refused";
       }
 
+      // [#693] The relay knows the desktop is not on it, so there is nobody to answer a ticket.
+      if (knocked.status === 409) return "offline";
       if (!knocked.ok) return "waiting";
       const ticket = await knocked.json();
       const deadline = Math.min(Date.parse(ticket.expiresUtc), Date.now() + 60_000);
@@ -1969,7 +1972,12 @@
       return;
     }
 
-    setStage("pairingIdle", "Waiting for the desktop. This tablet reconnects by itself once it is running.");
+    setStage(
+      "pairingIdle",
+      outcome === "offline"
+        ? "The desktop is not connected to the relay. Open Tarkov Companion on it; this tablet reconnects by itself."
+        : "Waiting for the desktop. This tablet reconnects by itself once it is running.",
+    );
     comeBackTimer = setTimeout(() => {
       if (!live) comeBack(refusedMessage);
     }, 15_000);

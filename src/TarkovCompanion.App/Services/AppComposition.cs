@@ -776,7 +776,9 @@ public static class AppComposition
             timeProvider,
             // [#289] The owner session and paired sessions' keys, kept where the TarkovTracker
             // token is, so a restart does not ask for the relay's admin key or a re-pair.
-            new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>())));
+            new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>()),
+            // [#693] The relay link's own lines in the desktop log (owner session, tickets, answers).
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink")));
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);
