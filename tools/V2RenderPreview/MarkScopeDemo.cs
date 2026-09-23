@@ -52,6 +52,18 @@ internal static class MarkScopeDemo
             pump(4);
         }
 
+        // #290: a tablet's short route, three stops of one route.
+        var routeId = Guid.NewGuid();
+        var step = 0;
+        foreach (var point in new[] { At(0.40, 0.48), At(0.48, 0.52), At(0.56, 0.49) })
+        {
+            var placing = store.PlaceAsync(mapId, null, point.X, point.Y, null, RaidMarkScope.Squad, RaidMarkLifetime.UntilRemoved, default, new RaidMarkRoute(routeId, ++step));
+            while (!placing.IsCompleted)
+            {
+                pump(1);
+            }
+        }
+
         // Only the Marks card open, so the rows are on screen at 1080 lines.
         foreach (var card in new[] { raid.Cards.Summary, raid.Cards.Squad, raid.Cards.Objectives, raid.Cards.Extracts, raid.Cards.ExtractSelection, raid.Cards.Route, raid.Cards.Tasks, raid.Cards.LootSelection })
         {

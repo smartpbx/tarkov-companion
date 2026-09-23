@@ -25,7 +25,13 @@ public sealed record RaidMark(Guid Id, RaidMarkKind Kind, MapMarkState State, Da
 
     /// <summary>How long it lasts, as the player chose it; <see cref="MapMarkState.ExpiresUtc"/> is the resolved instant.</summary>
     public RaidMarkLifetime Lifetime { get; init; } = RaidMarkLifetimes.DefaultFor(Kind);
+
+    /// <summary>The short route this waypoint is a stop on, from a tablet (#290); null for a lone mark.</summary>
+    public RaidMarkRoute? Route { get; init; }
 }
+
+/// <summary>One stop on a short route: which route, and its place in it from 1.</summary>
+public sealed record RaidMarkRoute(Guid RouteId, int Step);
 
 /// <summary>Who a mark is for.</summary>
 /// <remarks>
@@ -153,7 +159,8 @@ public interface IRaidMarkStore
         string? label,
         RaidMarkScope scope,
         RaidMarkLifetime lifetime,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        RaidMarkRoute? route = null);
 
     /// <summary>Changes who sees a mark and how long it lasts; a new lifetime counts from now.</summary>
     Task SetOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default);

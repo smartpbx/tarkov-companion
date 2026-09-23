@@ -231,6 +231,42 @@ public enum MapMarkScope
 }
 
 /// <summary>
+/// The lifetime a player chose for a mark (#289). Optional on the wire: a client that predates it
+/// sends none, and the kind and expiry say what they always said. "ThisRaid" is the one choice an
+/// expiry cannot carry, since nobody knows when the raid will end.
+/// </summary>
+public enum MapMarkLifetime
+{
+    Ping = 1,
+    UntilRemoved,
+    FiveMinutes,
+    FifteenMinutes,
+    ThisRaid,
+}
+
+/// <summary>The optional extras a mark can carry beyond its placement (#289, #290).</summary>
+internal static class MapMarkExtras
+{
+    /// <summary>Enough stops for a short route; a longer plan is a list of waypoints.</summary>
+    public const int MaxRouteSteps = 12;
+
+    public static MapMarkLifetime? Lifetime(MapMarkLifetime? lifetime) =>
+        lifetime is { } value ? ProtocolGuard.Defined(value, nameof(lifetime)) : null;
+
+    public static (Guid? RouteId, int? RouteStep) Route(Guid? routeId, int? routeStep)
+    {
+        if (routeId is null != routeStep is null ||
+            routeId == Guid.Empty ||
+            routeStep is < 1 or > MaxRouteSteps)
+        {
+            throw new ArgumentException("A route point carries its route and a step from 1 to 12, or neither.", nameof(routeStep));
+        }
+
+        return (routeId, routeStep);
+    }
+}
+
+/// <summary>
 /// A requested mark. Its map, floor, plane coordinates, label, and expiry are the Core
 /// <see cref="MapMarkState"/>, the single v2 source for a user's own map mark; the paired protocol
 /// adds only the mark kind, scope, coordinate space, projection version, optional height, and color.
@@ -244,7 +280,10 @@ public sealed record MapMarkDraft
         CoordinateSpaceKind coordinateSpace,
         string projectionVersion,
         double? height,
-        string color)
+        string color,
+        MapMarkLifetime? lifetime = null,
+        Guid? routeId = null,
+        int? routeStep = null)
     {
         Kind = ProtocolGuard.Defined(kind, nameof(kind));
         Scope = ProtocolGuard.Defined(scope, nameof(scope));
@@ -253,7 +292,20 @@ public sealed record MapMarkDraft
         ProjectionVersion = ProtocolGuard.Required(projectionVersion, nameof(projectionVersion), ProtocolBounds.MaxShortStringBytes);
         Height = height;
         Color = ValidateColor(color);
+        Lifetime = MapMarkExtras.Lifetime(lifetime);
+        (RouteId, RouteStep) = MapMarkExtras.Route(routeId, routeStep);
     }
+
+    /// <summary>The lifetime the player chose; null from a client that predates the choice.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MapMarkLifetime? Lifetime { get; }
+
+    /// <summary>The short route this waypoint is a stop on, drawn as one dashed line (#290).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? RouteId { get; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RouteStep { get; }
 
     public MapMarkKind Kind { get; }
 
@@ -296,8 +348,13 @@ public sealed record MapMark
         double? height,
         string color,
         DateTimeOffset createdUtc,
-        DateTimeOffset updatedUtc)
+        DateTimeOffset updatedUtc,
+        MapMarkLifetime? lifetime = null,
+        Guid? routeId = null,
+        int? routeStep = null)
     {
+        Lifetime = MapMarkExtras.Lifetime(lifetime);
+        (RouteId, RouteStep) = MapMarkExtras.Route(routeId, routeStep);
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
         Revision = revision is > 0 and <= ProtocolBounds.MaxWireInteger
             ? revision
@@ -357,6 +414,16 @@ public sealed record MapMark
     public DateTimeOffset CreatedUtc { get; }
 
     public DateTimeOffset UpdatedUtc { get; }
+
+    /// <summary>See <see cref="MapMarkDraft.Lifetime"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MapMarkLifetime? Lifetime { get; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? RouteId { get; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RouteStep { get; }
 
     [JsonIgnore]
     public DateTimeOffset? ExpiresUtc => State.ExpiresUtc;

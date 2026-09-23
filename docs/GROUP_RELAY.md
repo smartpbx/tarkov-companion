@@ -562,6 +562,9 @@ server binary, so deploying this interface requires redeploying the relay.
 The tablet can relabel and move paired marks, use arrow/zoom/workspace keyboard shortcuts, and
 keeps failed new-mark sends in a visible device-local queue for at most fifteen minutes; after a
 reconnect it previews each against current canonical state and submits it with a stable command id.
+A tablet mark carries the player's scope (`Private` for Just me, `PairedDevice` for Squad; Team
+needs a capability no tablet holds) and an optional `lifetime`; a route is up to twelve waypoints
+sharing a `routeId`, each with its `routeStep`, drawn on the desktop as one dashed line (#289, #290).
 
 ## Which version everything speaks
 

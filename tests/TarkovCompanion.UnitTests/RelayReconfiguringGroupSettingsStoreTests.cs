@@ -137,7 +137,7 @@ public sealed class RelayReconfiguringGroupSettingsStoreTests
 
         public Task RemoveAsync(Guid id, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default) =>
+        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default, RaidMarkRoute? route = null) =>
             Task.FromResult(new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, null), Now));
 
         public Task SetOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default) => Task.CompletedTask;

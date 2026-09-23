@@ -1275,7 +1275,10 @@ public static class DesktopCanonicalStateMachine
             draft.Height,
             draft.Color,
             createdUtc,
-            now);
+            now,
+            draft.Lifetime,
+            draft.RouteId,
+            draft.RouteStep);
     }
 
     private static ContextualCaptureIntent RequireCapture(

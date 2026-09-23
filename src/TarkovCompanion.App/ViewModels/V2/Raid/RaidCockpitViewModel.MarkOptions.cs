@@ -1,7 +1,9 @@
 using System.Windows.Input;
+using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 
@@ -200,6 +202,57 @@ public sealed partial class RaidCockpitViewModel
         {
             row.Tick(now);
         }
+    }
+
+    /// <summary>
+    /// A tablet's short route (#290): its stops, in order, joined by one line per route on the
+    /// marks layer. Dashed and in the player's own colour, so it reads as this player's plan and
+    /// never as an extract route or a squadmate's trail. A route needs two stops on this map.
+    /// </summary>
+    internal static (IReadOnlyList<MapSceneObject> Objects, int Routes) BuildMarkRoutes(
+        IReadOnlyList<RaidMark> marks,
+        string mapId,
+        DateTimeOffset nowUtc)
+    {
+        var objects = new List<MapSceneObject>();
+        foreach (var route in marks
+            .Where(mark => mark.Route is not null && string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(mark => mark.Route!.RouteId))
+        {
+            var stops = route.OrderBy(mark => mark.Route!.Step).Select(mark => new MapScenePoint(mark.State.X, mark.State.Y)).ToArray();
+            if (stops.Length < 2)
+            {
+                continue;
+            }
+
+            objects.Add(new(
+                new($"{MarkRoutePrefix}{route.Key:N}"),
+                MarksLayerId,
+                MapSceneObjectKind.Route,
+                MapSceneTruthKind.UserAuthored,
+                $"Route · {stops.Length} stops",
+                null,
+                new(MapSceneGeometryKind.Line, stops),
+                [],
+                new DataProvenance("local-mark", nowUtc)));
+        }
+
+        return (objects, objects.Count);
+    }
+
+    private const string MarkRoutePrefix = "mark-route:";
+
+    private static IReadOnlyDictionary<MapSceneObjectId, MapSceneObjectStyle> WithRouteStyles(
+        IReadOnlyDictionary<MapSceneObjectId, MapSceneObjectStyle> styles,
+        IEnumerable<MapSceneObject> routes)
+    {
+        var merged = new Dictionary<MapSceneObjectId, MapSceneObjectStyle>(styles);
+        foreach (var route in routes)
+        {
+            merged[route.Id] = new(PlayerColor, LineThickness: 3, Opacity: 0.95, Dashed: true);
+        }
+
+        return merged;
     }
 
     private static void Dispatch(Action action)

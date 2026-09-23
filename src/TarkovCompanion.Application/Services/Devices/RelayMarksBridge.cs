@@ -34,6 +34,14 @@ internal readonly record struct MarkReconciliationAction(
     string? Label)
 {
     public static MarkReconciliationAction None { get; } = new(MarkReconciliationKind.None, Guid.Empty, default, "", null, 0, 0, null);
+
+    /// <summary>#289: who the tablet said the mark is for. Private stays private; anything else is the squad's.</summary>
+    public RaidMarkScope Scope { get; init; } = RaidMarkScope.Squad;
+
+    public RaidMarkLifetime Lifetime { get; init; } = RaidMarkLifetime.UntilRemoved;
+
+    /// <summary>#290: the tablet route this waypoint is a stop on.</summary>
+    public RaidMarkRoute? Route { get; init; }
 }
 
 /// <summary>
@@ -1242,7 +1250,16 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         {
             case MarkReconciliationKind.Create:
             {
-                var created = await _marks.AddAsync(action.LocalKind, action.MapId, action.FloorId, action.X, action.Y, action.Label, cancellationToken)
+                var created = await _marks.PlaceAsync(
+                        action.MapId,
+                        action.FloorId,
+                        action.X,
+                        action.Y,
+                        action.Label,
+                        action.Scope,
+                        action.Lifetime,
+                        cancellationToken,
+                        action.Route)
                     .ConfigureAwait(false);
                 lock (_gate)
                 {
@@ -1253,6 +1270,13 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             }
 
             case MarkReconciliationKind.Update when localId is { } editId:
+                // Options first: narrowing to "Just me" must land before a move would resend it.
+                if (_marks.Marks.FirstOrDefault(mark => mark.Id == editId) is { } existing &&
+                    (existing.Scope != action.Scope || existing.Lifetime != action.Lifetime))
+                {
+                    await _marks.SetOptionsAsync(editId, action.Scope, action.Lifetime, cancellationToken).ConfigureAwait(false);
+                }
+
                 await _marks.MoveAsync(editId, action.X, action.Y, cancellationToken).ConfigureAwait(false);
                 await _marks.RenameAsync(editId, action.Label, cancellationToken).ConfigureAwait(false);
                 break;
@@ -1266,6 +1290,34 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
                 break;
         }
+    }
+
+    /// <summary>
+    /// The lifetime a tablet chose, or the one its kind and expiry imply when it predates the
+    /// choice: a ping, a waypoint that stays, or a waypoint ending in about five or fifteen minutes.
+    /// </summary>
+    internal static RaidMarkLifetime LocalLifetime(MapMarkDraft mark, DateTimeOffset issuedUtc)
+    {
+        if (mark.Lifetime is { } chosen)
+        {
+            return chosen switch
+            {
+                MapMarkLifetime.Ping => RaidMarkLifetime.Ping,
+                MapMarkLifetime.FiveMinutes => RaidMarkLifetime.FiveMinutes,
+                MapMarkLifetime.FifteenMinutes => RaidMarkLifetime.FifteenMinutes,
+                MapMarkLifetime.ThisRaid => RaidMarkLifetime.ThisRaid,
+                _ => RaidMarkLifetime.UntilRemoved,
+            };
+        }
+
+        if (mark.Kind == MapMarkKind.Ping)
+        {
+            return RaidMarkLifetime.Ping;
+        }
+
+        return mark.State.ExpiresUtc is not { } expires ? RaidMarkLifetime.UntilRemoved
+            : expires - issuedUtc <= TimeSpan.FromMinutes(10) ? RaidMarkLifetime.FiveMinutes
+            : RaidMarkLifetime.FifteenMinutes;
     }
 
     private MarkReconciliationAction PlanReconciliation(
@@ -1300,7 +1352,12 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
                     upsert.Mark.State.FloorId,
                     upsert.Mark.State.X,
                     upsert.Mark.State.Y,
-                    upsert.Mark.State.Label);
+                    upsert.Mark.State.Label)
+                {
+                    Scope = upsert.Mark.Scope == MapMarkScope.Private ? RaidMarkScope.Private : RaidMarkScope.Squad,
+                    Lifetime = LocalLifetime(upsert.Mark, upsert.IssuedUtc),
+                    Route = upsert.Mark.RouteId is { } routeId && upsert.Mark.RouteStep is { } step ? new RaidMarkRoute(routeId, step) : null,
+                };
 
             case DeleteMarkCommand delete:
                 canonicalMarkId = delete.MarkId.Value;
