@@ -10,12 +10,21 @@ public sealed record HideoutStationPrerequisite(
 /// <summary>A trader loyalty or skill a station level asks for, which no item buys.</summary>
 public sealed record HideoutOtherPrerequisite(string StationId, int TargetLevel, string Label);
 
+/// <summary>The catalog's construction time for one station level.</summary>
+public sealed record HideoutConstructionTime(string StationId, int TargetLevel, TimeSpan Duration);
+
 /// <summary>Everything a station level asks for besides items.</summary>
 public sealed record HideoutPrerequisites(
     IReadOnlyList<HideoutStationPrerequisite> Stations,
     IReadOnlyList<HideoutOtherPrerequisite> Others)
 {
     public static HideoutPrerequisites None { get; } = new([], []);
+
+    /// <summary>
+    /// Kept alongside non-item prerequisites because both come from each level's catalog payload.
+    /// An absent row means the upstream payload did not publish a duration; zero is a real instant build.
+    /// </summary>
+    public IReadOnlyList<HideoutConstructionTime> ConstructionTimes { get; init; } = [];
 }
 
 /// <summary>One level of one station, in the order it has to be built.</summary>
@@ -27,6 +36,8 @@ public sealed record HideoutUpgradeStep(
     IReadOnlyList<HideoutLevelNeed> Needs,
     IReadOnlyList<string> AlsoNeeds)
 {
+    public TimeSpan? ConstructionTime { get; init; }
+
     public int MissingItemCount => Needs.Count(need => need.Owned is not null && !need.IsSatisfied);
 
     public int UnknownItemCount => Needs.Count(need => need.Owned is null);

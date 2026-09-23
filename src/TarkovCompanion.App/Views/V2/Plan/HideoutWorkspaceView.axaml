@@ -228,7 +228,10 @@
                       <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                        <TextBlock Classes="v2-label" Text="{Binding DurationLabel}" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding MissingItems}" IsVisible="{Binding HasMissingItems}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding GateLabel}" IsVisible="{Binding HasAlsoNeeds}"
                                    TextWrapping="Wrap" />
                         <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
                                    Foreground="{DynamicResource V2.Brush.Action}"
@@ -250,6 +253,7 @@
                   AutomationProperties.AutomationId="v2-hideout-next">
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Next upgrades" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding NextSummary}" />
               <ItemsControl ItemsSource="{Binding NextUpgrades}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:HideoutUpgradeStepRowViewModel">
@@ -257,7 +261,10 @@
                       <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                        <TextBlock Classes="v2-label" Text="{Binding DurationLabel}" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding MissingItems}" IsVisible="{Binding HasMissingItems}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding GateLabel}" IsVisible="{Binding HasAlsoNeeds}"
                                    TextWrapping="Wrap" />
                         <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
                                    Foreground="{DynamicResource V2.Brush.Action}"

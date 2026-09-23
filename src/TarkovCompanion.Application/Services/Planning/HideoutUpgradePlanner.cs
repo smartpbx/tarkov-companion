@@ -167,6 +167,7 @@ public static class HideoutUpgradePlanner
         private readonly ILookup<(string, int), HideoutItemRequirement> _items;
         private readonly ILookup<(string, int), HideoutStationPrerequisite> _stationPrerequisites;
         private readonly ILookup<(string, int), HideoutOtherPrerequisite> _others;
+        private readonly IReadOnlyDictionary<(string, int), TimeSpan> _constructionTimes;
         private readonly IReadOnlyDictionary<string, int> _owned;
 
         public Context(
@@ -187,6 +188,9 @@ public static class HideoutUpgradePlanner
             _items = requirements.ToLookup(requirement => Key(requirement.StationId, requirement.TargetLevel));
             _stationPrerequisites = prerequisites.Stations.ToLookup(required => Key(required.StationId, required.TargetLevel));
             _others = prerequisites.Others.ToLookup(other => Key(other.StationId, other.TargetLevel));
+            _constructionTimes = prerequisites.ConstructionTimes
+                .GroupBy(time => Key(time.StationId, time.TargetLevel))
+                .ToDictionary(group => group.Key, group => group.First().Duration);
         }
 
         public IReadOnlyDictionary<string, HideoutStationSummary> Stations { get; }
@@ -196,15 +200,23 @@ public static class HideoutUpgradePlanner
         public IEnumerable<HideoutStationPrerequisite> StationPrerequisites(string stationId, int level) =>
             _stationPrerequisites[Key(stationId, level)];
 
-        public HideoutUpgradeStep Step(HideoutStationSummary station, int level) => new(
-            station.StationId,
-            station.Name,
-            level,
-            [.. _items[Key(station.StationId, level)].Select(requirement => new HideoutLevelNeed(
-                requirement.ItemId,
-                requirement.Required,
-                HeldCount.Of(_owned, requirement.ItemId)))],
-            [.. _others[Key(station.StationId, level)].Select(other => other.Label)]);
+        public HideoutUpgradeStep Step(HideoutStationSummary station, int level)
+        {
+            var key = Key(station.StationId, level);
+            var hasConstructionTime = _constructionTimes.TryGetValue(key, out var constructionTime);
+            return new(
+                station.StationId,
+                station.Name,
+                level,
+                [.. _items[key].Select(requirement => new HideoutLevelNeed(
+                    requirement.ItemId,
+                    requirement.Required,
+                    HeldCount.Of(_owned, requirement.ItemId)))],
+                [.. _others[key].Select(other => other.Label)])
+            {
+                ConstructionTime = hasConstructionTime ? constructionTime : null,
+            };
+        }
 
         private static (string, int) Key(string stationId, int level) => (stationId.ToUpperInvariant(), level);
     }
