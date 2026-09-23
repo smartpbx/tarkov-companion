@@ -1,0 +1,46 @@
+{
+  "reviewed": "2026-09-23",
+  "sources": [
+    "EFT Wiki The Lab revision 2026-08-16",
+    "EFT Wiki Reserve revision 2026-09-06",
+    "timesaver.gg patch 1.0.5"
+  ],
+  "overrides": {
+    "the lab": {
+      "Main Elevator": [
+        "911ef57b76415c1d42fdba3b5c8fdb587dd229a7",
+        "72848c177c54e2913e7d0259f23fba929d14ebf5",
+        "89170f110a27deb607f63b2382f28c25ba75e861"
+      ],
+      "Cargo Elevator": [
+        "c39cf1e7caac3b830c00b539ee12dfddeb061e2b",
+        "8e6aa12e37d1b09a56e1ae19ab203832b0e78df9",
+        "558a518a272f611d2e6879b917adb407f428977f"
+      ],
+      "Medical Block Elevator": [
+        "014e9122e0fad99bcff6f93161712c3c6e1a2a75",
+        "d1d16f043cea7be35b2729c5e1e1dd648c6dee13",
+        "5077fd224eb1bb588b65e4d3c0b4b5719bdebb66"
+      ],
+      "Hangar Gate": [
+        "40ec0101fbf68e6d1b762a72080b9b9b9c91f6f1"
+      ],
+      "Parking Gate": [
+        "07fe694c3915c1363b5fa1faa604c68fe5849aba"
+      ],
+      "Sewage Conduit": [
+        "a948c3ba250ffcaaa508230d0b3392bf09cb6964"
+      ],
+      "Ventilation Shaft": []
+    },
+    "reserve": {
+      "D-2": [
+        "9cad024bc31223f02f7296c3cb1834c5f6fa2fe2",
+        "fa1f22e776e4724582eb1dbb18ae864a9303cc5a"
+      ],
+      "Bunker Hermetic Door": [
+        "2c4a9ff1d031afefbd0965b189f58e3834cdb367"
+      ]
+    }
+  }
+}
