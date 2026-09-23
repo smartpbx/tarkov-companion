@@ -4,6 +4,7 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Wiki;
@@ -55,6 +56,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly ILootScanRecognitionProgressSource? _lootRecognitionProgress;
     private readonly IItemIntelService? _itemIntel;
     private readonly IWikiLinkOpener? _wikiOpener;
+    private readonly RelayMarksBridge? _relayBridge;
     private TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel? _fleaScan;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
@@ -84,7 +86,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
         CompositeCaptureResultHandoff? captureRouting = null,
         ILootScanRecognitionProgressSource? lootRecognitionProgress = null,
         IItemIntelService? itemIntel = null,
-        IWikiLinkOpener? wikiOpener = null)
+        IWikiLinkOpener? wikiOpener = null,
+        RelayMarksBridge? relayBridge = null)
     {
         _itemIntel = itemIntel;
         _wikiOpener = wikiOpener;
@@ -120,8 +123,13 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _intelHandoff = intelHandoff ?? throw new ArgumentNullException(nameof(intelHandoff));
         _origin = origin ?? throw new ArgumentNullException(nameof(origin));
         _logger = logger ?? NullLogger<V2ShellCaptureBridge>.Instance;
+        _relayBridge = relayBridge;
 
         _shell.CaptureArmRequested += OnCaptureArmRequested;
+        if (_relayBridge is not null)
+        {
+            _relayBridge.DesktopCaptureIntentRequested += OnDesktopCaptureIntentRequested;
+        }
         _shell.CaptureResolutionRequested += OnCaptureResolutionRequested;
         _captureSessions.Changed += OnCaptureSessionsChanged;
         _captureSessions.ReviewRequested += OnReviewRequested;
@@ -394,9 +402,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 throw new InvalidOperationException("The armed intent changed since this request was built.");
             }
 
-            var sessionId = new CaptureSessionId(Guid.NewGuid());
+            var sessionId = request.RequestedSessionId ?? new CaptureSessionId(Guid.NewGuid());
             var now = TimeProvider.System.GetUtcNow();
-            var context = ContextFrom(request.RequestingDevice);
+            var context = request.RequestedContext ?? ContextFrom(request.RequestingDevice);
             var receipt = _captureSessions.Arm(new(
                 new(
                     sessionId,
@@ -422,6 +430,30 @@ public sealed class V2ShellCaptureBridge : IDisposable
         }
 
         Push();
+    }
+
+    /// <summary>Translates an applied paired command into the shell's ordinary Arm action.</summary>
+    internal void OnDesktopCaptureIntentRequested(DesktopCaptureIntentRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var command = request.Command;
+        var wireContext = command.Context;
+        var requestingDevice = string.IsNullOrWhiteSpace(request.DeviceName)
+            ? $"paired:{request.DeviceId.Value:D}"
+            : request.DeviceName;
+        var context = new CaptureContextMetadata(
+            activeWorkspace: _shell.Router.Context.WorkspaceId ?? _shell.Router.Current.Location.Route.Value,
+            activeProfile: wireContext.ProfileId,
+            activeMap: wireContext.MapId,
+            activePlan: wireContext.PlanIds.FirstOrDefault(),
+            selectedEntity: wireContext.ObjectiveIds.FirstOrDefault(),
+            priorScan: wireContext.PreviousResultId,
+            initiatingDevice: requestingDevice);
+        _shell.ArmCaptureFromPairedDevice(
+            command.Intent,
+            requestingDevice,
+            command.CaptureSessionId,
+            context);
     }
 
     private void OnCaptureResolutionRequested(object? sender, V2CaptureResolutionRequest request)
@@ -815,6 +847,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
         Volatile.Write(ref _disposed, true);
         _shell.CaptureArmRequested -= OnCaptureArmRequested;
+        if (_relayBridge is not null)
+        {
+            _relayBridge.DesktopCaptureIntentRequested -= OnDesktopCaptureIntentRequested;
+        }
         _shell.CaptureResolutionRequested -= OnCaptureResolutionRequested;
         _captureSessions.Changed -= OnCaptureSessionsChanged;
         _captureSessions.ReviewRequested -= OnReviewRequested;

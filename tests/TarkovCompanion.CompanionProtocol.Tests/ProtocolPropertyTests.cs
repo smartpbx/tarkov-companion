@@ -125,7 +125,7 @@ public sealed class ProtocolPropertyTests
     }
 
     [Fact]
-    public void PairedCaptureIntentsAreTheClosedCoreScanIntentSetWithoutFlea()
+    public void PairedCaptureIntentsAreTheClosedCoreScanIntentSet()
     {
         Assert.Equal(
             new[]
@@ -138,6 +138,7 @@ public sealed class ProtocolPropertyTests
                 "QuestItems",
                 "ExtractsAndMap",
                 "HealthAndCharacter",
+                "Flea",
             },
             PairedScanIntents.Allowed.Select(intent => intent.ToString()).ToArray());
     }

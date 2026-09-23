@@ -3,9 +3,11 @@ using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -100,6 +102,50 @@ public sealed class V2ShellCaptureBridgeTests
         var context = Assert.Single(fixture.Sessions.Armed).Context;
         Assert.False(string.IsNullOrWhiteSpace(context.ActiveWorkspace));
         Assert.Equal(V2NavigationContext.ThisDesktop, context.InitiatingDevice);
+    }
+
+    [Theory]
+    [InlineData(ScanIntent.Loot)]
+    [InlineData(ScanIntent.Stash)]
+    [InlineData(ScanIntent.Flea)]
+    public async Task AnAppliedTabletRequestArmsTheSameDesktopPanelState(ScanIntent intent)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var requestedSession = new CaptureSessionId(Guid.NewGuid());
+        var command = new RequestCaptureIntentCommand(
+            new CommandId(Guid.NewGuid()),
+            new AggregateRevision(1),
+            Now,
+            Now.AddMinutes(1),
+            new CaptureIntentId(Guid.NewGuid()),
+            "tablet-correlation",
+            requestedSession,
+            intent,
+            new CompanionCaptureContext(
+                "customs",
+                "ground",
+                "profile-id",
+                "previous-result",
+                ["objective-1"],
+                ["plan-1"],
+                []));
+
+        fixture.ArmFromTablet(new(
+            command,
+            new CompanionDeviceId(Guid.Parse("30000000-0000-0000-0000-000000000922")),
+            "Kitchen tablet"));
+
+        var arm = Assert.Single(fixture.Sessions.Armed);
+        Assert.Equal(intent, arm.Request.Intent);
+        Assert.Equal(requestedSession, arm.Request.SessionId);
+        Assert.Equal("customs", arm.Context.ActiveMap);
+        Assert.Equal("plan-1", arm.Context.ActivePlan);
+        Assert.Equal("objective-1", arm.Context.SelectedEntity);
+        Assert.Equal("previous-result", arm.Context.PriorScan);
+        Assert.Equal("Kitchen tablet", arm.Context.InitiatingDevice);
+        Assert.Equal(intent, fixture.Shell.CaptureState.ArmedIntent);
+        Assert.Equal("Kitchen tablet", fixture.Shell.CaptureState.SettingDevice);
+        Assert.Contains("Kitchen tablet", fixture.Shell.CaptureArmedStatus, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -344,6 +390,9 @@ public sealed class V2ShellCaptureBridgeTests
             Shell.CaptureIntents.Single(offered => offered.Intent == intent).SelectCommand.Execute(null);
             Shell.ArmCaptureCommand.Execute(null);
         }
+
+        public void ArmFromTablet(DesktopCaptureIntentRequest request) =>
+            Bridge.OnDesktopCaptureIntentRequested(request);
 
         public async ValueTask DisposeAsync()
         {

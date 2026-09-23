@@ -679,9 +679,9 @@ publish a final completion state to a team; no live position enters this paired-
 
 A paired capture intent's scan intent, armed time, and expiry are exactly one Core
 `CaptureIntentState`. The scan intents are the frozen #264 `ScanIntent` values `Auto`, `Loot`,
-`Stash`, `Ammo`, `Keys`, `QuestItems`, `ExtractsAndMap`, and `HealthAndCharacter`
-(`PairedScanIntents.Allowed`). Flea recognition remains a valid v2 Core result, but `Flea` is never a
-paired-device capture intent in protocol 2.0, and a paired intent always has an expiry.
+`Stash`, `Ammo`, `Keys`, `QuestItems`, `ExtractsAndMap`, `HealthAndCharacter`, and `Flea`
+(`PairedScanIntents.Allowed`), and a paired intent always has an expiry. The shipped tablet offers
+the three useful manual entry points — Loot, Stash, and Flea — only while it holds Control.
 
 An authorized desktop or tablet can submit `RequestCaptureIntentCommand` while no unexpired,
 unfinished intent exists. The desktop validates the device/session/capability, aggregate revision,
@@ -689,6 +689,10 @@ queue preview, context, and expiry, then creates `ContextualCaptureIntent` with 
 initiating device and surface. It expires within two minutes of being armed and carries a Core
 `CaptureSessionId`, correlation ID, map/floor/profile context, previous-result reference, and
 bounded objective/plan/mark references.
+
+After the authority applies a tablet request, the desktop application sends it through the same
+capture-arm event used by its own panel. The local coordinator therefore shows the requested intent
+as armed and preserves the command's capture session, context, and initiating device.
 
 Only the authenticated desktop reports progress and publishes recognition results; a paired device
 cannot gain that authority through a capability grant. The desktop reports ordered progress for

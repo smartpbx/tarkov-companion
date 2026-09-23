@@ -116,6 +116,17 @@ public sealed class TabletPageTests
     }
 
     [Fact]
+    public void ControlOffersOnlyTheThreeDesktopCaptureIntents()
+    {
+        Assert.Contains("id=\"capturePicker\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("data-intent=\"Loot\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("data-intent=\"Stash\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("data-intent=\"Flea\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("type: \"requestCaptureIntent\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("$(\"capturePicker\").hidden = mode !== \"Control\"", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ADesktopThatIsNotThereIsSaidSoPlainly()
     {
         // #562: the wording now lives in relay-crypto.js's desktopStatusMessage, alongside

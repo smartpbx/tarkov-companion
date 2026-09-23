@@ -73,6 +73,7 @@
       case "controlWorkspace": return command.action?.type === "navigate" && command.action?.workspace !== "Raid"
         ? "Switching workspace"
         : "Moving the map";
+      case "requestCaptureIntent": return `Arming ${command.intent ?? "desktop"} capture`;
       case "showOnDesktop": return "Showing on the desktop";
       default: return "That";
     }

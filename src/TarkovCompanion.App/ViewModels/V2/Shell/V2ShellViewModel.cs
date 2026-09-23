@@ -1590,7 +1590,46 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
     private void PlanOpenHideoutRequested(object? sender, EventArgs e) => GoTo(V2Routes.Hideout);
 
-    private void ArmSelectedCaptureIntent()
+    private void ArmSelectedCaptureIntent() => RequestCaptureArm(
+        SelectedCaptureIntent,
+        V2NavigationContext.ThisDesktop,
+        requestedSessionId: null,
+        requestedContext: null);
+
+    /// <summary>
+    /// Arms a capability-checked paired request through the same event, state projection and
+    /// announcements as the capture panel's Arm button.
+    /// </summary>
+    public void ArmCaptureFromPairedDevice(
+        ScanIntent intent,
+        string requestingDevice,
+        CaptureSessionId requestedSessionId,
+        CaptureContextMetadata requestedContext)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestingDevice);
+        ArgumentNullException.ThrowIfNull(requestedContext);
+
+        void Apply()
+        {
+            SelectCaptureIntent(intent);
+            RequestCaptureArm(intent, requestingDevice, requestedSessionId, requestedContext);
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
+    private void RequestCaptureArm(
+        ScanIntent intent,
+        string requestingDevice,
+        CaptureSessionId? requestedSessionId,
+        CaptureContextMetadata? requestedContext)
     {
         var requested = CaptureArmRequested;
         if (requested is null)
@@ -1602,9 +1641,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         try
         {
             requested(this, new(
-                SelectedCaptureIntent,
+                intent,
                 CaptureState.IntentRevision,
-                V2NavigationContext.ThisDesktop));
+                requestingDevice,
+                requestedSessionId,
+                requestedContext));
         }
         catch (OperationCanceledException)
         {
@@ -1621,7 +1662,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             V2ShellText.Format(
                 "V2.Shell.Announce.CaptureRequested",
                 CultureInfo.CurrentCulture,
-                IntentLabel(SelectedCaptureIntent)),
+                IntentLabel(intent)),
             V2Announcement.Polite);
         if (IsCaptureOpen)
         {

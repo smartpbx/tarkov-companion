@@ -10,12 +10,12 @@ using TarkovCompanion.UnitTests.RelayDeviceSecurity;
 
 namespace TarkovCompanion.UnitTests.RelayLink;
 
-/// <summary>#407's workspace picker through a real browser, relay, authority, and desktop bridge.</summary>
+/// <summary>#407/#271 Control actions through a real browser, relay, authority, and desktop bridge.</summary>
 [Collection(RelayAdminKeyCollection.Name)]
 public sealed class TabletWorkspaceNavigationBrowserTests
 {
     [Fact]
-    public async Task ControlCanSwitchTheDesktopToPlanAndReceivesItsAcknowledgement()
+    public async Task ControlCanSwitchTheDesktopAndArmFleaWithAppliedAcknowledgements()
     {
         if (!HasHeadlessBrowser())
         {
@@ -43,6 +43,8 @@ public sealed class TabletWorkspaceNavigationBrowserTests
         var pairingCode = Assert.IsType<string>(desktop.Panel.PairingCode);
         var requestedWorkspace = new TaskCompletionSource<WorkspaceProjection>(TaskCreationOptions.RunContinuationsAsynchronously);
         desktop.Bridge.DesktopWorkspaceRequested += projection => requestedWorkspace.TrySetResult(projection);
+        var requestedCapture = new TaskCompletionSource<DesktopCaptureIntentRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        desktop.Bridge.DesktopCaptureIntentRequested += request => requestedCapture.TrySetResult(request);
 
         using var pollLoop = new CancellationTokenSource();
         var polling = Task.Run(async () =>
@@ -138,6 +140,12 @@ public sealed class TabletWorkspaceNavigationBrowserTests
             Assert.Equal(WorkspaceKind.Plan, projection.Workspace);
             Assert.Null(projection.Viewport);
             Assert.Equal(WorkspaceKind.Plan, desktop.Authority.Snapshot.CanonicalState.Workspace.Projection.Workspace);
+            var capture = await requestedCapture.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(ScanIntent.Flea, capture.Command.Intent);
+            Assert.Equal("Workspace tablet", capture.DeviceName);
+            Assert.Equal(
+                capture.Command.CaptureSessionId,
+                desktop.Authority.Snapshot.CanonicalState.CaptureIntent.ActiveIntent!.CaptureSessionId);
         }
         finally
         {

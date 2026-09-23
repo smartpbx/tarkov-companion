@@ -4070,7 +4070,7 @@
       }
     },
     "pairedScanIntent": {
-      "$comment": "Core ScanIntent without Flea, which is never a paired capture intent.",
+      "$comment": "The closed Core ScanIntent set accepted for paired capture intent commands.",
       "enum": [
         "Auto",
         "Loot",
@@ -4079,7 +4079,8 @@
         "Keys",
         "QuestItems",
         "ExtractsAndMap",
-        "HealthAndCharacter"
+        "HealthAndCharacter",
+        "Flea"
       ]
     },
     "captureIntentState": {

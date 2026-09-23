@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.App.Services.V2.Shell;
@@ -257,7 +258,9 @@ public sealed record V2CaptureShellState
 public sealed record V2CaptureArmRequest(
     ScanIntent Intent,
     StateRevision BasedOnRevision,
-    string RequestingDevice);
+    string RequestingDevice,
+    CaptureSessionId? RequestedSessionId = null,
+    CaptureContextMetadata? RequestedContext = null);
 
 public sealed record V2CaptureResolutionRequest(
     CaptureSessionId? SessionId,
