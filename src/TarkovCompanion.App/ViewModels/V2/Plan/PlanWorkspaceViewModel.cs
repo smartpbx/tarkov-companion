@@ -141,9 +141,10 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
-    public string StateLabel => PlanQuestRules.StateLabel(_owner.StateFor(Task).State);
+    // A row built without its page (Learn Mode tests, previews) has no planner state to read.
+    public string StateLabel => _owner is null ? string.Empty : PlanQuestRules.StateLabel(_owner.StateFor(Task).State);
 
-    public string StateDetail => PlanQuestRules.StateDetail(_owner.StateFor(Task));
+    public string StateDetail => _owner is null ? string.Empty : PlanQuestRules.StateDetail(_owner.StateFor(Task));
 
     public bool HasStateDetail => StateDetail.Length > 0;
 
