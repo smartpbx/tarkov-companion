@@ -37,6 +37,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 663] Magnification used while the raid map follows the player.</summary>
     public const string RaidFollowZoom = "raid.follow-zoom";
 
+    /// <summary>[Issue 702] Whether a new screenshot moves the raid map back to the player.</summary>
+    public const string RaidFollow = "raid.follow";
+
     /// <summary>[Issue 572] Seconds before an automatic Loot result returns to the map, or "off".</summary>
     public const string LootAutoReturnSeconds = "loot.auto-return-seconds";
 
