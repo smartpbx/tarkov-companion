@@ -102,7 +102,31 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
             $"Median was {measured.Median.TotalSeconds:0.00}s over {measured.Count} deliveries: {measured}");
     }
 
-    private static async Task<Measured> MeasureAsync(Wiring wiring, int samples, TimeSpan budget)
+    /// <summary>
+    /// [#707] The same budget when the player watching has already left their raid.
+    /// </summary>
+    /// <remarks>
+    /// Clayton, out of a raid with a squadmate still in it: "pings and positions dont seem to sync
+    /// now". The reading side has no in-raid pace of its own — the relay holds the exchange and a
+    /// squadmate's change ends the hold — so a player in PostRaid should see the marker move as
+    /// fast as one in the raid. This measures that, and that the one who left stops publishing
+    /// the last screenshot of a raid that is over.
+    /// </remarks>
+    [Fact]
+    public async Task APlayerWhoHasLeftTheRaidStillSeesTheirSquadmateMoveInUnderASecond()
+    {
+        var measured = await MeasureAsync(Wiring.Now, samples: 7, budget: TimeSpan.FromSeconds(20), receiverLeft: true);
+        output.WriteLine($"Receiver out of raid: {measured}");
+
+        Assert.True(
+            measured.Median < TimeSpan.FromSeconds(1),
+            $"Median was {measured.Median.TotalSeconds:0.00}s over {measured.Count} deliveries: {measured}");
+        Assert.True(
+            measured.Slowest95 < TimeSpan.FromSeconds(1.5),
+            $"p95 was {measured.Slowest95.TotalSeconds:0.00}s over {measured.Count} deliveries: {measured}");
+    }
+
+    private static async Task<Measured> MeasureAsync(Wiring wiring, int samples, TimeSpan budget, bool receiverLeft = false)
     {
         var holds = wiring == Wiring.Now;
         var root = Path.Combine(Path.GetTempPath(), $"tarkov-latency-{Guid.NewGuid():N}");
@@ -118,7 +142,28 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
         try
         {
             _ = Task.Run(() => Positions(root, wiring, sending, stopping.Token), stopping.Token);
-            ends.Add(Member(wiring, relay.Address, "Alpha", sending, sender, receives: false, stopping.Token));
+            if (receiverLeft)
+            {
+                // Extracted a moment ago: the raid is over, its last screenshot still in the snapshot.
+                receiving.Update(current => current with
+                {
+                    Raid = current.Raid with
+                    {
+                        State = RaidLifecycleState.PostRaid,
+                        MapId = "customs",
+                        LastKnownPosition = new(
+                            DateTimeOffset.UtcNow.AddSeconds(-20),
+                            new(900, 0, 900),
+                            default,
+                            0,
+                            null,
+                            null,
+                            "extract.png"),
+                    },
+                });
+            }
+
+            ends.Add(Member(wiring, relay.Address, "Alpha", sending, sender, receives: receiverLeft, stopping.Token));
             ends.Add(Member(wiring, relay.Address, "Bravo", receiving, receiver, receives: true, stopping.Token));
             if (holds)
             {
@@ -157,6 +202,20 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
                     $"Sample {sample} never reached the other member within {budget.TotalSeconds:0}s.");
                 latencies.Add(Stopwatch.GetElapsedTime(started));
                 await Task.Delay(200, stopping.Token);
+            }
+
+            if (receiverLeft)
+            {
+                // The squadmate still inside sees the one who left, but not at their extract.
+                Assert.True(
+                    await UntilAsync(
+                        () => sending.Current.Group.Members.Any(member => member.Name == "Bravo"),
+                        TimeSpan.FromSeconds(10),
+                        stopping.Token),
+                    "Alpha should have heard from Bravo.");
+                var bravo = sending.Current.Group.Members.Single(member => member.Name == "Bravo");
+                Assert.Equal(RaidLifecycleState.PostRaid, bravo.RaidState);
+                Assert.Null(bravo.Position);
             }
         }
         finally
