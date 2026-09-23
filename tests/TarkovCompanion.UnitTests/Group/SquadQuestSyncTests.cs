@@ -101,7 +101,9 @@ public sealed class SquadQuestSyncTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
         await service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"Closing took {watch.ElapsedMilliseconds} ms.");
+        // The goodbye gets 500 ms; 1.5 s leaves room for a loaded CI runner (1,059 ms was seen) and
+        // still fails the old 2 s allowance this test exists to keep out.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1.5), $"Closing took {watch.ElapsedMilliseconds} ms.");
     }
 
     [Fact]
