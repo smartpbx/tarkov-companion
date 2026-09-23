@@ -509,6 +509,26 @@ public sealed class RaidHistoryOutboxRuntimeTests
         Assert.Equal(OutboxPumpState.Stopped, outbox.Snapshot.PumpState);
     }
 
+    /// <summary>
+    /// #786: closing while the store cannot be read (the database still being migrated) ends at
+    /// once instead of retrying the final drain for the whole ten-second stop deadline.
+    /// </summary>
+    [Fact]
+    public async Task DisposeWhileTheStoreKeepsFailingDoesNotRetryTheDrain()
+    {
+        var store = new LeaseFaultStore(failures: int.MaxValue);
+        var outbox = new RaidHistoryOutbox(new RecordingHistory(), store: store);
+        await outbox.AcceptAsync([RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())], default);
+        await RuntimeTestTasks.UntilAsync(() => outbox.Snapshot.ConsecutivePumpFaults >= 1);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await outbox.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        watch.Stop();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"Dispose took {watch.ElapsedMilliseconds} ms.");
+        Assert.Equal(OutboxPumpState.Stopped, outbox.Snapshot.PumpState);
+    }
+
     [Fact]
     public async Task TimedOutDisposeCancelsItsWaiterAndLaterDisposeCanFinish()
     {

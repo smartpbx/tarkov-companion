@@ -43,6 +43,69 @@ public sealed class SquadQuestSyncTests
         Assert.Equal(new GroupObjectiveView("debut", "shoot-scavs", 3), objective);
     }
 
+    /// <summary>
+    /// #786: a running session with quest sharing on, mid-hold at the relay, closes in under a second.
+    /// </summary>
+    [Fact]
+    public async Task ASharingSessionHeldAtTheRelayClosesWithinASecond()
+    {
+        var relay = new InProcessRelay();
+        var board = new Board(Quest("debut", RecordedTaskState.Active, Objective("shoot-scavs", RecordedObjectiveState.Unknown)));
+        var clay = Session(relay, "Clay", new GroupQuestShare(new StubProfiles(), board), out _);
+        await using var geo = Session(relay, "Geo", null, out var geoStore);
+        clay.Start();
+        geo.Start();
+        Assert.True(await WaitAsync(() => geoStore.Current.Group.Members.Any(member => member.Name == "Clay")));
+        // Into the relay's hold: nothing changes in the room now, so the next exchange waits.
+        await System.Threading.Tasks.Task.Delay(500);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await clay.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"Closing took {watch.ElapsedMilliseconds} ms.");
+    }
+
+    /// <summary>
+    /// #786: a relay that stops answering cannot hold the application's close on the goodbye.
+    /// </summary>
+    [Fact]
+    public async Task ARelayThatStopsAnsweringDoesNotHoldTheClose()
+    {
+        var answering = true;
+        var calls = 0;
+        var counting = new StubHandler(async (request, cancellationToken) =>
+        {
+            Interlocked.Increment(ref calls);
+            if (!Volatile.Read(ref answering) || request.RequestUri!.Query.Contains("wait=", StringComparison.Ordinal))
+            {
+                // A relay holding the answer, and then one that has gone away altogether.
+                await System.Threading.Tasks.Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"members":[],"revision":1}""", Encoding.UTF8, "application/json"),
+            };
+        });
+        var board = new Board(Quest("debut", RecordedTaskState.Active, Objective("shoot-scavs", RecordedObjectiveState.Unknown)));
+        var service = new GroupSessionService(
+            new StubSettings("Clay"),
+            Store(),
+            new HttpClient(counting) { Timeout = Timeout.InfiniteTimeSpan },
+            NullLogger<GroupSessionService>.Instance,
+            new GroupQuestShare(new StubProfiles(), board));
+        service.Start();
+        Assert.True(await WaitAsync(() => Volatile.Read(ref calls) >= 2), "The held exchange never started.");
+        Volatile.Write(ref answering, false);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await service.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        // The goodbye gets 500 ms; 1.5 s leaves room for a loaded CI runner (1,059 ms was seen) and
+        // still fails the old 2 s allowance this test exists to keep out.
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1.5), $"Closing took {watch.ElapsedMilliseconds} ms.");
+    }
+
     [Fact]
     public async Task AnOlderCompanionWithoutObjectivesIsStillReadAsNoObjectives()
     {

@@ -745,6 +745,23 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                     catch (Exception exception)
                     {
                         var backoff = RecordPumpFault(exception);
+                        // #786. Shutting down, a store that cannot be read will not be readable in
+                        // the next backoff either. Retrying here kept the final drain going for the
+                        // whole ten-second stop deadline, which is longer than the application's
+                        // entire teardown budget: closing during startup (the database still being
+                        // migrated) took eight seconds and the process was then killed. Accepted
+                        // commands are in the durable store and are delivered on the next launch.
+                        bool stopForStoreFault;
+                        lock (_gate)
+                        {
+                            stopForStoreFault = !_accepting;
+                        }
+
+                        if (stopForStoreFault)
+                        {
+                            return;
+                        }
+
                         _logger?.LogWarning(
                             "Raid-history delivery paused after a sanitized store or processor failure and resumes in {Backoff}.",
                             backoff);
