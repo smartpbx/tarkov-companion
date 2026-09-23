@@ -174,6 +174,7 @@ public static class AppComposition
         services.AddSingleton<SqliteConnectionFactory>();
         services.AddSingleton<SqliteMigrationRunner>();
         services.AddSingleton<SqliteDataPlatformMaintenance>();
+        services.AddSingleton<DatabaseMaintenanceCoordinator>();
         services.AddSingleton<SqliteItemRepository>();
         services.AddSingleton<IItemRepository>(provider => provider.GetRequiredService<SqliteItemRepository>());
         services.AddSingleton<SqlitePriceHistoryRepository>();

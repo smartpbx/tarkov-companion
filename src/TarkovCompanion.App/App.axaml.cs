@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Notifications;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Appearance;
@@ -119,6 +120,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 // when there is a tray to close to, and the pop-up needs a window to draw in.
                 AttachNotifications(desktop, window, options);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
+                services.GetRequiredService<DatabaseMaintenanceCoordinator>().Start();
                 // [#453] From here on a dispatcher that stops answering for five seconds says so
                 // in the log, with the route and the load that was running.
                 _hangWatchdog = UiHangWatchdog.ForApplication();
