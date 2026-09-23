@@ -229,6 +229,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             intelEventStates)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
+        SetupWorkspace?.AttachPairing(_companionPairing);
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);

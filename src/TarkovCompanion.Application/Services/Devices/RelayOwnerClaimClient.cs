@@ -31,7 +31,10 @@ public enum RelayClaimOutcome
 }
 
 /// <param name="Code">The relay's own refusal code, when it gave one.</param>
-public sealed record RelayClaimResult(RelayClaimOutcome Outcome, string? Code = null);
+public sealed record RelayClaimResult(
+    RelayClaimOutcome Outcome,
+    string? Code = null,
+    long? ClockOffsetSeconds = null);
 
 /// <summary>
 /// Claims the relay's owner for this desktop with the operator's admin key, and hands the session
@@ -50,6 +53,7 @@ public sealed class RelayOwnerClaimClient
     private readonly DesktopCompanionAuthority _authority;
     private readonly RelayMarksBridge? _bridge;
     private readonly Func<CancellationToken, Task<string?>>? _groupKey;
+    private readonly RelayClockOffsetTracker? _clockOffset;
 
     /// <param name="groupKey">
     /// [#553] Reads the group key the player has set, or null. With one, this desktop registers
@@ -60,13 +64,15 @@ public sealed class RelayOwnerClaimClient
         IDesktopIdentitySigner signer,
         DesktopCompanionAuthority authority,
         RelayMarksBridge? bridge,
-        Func<CancellationToken, Task<string?>>? groupKey = null)
+        Func<CancellationToken, Task<string?>>? groupKey = null,
+        RelayClockOffsetTracker? clockOffset = null)
     {
         _relay = relay ?? throw new ArgumentNullException(nameof(relay));
         _signer = signer ?? throw new ArgumentNullException(nameof(signer));
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _bridge = bridge;
         _groupKey = groupKey;
+        _clockOffset = clockOffset;
     }
 
     /// <summary>
@@ -87,7 +93,7 @@ public sealed class RelayOwnerClaimClient
         // its tablets can come back; that has to be somewhere a person can read it.
         _bridge?.Log?.Write(
             "register:" + result.Outcome,
-            $"registering this desktop on the relay: {result.Outcome}" + (result.Code is { } code ? $" ({code})." : "."),
+            $"registering this desktop on the relay: {result.Outcome}" + DescribeRefusalForLog(result),
             result.Outcome == RelayClaimOutcome.Claimed
                 ? Microsoft.Extensions.Logging.LogLevel.Information
                 : Microsoft.Extensions.Logging.LogLevel.Warning);
@@ -148,13 +154,17 @@ public sealed class RelayOwnerClaimClient
                 // body is still good for the owner resume below.
                 if (registered.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed))
                 {
-                    var refusal = (await registered.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim().Trim('"');
+                    var registrationRefusal = await ReadRefusalAsync(registered, cancellationToken).ConfigureAwait(false);
+                    ObserveClockSkew(registrationRefusal);
                     return registered.StatusCode switch
                     {
                         HttpStatusCode.TooManyRequests => new RelayClaimResult(RelayClaimOutcome.RateLimited),
                         HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
                             new RelayClaimResult(RelayClaimOutcome.GroupKeyRefused),
-                        _ => new RelayClaimResult(RelayClaimOutcome.Refused, refusal.Length is > 0 and <= 64 ? refusal : null),
+                        _ => new RelayClaimResult(
+                            RelayClaimOutcome.Refused,
+                            registrationRefusal.Code,
+                            registrationRefusal.OffsetSeconds),
                     };
                 }
             }
@@ -171,14 +181,15 @@ public sealed class RelayOwnerClaimClient
                 return new RelayClaimResult(RelayClaimOutcome.Claimed);
             }
 
-            var code = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim().Trim('"');
+            var refusal = await ReadRefusalAsync(response, cancellationToken).ConfigureAwait(false);
+            ObserveClockSkew(refusal);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 return new RelayClaimResult(RelayClaimOutcome.RateLimited);
             }
 
             // With no group key set this is all a desktop can try, and the caller says so.
-            return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, code.Length is > 0 and <= 64 ? code : null);
+            return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, refusal.Code, refusal.OffsetSeconds);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
@@ -262,7 +273,8 @@ public sealed class RelayOwnerClaimClient
                 return new RelayClaimResult(RelayClaimOutcome.Claimed);
             }
 
-            var code = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim().Trim('"');
+            var refusal = await ReadRefusalAsync(response, cancellationToken).ConfigureAwait(false);
+            ObserveClockSkew(refusal);
             return response.StatusCode switch
             {
                 // Refused before the admin key was read, so re-typing it cannot help and neither
@@ -270,7 +282,7 @@ public sealed class RelayOwnerClaimClient
                 HttpStatusCode.NotImplemented => new RelayClaimResult(RelayClaimOutcome.NotConfiguredForClaiming),
                 HttpStatusCode.Unauthorized => new RelayClaimResult(RelayClaimOutcome.AdminKeyRefused),
                 HttpStatusCode.TooManyRequests => new RelayClaimResult(RelayClaimOutcome.RateLimited),
-                _ => new RelayClaimResult(RelayClaimOutcome.Refused, code.Length is > 0 and <= 64 ? code : null),
+                _ => new RelayClaimResult(RelayClaimOutcome.Refused, refusal.Code, refusal.OffsetSeconds),
             };
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
@@ -293,6 +305,59 @@ public sealed class RelayOwnerClaimClient
         return JsonSerializer.Deserialize<OwnerStatusWire>(json, JsonOptions);
     }
 
+    private void ObserveClockSkew(RelayClaimRefusal refusal)
+    {
+        if (refusal is { Code: "clock-skew", OffsetSeconds: { } offsetSeconds })
+        {
+            _clockOffset?.ObserveOffsetSeconds(offsetSeconds);
+        }
+    }
+
+    private static string DescribeRefusalForLog(RelayClaimResult result) => result switch
+    {
+        { Code: "clock-skew", ClockOffsetSeconds: { } offset } =>
+            $" (clock-skew; server minus PC {offset} seconds).",
+        { Code: { } code } => $" ({code}).",
+        _ => ".",
+    };
+
+    internal static async Task<RelayClaimRefusal> ReadRefusalAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        var body = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim();
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("code", out var codeElement) &&
+                codeElement.ValueKind == JsonValueKind.String)
+            {
+                var code = BoundedCode(codeElement.GetString());
+                long? offset = document.RootElement.TryGetProperty("offsetSeconds", out var offsetElement) &&
+                    offsetElement.TryGetInt64(out var parsedOffset)
+                        ? parsedOffset
+                        : null;
+                return new(code, offset);
+            }
+
+            if (document.RootElement.ValueKind == JsonValueKind.String)
+            {
+                return new(BoundedCode(document.RootElement.GetString()), null);
+            }
+        }
+        catch (JsonException)
+        {
+            // Older relays and transport errors may answer a bare string rather than JSON.
+        }
+
+        return new(BoundedCode(body.Trim('"')), null);
+    }
+
+    private static string? BoundedCode(string? code) => code?.Trim() is { Length: > 0 and <= 64 } bounded
+        ? bounded
+        : null;
+
     // The relay names its owner only by CompanionDeviceId's "N" hex form (RelayCompanionRoutes),
     // never its device key — comparing that against the id this claim would register is enough to
     // tell "claimed by this desktop" from "claimed by another" without the relay handing back
@@ -303,3 +368,5 @@ public sealed class RelayOwnerClaimClient
 
     private sealed record SessionCredentialWire(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
 }
+
+internal sealed record RelayClaimRefusal(string? Code, long? OffsetSeconds);

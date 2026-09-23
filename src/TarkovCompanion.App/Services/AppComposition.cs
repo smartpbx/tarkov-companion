@@ -776,6 +776,10 @@ public static class AppComposition
         // remove reaching IRaidMarkStore over the now-composed relay registry and frame hub.
         // Always registered (like DesktopCompanionAuthority above); Configure/SetOwnerCredential
         // below are what actually turn it on, once a relay origin and a successful claim exist.
+        services.AddSingleton(provider => new RelayClockOffsetTracker(
+            new RelayLinkLog(
+                provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink"),
+                timeProvider)));
         services.AddSingleton(provider => new RelayMarksBridge(
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<IRaidMarkStore>(),
@@ -784,7 +788,8 @@ public static class AppComposition
             // token is, so a restart does not ask for the relay's admin key or a re-pair.
             new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>()),
             // [#693] The relay link's own lines in the desktop log (owner session, tickets, answers).
-            provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink")));
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink"),
+            provider.GetRequiredService<RelayClockOffsetTracker>()));
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);

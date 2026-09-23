@@ -298,7 +298,8 @@ internal sealed class DesktopRun : IAsyncDisposable
         string relyingPartyId = RelyingPartyId,
         string tabletOrigin = TabletOrigin,
         string? groupKey = null,
-        Microsoft.Extensions.Logging.ILogger? logger = null)
+        Microsoft.Extensions.Logging.ILogger? logger = null,
+        RelayClockOffsetTracker? clockOffset = null)
     {
         var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial(disk.DesktopDeviceId));
         var coordinator = new DesktopPairingCoordinator(
@@ -310,14 +311,16 @@ internal sealed class DesktopRun : IAsyncDisposable
             disk.Marks,
             clock,
             protectedStorage ? new RelayLinkVault(disk.Secrets) : null,
-            logger);
+            logger,
+            clockOffset);
         var panel = new CompanionPairingViewModel(
             authority,
             // [#553] With a group key the desktop registers itself at startup, as the app does;
             // without one it is the older build that claims with the admin key.
             new CompanionPairingAvailability(coordinator, relayOrigin, disk.Signer, _ => Task.FromResult(groupKey)),
             clock,
-            bridge)
+            bridge,
+            clockOffset)
         {
             MailboxPollInterval = TimeSpan.FromMilliseconds(20),
         };

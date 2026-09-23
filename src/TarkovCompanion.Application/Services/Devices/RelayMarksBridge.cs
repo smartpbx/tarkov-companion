@@ -119,6 +119,7 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
     private readonly Dictionary<Guid, PairedSessionState> _sessionsById = new();
     private readonly Dictionary<Guid, Guid> _localMarkIdByCanonicalMarkId = new();
     private readonly RelayLinkVault? _vault;
+    private readonly RelayClockOffsetTracker? _clockOffset;
     private readonly SemaphoreSlim _pollGate = new(1, 1);
     private HttpClient? _relay;
     private Uri? _origin;
@@ -137,12 +138,14 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         IRaidMarkStore marks,
         TimeProvider timeProvider,
         RelayLinkVault? vault = null,
-        Microsoft.Extensions.Logging.ILogger? logger = null)
+        Microsoft.Extensions.Logging.ILogger? logger = null,
+        RelayClockOffsetTracker? clockOffset = null)
     {
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _clock = timeProvider ?? TimeProvider.System;
         _vault = vault;
+        _clockOffset = clockOffset;
         Log = logger is null ? null : new RelayLinkLog(logger, _clock);
     }
 
@@ -167,7 +170,10 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
             replaced = _relay;
             _origin = relayOrigin;
-            _relay = new HttpClient { BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/") };
+            _relay = _clockOffset is null
+                ? new HttpClient()
+                : new HttpClient(new RelayClockTrackingHandler(_clockOffset, _clock));
+            _relay.BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/");
             _owner = null;
             _afterDeliveryId = 0;
             _publishedArtworkSha = null;
