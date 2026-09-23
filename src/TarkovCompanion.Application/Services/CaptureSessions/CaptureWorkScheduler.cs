@@ -78,6 +78,11 @@ public sealed class SupervisedCaptureWorkScheduler : ICaptureWorkScheduler
 {
     private static readonly RuntimeFeatureId FeatureId = new("capture-sessions");
     private static readonly RuntimeDependencyId DependencyId = new("capture-recognition");
+    // A real 5,300-icon Gear-frame scan takes about a minute without contention and exceeded
+    // two minutes in paired loaded runs. The old 45-second outer deadline therefore discarded a
+    // valid result on a busy PC. This remains a safety bound; caller and shutdown cancellation
+    // still stop the operation immediately.
+    private static readonly TimeSpan DefaultOperationTimeout = TimeSpan.FromMinutes(5);
     private readonly IBackgroundWorkSupervisor _supervisor;
     private readonly TimeSpan _operationTimeout;
 
@@ -86,7 +91,7 @@ public sealed class SupervisedCaptureWorkScheduler : ICaptureWorkScheduler
         TimeSpan? operationTimeout = null)
     {
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
-        _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(45);
+        _operationTimeout = operationTimeout ?? DefaultOperationTimeout;
         if (_operationTimeout <= TimeSpan.Zero || _operationTimeout > OperationPolicy.MaximumDuration)
         {
             throw new ArgumentOutOfRangeException(nameof(operationTimeout));

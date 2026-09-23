@@ -79,6 +79,43 @@ public sealed class CaptureWorkSchedulerTests
         Assert.Equal(1, supervisor.Snapshot.Resources.Rejected);
     }
 
+    [Fact]
+    public async Task DefaultBudgetAllowsLoadedRecognitionToFinishAfterFortyFiveSeconds()
+    {
+        var clock = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(clock, Options(capacity: 2));
+        var scheduler = new SupervisedCaptureWorkScheduler(supervisor);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var work = scheduler.RunAsync(
+            new(CaptureCorrelationId.New(), "capture-adapter-loaded-recognition", CaptureWorkPriority.Intake),
+            async token =>
+            {
+                started.TrySetResult();
+                try
+                {
+                    await release.Task.WaitAsync(token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    cancelled.TrySetResult();
+                    throw;
+                }
+            },
+            CancellationToken.None);
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        clock.Advance(TimeSpan.FromSeconds(46));
+        var earlyCancellation = await Task.WhenAny(cancelled.Task, Task.Delay(TimeSpan.FromMilliseconds(100)));
+        Assert.NotSame(cancelled.Task, earlyCancellation);
+
+        release.TrySetResult();
+        var result = await work.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(result.Accepted);
+        Assert.True(result.Succeeded);
+    }
+
     private static BackgroundWorkSupervisorOptions Options(int capacity) => new(
         capacity,
         reservedInteractiveAdmission: 0,
