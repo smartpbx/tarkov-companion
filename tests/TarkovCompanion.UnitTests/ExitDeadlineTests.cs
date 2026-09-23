@@ -26,6 +26,24 @@ public sealed class ExitDeadlineTests
         deadline.Reached("teardown");
 
         Assert.True(ended.Wait(TimeSpan.FromSeconds(10)), "The deadline never ended the process.");
+
+        // The "still running" line is written on the thread pool with only 500 ms of patience, so
+        // that a stuck log cannot keep the process alive; on a busy runner it can land just after
+        // the end call. Wait for the line itself rather than assume it beat the end.
+        var deadlineUtc = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadlineUtc)
+        {
+            lock (lines)
+            {
+                if (lines.Any(line => line.Contains("still running; last stage: teardown. Ending it.", StringComparison.Ordinal)))
+                {
+                    break;
+                }
+            }
+
+            Thread.Sleep(20);
+        }
+
         lock (lines)
         {
             Assert.Contains(lines, line => line.StartsWith("Exit requested (main window closing, WindowClosing); the process ends within", StringComparison.Ordinal));
