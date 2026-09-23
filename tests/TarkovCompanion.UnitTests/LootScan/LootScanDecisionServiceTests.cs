@@ -46,6 +46,116 @@ public sealed class LootScanDecisionServiceTests
     }
 
     [Fact]
+    public void FullBackpackFallsBackToVerifiedRigSpaceAndNamesIt()
+    {
+        var incoming = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(incoming, "loot", 1, 1)),
+            [
+                new(new(CarriedGridKind.Backpack, 0), CompleteGrid(
+                    InventoryGridSurface.CarriedInventory,
+                    1,
+                    1,
+                    Cell(new(0, 0), "bag-item", 1, 1))),
+                new(new(CarriedGridKind.TacticalRig, 0), CompleteGrid(
+                    InventoryGridSurface.CarriedInventory,
+                    1,
+                    2)),
+                new(new(CarriedGridKind.Pockets, 0), CompleteGrid(
+                    InventoryGridSurface.CarriedInventory,
+                    1,
+                    1,
+                    Cell(new(0, 0), "pocket-item", 1, 1))),
+            ],
+            [Recommendation(incoming, "loot")]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Take, decision.Verdict);
+        Assert.Equal(new CarriedGridIdentity(CarriedGridKind.TacticalRig, 0), decision.Placement?.CarriedGrid);
+        Assert.Equal(new GridCellAddress(0, 0), decision.Placement?.Anchor);
+
+        var card = new LootScanDecisionViewModel(decision, Now, openEvidence: null, culture: CultureInfo.InvariantCulture);
+        Assert.Equal("Place in rig, row 1, column 1", card.PlacementLabel);
+        var page = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+        Assert.Equal("Rig", page.CarriedGridTitle);
+        Assert.Equal("Backpack full · Rig 2 free · Pockets full", page.CarriedSpaceSummary);
+    }
+
+    [Fact]
+    public void FullBackpackAndRigFallBackToVerifiedPocketSpaceAndNameIt()
+    {
+        var incoming = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(incoming, "loot", 1, 1)),
+            [
+                new(new(CarriedGridKind.Backpack, 0), CompleteGrid(
+                    InventoryGridSurface.CarriedInventory, 1, 1, Cell(new(0, 0), "bag-item", 1, 1))),
+                new(new(CarriedGridKind.TacticalRig, 0), CompleteGrid(
+                    InventoryGridSurface.CarriedInventory, 1, 1, Cell(new(0, 0), "rig-item", 1, 1))),
+                new(new(CarriedGridKind.Pockets, 0), CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1)),
+            ],
+            [Recommendation(incoming, "loot")]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(CarriedGridKind.Pockets, decision.Placement?.CarriedGrid.Kind);
+        Assert.Equal(
+            "Place in pockets, row 1, column 1",
+            new LootScanDecisionViewModel(decision, Now, openEvidence: null, culture: CultureInfo.InvariantCulture)
+                .PlacementLabel);
+    }
+
+    [Fact]
+    public void BackpackWinsAnEquivalentFreeFit()
+    {
+        var incoming = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(incoming, "loot", 1, 1)),
+            [
+                new(new(CarriedGridKind.Backpack, 0), CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1)),
+                new(new(CarriedGridKind.TacticalRig, 0), CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1)),
+            ],
+            [Recommendation(incoming, "loot")]);
+
+        Assert.Equal(CarriedGridKind.Backpack, Assert.Single(result.Decisions).Placement?.CarriedGrid.Kind);
+    }
+
+    [Fact]
+    public void RigWinsWhenItFitsWithoutRotatingAndTheBackpackDoesNot()
+    {
+        var incoming = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 2, Cell(incoming, "wide-loot", 2, 1)),
+            [
+                new(new(CarriedGridKind.Backpack, 0), CompleteGrid(InventoryGridSurface.CarriedInventory, 2, 1)),
+                new(new(CarriedGridKind.TacticalRig, 0), CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 2)),
+            ],
+            [Recommendation(incoming, "wide-loot", occupiedSquares: 2)]);
+
+        var placement = Assert.Single(result.Decisions).Placement!;
+        Assert.Equal(CarriedGridKind.TacticalRig, placement.CarriedGrid.Kind);
+        Assert.False(placement.RotateFromObserved);
+    }
+
+    [Fact]
+    public void EveryBackpackGridParticipatesInPlacement()
+    {
+        var incoming = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(incoming, "loot", 1, 1)),
+            [
+                new(new(CarriedGridKind.Backpack, 0), CompleteGrid(
+                    InventoryGridSurface.CarriedInventory,
+                    1,
+                    1,
+                    Cell(new(0, 0), "full-first-grid", 1, 1))),
+                new(new(CarriedGridKind.Backpack, 1), CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1)),
+            ],
+            [Recommendation(incoming, "loot")]);
+
+        Assert.Equal(new CarriedGridIdentity(CarriedGridKind.Backpack, 1), Assert.Single(result.Decisions).Placement?.CarriedGrid);
+    }
+
+    [Fact]
     public void RotationIsUsedOnlyWhenTheObservedOrientationCannotFit()
     {
         var anchor = new GridCellAddress(0, 0);
@@ -1600,6 +1710,33 @@ public sealed class LootScanDecisionServiceTests
         return new LootScanDecisionService(
             maximumPlacementCellVisits: maximumPlacementCellVisits,
             maximumRecommendationWorkVisits: maximumRecommendationWorkVisits).Evaluate(request);
+    }
+
+    private static LootScanResult Evaluate(
+        GridReconstructionResult visible,
+        IReadOnlyList<CarriedGridReconstructionResult> carried,
+        IReadOnlyList<LootScanCandidateRecommendation>? recommendations = null,
+        IReadOnlyList<LootScanCarriedPolicy>? policies = null,
+        bool carriedCoverageComplete = true)
+    {
+        var request = new LootScanRequest(
+            "loot-scan-282",
+            SessionId,
+            new CaptureCorrelationId(Guid.Parse("20000000-0000-4000-8000-000000000283")),
+            new CaptureContextMetadata(null, null, null, null, null, null, "desktop-primary"),
+            "artifact-282",
+            1,
+            SourceContentSha256,
+            SourceContentSha256,
+            "desktop-primary",
+            Now,
+            SharedContext(),
+            visible,
+            carried,
+            carriedCoverageComplete,
+            recommendations ?? [],
+            policies ?? []);
+        return new LootScanDecisionService().Evaluate(request);
     }
 
     private static LootScanRequest Request(

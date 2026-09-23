@@ -24,8 +24,13 @@ internal static class ScanDemo
     private static readonly DateTimeOffset Now = new(2026, 9, 17, 12, 0, 0, TimeSpan.Zero);
     private static readonly CaptureSessionId SessionId = new(Guid.Parse("20000000-0000-4000-8000-000000000282"));
 
-    internal static LootScanResult LootResult(InventoryProfileScope scope)
+    internal static LootScanResult LootResult(InventoryProfileScope scope, bool rigFallback = false)
     {
+        if (rigFallback)
+        {
+            return RigFallbackResult(scope);
+        }
+
         // A container of six read footprints over an 8x6 grid, and a backpack that is nearly full,
         // so the planner produces takes, a swap and a leave of its own accord.
         GridCellRecognition[] loot =
@@ -91,6 +96,72 @@ internal static class ScanDemo
                 Droppable(2, 1, "cat-figurine", 8_000),
                 Droppable(1, 0, "gp-coin", 32_000),
             ]);
+
+        return new LootScanDecisionService().Evaluate(request);
+    }
+
+    /// <summary>A full backpack beside an empty rig slot, evaluated by the real planner.</summary>
+    private static LootScanResult RigFallbackResult(InventoryProfileScope scope)
+    {
+        var incoming = Cell(0, 0, "fuel-conditioner", "Fuel conditioner", 1, 1);
+        var backpack = new GridReconstructionResult(
+            GridReconstructionOutcome.Complete,
+            InventoryGridSurface.CarriedInventory,
+            Grid(1, 1, [Cell(0, 0, "ifak", "IFAK", 1, 1)]),
+            [],
+            []);
+        var rig = new GridReconstructionResult(
+            GridReconstructionOutcome.Complete,
+            InventoryGridSurface.CarriedInventory,
+            Grid(1, 2, []),
+            [],
+            []);
+        var pockets = new GridReconstructionResult(
+            GridReconstructionOutcome.Complete,
+            InventoryGridSurface.CarriedInventory,
+            Grid(1, 1, [Cell(0, 0, "bandage", "Army bandage", 1, 1)]),
+            [],
+            []);
+        var request = new LootScanRequest(
+            "render-preview-rig-fallback",
+            SessionId,
+            new CaptureCorrelationId(Guid.Parse("20000000-0000-4000-8000-000000000286")),
+            new CaptureContextMetadata(null, "PMC · Regular", "Customs", null, null, null, "desktop-primary"),
+            "render-artifact",
+            1,
+            ContentSha256,
+            ContentSha256,
+            "desktop-primary",
+            Now,
+            new LootScanRecommendationContext(
+                scope,
+                "render-snapshot",
+                new ObservedInventoryEvidenceSnapshot(
+                    Guid.Parse("20000000-0000-4000-8000-000000000285"),
+                    scope,
+                    "render-snapshot",
+                    new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "inventory.complete"),
+                    new EvidenceCoverage(fraction: 1),
+                    Screenshot("inventory"),
+                    [],
+                    unresolvedCells: 0),
+                new RecommendationRaidContext(
+                    Complete<RecommendationRaidPhase?>("raid.phase", RecommendationRaidPhase.Middle, Screenshot("raid")),
+                    Complete<RecommendationRaidRisk?>("raid.risk", RecommendationRaidRisk.Low, Screenshot("raid")))),
+            new GridReconstructionResult(
+                GridReconstructionOutcome.Complete,
+                InventoryGridSurface.VisibleLoot,
+                Grid(2, 2, [incoming]),
+                [],
+                []),
+            [
+                new(CarriedGridIdentity.PrimaryBackpack, backpack),
+                new(new(CarriedGridKind.TacticalRig, 0), rig),
+                new(new(CarriedGridKind.Pockets, 0), pockets),
+            ],
+            carriedCoverageComplete: true,
+            [Recommendation(scope, 0, 0, "fuel-conditioner", RecommendationReasonCategory.CurrentQuest, 68_000, 1)],
+            []);
 
         return new LootScanDecisionService().Evaluate(request);
     }

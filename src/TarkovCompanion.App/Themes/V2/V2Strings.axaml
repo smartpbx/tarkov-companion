@@ -133,7 +133,6 @@
   <x:String x:Key="V2.String.LootScan.ScanAgain">Scan again</x:String>
   <x:String x:Key="V2.String.LootScan.Filters">Show decisions</x:String>
   <x:String x:Key="V2.String.LootScan.Container">Container contents</x:String>
-  <x:String x:Key="V2.String.LootScan.Backpack">Your backpack</x:String>
   <x:String x:Key="V2.String.LootScan.NoBackpack">Backpack not visible in this screenshot</x:String>
   <x:String x:Key="V2.String.LootScan.WhatToTake">What should I take?</x:String>
   <x:String x:Key="V2.String.LootScan.Wiki">Wiki</x:String>

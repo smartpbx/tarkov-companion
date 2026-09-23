@@ -7,6 +7,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.UnitTests.Profiles;
@@ -42,7 +43,7 @@ public sealed class RealLootFrameEndToEndTests(ITestOutputHelper output)
     private static readonly DateTimeOffset Now = new(2026, 9, 20, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task ARealLootScreenIsPlannedAgainstTheBackpackItShows()
+    public async Task ARealLootScreenIsPlannedAgainstEveryCarriedGridItShows()
     {
         var path = Environment.GetEnvironmentVariable("TARKOV_LOOT_FRAME") ?? DefaultFrame;
         if (!File.Exists(path) || IconCorpus.TryLoad() is not { } corpus)
@@ -79,9 +80,13 @@ public sealed class RealLootFrameEndToEndTests(ITestOutputHelper output)
         }
 
         report.AppendLine(CultureInfo.InvariantCulture, $"carried grid {result.CarriedGrid?.Geometry.Columns.Value}x{result.CarriedGrid?.Geometry.Rows.Value}, {result.CarriedGrid?.Cells.Count} items");
+        foreach (var carried in result.CarriedGrids)
+        {
+            report.AppendLine(CultureInfo.InvariantCulture, $"  {carried.Identity.Kind} {carried.Identity.Index + 1}: {carried.Recognition.Geometry.Columns.Value}x{carried.Recognition.Geometry.Rows.Value}, {carried.Recognition.Cells.Count} items");
+        }
         foreach (var decision in result.Decisions)
         {
-            report.AppendLine(CultureInfo.InvariantCulture, $"r{decision.SourceAnchor.Row} c{decision.SourceAnchor.Column} {decision.Item.Value?.DisplayName.Value ?? "unnamed"}: {decision.Verdict} [{string.Join("; ", decision.Reasons.Select(reason => reason.Code))}] placement={(decision.Placement is { } place ? $"r{place.Anchor.Row}c{place.Anchor.Column}" : "-")} drops={decision.Drops.Count}");
+            report.AppendLine(CultureInfo.InvariantCulture, $"r{decision.SourceAnchor.Row} c{decision.SourceAnchor.Column} {decision.Item.Value?.DisplayName.Value ?? "unnamed"}: {decision.Verdict} [{string.Join("; ", decision.Reasons.Select(reason => reason.Code))}] placement={(decision.Placement is { } place ? $"{place.CarriedGrid.Kind}[{place.CarriedGrid.Index}] r{place.Anchor.Row}c{place.Anchor.Column}" : "-")} drops={decision.Drops.Count}");
         }
 
         output.WriteLine(report.ToString());
@@ -92,12 +97,17 @@ public sealed class RealLootFrameEndToEndTests(ITestOutputHelper output)
         Assert.Equal(7, result.CarriedGrid?.Cells.Count);
         Assert.DoesNotContain(result.Issues, issue => issue.Code is "carried.coverage-partial" or "carried.capacity-unavailable");
 
-        // The loot is the ammo box's one pack, named, and decided against a bag with no room:
-        // never the "carried grid unread" review, and never a fit the full bag cannot hold.
+        Assert.Contains(result.CarriedGrids, grid => grid.Identity.Kind == CarriedGridKind.TacticalRig);
+        Assert.Contains(result.CarriedGrids, grid => grid.Identity.Kind == CarriedGridKind.Pockets);
+
+        // The loot is the ammo box's one pack and every carried grid reaches the result. This
+        // fixture has no complete profile recommendation, so advice stops before placement; the
+        // focused planner tests prove the full-backpack/empty-rig decision itself.
         var loot = Assert.Single(result.Decisions);
         Assert.Equal("64ace9ff03378853630da538", loot.Item.Value?.CanonicalId.Value);
         Assert.DoesNotContain(loot.Reasons, reason => reason.Code == "carried.capacity-incomplete");
-        Assert.NotEqual(LootScanVerdict.Take, loot.Verdict);
+        Assert.Equal(LootScanVerdict.Review, loot.Verdict);
+        Assert.Equal("recommendation.incomplete", Assert.Single(loot.Reasons).Code);
     }
 
     private static async Task<ProfileRuntimeContextService> ReadyProfileContextAsync()

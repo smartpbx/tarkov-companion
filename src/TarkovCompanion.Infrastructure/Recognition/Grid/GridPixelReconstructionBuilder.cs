@@ -179,15 +179,28 @@ public sealed class GridPixelReconstructionBuilder(
     }
 
     /// <summary>
-    /// The player's backpack as the in-raid Gear screen shows it beside the loot, or null where
-    /// the frame is not that screen or shows no backpack grid.
+    /// The player's primary backpack grid as the in-raid Gear screen shows it beside the loot,
+    /// or null where the frame is not that screen or shows no backpack grid.
     /// </summary>
     /// <remarks>
-    /// Only the backpack's largest grid is returned: the planner fits loot into one lattice, and
-    /// the backpack is where loot goes. The rig and pockets are found by the same reader
-    /// (<see cref="GearScreenLayoutReader"/>) and not planned against.
+    /// Kept for callers that consume the original single-grid contract. Loot Scan uses
+    /// <see cref="BuildCarriedGridsAsync"/> so every framed backpack, rig and pocket grid counts.
     /// </remarks>
     public async Task<GridReconstructionRequest?> BuildCarriedAsync(
+        CapturedImage image,
+        DateTimeOffset observedUtc,
+        GridPixelReconstructionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var grids = await BuildCarriedGridsAsync(image, observedUtc, options, cancellationToken).ConfigureAwait(false);
+        return grids.FirstOrDefault(grid => grid.Identity == CarriedGridIdentity.PrimaryBackpack)?.Reconstruction;
+    }
+
+    /// <summary>
+    /// Every visible backpack, tactical-rig and pocket grid on the in-raid Gear screen. Each frame
+    /// stays separate because identical row/column addresses in two pouches are different space.
+    /// </summary>
+    public async Task<IReadOnlyList<CarriedGridReconstructionRequest>> BuildCarriedGridsAsync(
         CapturedImage image,
         DateTimeOffset observedUtc,
         GridPixelReconstructionOptions? options = null,
@@ -197,21 +210,42 @@ public sealed class GridPixelReconstructionBuilder(
         options ??= GridPixelReconstructionOptions.Default;
         cancellationToken.ThrowIfCancellationRequested();
         if (CapturedImagePixels.ExceedsPixelCeiling(image) ||
-            _gearScreen.Read(image, cancellationToken)?.Largest(GearGridSection.Backpack) is not { } backpack)
+            _gearScreen.Read(image, cancellationToken) is not { } layout)
         {
-            return null;
+            return [];
         }
 
-        return await BuildFromSpecAsync(
-                image,
-                InventoryGridSurface.CarriedInventory,
-                backpack.Lattice,
-                stashSpec: false,
-                observedUtc,
-                options,
-                cancellationToken,
-                backpack.FrameShare)
-            .ConfigureAwait(false);
+        var results = new List<CarriedGridReconstructionRequest>();
+        foreach (var (section, kind) in new[]
+                 {
+                     (GearGridSection.Backpack, CarriedGridKind.Backpack),
+                     (GearGridSection.TacticalRig, CarriedGridKind.TacticalRig),
+                     (GearGridSection.Pockets, CarriedGridKind.Pockets),
+                 })
+        {
+            var grids = layout.In(section)
+                .OrderBy(grid => grid.Frame.Y)
+                .ThenBy(grid => grid.Frame.X)
+                .ToArray();
+            for (var index = 0; index < grids.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var grid = grids[index];
+                var reconstruction = await BuildFromSpecAsync(
+                        image,
+                        InventoryGridSurface.CarriedInventory,
+                        grid.Lattice,
+                        stashSpec: false,
+                        observedUtc,
+                        options,
+                        cancellationToken,
+                        grid.FrameShare)
+                    .ConfigureAwait(false);
+                results.Add(new(new(kind, index), reconstruction));
+            }
+        }
+
+        return results;
     }
 
     private async Task<GridReconstructionRequest> BuildFromSpecAsync(

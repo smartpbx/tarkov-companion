@@ -1796,13 +1796,13 @@ internal static class Program
                 lootSettings.TabletOnly = true;
             }
 
-            if (shell is not null && args.Contains("--loot-demo"))
+            if (shell is not null && (args.Contains("--loot-demo") || args.Contains("--loot-rig-demo")))
             {
                 var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()
                     .Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
                 var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
                     profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
-                var lootResult = ScanDemo.LootResult(scope);
+                var lootResult = ScanDemo.LootResult(scope, args.Contains("--loot-rig-demo"));
                 if (StringOption(args, "--loot-progress") is { } progress)
                 {
                     LootProgressDemo.Show(shell, lootResult, string.Equals(progress, "final", StringComparison.OrdinalIgnoreCase));
