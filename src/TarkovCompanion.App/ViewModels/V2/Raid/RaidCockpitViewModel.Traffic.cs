@@ -120,7 +120,7 @@ public sealed partial class RaidCockpitViewModel
             {
                 $"{PhaseName(prior.Phase)} raid · {PhaseBasis}",
                 $"Model {MapPriorTraffic.ModelVersion} · phase weighting assumed",
-                CoverageLabel(basis),
+                CoverageLabel(basis, SpawnAreas.Count),
                 $"{DataThroughLabel(basis)} · generated {LocalTime.ShortTime(basis.GeneratedUtc)}",
                 $"Confidence low · {prior.Confidence.Value:P0} · unvalidated",
             };
@@ -148,9 +148,9 @@ public sealed partial class RaidCockpitViewModel
         _ => "Raised",
     };
 
-    private static string CoverageLabel(TrafficPriorBasis basis) => string.Join(" · ", new[]
+    private static string CoverageLabel(TrafficPriorBasis basis, int spawnAreaCount) => string.Join(" · ", new[]
     {
-        basis.PlayerSpawns > 0 ? $"{basis.PlayerSpawns} player spawns" : "no spawns",
+        spawnAreaCount > 0 ? $"{spawnAreaCount} {(spawnAreaCount == 1 ? "spawn area" : "spawn areas")}" : "no spawn areas",
         basis.Extracts > 0 ? $"{basis.Extracts} extracts" : "no extracts",
         basis.LootSpawns > 0 ? $"{basis.LootSpawns} loot spawns" : "no loot data",
     });
@@ -242,7 +242,7 @@ public sealed partial class RaidCockpitViewModel
     }
 
     /// <summary>What every object drawn from the prior carries: through when, from what, how sure.</summary>
-    private static (MapSceneEstimateMetadata Estimate, DataProvenance Provenance) PriorEstimate(MapPriorTraffic prior, string transformVersion)
+    private (MapSceneEstimateMetadata Estimate, DataProvenance Provenance) PriorEstimate(MapPriorTraffic prior, string transformVersion)
     {
         var dataThrough = (prior.Basis.DataThroughUtc ?? prior.Basis.GeneratedUtc).ToUniversalTime();
         dataThrough = dataThrough > prior.Basis.GeneratedUtc ? prior.Basis.GeneratedUtc : dataThrough;
@@ -251,7 +251,7 @@ public sealed partial class RaidCockpitViewModel
                 dataThrough,
                 dataThrough,
                 prior.Basis.GeneratedUtc,
-                CoverageLabel(prior.Basis),
+                CoverageLabel(prior.Basis, SpawnAreas.Count),
                 "Not validated against recorded raids",
                 transformVersion,
                 MapPriorTraffic.ModelVersion),
