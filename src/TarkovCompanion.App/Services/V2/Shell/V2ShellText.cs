@@ -734,6 +734,24 @@ public static class V2ShellText
         ["V2.Shell.Intel.Trade.NoneUsedIn"] = "Nothing in the catalog uses this.",
         ["V2.Shell.Intel.Trade.Arrow"] = "{0} → {1}",
 
+        // #307: recursive, profile-aware buying/craft/barter chain shared by item detail and
+        // the full Crafts & barters workspace.
+        ["V2.Shell.Intel.Chain.Heading"] = "Cheapest way",
+        ["V2.Shell.Intel.Chain.Loading"] = "Planning chain…",
+        ["V2.Shell.Intel.Chain.Empty"] = "No priced route is available for this profile.",
+        ["V2.Shell.Intel.Chain.Total"] = "Total {0}",
+        ["V2.Shell.Intel.Chain.Buy"] = "Buy",
+        ["V2.Shell.Intel.Chain.Craft"] = "Craft",
+        ["V2.Shell.Intel.Chain.Barter"] = "Barter for",
+        ["V2.Shell.Intel.Chain.Fuel"] = "fuel {0}",
+        ["V2.Shell.Intel.Chain.Time"] = "station time {0}",
+        ["V2.Shell.Intel.Chain.Opportunity"] = "resale opportunity {0}",
+        ["V2.Shell.Intel.Chain.Cycle"] = "Cyclic recipes skipped",
+        ["V2.Shell.Intel.Chain.Depth"] = "Depth limit reached",
+        ["V2.Shell.Intel.Chain.SearchLimit"] = "Search limit reached",
+        ["V2.Shell.Intel.Chain.Updated"] = "Prices through {0}",
+        ["V2.Shell.Intel.Chain.Close"] = "Close chain",
+
         // #287 (event state on items): the Events page's Safe/Allergic/Untested result, shown
         // on Intel without re-asking the profile.
         ["V2.Shell.Intel.Event.Allergic"] = "Allergic",

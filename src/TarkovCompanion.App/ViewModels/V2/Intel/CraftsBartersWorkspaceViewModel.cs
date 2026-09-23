@@ -1,8 +1,11 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.Planning;
+using TarkovCompanion.Core.Domain.Planning;
 
 namespace TarkovCompanion.App.ViewModels.V2.Intel;
 
@@ -57,7 +60,8 @@ public sealed record IntelTradeRowViewModel(
     // Locked. RecordedLevelLabel is only ever non-empty for a genuine Locked — a real, known
     // level short of what the trade asks for — never for an Unknown one, which has nothing to
     // report.
-    string RecordedLevelLabel = "")
+    string RecordedLevelLabel = "",
+    ICommand? OpenChainCommand = null)
 {
     public string AutomationId => $"v2-intel-trade-{TradeId}";
     public string InputsLabel => string.Join(" + ", Inputs.Select(input => input.Label));
@@ -68,6 +72,7 @@ public sealed record IntelTradeRowViewModel(
     public bool IsReady => Readiness == IntelTradeReadiness.Ready;
     public bool IsUnknownReadiness => Readiness == IntelTradeReadiness.Unknown;
     public bool HasRecordedLevel => RecordedLevelLabel.Length > 0;
+    public string ChainLabel => V2ShellText.Get("V2.Shell.Intel.Chain.Heading");
     public string ReadinessLabel => Readiness switch
     {
         IntelTradeReadiness.Ready => V2ShellText.Get("V2.Shell.Intel.Trade.Ready"),
@@ -100,11 +105,22 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     private bool _loaded;
 
     public CraftsBartersWorkspaceViewModel(IIntelTradeCatalogService catalog, Action<string> openItem)
+        : this(catalog, NullAcquisitionChainPlanningService.Instance, openItem)
+    {
+    }
+
+    public CraftsBartersWorkspaceViewModel(
+        IIntelTradeCatalogService catalog,
+        IAcquisitionChainPlanningService chains,
+        Action<string> openItem)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(chains);
         ArgumentNullException.ThrowIfNull(openItem);
         _catalog = catalog;
         _openItem = openItem;
+        Chain = new(chains);
+        CloseChainCommand = new DelegateCommand(Chain.Clear);
         Sorts = Enum.GetValues<IntelTradeSort>()
             .Select(sort => new IntelTradeSortViewModel(sort, SelectSort))
             .ToArray();
@@ -125,6 +141,11 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     public string EmptyLabel => V2ShellText.Get("V2.Shell.Intel.Trade.Empty");
     public string LoadingLabel => V2ShellText.Get("V2.Shell.Intel.Trade.Loading");
     public IReadOnlyList<IntelTradeSortViewModel> Sorts { get; }
+    public AcquisitionChainViewModel Chain { get; }
+    public ICommand CloseChainCommand { get; }
+    public string CloseChainLabel => V2ShellText.Get("V2.Shell.Intel.Chain.Close");
+
+    public Task ShowChainAsync(string itemId) => Chain.ShowAsync(itemId);
 
     public string SearchText
     {
@@ -300,7 +321,8 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         row.ProfitRoubles is < 0,
         row.Readiness,
         new DelegateCommand(() => _openItem(row.Output.ItemId)),
-        RecordedLevelLabel(row));
+        RecordedLevelLabel(row),
+        new DelegateCommand(() => ShowChainAsync(row.Output.ItemId).Observe("intel", "plan an acquisition chain")));
 
     /// <summary>"you: Loyalty N"/"you: Level N" — only for a genuine Locked, never for an Unknown, which has nothing to report.</summary>
     private static string RecordedLevelLabel(IntelTradeRow row) =>
@@ -316,4 +338,12 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         : string.Create(CultureInfo.CurrentCulture, $"{(int)duration.TotalMinutes}m");
 
     private static string Roubles(long value) => V2ShellText.Format("V2.Shell.Intel.Roubles", CultureInfo.CurrentCulture, value);
+}
+
+internal sealed class NullAcquisitionChainPlanningService : IAcquisitionChainPlanningService
+{
+    public static readonly NullAcquisitionChainPlanningService Instance = new();
+
+    public Task<AcquisitionChainPlan> PlanAsync(string itemId, int quantity, CancellationToken cancellationToken) =>
+        Task.FromResult(new AcquisitionChainPlan(itemId, itemId, quantity, null, false, false, false, null));
 }

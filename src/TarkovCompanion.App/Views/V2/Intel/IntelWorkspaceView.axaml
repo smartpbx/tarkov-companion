@@ -320,6 +320,12 @@
                   </ItemsControl>
                 </StackPanel>
 
+                <!-- #307: the same profile-aware recursive planner shown in Crafts & barters. -->
+                <Border Classes="v2-intel-pane" Padding="14" IsVisible="{Binding IntelAcquisitionChain.HasSelection}"
+                        AutomationProperties.AutomationId="v2-shell-intel-cheapest-way">
+                  <intel:AcquisitionChainView DataContext="{Binding IntelAcquisitionChain}" />
+                </Border>
+
                 <!-- #287 (Crafts & barters): what makes this item and what it goes into, read
                      off the same priced list the tab shows, filtered to this one item. -->
                 <StackPanel Spacing="6" IsVisible="{Binding ShowsIntelTradeSection}">
