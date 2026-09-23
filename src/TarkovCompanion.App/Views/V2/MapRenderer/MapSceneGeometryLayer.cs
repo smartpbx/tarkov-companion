@@ -120,7 +120,7 @@ public sealed class MapSceneGeometryLayer : Control
             {
                 Brush = BrushFor(item),
                 Thickness = (item.ThicknessHint ?? ThicknessFor(item)) / zoom,
-                DashStyle = item.Truth is MapSceneTruthKind.HistoricalEstimate or MapSceneTruthKind.PotentialSpawn
+                DashStyle = item.IsDashedHint || item.Truth is MapSceneTruthKind.HistoricalEstimate or MapSceneTruthKind.PotentialSpawn
                     ? DashStyle.Dash
                     : null,
                 LineCap = PenLineCap.Round,

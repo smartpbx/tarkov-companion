@@ -2185,6 +2185,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             });
         }
 
+        // [#307] A route already opened on the Raid map follows these stops from now on.
+        if (_map.RenderModel?.Location.Id is { } locationId)
+        {
+            _raidCockpit.UpdateObjectiveRouteStops(locationId, stops);
+        }
+
         if (stops.Count == 0)
         {
             group.ApplyRoute(null, "No objective on this map has one exact position to route.");

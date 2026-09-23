@@ -162,6 +162,11 @@ summary measures each screenshot to the nearest plan segment and reports average
 distance. It is a comparison of sparse, player-created screenshots after the fact, never a live
 location claim or an inferred path between observations.
 
+Plan's objective route, once opened on the Raid map, is drawn in the same plan gold, dashed; a stop
+that already has an objective pin shows its step number as a badge on that pin. It is recomputed
+(debounced, off the interface thread) when Plan's stops, the last screenshot or the selected spawn
+change, and "Hide route" in the Objectives card removes it until shown again.
+
 ## Extracts
 
 Recognized active extracts are joined to cached static extract metadata by canonical ID. An active extract remains visible when its static position is missing, with explicit guidance that no marker can be shown. OCR confidence and source remain attached to the active observation.

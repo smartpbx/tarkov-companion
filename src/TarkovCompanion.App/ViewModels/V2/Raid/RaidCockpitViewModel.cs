@@ -1193,6 +1193,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     public void Dispose()
     {
         _disposed = true;
+        _objectiveRouteFollower?.Dispose();
         _map.PropertyChanged -= MapPropertyChanged;
         _map.PlayerFollowRequested -= PlayerFollowRequested;
         _raid.PropertyChanged -= RaidPropertyChanged;
@@ -2791,7 +2792,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             reviewedAssetResolver: ResolveBackgroundImage,
             showsDetailsPanel: false,
             fillsViewport: false,
-            pictureLease: LeasePicture);
+            pictureLease: LeasePicture,
+            styleResolver: ObjectiveRouteStyle);
     }
 
     /// <summary>Internal for direct coverage (see the unit tests).</summary>
@@ -3140,7 +3142,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     /// <summary>How this cockpit wants one object drawn; see <see cref="MapSceneObjectStyle"/>.</summary>
     private MapSceneObjectStyle? StyleFor(MapSceneObject item) =>
-        _objectStyles.TryGetValue(item.Id, out var style) ? style
+        _objectiveRouteStyles.TryGetValue(item.Id, out var planned) ? planned
+        : _objectStyles.TryGetValue(item.Id, out var style) ? style
         : _routeStyles.TryGetValue(item.Id, out var route) ? route
         // [Issue 573] A co-op extract at "Dim" is drawn faded, so it never competes for attention
         // with one the player can use alone.
