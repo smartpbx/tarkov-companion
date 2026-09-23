@@ -1507,6 +1507,11 @@ internal static class Program
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
                 var demo = RaidDemo(viewModel.Map.RenderModel, IntOption(args, "--raid-minutes", 14));
+                if (args.Contains("--raid-left"))
+                {
+                    demo = SquadAfterRaidDemo.Apply(demo);
+                }
+
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
