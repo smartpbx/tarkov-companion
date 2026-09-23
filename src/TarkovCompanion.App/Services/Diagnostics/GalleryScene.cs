@@ -108,14 +108,53 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                 _ => $"{raid.MapExtracts.Count} extracts",
             };
 
-            // Two render passes after the state, so what is ready is also what is on screen.
-            await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+            // The state above is the view model's; the map redraws its markers on a paced rebuild
+            // after it. The first Windows run photographed the squad and marks scenes between the
+            // two: route line drawn, every pin (extracts included) missing. So wait for the pins
+            // this scene is about, then for the scene to stop changing.
+            await WaitForAsync(() => MarkersDrawn(raid), StepTimeout, $"the {scene.ToString().ToLowerInvariant()} pins on the map", cancellationToken)
+                .ConfigureAwait(true);
+            await SettledAsync(raid, cancellationToken).ConfigureAwait(true);
             await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
             readiness.Ready($"{scene.ToString().ToLowerInvariant()} on {mapId}: {detail}");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             readiness.Failed($"{scene.ToString().ToLowerInvariant()} on {mapId}: {exception.Message}");
+        }
+    }
+
+    private int _placedMarks;
+
+    private bool MarkersDrawn(RaidCockpitViewModel raid)
+    {
+        if (raid.Renderer is not { } renderer)
+        {
+            return false;
+        }
+
+        var kinds = renderer.PointMarkers.Select(item => item.SceneObject?.Kind).ToArray();
+        return kinds.Any(kind => kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit) && scene switch
+        {
+            GallerySceneKind.Route => kinds.Contains(MapSceneObjectKind.QuestObjective),
+            GallerySceneKind.Squad => kinds.Contains(MapSceneObjectKind.TeammateLastKnown),
+            GallerySceneKind.Marks => kinds.Count(kind => kind is MapSceneObjectKind.Ping or MapSceneObjectKind.Waypoint) >= _placedMarks,
+            _ => true,
+        };
+    }
+
+    /// <summary>The scene's revision and its pin count unchanged for a second: no rebuild still to land.</summary>
+    private static async Task SettledAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        (long, int)? last = null;
+        var quiet = 0;
+        while (quiet < 10 && DateTime.UtcNow < deadline)
+        {
+            var now = (raid.Renderer?.Scene.Revision ?? -1, raid.Renderer?.PointMarkers.Count ?? -1);
+            quiet = now == last ? quiet + 1 : 0;
+            last = now;
+            await Task.Delay(100, cancellationToken).ConfigureAwait(true);
         }
     }
 
@@ -215,7 +254,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
 
     private async Task<string> MarksAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
     {
-        var placed = await GalleryMarks.PlaceAsync(
+        var placed = _placedMarks = await GalleryMarks.PlaceAsync(
             services.GetRequiredService<IRaidMarkStore>(),
             mapId,
             raid.Renderer!.Scene.Bounds).ConfigureAwait(true);
