@@ -243,7 +243,7 @@ jobs:
 
       - name: Restore win-x64 publish graphs
         run: |
-          dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+          dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 -p:PublishReadyToRun=true --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
           dotnet restore src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
 
       # The developer smoke reads durable rows through the native SQLite library the package

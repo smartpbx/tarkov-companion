@@ -934,6 +934,7 @@ function New-ShotResult {
         # looking for a startup crash that was not there, and read as a Loadout fault on
         # 2026-09-20 when the packaged app was simply not exiting in time.
         windowShown = $false
+        windowShownAfterSeconds = $null
         presented = $false
         visuallyVaried = $false
         interactionRequired = $InteractionRequired
@@ -1609,7 +1610,14 @@ foreach ($Shot in $Shots) {
         # Inherited by this launch only, and read back once it has exited. The application
         # writes nothing there unless this is set, so a player's run costs nothing.
         $env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog
-        $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList $Shot.args -PassThru
+        $LaunchArguments = @($Shot.args)
+        if ($Shot.width -gt 0 -and $Shot.height -gt 0) {
+            # Placement restore loads asynchronously after Opened. Give the application the
+            # intended verification size so it leaves placement to this harness for the launch;
+            # otherwise a remembered player-sized window can overwrite MoveWindow below.
+            $LaunchArguments += @("--window-size", "$($Shot.width)x$($Shot.height)")
+        }
+        $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList $LaunchArguments -PassThru
         # Reading Handle here is what makes ExitCode and WaitForExit reliable later.
         $null = $Process.Handle
 
@@ -1638,6 +1646,7 @@ foreach ($Shot in $Shots) {
         # things that can be wrong with it, and saying so is the difference between hunting a
         # startup crash and reading the reason.
         $Result.windowShown = $true
+        $Result.windowShownAfterSeconds = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 2)
 
         # Window creation is not page readiness. Two consecutive responsive samples only make
         # the visual capture less racy. The declared V2 UIA steps prove only their named route,
@@ -1810,7 +1819,8 @@ $Report | ConvertTo-Json -Depth 6 | Set-Content -Path $OutputPath -Encoding utf8
 foreach ($Result in $Results) {
     $Mark = if ($Failed -contains $Result) { "FAIL" } elseif ($Result.skipped) { "skip" } else { "ok  " }
     $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
-    Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Dead"
+    $Timing = if ($null -ne $Result.windowShownAfterSeconds) { ", window after $($Result.windowShownAfterSeconds)s" } else { "" }
+    Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Timing$Dead"
     # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
     # here is what turns "no window: Loadout" in the job log into a sentence somebody can act on
     # without downloading anything.

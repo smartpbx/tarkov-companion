@@ -103,6 +103,16 @@ public sealed record AppCommandLine(
     public bool MapRendererLootOffline { get; init; }
 
     /// <summary>
+    /// Gives desktop verification ownership of window placement for this launch.
+    /// </summary>
+    /// <remarks>
+    /// The packaged gallery applies the final physical bounds through the native window handle.
+    /// This initial size also suppresses saved placement restore and recording, so the player's
+    /// remembered layout cannot race that resize or be replaced by a verification dimension.
+    /// </remarks>
+    public WindowSizeOverride? WindowSize { get; init; }
+
+    /// <summary>
     /// Options that were passed and are not recognised.
     /// </summary>
     /// <remarks>
@@ -148,6 +158,9 @@ public sealed record AppCommandLine(
             MapRendererGallery = HasFlag(args, "--map-renderer-gallery"),
             MapRendererLargeText = HasFlag(args, "--map-renderer-large-text"),
             MapRendererLootOffline = HasFlag(args, "--map-renderer-loot-offline"),
+            WindowSize = GetValue(args, "--window-size") is { } windowSize
+                ? WindowSizeOverride.Parse(windowSize)
+                : null,
             ApplyUpdateAndExit = HasFlag(args, "--apply-update-and-exit"),
             UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
@@ -180,6 +193,7 @@ public sealed record AppCommandLine(
         "--map-renderer-gallery",
         "--map-renderer-large-text",
         "--map-renderer-loot-offline",
+        "--window-size",
         V2ShellModes.Option,
     ];
 
@@ -223,7 +237,8 @@ public sealed record AppCommandLine(
     private static bool TakesValue(string option) => option is
         "--output" or "--demo-fixture" or "--diagnostic-channel" or
         "--page" or "--map" or "--floor" or
-        "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines" or V2ShellModes.Option;
+        "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines" or
+        "--window-size" or V2ShellModes.Option;
 
     private static bool HasFlag(IReadOnlyList<string> args, string flag) =>
         args.Any(arg => string.Equals(arg, flag, StringComparison.OrdinalIgnoreCase));

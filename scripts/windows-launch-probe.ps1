@@ -272,6 +272,7 @@ $WindowClosedAfterSeconds = $null
 $ExitCode = $null
 $GracefulClose = $false
 $ScreenGeometry = $null
+$StartupLogWindowSeconds = $null
 $Session = [ordered]@{}
 $PackageIdentity = $null
 $Success = $false
@@ -452,6 +453,23 @@ finally {
     $StandardOutput = Read-ReportText -Path $StandardOutputPath
     $StandardError = Read-ReportText -Path $StandardErrorPath
 
+    # The process stopwatch includes Start-Process and the hosted runner's polling interval.
+    # The application's own UTC stamps measure the code path from its first instruction to the
+    # actual Opened event, which is the startup interval ReadyToRun is intended to change.
+    $StartupLogPath = Join-Path $LocalDataRoot "Logs\startup.log"
+    if (Test-Path -LiteralPath $StartupLogPath -PathType Leaf) {
+        $StartedUtc = $null
+        foreach ($Line in Get-Content -LiteralPath $StartupLogPath) {
+            if ($Line -match '^(?<timestamp>\S+) \[started\]') {
+                $StartedUtc = [DateTimeOffset]::Parse($Matches.timestamp, [Globalization.CultureInfo]::InvariantCulture)
+            }
+            elseif ($null -ne $StartedUtc -and $Line -match '^(?<timestamp>\S+) \[lifecycle\] Main window shown\.$') {
+                $ShownUtc = [DateTimeOffset]::Parse($Matches.timestamp, [Globalization.CultureInfo]::InvariantCulture)
+                $StartupLogWindowSeconds = [Math]::Round(($ShownUtc - $StartedUtc).TotalSeconds, 3)
+            }
+        }
+    }
+
     $Report = [ordered]@{
         schemaVersion = 1
         generatedUtc = [DateTimeOffset]::UtcNow.ToString("O")
@@ -461,6 +479,7 @@ finally {
         session = $Session
         window = [ordered]@{
             appearedAfterSeconds = $WindowSeconds
+            startupLogWindowAfterSeconds = $StartupLogWindowSeconds
             title = $WindowTitle
             observedSeconds = $ObserveSeconds
             screenGeometry = $ScreenGeometry
@@ -493,6 +512,9 @@ finally {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     $Report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ResolvedOutputPath -Encoding utf8
     Write-Host "Launch probe completed with success=$Success and $($Observations.Count) observation(s)."
+    if ($null -ne $StartupLogWindowSeconds) {
+        Write-Host "Startup log recorded [started] to Main window shown in $StartupLogWindowSeconds second(s)."
+    }
 }
 
 if (-not $Success) {

@@ -101,11 +101,27 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     viewModel.Map.OpenOn(launch.MapId, launch.MapFloor, launch.StacksFloors);
                 }
 
-                var window = new MainWindow
+                var requestedWindowSize = options?.WindowSize;
+                var window = new MainWindow(restoreSavedPlacement: requestedWindowSize is null)
                 {
                     DataContext = viewModel,
                 };
-                if (viewModel.PreviewShell is not null)
+                if (requestedWindowSize is { } size)
+                {
+                    // Verification owns this window's bounds. The XAML minimum is the player's
+                    // normal desktop floor, but it also made Windows coerce the gallery's 560px
+                    // responsive-layout probe back to 1120px before MoveWindow could settle it.
+                    // Remove the constraint only for this explicit tool launch; the harness still
+                    // applies the final physical-pixel bounds after the window becomes responsive.
+                    window.MinWidth = 0;
+                    window.MinHeight = 0;
+                    window.Width = size.Width;
+                    window.Height = size.Height;
+                }
+                // #728 measures the shipped startup from CrashLog's first line to the first real
+                // window, rather than timing process setup or guessing from a screenshot.
+                window.Opened += (_, _) => CrashLog.Write("lifecycle", "Main window shown.");
+                if (viewModel.PreviewShell is not null && requestedWindowSize is null)
                 {
                     services.GetService<DesktopWindowPlacementController>()?.Attach(window);
                 }

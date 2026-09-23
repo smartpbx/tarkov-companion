@@ -25,11 +25,18 @@ namespace TarkovCompanion.App.Views;
 /// </remarks>
 public sealed partial class MainWindow : Window
 {
-    public MainWindow()
+    public MainWindow() : this(restoreSavedPlacement: true)
+    {
+    }
+
+    public MainWindow(bool restoreSavedPlacement)
     {
         AvaloniaXamlLoader.Load(this);
-        Opened += RestoreLayout;
-        Closing += RememberLayout;
+        if (restoreSavedPlacement)
+        {
+            Opened += RestoreLayout;
+            Closing += RememberLayout;
+        }
         // Tunnelling, so a key reaches this before a focused control decides it was theirs.
         // Escape in particular is claimed by several controls, and what somebody means by it
         // here is almost always the map's selection rather than the combo box they last used.

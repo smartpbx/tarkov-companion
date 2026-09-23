@@ -43,6 +43,8 @@ and has neither a step that could publish nor a token that could.
    `TARKOV_COMPANION_UI_WARNING_LOG` pointed at its own file (see the gate table below). It also
    photographs every address in `V2RouteRegistry.Default` for Variant A at 1920x1080 and at
    3840x1080, reaching each one through the persisted preview address the way a deep link does.
+   Sized launches pass `--window-size`, which leaves placement with the harness instead of
+   restoring or overwriting the player's remembered per-monitor window bounds.
    These run before step 9 seeds any data, so they are the first-run state. A width the runner's
    desktop cannot offer is recorded as skipped rather than photographed cropped.
 8. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report

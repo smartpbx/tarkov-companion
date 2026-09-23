@@ -49,6 +49,9 @@ compiled into `TarkovCompanion.dll`, and every Velopack file (installer, full an
 authenticated feed and moves it through canary, beta and stable. [RELEASES.md](RELEASES.md) has
 the whole chain.
 
+The self-contained win-x64 desktop publish is ReadyToRun; portable builds, tests, the simulator
+and the relay keep their existing publish settings.
+
 The installer is unchanged by that: Velopack installs per user under
 `%LOCALAPPDATA%\TarkovCompanionDesktop`, and application data stays separately under
 `%LOCALAPPDATA%\TarkovCompanion`. The pack id must never equal the data directory name, or
@@ -61,8 +64,6 @@ Two things are not true yet, and are recorded rather than implied:
   (`RELEASES.md`, "The rough channel"). The bounded authenticated transport, pinned Sigstore
   verifier and binary/data/model transaction are implemented and fixture-tested, but #294 still
   has to compose them with Velopack and component activation, and #270 supplies persisted state.
-- **Delta packages are not produced.** Verification packs full packages only; the release chain
-  signs deltas if verification starts producing them.
 
 Signed desktop builds reach a machine without the in-app updater, or without any network, through
 `scripts/release/install-offline.ps1`:

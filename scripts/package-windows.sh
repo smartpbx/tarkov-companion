@@ -58,6 +58,7 @@ readonly TASK_BUILD_COMMIT
 publish_project() {
     local project="$1"
     local framework="${2:-}"
+    local ready_to_run="${3:-false}"
     "${TASK_DOTNET}" publish "${project}" \
         --configuration Release \
         --runtime win-x64 \
@@ -71,12 +72,16 @@ publish_project() {
         -p:BuildInParallel=false \
         -p:PublishSingleFile=false \
         -p:DebugType=None \
+        -p:PublishReadyToRun="${ready_to_run}" \
         -p:DebugSymbols=false \
         -p:Version="${TASK_VERSION}" \
         -p:InformationalVersion="${TASK_VERSION}+${TASK_BUILD_COMMIT}"
 }
 
-publish_project "${TASK_APP_PROJECT}" "${TASK_APP_FRAMEWORK}"
+# [Issue 728] Only the shipped desktop is precompiled (ReadyToRun): the first visit to a page
+# was spending much of its time compiling code the first time it ran. The restore step in
+# windows-verify.yml passes the same property, or the crossgen runtime pack is missing here.
+publish_project "${TASK_APP_PROJECT}" "${TASK_APP_FRAMEWORK}" true
 publish_project "${TASK_SIMULATOR_PROJECT}"
 
 cp "${TASK_PROJECT_ROOT}/README.md" "${TASK_PUBLISH_DIR}/README.md"
