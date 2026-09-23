@@ -198,6 +198,18 @@
                 </ComboBox.ItemTemplate>
               </ComboBox>
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Classes="v2-debrief-muted" Text="Tag" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding TagFilterOptions}" SelectedItem="{Binding SelectedTagFilterOption}"
+                        MinWidth="130" AutomationProperties.AutomationId="v2-debrief-filter-tag"
+                        AutomationProperties.Name="Tag">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DebriefTagFilterOption">
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
             <ItemsControl ItemsSource="{Binding OutcomeFilterChips}" AutomationProperties.AutomationId="v2-debrief-filter-outcome">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
@@ -235,6 +247,33 @@
                           AutomationProperties.Name="To date" />
             </StackPanel>
           </WrapPanel>
+
+          <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+            <WrapPanel ItemSpacing="8" LineSpacing="6">
+              <TextBlock Classes="v2-debrief-muted" Text="Saved views" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding SavedViews}" SelectedItem="{Binding SelectedSavedView}"
+                        MinWidth="150" IsVisible="{Binding HasSavedViews}"
+                        AutomationProperties.AutomationId="v2-debrief-saved-view">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DebriefSavedView">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <Button Classes="v2-target v2-debrief-plain" Content="Apply" IsVisible="{Binding HasSavedViews}"
+                      Command="{Binding ApplySavedViewCommand}"
+                      AutomationProperties.AutomationId="v2-debrief-saved-view-apply" />
+              <Button Classes="v2-target v2-debrief-plain" Content="Delete" IsVisible="{Binding HasSavedViews}"
+                      Command="{Binding DeleteSavedViewCommand}"
+                      AutomationProperties.AutomationId="v2-debrief-saved-view-delete" />
+              <TextBox Classes="v2-field-input" Width="170" MaxLength="32" Text="{Binding SavedViewName}"
+                       PlaceholderText="View name" AutomationProperties.Name="View name"
+                       AutomationProperties.AutomationId="v2-debrief-saved-view-name" />
+              <Button Classes="v2-target v2-debrief-plain" Content="Save current"
+                      Command="{Binding SaveViewCommand}"
+                      AutomationProperties.AutomationId="v2-debrief-saved-view-save" />
+            </WrapPanel>
+          </Border>
 
           <!-- #291 package 3: bulk delete, with the same preview-then-confirm shape as the single
                raid delete below. Kept beside the date range it reads. -->
@@ -328,7 +367,10 @@
                           AutomationProperties.Name="{Binding MapLabel}"
                           Command="{Binding SelectCommand}">
                     <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
-                      <TextBlock Grid.Column="0" Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <TextBlock Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding TagsLabel}" IsVisible="{Binding HasTags}" />
+                      </StackPanel>
                       <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding Mode}" />
                       <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding StartedLabel}" />
                       <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
@@ -385,6 +427,37 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-heading-3" Text="Tags" AutomationProperties.HeadingLevel="3" />
+                <ItemsControl ItemsSource="{Binding SelectedTags}" IsVisible="{Binding HasSelectedTags}"
+                              AutomationProperties.AutomationId="v2-debrief-tags">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DebriefTagViewModel">
+                      <Border Classes="v2-debrief-kind">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                          <TextBlock Text="{Binding Label}" />
+                          <Button Classes="v2-target v2-debrief-plain" Padding="4,0" MinHeight="24"
+                                  Content="×" Command="{Binding RemoveCommand}"
+                                  AutomationProperties.Name="Remove tag" />
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBox Classes="v2-field-input" Width="220" MaxLength="24" Text="{Binding NewTag}"
+                           PlaceholderText="Add a tag" AutomationProperties.Name="New tag"
+                           AutomationProperties.AutomationId="v2-debrief-tag-input" />
+                  <Button Classes="v2-target v2-debrief-plain" Content="Add" Command="{Binding AddTagCommand}"
+                          AutomationProperties.AutomationId="v2-debrief-tag-add" />
+                </StackPanel>
               </StackPanel>
             </Border>
 
