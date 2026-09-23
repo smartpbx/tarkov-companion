@@ -424,6 +424,8 @@ pairing offer, answers the ticket with the offer's code
 (`POST …/resume/requests/{ticket}/offer`), and the pairing handshake runs with the code entry and
 the six-digit comparison left out, both long-term keys being already pinned. A revoke now also
 marks a device that had merely expired, so going quiet is not a way around being revoked.
+The tablet keeps a confirmed **Pair again** escape visible throughout this wait, and a fresh QR
+link always starts its new pairing attempt instead of restoring the remembered desktop (#708).
 `POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
 reaches the relay, and an owner registering a tablet whose device key is already known replaces
 that tablet's old record.
