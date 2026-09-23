@@ -116,6 +116,90 @@ public sealed class SquadAfterRaidCockpitTests
         Assert.False(forwarder.IsForwarded(101));
     }
 
+    /// <summary>
+    /// #289: a "Just me" mark never reaches the relay; widening it sends it, narrowing a sent
+    /// one takes it off, and a new lifetime that makes a ping a waypoint is a remove and resend.
+    /// </summary>
+    [Fact]
+    public async Task A_private_mark_is_never_sent_and_a_scope_change_sends_or_withdraws_it()
+    {
+        var store = new FakeMarkStore(NowUtc);
+        var sent = new ConcurrentQueue<(Guid Mark, bool IsPing)>();
+        var removed = new ConcurrentQueue<long>();
+        var lastPlaced = Guid.Empty;
+        using var forwarder = new GroupMarkForwarder(
+            store,
+            mark =>
+            {
+                lastPlaced = mark.Id;
+                return new WorldPosition(mark.State.X, 0, -mark.State.Y);
+            },
+            (_, _, isPing, _) =>
+            {
+                sent.Enqueue((lastPlaced, isPing));
+                return Task.FromResult<long?>(300 + sent.Count);
+            },
+            id =>
+            {
+                removed.Enqueue(id);
+                return Task.CompletedTask;
+            },
+            new FixedClock(NowUtc));
+
+        var secret = await store.PlaceAsync("customs", null, 5, 5, null, RaidMarkScope.Private, RaidMarkLifetime.Ping);
+        var shared = await store.PlaceAsync("customs", null, 6, 6, null, RaidMarkScope.Squad, RaidMarkLifetime.Ping);
+        await WaitUntilAsync(() => forwarder.IsForwarded(301));
+        Assert.Equal([shared.Id], sent.Select(item => item.Mark).ToArray());
+
+        // Moving or renaming a private mark still sends nothing.
+        await store.MoveAsync(secret.Id, 7, 7);
+        Assert.Single(sent);
+
+        await store.SetOptionsAsync(secret.Id, RaidMarkScope.Squad, RaidMarkLifetime.Ping);
+        await WaitUntilAsync(() => forwarder.IsForwarded(302));
+        Assert.Equal(secret.Id, sent.Last().Mark);
+
+        await store.SetOptionsAsync(shared.Id, RaidMarkScope.Private, RaidMarkLifetime.Ping);
+        await WaitUntilAsync(() => !removed.IsEmpty);
+        Assert.Equal([301L], removed.ToArray());
+        Assert.False(forwarder.IsForwarded(301));
+
+        // Ping to five minutes: the relay holds a ping 45 s, so it goes back as a waypoint.
+        await store.SetOptionsAsync(secret.Id, RaidMarkScope.Squad, RaidMarkLifetime.FiveMinutes);
+        await WaitUntilAsync(() => forwarder.IsForwarded(303));
+        Assert.Equal([301L, 302L], removed.ToArray());
+        Assert.False(sent.Last().IsPing);
+        Assert.Equal(3, sent.Count);
+    }
+
+    /// <summary>
+    /// #289 conflict: a squadmate removed our waypoint on the relay. The later action wins, so
+    /// the local copy is handed back for removal, but only once the relay was seen holding it.
+    /// </summary>
+    [Fact]
+    public async Task A_waypoint_removed_by_the_squad_is_reported_once_and_only_after_it_was_seen()
+    {
+        var store = new FakeMarkStore(NowUtc);
+        using var forwarder = new GroupMarkForwarder(
+            store,
+            mark => new WorldPosition(mark.State.X, 0, -mark.State.Y),
+            (_, _, _, _) => Task.FromResult<long?>(401),
+            _ => Task.CompletedTask,
+            new FixedClock(NowUtc));
+
+        var waypoint = await store.PlaceAsync("customs", null, 5, 5, null, RaidMarkScope.Squad, RaidMarkLifetime.UntilRemoved);
+        await WaitUntilAsync(() => forwarder.IsForwarded(401));
+
+        // Not yet in a snapshot: still on its way, not removed.
+        Assert.Empty(forwarder.ObserveGroup(new HashSet<long>()));
+        Assert.Empty(forwarder.ObserveGroup(new HashSet<long> { 401 }));
+        Assert.Equal(waypoint.Id, forwarder.LocalIdFor(401));
+
+        Assert.Equal([waypoint.Id], forwarder.ObserveGroup(new HashSet<long>()));
+        Assert.Empty(forwarder.ObserveGroup(new HashSet<long>()));
+        Assert.Null(forwarder.LocalIdFor(401));
+    }
+
     [Fact]
     public async Task A_moved_waypoint_is_replaced_on_the_relay_and_old_marks_are_never_replayed()
     {
@@ -259,6 +343,34 @@ public sealed class SquadAfterRaidCockpitTests
         }
 
         public Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default)
+        {
+            var mark = new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, now)), now) { Scope = scope, Lifetime = lifetime };
+            _marks.Add(mark);
+            Changed?.Invoke();
+            return Task.FromResult(mark);
+        }
+
+        public Task SetOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default)
+        {
+            var index = _marks.FindIndex(mark => mark.Id == id);
+            if (index >= 0)
+            {
+                var old = _marks[index];
+                _marks[index] = old with { Kind = RaidMarkLifetimes.KindFor(lifetime), Scope = scope, Lifetime = lifetime };
+                Changed?.Invoke();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task EndRaidAsync(CancellationToken cancellationToken = default)
+        {
+            _marks.RemoveAll(mark => mark.Lifetime == RaidMarkLifetime.ThisRaid);
+            Changed?.Invoke();
+            return Task.CompletedTask;
+        }
 
         public Task RemoveAsync(Guid id, CancellationToken cancellationToken = default)
         {

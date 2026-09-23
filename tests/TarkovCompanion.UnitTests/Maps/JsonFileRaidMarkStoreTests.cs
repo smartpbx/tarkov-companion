@@ -196,6 +196,88 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         Assert.Equal(0, MarksOnDisk());
     }
 
+    /// <summary>
+    /// #289: a five-minute waypoint leaves on the store's own timer through the injected clock,
+    /// fifteen minutes lasts fifteen, and "until removed" never does.
+    /// </summary>
+    [Fact]
+    public async Task AChosenLifetimeExpiresOnTheInjectedClock()
+    {
+        var clock = new ManualTimeProvider(new(2026, 9, 23, 12, 0, 0, TimeSpan.Zero));
+        using var store = new JsonFileRaidMarkStore(StorePath, clock);
+        var five = await store.PlaceAsync("customs", null, 1, 1, null, RaidMarkScope.Squad, RaidMarkLifetime.FiveMinutes);
+        var fifteen = await store.PlaceAsync("customs", null, 2, 2, null, RaidMarkScope.Private, RaidMarkLifetime.FifteenMinutes);
+        var forever = await store.PlaceAsync("customs", null, 3, 3, null, RaidMarkScope.Squad, RaidMarkLifetime.UntilRemoved);
+
+        // Only the 45-second lifetime is a ping; a five-minute mark is a waypoint that ends.
+        Assert.Equal(RaidMarkKind.Waypoint, five.Kind);
+        Assert.Equal(clock.GetUtcNow() + TimeSpan.FromMinutes(5), five.State.ExpiresUtc);
+        Assert.Equal("5m 00s left", RaidMarkLifetimes.TimeLeft(five, clock.GetUtcNow()));
+
+        var fiveGone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.Changed += () =>
+        {
+            if (store.Marks.All(mark => mark.Id != five.Id))
+            {
+                fiveGone.TrySetResult();
+            }
+        };
+        clock.Advance(TimeSpan.FromMinutes(5));
+        await fiveGone.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(new[] { fifteen.Id, forever.Id }.Order(), store.Marks.Select(mark => mark.Id).Order());
+        Assert.Equal("10m 00s left", RaidMarkLifetimes.TimeLeft(store.Marks.Single(mark => mark.Id == fifteen.Id), clock.GetUtcNow()));
+
+        var fifteenGone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.Changed += () =>
+        {
+            if (store.Marks.All(mark => mark.Id != fifteen.Id))
+            {
+                fifteenGone.TrySetResult();
+            }
+        };
+        clock.Advance(TimeSpan.FromMinutes(10));
+        await fifteenGone.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal([forever.Id], store.Marks.Select(mark => mark.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task ScopeAndLifetimeSurviveAReloadAndANewLifetimeCountsFromNow()
+    {
+        var clock = new ManualTimeProvider(new(2026, 9, 23, 12, 0, 0, TimeSpan.Zero));
+        using (var first = new JsonFileRaidMarkStore(StorePath, clock))
+        {
+            var ping = await first.PlaceAsync("customs", null, 1, 1, null, RaidMarkScope.Squad, RaidMarkLifetime.Ping);
+            clock.Advance(TimeSpan.FromSeconds(20));
+            await first.SetOptionsAsync(ping.Id, RaidMarkScope.Private, RaidMarkLifetime.FifteenMinutes);
+        }
+
+        using var second = new JsonFileRaidMarkStore(StorePath, clock);
+        await second.LoadAsync();
+        var reloaded = Assert.Single(second.Marks);
+        Assert.Equal(RaidMarkScope.Private, reloaded.Scope);
+        Assert.Equal(RaidMarkLifetime.FifteenMinutes, reloaded.Lifetime);
+        Assert.Equal(RaidMarkKind.Waypoint, reloaded.Kind);
+        Assert.Equal(clock.GetUtcNow() + TimeSpan.FromMinutes(15), reloaded.State.ExpiresUtc);
+    }
+
+    [Fact]
+    public async Task EndingTheRaidRemovesOnlyThisRaidMarksAndOldRowsReadAsSquad()
+    {
+        using var store = new JsonFileRaidMarkStore(StorePath);
+        var old = await store.AddAsync(RaidMarkKind.Waypoint, "customs", null, 1, 1, null);
+        var raidOnly = await store.PlaceAsync("customs", null, 2, 2, null, RaidMarkScope.Squad, RaidMarkLifetime.ThisRaid);
+        Assert.Null(raidOnly.State.ExpiresUtc);
+        Assert.Equal("this raid", RaidMarkLifetimes.TimeLeft(raidOnly, DateTimeOffset.UtcNow));
+
+        await store.EndRaidAsync();
+
+        var left = Assert.Single(store.Marks);
+        Assert.Equal(old.Id, left.Id);
+        Assert.Equal(RaidMarkScope.Squad, left.Scope);
+        Assert.Equal(RaidMarkLifetime.UntilRemoved, left.Lifetime);
+    }
+
     private int MarksOnDisk()
     {
         using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(StorePath));

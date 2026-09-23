@@ -100,10 +100,64 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
         _rename = rename;
         Kind = mark.Kind;
         Label = label;
+        Scope = mark.Scope;
+        Lifetime = mark.Lifetime;
+        _mark = mark;
         _editableName = mark.State.Label ?? string.Empty;
         RenameCommand = new DelegateCommand(() => _ = _rename(_id, EditableName));
         RemoveCommand = new DelegateCommand(() => _ = remove(_id));
     }
+
+    /// <summary>#289: who sees this mark. A group mark is always the squad's.</summary>
+    public RaidMarkScope Scope { get; } = RaidMarkScope.Squad;
+
+    public RaidMarkLifetime Lifetime { get; } = RaidMarkLifetime.UntilRemoved;
+
+    /// <summary>Changes scope and lifetime together; null on a group mark, which is not ours to change.</summary>
+    public Func<Guid, RaidMarkScope, RaidMarkLifetime, Task>? SetOptions { get; init; }
+
+    public bool CanChangeOptions => SetOptions is not null;
+
+    private readonly RaidMark? _mark;
+    private string _timeLeft = string.Empty;
+
+    /// <summary>"4m 12s left", "until removed" or "this raid"; <see cref="Tick"/> keeps it current.</summary>
+    public string TimeLeft
+    {
+        get => _timeLeft;
+        init => _timeLeft = value;
+    }
+
+    /// <summary>Whether a clock ends this mark, so it has a countdown to keep current.</summary>
+    public bool Expires => _mark?.State.ExpiresUtc is not null;
+
+    /// <summary>Recounts the time left in place, so a row being renamed is not rebuilt under the player.</summary>
+    public void Tick(DateTimeOffset nowUtc)
+    {
+        if (_mark is null)
+        {
+            return;
+        }
+
+        var next = RaidMarkLifetimes.TimeLeft(_mark, nowUtc);
+        if (next != _timeLeft)
+        {
+            _timeLeft = next;
+            OnPropertyChanged(nameof(TimeLeft));
+            OnPropertyChanged(nameof(OptionsLabel));
+        }
+    }
+
+    /// <summary>"Squad · 4m 12s left": the line under the name.</summary>
+    public string OptionsLabel => IsGroupMark
+        ? string.Empty
+        : string.Join(" · ", new[] { RaidMarkLifetimes.ScopeName(Scope), TimeLeft }.Where(part => part.Length > 0));
+
+    public bool IsPrivate => Scope == RaidMarkScope.Private;
+
+    public Task ChooseScopeAsync(RaidMarkScope scope) => SetOptions?.Invoke(_id, scope, Lifetime) ?? Task.CompletedTask;
+
+    public Task ChooseLifetimeAsync(RaidMarkLifetime lifetime) => SetOptions?.Invoke(_id, Scope, lifetime) ?? Task.CompletedTask;
 
     /// <summary>
     /// V2 rough package 20: a mark the group shared, listed beside our own so every mark drawn on
@@ -1708,12 +1762,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         // Its own name, so the marks list says which spawn it was. A waypoint is a note to the
         // player, not a claim that anything is there.
-        _ = _marks.AddAsync(RaidMarkKind.Waypoint, model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label);
+        _ = _marks.PlaceAsync(model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label, NewMarkScope, RaidMarkLifetime.UntilRemoved);
     }
 
     private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
     {
-        await _marks.AddAsync(kind, mapId, floorId, x, y, label: null).ConfigureAwait(true);
+        await PlaceWithScopeAsync(kind, mapId, floorId, x, y).ConfigureAwait(true);
     }
 
     // internal rather than private: a paired tablet holding the control lease switches the
@@ -2147,6 +2201,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private void RuntimeStateChanged(object? sender, EventArgs e)
     {
         var snapshot = _stateStore.Current;
+        ObserveMarkLifetimes(snapshot);
         var raid = snapshot.Raid;
         var group = snapshot.Group;
         if (ReferenceEquals(raid, _seenRaid) && ReferenceEquals(group, _seenGroup))
@@ -2192,11 +2247,17 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             : [
                 .. LabelMarksForMap(_marks.Marks, mapId)
                     .OrderByDescending(item => item.Mark.CreatedUtc)
-                    .Select(item => new RaidMarkRowViewModel(item.Mark, item.Label, RenameMarkAsync, id => _marks.RemoveAsync(id))),
+                    .Select(item => new RaidMarkRowViewModel(item.Mark, item.Label, RenameMarkAsync, id => _marks.RemoveAsync(id))
+                    {
+                        // #289: scope and time left under the name, and the Options menu.
+                        SetOptions = SetMarkOptionsAsync,
+                        TimeLeft = RaidMarkLifetimes.TimeLeft(item.Mark, _timeProvider.GetUtcNow()),
+                    }),
                 .. GroupMarkRows(mapId),
             ];
         OnPropertyChanged(nameof(Marks));
         OnPropertyChanged(nameof(HasMarks));
+        ScheduleMarkClock();
     }
 
     /// <summary>
@@ -3597,7 +3658,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 item.Mark.Kind == RaidMarkKind.Ping ? MapSceneObjectKind.Ping : MapSceneObjectKind.Waypoint,
                 MapSceneTruthKind.UserAuthored,
                 item.Label,
-                null,
+                // #289: what hovering the mark says, besides its name.
+                MarkHoverDetail(item.Mark),
                 MapSceneGeometry.At(new(item.Mark.State.X, item.Mark.State.Y)),
                 item.Mark.State.FloorId is null ? [] : [item.Mark.State.FloorId],
                 new DataProvenance("local-mark", nowUtc),

@@ -15,7 +15,8 @@ namespace TarkovCompanion.App.Views.V2.MapRenderer;
 /// [V2 rough package 46] Shift is carried rather than resolved here because which mark a modifier
 /// means is the host's business, not the renderer's. The renderer only reports the gesture.
 /// </remarks>
-public readonly record struct MapPlanGesture(MapScenePoint Point, bool IsSecondary);
+/// <param name="IsMenu">Ctrl was held: the host offers a menu of what to place instead (#289).</param>
+public readonly record struct MapPlanGesture(MapScenePoint Point, bool IsSecondary, bool IsMenu = false);
 
 /// <summary>Responsive pointer, touch, and keyboard handoff for the canonical map view.</summary>
 public sealed partial class MapSceneRendererView : UserControl
@@ -226,7 +227,10 @@ public sealed partial class MapSceneRendererView : UserControl
                 {
                     PlanRightClicked?.Invoke(
                         this,
-                        new(scenePoint, eventArgs.KeyModifiers.HasFlag(KeyModifiers.Shift)));
+                        new(
+                            scenePoint,
+                            eventArgs.KeyModifiers.HasFlag(KeyModifiers.Shift),
+                            eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control)));
                     // Handled either way, so nothing further up opens a context menu over the
                     // plan and swallows the gesture the next time.
                     eventArgs.Handled = true;

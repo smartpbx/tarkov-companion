@@ -1541,6 +1541,13 @@ internal static class Program
                 }
             }
 
+            // [#289] One mark of each scope and lifetime; see MarkScopeDemo. Before the team demo,
+            // whose group the running group service would otherwise replace while this pumps.
+            if (shell is not null && args.Contains("--mark-scopes-demo"))
+            {
+                MarkScopeDemo.Run(window, services, viewModel.Map.RenderModel?.Location.Id, outputPath, args.Contains("--open-mark-menu"), Pump);
+            }
+
             if (shell is not null && args.Contains("--team-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();

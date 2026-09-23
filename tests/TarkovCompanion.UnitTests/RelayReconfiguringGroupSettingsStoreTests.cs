@@ -136,6 +136,13 @@ public sealed class RelayReconfiguringGroupSettingsStoreTests
         public Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task RemoveAsync(Guid id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, null), Now));
+
+        public Task SetOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task EndRaidAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class MemoryAuthorityStore : IDesktopCompanionAuthorityStore
