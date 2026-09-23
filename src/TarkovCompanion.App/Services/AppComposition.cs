@@ -661,7 +661,8 @@ public static class AppComposition
                 new ScreenshotWatchPacer(provider.GetRequiredService<IRuntimeStateStore>()));
             services.AddSingleton<IScreenshotWatcher>(provider => new WindowsScreenshotWatcher(
                 commandLine.DeveloperMode,
-                pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
+                pacer: provider.GetRequiredService<IScreenshotWatchPacer>(),
+                logger: provider.GetService<ILogger<WindowsScreenshotWatcher>>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
             // [Issue 316] GDI window capture is retired: scans read the screenshots the game writes.
             // The slot stays because the scan use case and the capture-session source take one;

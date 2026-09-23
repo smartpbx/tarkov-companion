@@ -197,11 +197,9 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
             };
         }
 
-        // Which clock won is the parser's decision, and it is the difference between a position
-        // that lands on the map and one discarded as older than the raid already on screen.
-        var clock = writtenUtc is { } at && (position.Timestamp - at).Duration() < TimeSpan.FromSeconds(2)
-            ? "the file's own write time"
-            : "the clock in the name";
+        // Coordinates and capture time are the one immutable identity in the game's filename.
+        // The filesystem stamp is still reported above for names without a position, but it is
+        // never the capture clock for a position that will be placed on the map.
         return new(
             root,
             name,
@@ -211,7 +209,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
             position.Position.X,
             position.Position.Y,
             position.Position.Z,
-            clock,
+            "the clock in the name",
             waited,
             noticedUtc - position.Timestamp)
         {
