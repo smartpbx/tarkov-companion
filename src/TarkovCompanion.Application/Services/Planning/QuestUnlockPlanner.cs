@@ -1,5 +1,6 @@
 using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Core.Domain.Events;
 
 namespace TarkovCompanion.Application.Services.Planning;
 
@@ -89,13 +90,16 @@ public static class QuestUnlockPlanner
 /// </summary>
 public static class NextRaidPlanner
 {
-    public static IReadOnlyList<NextRaidCandidate> Rank(IEnumerable<NextRaidCandidate> candidates)
+    public static IReadOnlyList<NextRaidCandidate> Rank(
+        IEnumerable<NextRaidCandidate> candidates,
+        ActiveEventRules? eventRules = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         return
         [
             .. candidates
                 .Where(candidate => candidate.MapKey.Length > 0 && candidate.Objectives > 0)
+                .Where(candidate => eventRules?.IsMapAvailable(candidate.MapKey) != false)
                 .OrderByDescending(candidate => candidate.Quests)
                 .ThenByDescending(candidate => candidate.Objectives)
                 .ThenBy(candidate => candidate.MapLabel, StringComparer.OrdinalIgnoreCase)
@@ -103,6 +107,8 @@ public static class NextRaidPlanner
         ];
     }
 
-    public static NextRaidCandidate? Suggest(IEnumerable<NextRaidCandidate> candidates) =>
-        Rank(candidates).FirstOrDefault();
+    public static NextRaidCandidate? Suggest(
+        IEnumerable<NextRaidCandidate> candidates,
+        ActiveEventRules? eventRules = null) =>
+        Rank(candidates, eventRules).FirstOrDefault();
 }

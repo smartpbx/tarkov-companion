@@ -1,8 +1,10 @@
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Events;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Recommendations;
@@ -50,6 +52,7 @@ public sealed class ScanUseCase : IScanUseCase
     private readonly ILogger<ScanUseCase>? _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ScanFrameOptions _frameOptions;
+    private readonly EventRuleService? _eventRules;
 
     public ScanUseCase(
         IScreenCaptureService capture,
@@ -66,7 +69,8 @@ public sealed class ScanUseCase : IScanUseCase
         IScanResultPublisher publisher,
         ILogger<ScanUseCase>? logger = null,
         TimeProvider? timeProvider = null,
-        ScanFrameOptions? frameOptions = null)
+        ScanFrameOptions? frameOptions = null,
+        EventRuleService? eventRules = null)
     {
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
         _recognition = recognition ?? throw new ArgumentNullException(nameof(recognition));
@@ -83,6 +87,7 @@ public sealed class ScanUseCase : IScanUseCase
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _frameOptions = ScanFrameDeadline.Validate(frameOptions);
+        _eventRules = eventRules;
     }
 
     public async Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken)
@@ -414,7 +419,23 @@ public sealed class ScanUseCase : IScanUseCase
             return (null, ScanCompletionStatus.Partial, "canonical_item_or_price_unavailable", null, null);
         }
 
-        var value = knownPrice.BestEconomicValue;
+        var activeRules = ActiveEventRules.Empty;
+        if (_eventRules is not null)
+        {
+            var (rulesRead, evaluation) = await WithinFrameAsync(
+                    frame,
+                    token => ReadEventRulesAsync(recognition.ObservedUtc, token))
+                .ConfigureAwait(false);
+            if (!rulesRead)
+            {
+                return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode, null, null);
+            }
+
+            activeRules = evaluation.Active;
+        }
+
+        var adjustedPrice = EventRulePriceAdjustment.Apply(knownPrice, activeRules);
+        var value = adjustedPrice.BestEconomicValue;
         var perSlot = value / Math.Max(1, knownItem.Dimensions.Width * knownItem.Dimensions.Height);
 
         var (contextRead, context) = await WithinFrameAsync(
@@ -438,7 +459,12 @@ public sealed class ScanUseCase : IScanUseCase
             return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode, value, perSlot);
         }
 
-        var recommendation = _recommendations.Recommend(knownItem, knownPrice, context, ValueTierThresholds.Default);
+        var recommendation = _recommendations.Recommend(
+            knownItem,
+            knownPrice,
+            context,
+            ValueTierThresholds.Default,
+            activeRules);
         evidence.Add(new(
             "recommendation",
             recommendation.Action + ": " + recommendation.Explanation,
@@ -447,6 +473,21 @@ public sealed class ScanUseCase : IScanUseCase
         // A degraded recognition still gets its advice; ReadFrameAsync marks the scan Partial with
         // the code, here and on every earlier return that has a code of its own.
         return (recommendation, ScanCompletionStatus.Complete, null, value, perSlot);
+    }
+
+    private async Task<EventRuleEvaluation> ReadEventRulesAsync(
+        DateTimeOffset evaluatedUtc,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _eventRules!.ReadActiveAsync(evaluatedUtc, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger?.LogWarning(exception, "Event rules could not be read for this scan.");
+            return new(ActiveEventRules.Empty, new Dictionary<string, IReadOnlyList<EventRuleValidationIssue>>());
+        }
     }
 
     /// <summary>

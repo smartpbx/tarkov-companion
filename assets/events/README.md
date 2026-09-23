@@ -27,8 +27,8 @@ the name. With it selected, search the item catalog and press Add for each item 
 Remove to take one back out. Delete removes the file.
 
 The page writes the same shape described below, so a definition it created can be edited by hand
-afterwards, and one written by hand can be edited on the page. Only the fields the page offers
-are reachable from it: dates and rules are still a text editor's job.
+afterwards, and one written by hand can be edited on the page. Rules are still a text editor's
+job, but the page validates and previews them before they can affect planning or recommendations.
 
 Recorded results are keyed by event id and item id together, so removing an item and adding it
 back keeps what was recorded against it. Changing an event's `id` does orphan them.
@@ -46,7 +46,7 @@ One event per file. `//` comments and trailing commas are allowed.
   "endUtc": null,                        // optional; must not be earlier than startUtc
   "active": true,                        // required; false keeps the event listed but not in force
   "applicableItemIds": [],               // item ids as used by the app's item data (json.tarkov.dev ids)
-  "rulesJson": "{\"consumePrecedence\":[\"allergic\",\"safe\",\"untested\"]}", // optional JSON text
+  "rulesJson": "{\"effects\":[{\"type\":\"flea-availability\",\"enabled\":false}]}", // optional JSON text
   "provenance": {                        // optional; say where the item list came from
     "observedUtc": "2026-09-01T00:00:00Z",   // when you checked; defaults to the file's modified time
     "sourceUpdatedUtc": null,
@@ -60,6 +60,20 @@ A file is skipped without stopping the others when it is not valid JSON, is larg
 lacks `id`, `name` or `active`, has `endUtc` before `startUtc`, has a `rulesJson` that is not
 JSON, or repeats an `id` already loaded from an earlier file (files load in name order). Nothing
 is logged for a skipped file, so check these points first when an event does not appear.
+
+## Typed effects
+
+`rulesJson` is JSON text inside the definition. Its `effects` array may contain these objects:
+
+- `trader-price-multiplier`: `traderId`, optional `traderName`, and `multiplier` greater than 0.
+- `flea-availability`: `enabled` (`true` or `false`).
+- `map-availability`: `mapId`, optional `mapName`, and `available`.
+- `boss-spawn-multiplier`: `bossId`, optional `bossName` and `mapId`, and `multiplier`.
+- `quest-availability-window`: `questId`, optional `questName`, and `startUtc`, `endUtc`, or both.
+
+Extra properties are ignored for forward compatibility. Missing or invalid required properties and
+unknown effect types are shown on Plan > Events with their JSON path. An invalid rule set never
+affects a recommendation or the next-raid suggestion.
 
 ## The shipped example
 

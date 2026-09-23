@@ -218,7 +218,8 @@ public interface IRecommendationEngine
         ItemDefinition item,
         ItemPriceSnapshot price,
         RecommendationContext context,
-        ValueTierThresholds thresholds);
+        ValueTierThresholds thresholds,
+        ActiveEventRules? eventRules = null);
 }
 
 public interface IPlayerProfileService
