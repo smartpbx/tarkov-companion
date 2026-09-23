@@ -51,6 +51,17 @@ internal static partial class V2DesignSystemFiles
 
     public static XElement ReadXaml(string[] segments) => XDocument.Parse(ReadText(segments)).Root!;
 
+    /// <summary>Every production V2 view, including feature-local style blocks.</summary>
+    public static IEnumerable<(string Path, XElement Root)> V2Views()
+    {
+        var repository = RepositoryRoot();
+        var views = Path.Combine(repository, "src", "TarkovCompanion.App", "Views", "V2");
+        foreach (var path in Directory.EnumerateFiles(views, "*.axaml", SearchOption.AllDirectories))
+        {
+            yield return (Path.GetRelativePath(repository, path), XDocument.Load(path).Root!);
+        }
+    }
+
     public static Dictionary<string, string> ReadStrings(string[] segments)
     {
         using var document = ReadJson(segments);
