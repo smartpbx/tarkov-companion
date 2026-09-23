@@ -37,6 +37,12 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 663] Magnification used while the raid map follows the player.</summary>
     public const string RaidFollowZoom = "raid.follow-zoom";
 
+    /// <summary>[Issue 701] Minimum value used by the raid map's potential-loot layer.</summary>
+    public const string RaidLootValueThreshold = "raid.loot-value-threshold";
+
+    /// <summary>[Issue 701] Whether potential loot is ranked per item or per inventory slot.</summary>
+    public const string RaidLootValueBasis = "raid.loot-value-basis";
+
     /// <summary>[Issue 702] Whether a new screenshot moves the raid map back to the player.</summary>
     public const string RaidFollow = "raid.follow";
 

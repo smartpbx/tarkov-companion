@@ -76,6 +76,9 @@ public sealed record TabletSearchResult(
 /// <summary>The lookup the desktop is currently showing, and what it found.</summary>
 public sealed record TabletSearch(string Query, IReadOnlyList<TabletSearchResult> Results);
 
+/// <summary>The desktop's potential-loot filter, carried with the already filtered scene.</summary>
+public sealed record TabletMapLootFilter(long MinimumValueRoubles, string ValueBasis);
+
 /// <summary>One item of a Loot Scan, as the tablet lists it: already worded by the desktop.</summary>
 /// <param name="Verdict">Take, Swap, Leave or Review: what the tablet colours the row by.</param>
 public sealed record TabletLootRow(string Name, string Verdict, string VerdictLabel, string Value, string Reason);
@@ -145,7 +148,9 @@ public sealed record TabletMapSurface(
     // a desktop restart cannot repeat one a tablet has already seen.
     DateTimeOffset? SentToTabletUtc = null,
     // #572: the last Loot Scan, shown on the tablet when it is new.
-    TabletLootResult? Loot = null);
+    TabletLootResult? Loot = null,
+    // #701: explains why this exact set of potential-loot objects is present.
+    TabletMapLootFilter? LootFilter = null);
 
 /// <summary>
 /// Builds the tablet's surface from the desktop's assembled scene, so the two are the same scene
@@ -168,7 +173,8 @@ public static class TabletMapSurfaceBuilder
         string? message,
         DateTimeOffset publishedUtc,
         DateTimeOffset? sentToTabletUtc = null,
-        TabletLootResult? loot = null)
+        TabletLootResult? loot = null,
+        TabletMapLootFilter? lootFilter = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
@@ -248,7 +254,8 @@ public static class TabletMapSurfaceBuilder
             reviewed ? message : message ?? "This map has no reviewed 2D plan yet.",
             publishedUtc,
             sentToTabletUtc,
-            loot);
+            loot,
+            lootFilter);
     }
 
     /// <summary>The kinds a map can hold thousands of, which are the ones to trim first.</summary>
