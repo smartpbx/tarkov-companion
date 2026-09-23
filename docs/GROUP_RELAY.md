@@ -552,6 +552,10 @@ command reaches the desktop's ordinary capture-arm event with its session and co
 This does not capture pixels or generate game input. The tablet page is embedded in the group
 server binary, so deploying this interface requires redeploying the relay.
 
+The tablet can relabel and move paired marks, use arrow/zoom/workspace keyboard shortcuts, and
+keeps failed new-mark sends in a visible device-local queue for at most fifteen minutes; after a
+reconnect it previews each against current canonical state and submits it with a stable command id.
+
 ## Which version everything speaks
 
 Every room reply and `/health` carry `protocol`, a whole number.

@@ -889,12 +889,15 @@ internal sealed class LinkMarkStore : IRaidMarkStore
 
     public IReadOnlyList<RaidMark> Marks => _marks;
 
+    public int AddCount { get; private set; }
+
     public event Action? Changed;
 
     public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<RaidMark> AddAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y, string? label, CancellationToken cancellationToken = default)
     {
+        AddCount++;
         var mark = new RaidMark(Guid.NewGuid(), kind, new MapMarkState(mapId, floorId, x, y, label, null), DateTimeOffset.UtcNow);
         _marks.Add(mark);
         Changed?.Invoke();
