@@ -273,6 +273,18 @@ public sealed partial class MapSceneRendererView : UserControl
         eventArgs.Handled = true;
     }
 
+    private void MapMarkerPointerEntered(object? sender, PointerEventArgs eventArgs)
+    {
+        if (DataContext is MapSceneRendererViewModel renderer &&
+            (sender as StyledElement)?.DataContext is MapSceneRendererObjectViewModel { ObjectId: { } id })
+        {
+            renderer.HoverRequirementObject(id);
+        }
+    }
+
+    private void MapMarkerPointerExited(object? sender, PointerEventArgs eventArgs) =>
+        (DataContext as MapSceneRendererViewModel)?.HoverRequirementObject(null);
+
     /// <summary>A drag that ends without a release (another control takes the pointer) puts the
     /// plan back where it was rather than leaving it mid-drag.</summary>
     /// <remarks>

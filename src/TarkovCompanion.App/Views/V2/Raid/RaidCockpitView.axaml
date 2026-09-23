@@ -939,7 +939,7 @@
                               Classes.v2-raid-offered="{Binding IsOffered}"
                               Classes.v2-raid-routed="{Binding IsHighlighted}"
                               Classes.v2-raid-not-offered="{Binding IsNotOffered}">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
                           <Viewbox Width="20" Height="20">
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Exit}" />
                           </Viewbox>
@@ -950,8 +950,26 @@
                                        TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                             <TextBlock Classes="v2-label" Opacity="0.85" Text="{Binding Estimate}" IsVisible="{Binding HasEstimate}" />
                           </StackPanel>
-                          <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
-                          <Border Grid.Column="3" Classes="v2-raid-chip" Classes.v2-raid-muted="{Binding IsNotOffered}"
+                          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center"
+                                      IsVisible="{Binding HasRequirements}" ToolTip.Tip="{Binding RequirementText}">
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding NeedsSwitch}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gear}" /></Viewbox>
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding NeedsKey}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Lock}" /></Viewbox>
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding NeedsPayment}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Cart}" /></Viewbox>
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding NeedsCoOp}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.People}" /></Viewbox>
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding IsOneTime}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Clock}" /></Viewbox>
+                            </Border>
+                          </StackPanel>
+                          <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
+                          <Border Grid.Column="4" Classes="v2-raid-chip" Classes.v2-raid-muted="{Binding IsNotOffered}"
                                   IsVisible="{Binding HasOfferLabel}" VerticalAlignment="Center">
                             <TextBlock Classes="v2-label" Text="{Binding OfferLabel}" />
                           </Border>

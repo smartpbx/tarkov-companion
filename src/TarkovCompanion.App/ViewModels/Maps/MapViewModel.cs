@@ -683,6 +683,7 @@ public enum MapMarkerKind
     Transit,
     Spawn,
     Lock,
+    Switch,
 }
 
 /// <summary>
@@ -737,10 +738,11 @@ public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool 
     {
         MapOverlayKind.Extracts => 0,
         MapOverlayKind.QuestObjectives => 1,
-        MapOverlayKind.Keys => 2,
-        MapOverlayKind.Spawns => 3,
-        MapOverlayKind.Labels => 4,
-        _ => 5,
+        MapOverlayKind.Switches => 2,
+        MapOverlayKind.Keys => 3,
+        MapOverlayKind.Spawns => 4,
+        MapOverlayKind.Labels => 5,
+        _ => 6,
     };
 
     public string CountText => Count > 0 ? Count.ToString(CultureInfo.InvariantCulture) : string.Empty;
@@ -751,12 +753,15 @@ public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool 
 
     public bool IsKeys => Kind == MapOverlayKind.Keys;
 
+    public bool IsSwitches => Kind == MapOverlayKind.Switches;
+
     public bool IsLabels => Kind == MapOverlayKind.Labels;
 
     public bool IsQuestObjectives => Kind == MapOverlayKind.QuestObjectives;
 
     /// <summary>Whether the row's swatch is a disc drawn like the markers, so the list is also the key.</summary>
-    public bool HasDiscSwatch => Kind is MapOverlayKind.Extracts or MapOverlayKind.Spawns or MapOverlayKind.Keys or MapOverlayKind.QuestObjectives;
+    public bool HasDiscSwatch => Kind is MapOverlayKind.Extracts or MapOverlayKind.Spawns or MapOverlayKind.Keys or
+        MapOverlayKind.Switches or MapOverlayKind.QuestObjectives;
 }
 
 /// <summary>
@@ -843,6 +848,8 @@ public sealed record MapOverlayElementViewModel(
 
     public bool IsLock => Kind == MapMarkerKind.Lock;
 
+    public bool IsSwitch => Kind == MapMarkerKind.Switch;
+
     /// <summary>
     /// The outline drawn on the disc, in a twelve pixel box.
     /// </summary>
@@ -865,6 +872,7 @@ public sealed record MapOverlayElementViewModel(
         },
         MapMarkerKind.Transit => "M 2.5,2.5 L 6,6 L 2.5,9.5 M 6.5,2.5 L 10,6 L 6.5,9.5",
         MapMarkerKind.Lock => "M 3.5,5.5 V 4 A 2.5,2.5 0 0 1 8.5,4 V 5.5 M 2,5.5 H 10 V 10.5 H 2 Z",
+        MapMarkerKind.Switch => "M 2,6 H 7 M 9,6 H 10 M 7,3 V 9 M 2,10 H 3 M 5,10 H 10 M 3,7 V 13",
         // A spawn is context rather than a target, so it stays a plain dot and says who it is
         // for with colour only. A shared spawn gets a ring, because "either side starts here"
         // is worth seeing before a raid.
@@ -882,7 +890,7 @@ public sealed record MapOverlayElementViewModel(
     /// that fifty markers' worth of text would bury the map under. Those show their name when
     /// pointed at.
     /// </remarks>
-    public bool IsNameQuiet => Kind is MapMarkerKind.Spawn or MapMarkerKind.Lock;
+    public bool IsNameQuiet => Kind is MapMarkerKind.Spawn or MapMarkerKind.Lock or MapMarkerKind.Switch;
 
     public string KindName => (Kind, Faction) switch
     {
@@ -895,6 +903,7 @@ public sealed record MapOverlayElementViewModel(
         (MapMarkerKind.Spawn, MapFeatureFaction.Scav) => "Scav spawn",
         (MapMarkerKind.Spawn, MapFeatureFaction.Shared) => "Spawn, either side",
         (MapMarkerKind.Spawn, _) => "Spawn",
+        (MapMarkerKind.Switch, _) => "Switch",
         _ => "Locked door",
     };
 
@@ -4091,6 +4100,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         MapOverlayKind.Keys => MapMarkerKind.Lock,
         MapOverlayKind.Spawns => MapMarkerKind.Spawn,
+        MapOverlayKind.Switches => MapMarkerKind.Switch,
         _ => element.Label.EndsWith('→') ? MapMarkerKind.Transit : MapMarkerKind.Extract,
     };
 

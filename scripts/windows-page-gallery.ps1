@@ -1438,6 +1438,21 @@ foreach ($Zoom in @(0, 3)) {
         interaction = [pscustomobject]@{ steps = $ExtractSteps.ToArray() }
     })
 }
+# [#737] Labs is the densest real switch map. Keep a Windows gallery frame with the layer on by
+# default and an extract selected so the numbered power/call/exit chain, its short names, and the
+# compact requirement chip are reviewed together at the player's normal 1920x1080 viewport.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-labs-switch-chain-1920"
+    args = @("--ui-shell", "v2-a", "--map", "the-lab")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "invoke"; description = "select the first Labs extract from Extract options"
+            targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
+            includeOffscreen = $true; timeoutSeconds = 120; settleMilliseconds = 1500
+        }) }
+})
 # [#573] The loot layer on real data: Customs with "High-value loot only" pressed, fitted. It
 # drew 232 identical diamonds over every building before it was ranked by value; the spawns
 # arrive with the loot publication, which a clean runner downloads first.

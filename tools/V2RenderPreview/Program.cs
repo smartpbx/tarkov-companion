@@ -1108,6 +1108,16 @@ internal static class Program
                 // the "Selected" card without a live click.
                 if (StringOption(args, "--select-extract") is { } selectExtract)
                 {
+                    // Map selection and catalog features finish on sibling async paths. Wait for
+                    // the named row itself; otherwise a real-map render can ask for the extract
+                    // a moment before the rows arrive, then photograph it present but unselected.
+                    for (var i = 0; i < 400 && !raid.MapExtracts.Any(item =>
+                             string.Equals(item.Name, selectExtract, StringComparison.OrdinalIgnoreCase)); i++)
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        Thread.Sleep(25);
+                    }
+
                     var extractRow = raid.MapExtracts.FirstOrDefault(item =>
                         string.Equals(item.Name, selectExtract, StringComparison.OrdinalIgnoreCase));
                     if (extractRow is null)

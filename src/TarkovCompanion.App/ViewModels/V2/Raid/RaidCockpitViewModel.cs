@@ -184,7 +184,8 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         string name,
         string detail,
         MapSceneOfferState offerState,
-        ICommand selectCommand)
+        ICommand selectCommand,
+        MapExtractRequirements? requirements = null)
     {
         Id = id;
         Position = position;
@@ -192,6 +193,8 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         Detail = detail;
         _offerState = offerState;
         SelectCommand = selectCommand;
+        Requirements = requirements;
+        RequirementText = MapExtractRequirementText.Describe(requirements);
     }
 
     /// <summary>The scene object this row is the same extract as, for the map to select.</summary>
@@ -204,6 +207,22 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
 
     /// <summary>Faction or "Transit": who can use it, in one or two words.</summary>
     public string Detail { get; }
+
+    public MapExtractRequirements? Requirements { get; }
+
+    public string RequirementText { get; }
+
+    public bool HasRequirements => RequirementText.Length > 0;
+
+    public bool NeedsSwitch => Requirements?.RequiresSwitch == true;
+
+    public bool NeedsKey => Requirements?.RequiresKey == true;
+
+    public bool NeedsPayment => Requirements?.RequiresPayment == true;
+
+    public bool NeedsCoOp => Requirements?.RequiresCoOp == true;
+
+    public bool IsOneTime => Requirements?.IsOneTime == true;
 
     public bool IsOffered => _offerState == MapSceneOfferState.Offered;
 
@@ -260,6 +279,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         {
             var (a, b) = (shown[index], next[index]);
             if (a.Id != b.Id || a.Position != b.Position || a.Name != b.Name || a.Detail != b.Detail ||
+                a.RequirementText != b.RequirementText ||
                 a._offerState != b._offerState || a.Estimate != b.Estimate || a.IsRouted != b.IsRouted ||
                 (a.RouteCommand is null) != (b.RouteCommand is null))
             {
@@ -271,7 +291,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
     }
 
     internal RaidExtractRowViewModel WithRoute(string estimate, bool isRouted, ICommand command) =>
-        new(Id, Position, Name, Detail, _offerState, SelectCommand) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
+        new(Id, Position, Name, Detail, _offerState, SelectCommand, Requirements) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
 }
 
 /// <summary>
@@ -998,6 +1018,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </summary>
     private void SelectExtract(MapSceneObjectId id, MapScenePoint point, string name)
     {
+        // Extract options lists every floor. Move to the marker's floor before selecting it;
+        // otherwise the renderer correctly refuses the hidden object and the row appears dead.
+        if (Renderer?.Scene.Objects.FirstOrDefault(item => item.Id == id) is { FloorIds.Count: > 0 } item &&
+            Renderer.Scene.View.SelectedFloorId is { } selectedFloor &&
+            !item.FloorIds.Contains(selectedFloor, StringComparer.OrdinalIgnoreCase))
+        {
+            Renderer.SelectFloor(item.FloorIds[0]);
+        }
+
         Renderer?.SelectObject(id);
         Renderer?.FocusOn(point);
         if (MapExtracts.FirstOrDefault(row => row.Id == id)?.HasEstimate == true)
@@ -2408,7 +2437,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         var legacyElements = legacyCandidates
             .Where(element => element.Layer is MapOverlayKind.Extracts or MapOverlayKind.QuestObjectives
-                or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys)
+                or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys or MapOverlayKind.Switches)
             .Where(element => element.Layer != MapOverlayKind.Extracts ||
                 coOpVisibility != CoOpExtractVisibility.Hidden || !CoOpExtracts.IsCoOp(element.Label))
             .Select(element => new MapSceneLegacyElement(
@@ -2743,7 +2772,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                     _ => "",
                 },
                 item.OfferState,
-                select is null ? NoOpCommand : new DelegateCommand(() => select(item.Id, point, item.Label)));
+                select is null ? NoOpCommand : new DelegateCommand(() => select(item.Id, point, item.Label)),
+                item.ExtractRequirements);
         })
         .ToArray();
 

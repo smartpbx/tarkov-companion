@@ -49,6 +49,7 @@ public sealed class MapSceneAssembler
     private static readonly MapSceneLayerId ExtractsLayer = new("extracts");
     private static readonly MapSceneLayerId SpawnsLayer = new("spawns");
     private static readonly MapSceneLayerId KeysLayer = new("keys");
+    private static readonly MapSceneLayerId SwitchesLayer = new("switches");
     private static readonly MapSceneLayerId QuestsLayer = new("quest-objectives");
 
     public MapSceneBuildResult Build(MapSceneBuildRequest request)
@@ -147,6 +148,7 @@ public sealed class MapSceneAssembler
         MapOverlayKind.Extracts or
         MapOverlayKind.Spawns or
         MapOverlayKind.Keys or
+        MapOverlayKind.Switches or
         MapOverlayKind.QuestObjectives;
 
     private static MapSceneObject Adapt(
@@ -161,6 +163,7 @@ public sealed class MapSceneAssembler
             MapOverlayKind.Extracts => MapSceneObjectKind.Extract,
             MapOverlayKind.Spawns => MapSceneObjectKind.SpawnArea,
             MapOverlayKind.Keys => MapSceneObjectKind.Lock,
+            MapOverlayKind.Switches => MapSceneObjectKind.Switch,
             MapOverlayKind.QuestObjectives => MapSceneObjectKind.QuestObjective,
             _ => throw new ArgumentOutOfRangeException(nameof(element)),
         };
@@ -183,7 +186,10 @@ public sealed class MapSceneAssembler
             FloorsFor(element, floors),
             source.Provenance,
             faction: element.Faction,
-            offerState: source.OfferState);
+            offerState: source.OfferState,
+            catalogId: element.CatalogId,
+            extractRequirements: element.ExtractRequirements,
+            mapSwitch: element.Switch);
     }
 
     private static IReadOnlyList<string> FloorsFor(
@@ -245,6 +251,7 @@ public sealed class MapSceneAssembler
         MapOverlayKind.Extracts => ExtractsLayer,
         MapOverlayKind.Spawns => SpawnsLayer,
         MapOverlayKind.Keys => KeysLayer,
+        MapOverlayKind.Switches => SwitchesLayer,
         MapOverlayKind.QuestObjectives => QuestsLayer,
         MapOverlayKind.CompanionMarkers => new("companion-markers"),
         MapOverlayKind.Routes => new("routes"),

@@ -59,7 +59,7 @@ public sealed class MapExtractRequirementReaderTests
              "activates":[{"operation":"Unlock","switch":"d1d16f043cea7be35b2729c5e1e1dd648c6dee13"}],"position":{"x":-124.758,"y":-2.31599617,"z":-313.806}},
             {"id":"d1d16f043cea7be35b2729c5e1e1dd648c6dee13","name":"Med Elevator Call Button","switchType":"Open","activatedBy":"014e9122e0fad99bcff6f93161712c3c6e1a2a75",
              "activates":[],"position":{"x":-114.112,"y":-2.84599972,"z":-343.2}},
-            {"id":"5077fd224eb1bb588b65e4d3c0b4b5719bdebb66","name":"Med Elevator Extract Button","switchType":"Open","activatedBy":"d1d16f043cea7be35b2729c5e1e1dd648c6dee13",
+            {"id":"5077fd224eb1bb588b65e4d3c0b4b5719bdebb66","name":"Med Elevator Extract Button","switchType":"Open","activatedBy":false,
              "activates":[],"position":{"x":-112.802,"y":-2.84599972,"z":-342.762}}
           ],
           "extracts": [{"name":"Hangar Gate","switch":"5077fd224eb1bb588b65e4d3c0b4b5719bdebb66",

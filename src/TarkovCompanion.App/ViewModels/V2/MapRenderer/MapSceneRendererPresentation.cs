@@ -228,6 +228,7 @@ public sealed class MapSceneRendererPresentation
             ["Map.Layer.Hidden"] = "Hidden",
             ["Map.Kind.Extract"] = "Extract",
             ["Map.Kind.Transit"] = "Transit",
+            ["Map.Kind.Switch"] = "Switch",
             ["Map.Kind.SpawnArea"] = "Spawn area",
             ["Map.Kind.LootSpawn"] = "Loot spawn",
             ["Map.Kind.LootContainer"] = "Loot container",
