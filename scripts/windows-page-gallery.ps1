@@ -972,6 +972,70 @@ function New-ShotResult {
         interfaceFaultCount = 0
         interfaceFaults = [string[]]@()
         gracefulShutdown = $false
+        # [#279] What the app said when asked "ready" on its diagnostic channel; null when the
+        # shot has no gallery scene and was not asked.
+        readinessDetail = $null
+    }
+}
+
+<#
+    [#279] Asks a --gallery-scene launch whether its map and seeded state are drawn, through the
+    same file channel the smoke uses (DiagnosticCommandChannel). The app answers once it is ready,
+    or with "not-ready" and the reason after its own timeout, so this replaces a fixed sleep.
+    "Timed out waiting" from here means the channel never answered, not that the UI was slow.
+#>
+function Wait-GalleryReady {
+    param([string] $ChannelRoot, [string] $Token, [int] $TimeoutSeconds = 180)
+
+    $Id = "ready-" + [Guid]::NewGuid().ToString("N").Substring(0, 12)
+    $CommandDirectory = Join-Path $ChannelRoot "commands"
+    $ResponsePath = Join-Path (Join-Path $ChannelRoot "responses") ($Id + ".response.json")
+    New-Item -ItemType Directory -Path $CommandDirectory -Force | Out-Null
+    $CommandPath = Join-Path $CommandDirectory ($Id + ".command.json")
+    $Payload = [ordered]@{ id = $Id; command = "ready"; token = $Token } | ConvertTo-Json -Compress
+    # BOM-free, and renamed into place, for the reasons windows-smoke.ps1 gives.
+    [System.IO.File]::WriteAllText($CommandPath + ".tmp", $Payload, [System.Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath ($CommandPath + ".tmp") -Destination $CommandPath
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while (-not (Test-Path -LiteralPath $ResponsePath)) {
+        if ([DateTime]::UtcNow -gt $Deadline) {
+            return [pscustomobject]@{ ready = $false; detail = "Timed out waiting for $Id.response.json (the diagnostic channel never answered)." }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    $Response = Get-Content -LiteralPath $ResponsePath -Raw | ConvertFrom-Json
+    $Detail = if ($Response.event -ceq "ready") { [string]$Response.detail } else { [string]$Response.error }
+    return [pscustomobject]@{ ready = ($Response.event -ceq "ready"); detail = "$($Response.event): $Detail" }
+}
+
+<#
+    [#279] The scenes write active quests, marks and a profile's worth of state into the runner's
+    own application data. Every scene starts from the same copy of it and leaves it as it found
+    it, so the next scene and the workflow's later steps never see another scene's quests.
+#>
+$AppDataRoot = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
+$SceneBackup = Join-Path $env:TEMP ("tc-gallery-scene-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+$SceneBackedUp = $false
+
+function Backup-SceneState {
+    if ($script:SceneBackedUp) { return }
+    New-Item -ItemType Directory -Path $SceneBackup -Force | Out-Null
+    foreach ($Name in @("Database", "Config")) {
+        $Source = Join-Path $AppDataRoot $Name
+        if (Test-Path -LiteralPath $Source) {
+            Copy-Item -LiteralPath $Source -Destination (Join-Path $SceneBackup $Name) -Recurse -Force
+        }
+    }
+    $script:SceneBackedUp = $true
+}
+
+function Restore-SceneState {
+    if (-not $script:SceneBackedUp) { return }
+    foreach ($Name in @("Database", "Config")) {
+        $Saved = Join-Path $SceneBackup $Name
+        $Live = Join-Path $AppDataRoot $Name
+        if (Test-Path -LiteralPath $Live) { Remove-Item -LiteralPath $Live -Recurse -Force }
+        if (Test-Path -LiteralPath $Saved) { Copy-Item -LiteralPath $Saved -Destination $Live -Recurse -Force }
     }
 }
 
@@ -1437,7 +1501,7 @@ foreach ($Zoom in @(0, 3)) {
     $ExtractSteps.Add([pscustomobject]@{
         action = "invoke"; description = "select the first extract from Extract options"
         targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
-        includeOffscreen = $true; timeoutSeconds = 120; settleMilliseconds = 1500
+        includeOffscreen = $true; timeoutSeconds = 30; settleMilliseconds = 500
     })
     for ($Index = 0; $Index -lt $Zoom; $Index++) {
         $ExtractSteps.Add([pscustomobject]@{
@@ -1451,6 +1515,8 @@ foreach ($Zoom in @(0, 3)) {
         name = $ExtractShotName
         args = @("--ui-shell", "v2-a", "--map", "shoreline")
         shellMode = "v2-a"; width = 1920; height = 1080
+        # [#279] Waits for the map, its picture and its extracts instead of a fixed sleep.
+        galleryScene = "map"
         seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
         interaction = [pscustomobject]@{ steps = $ExtractSteps.ToArray() }
     })
@@ -1462,14 +1528,32 @@ $Shots.Add([pscustomobject]@{
     name = "v2-a-raid-labs-switch-chain-1920"
     args = @("--ui-shell", "v2-a", "--map", "the-lab")
     shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "map"
     seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
     interaction = [pscustomobject]@{ steps = @(
         [pscustomobject]@{
             action = "invoke"; description = "select the first Labs extract from Extract options"
             targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
-            includeOffscreen = $true; timeoutSeconds = 120; settleMilliseconds = 1500
+            includeOffscreen = $true; timeoutSeconds = 30; settleMilliseconds = 500
         }) }
 })
+# [#279] Marker states a clean runner never has: the app seeds them itself (--gallery-scene,
+# developer mode only; see GallerySceneRunner) from the catalog it has already downloaded, and
+# answers "ready" on the diagnostic channel once they are drawn. Synthetic throughout: made-up
+# squadmates, quests picked from the public catalog, marks at fixed fractions of the plan.
+#   route - three active Customs quests, a player spawn selected, Plan's "Open in Raid": the
+#           gold objective route and its step badges (#779).
+#   squad - the player and three squadmates in raid with positions and shared quests, Squad on (#783).
+#   marks - a mark of each scope and lifetime with its countdown, and a tablet's route (#785/#787).
+foreach ($Scene in @("route", "squad", "marks")) {
+    $Shots.Add([pscustomobject]@{
+        name = "v2-a-raid-customs-$Scene-1920"
+        args = @("--ui-shell", "v2-a", "--map", "customs")
+        shellMode = "v2-a"; width = 1920; height = 1080
+        galleryScene = $Scene
+        seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    })
+}
 # [#573] The loot layer on real data: Customs with "High-value loot only" pressed, fitted. It
 # drew 232 identical diamonds over every building before it was ranked by value; the spawns
 # arrive with the loot publication, which a clean runner downloads first.
@@ -1614,6 +1698,8 @@ foreach ($Shot in $Shots) {
     $Interaction = Get-InteractionProperty -Object $Shot -Name "interaction"
     $Result = New-ShotResult -Page $Page -ShellMode $Shot.shellMode -InteractionRequired ($null -ne $Interaction)
     $Process = $null
+    $ChannelRoot = $null
+    $ChannelToken = $null
     try {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
         # V2 rough package 30 (acceptance sweep): a window this size needs a desktop that size.
@@ -1643,6 +1729,14 @@ foreach ($Shot in $Shots) {
         # writes nothing there unless this is set, so a player's run costs nothing.
         $env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog
         $LaunchArguments = @($Shot.args)
+        $GalleryScene = [string](Get-InteractionProperty -Object $Shot -Name "galleryScene" -Default "")
+        if ($GalleryScene.Length -gt 0) {
+            if ($GalleryScene -ne "map") { Backup-SceneState }
+            $ChannelRoot = Join-Path $env:TEMP ("tc-gallery-channel-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+            $ChannelToken = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
+            $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN = $ChannelToken
+            $LaunchArguments += @("--developer-mode", "--gallery-scene", $GalleryScene, "--diagnostic-channel", ('"{0}"' -f $ChannelRoot))
+        }
         if ($Shot.width -gt 0 -and $Shot.height -gt 0) {
             # Placement restore loads asynchronously after Opened. Give the application the
             # intended verification size so it leaves placement to this harness for the launch;
@@ -1718,6 +1812,16 @@ foreach ($Shot in $Shots) {
             Start-Sleep -Milliseconds 500
         }
 
+        if ($null -ne $ChannelRoot) {
+            $Ready = Wait-GalleryReady -ChannelRoot $ChannelRoot -Token $ChannelToken
+            $Result.readinessDetail = $Ready.detail
+            if (-not $Ready.ready) {
+                # Photographed anyway: what was on screen is most of the diagnosis.
+                Save-ScreenImage -Path $Screenshot -WindowHandle $Process.MainWindowHandle
+                throw "The gallery scene was not ready: $($Ready.detail)"
+            }
+        }
+
         $CaptureBeforeInteraction = [bool](Get-InteractionProperty -Object $Shot -Name "captureBeforeInteraction" -Default $false)
         if ($CaptureBeforeInteraction) {
             Save-ScreenImage -Path $Screenshot -WindowHandle $Process.MainWindowHandle
@@ -1782,11 +1886,17 @@ foreach ($Shot in $Shots) {
     }
     finally {
         Remove-Item Env:\TARKOV_COMPANION_UI_WARNING_LOG -ErrorAction SilentlyContinue
+        Remove-Item Env:\TARKOV_COMPANION_DIAGNOSTIC_TOKEN -ErrorAction SilentlyContinue
         if ($null -ne $Process) {
             if (-not $Process.HasExited) {
                 $Result.gracefulShutdown = Close-AppProcess -Process $Process -Page $Page
             }
             $Process.Dispose()
+        }
+        if ($null -ne $ChannelRoot) {
+            Remove-Item -LiteralPath $ChannelRoot -Recurse -Force -ErrorAction SilentlyContinue
+            try { Restore-SceneState }
+            catch { $Result.detail = "{0} (scene state not restored: {1})" -f $Result.detail, $_.Exception.Message }
         }
 
         # Every outcome, including a launch that never showed a window: what the toolkit said
@@ -1853,6 +1963,7 @@ foreach ($Result in $Results) {
     $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
     $Timing = if ($null -ne $Result.windowShownAfterSeconds) { ", window after $($Result.windowShownAfterSeconds)s" } else { "" }
     Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Timing$Dead"
+    if ($null -ne $Result.readinessDetail) { Write-Host "     readiness: $($Result.readinessDetail)" }
     # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
     # here is what turns "no window: Loadout" in the job log into a sentence somebody can act on
     # without downloading anything.

@@ -1706,6 +1706,19 @@ internal static class Program
                 Pump(80);
             }
 
+            // [#279] The Windows gallery's seeded scene, run here the same way the packaged app runs it.
+            if (shell is not null && StringOption(args, "--gallery-scene") is { } galleryScene)
+            {
+                var galleryReady = new GalleryReadiness();
+                var galleryRun = new GallerySceneRunner(services, viewModel, mapId ?? "customs", GallerySceneKinds.Parse(galleryScene))
+                    .RunAsync(galleryReady, CancellationToken.None);
+                var galleryWait = galleryReady.WaitAsync(TimeSpan.FromSeconds(150), CancellationToken.None);
+                DrainUntilComplete(galleryWait);
+                DrainUntilComplete(galleryRun);
+                Console.WriteLine($"Gallery scene: ready={galleryWait.Result.Ready} {galleryWait.Result.Detail}");
+                Pump(40);
+            }
+
             if (args.Contains("--objective-route-demo"))
             {
                 var plan = services.GetRequiredService<PlanWorkspaceViewModel>();

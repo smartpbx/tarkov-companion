@@ -8,6 +8,9 @@ public enum DiagnosticCommandKind
 {
     Scan,
     Scenario,
+
+    /// <summary>[#279] Waits for the launch's gallery scene: the map drawn and its seeded state on it.</summary>
+    Ready,
 }
 
 public sealed record DiagnosticCommand(
@@ -23,11 +26,19 @@ public sealed record DiagnosticResponse(
     string? Scenario,
     DateTimeOffset ProcessedUtc,
     string? Error = null,
-    ScanExecutionResult? Scan = null);
+    ScanExecutionResult? Scan = null,
+    string? Detail = null);
 
-public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeScanUseCase scanUseCase)
+public sealed class DiagnosticCommandProcessor(
+    string requiredToken,
+    IRuntimeScanUseCase scanUseCase,
+    GalleryReadiness? readiness = null,
+    TimeSpan? readyTimeout = null)
 {
     private const int MaximumIdentifierLength = 80;
+
+    /// <summary>How long one "ready" command waits before answering "not-ready".</summary>
+    private readonly TimeSpan _readyTimeout = readyTimeout ?? TimeSpan.FromSeconds(150);
 
     public async Task<DiagnosticResponse> ProcessAsync(
         DiagnosticCommand command,
@@ -65,6 +76,19 @@ public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeSca
             {
                 return new(commandId, true, "scan-failed", null, processedUtc, exception.Message);
             }
+        }
+
+        if (command.Command == DiagnosticCommandKind.Ready)
+        {
+            if (readiness is null)
+            {
+                return new(commandId, true, "not-ready", null, processedUtc, "This launch has no --gallery-scene.");
+            }
+
+            var (ready, detail) = await readiness.WaitAsync(_readyTimeout, cancellationToken).ConfigureAwait(false);
+            return ready
+                ? new(commandId, true, "ready", null, processedUtc, Detail: detail)
+                : new(commandId, true, "not-ready", null, processedUtc, detail);
         }
 
         return command.Command switch
@@ -117,13 +141,13 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Task worker;
 
-    private DiagnosticCommandChannel(string channelPath, string token, IRuntimeScanUseCase scanUseCase)
+    private DiagnosticCommandChannel(string channelPath, string token, IRuntimeScanUseCase scanUseCase, GalleryReadiness? readiness)
     {
         commandDirectory = Path.Combine(channelPath, "commands");
         responseDirectory = Path.Combine(channelPath, "responses");
         Directory.CreateDirectory(commandDirectory);
         Directory.CreateDirectory(responseDirectory);
-        processor = new(token, scanUseCase);
+        processor = new(token, scanUseCase, readiness);
         worker = Task.Run(() => RunAsync(stopping.Token));
     }
 
@@ -131,7 +155,8 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
         bool developerMode,
         string? channelPath,
         IRuntimeScanUseCase scanUseCase,
-        string? token = null)
+        string? token = null,
+        GalleryReadiness? readiness = null)
     {
         ArgumentNullException.ThrowIfNull(scanUseCase);
         if (!developerMode || string.IsNullOrWhiteSpace(channelPath))
@@ -146,7 +171,7 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
                 $"Developer diagnostics require a token of at least 32 characters in {TokenEnvironmentVariable}.");
         }
 
-        return new(Path.GetFullPath(channelPath), token, scanUseCase);
+        return new(Path.GetFullPath(channelPath), token, scanUseCase, readiness);
     }
 
     public async ValueTask DisposeAsync()

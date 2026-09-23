@@ -35,6 +35,9 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private WorkspacePreferenceService? _preferences;
     private UiHangWatchdog? _hangWatchdog;
 
+    /// <summary>[#279] Set only for a developer-mode launch with <c>--gallery-scene</c>.</summary>
+    internal GalleryReadiness? GalleryReadiness { get; init; }
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -142,6 +145,16 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     .Observe("what's new", "initialize");
                 AttachExitDeadline(desktop, window);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
+                if (GalleryReadiness is { } readiness && options is { GalleryScene: { } scene } && viewModel.PreviewShell is not null)
+                {
+                    // Once the window is up; the scene waits for the map on its own.
+                    window.Opened += (_, _) => _ = new GallerySceneRunner(services, viewModel, options.MapId ?? "customs", scene)
+                        .RunAsync(readiness, _stopping.Token);
+                }
+                else
+                {
+                    GalleryReadiness?.Failed("A gallery scene needs the V2 shell.");
+                }
                 services.GetRequiredService<DatabaseMaintenanceCoordinator>().Start();
                 // [#453] From here on a dispatcher that stops answering for five seconds says so
                 // in the log, with the route and the load that was running.
