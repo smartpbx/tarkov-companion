@@ -77,7 +77,7 @@ public sealed class CrashLogTests : IDisposable
         Assert.Single(
             text.Split('\n'),
             line => line.Contains("the relay did not answer", StringComparison.Ordinal));
-        Assert.Contains("still failing (120x) since", text, StringComparison.Ordinal);
+        Assert.Contains("[repeat] [group] still failing (120x) since", text, StringComparison.Ordinal);
     }
 
     /// <summary>The log says which build wrote it.</summary>
