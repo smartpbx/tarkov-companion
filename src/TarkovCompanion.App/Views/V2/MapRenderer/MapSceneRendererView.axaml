@@ -747,6 +747,45 @@
           <!-- A gem, not "$": this shows the high-value loot layer, named in the tooltip. -->
           <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gem}" />
         </Button>
+        <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasHighValueLoot}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
+              <Button Classes="v2-target" Padding="8,5" Content="{Binding CompactFilterLabel}"
+                      AutomationProperties.AutomationId="v2-map-loot-compact-filter"
+                      AutomationProperties.Name="Potential loot value filter">
+                <Button.Flyout>
+                  <Flyout Placement="LeftEdgeAlignedTop">
+                    <StackPanel Spacing="8" MinWidth="230">
+                      <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
+                      <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                            <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                          Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <ItemsControl ItemsSource="{Binding CompactValueBasisChoices}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate><WrapPanel ItemSpacing="6" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                            <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                          Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
       </StackPanel>
     </Grid>
     </Panel>
@@ -1106,6 +1145,20 @@
 
                     <TextBlock Classes="v2-heading-3" Text="{Binding FilterHeading}"
                                AutomationProperties.HeadingLevel="3" />
+                    <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
+                    <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock Classes="v2-label" Text="{Binding ValueBasisLabel}" />
                     <ItemsControl ItemsSource="{Binding ValueBasisChoices}">
                       <ItemsControl.ItemsPanel>

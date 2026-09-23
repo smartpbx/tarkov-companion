@@ -122,6 +122,20 @@ public sealed class TabletMapSurfaceTests
     }
 
     [Fact]
+    public void Potential_loot_filter_travels_with_the_filtered_scene()
+    {
+        var scene = Scene(new(10, 20, 110, 220), Loot("loot:gpu", 35, 170));
+        var filter = new TabletMapLootFilter(250_000, "ValuePerSquare");
+
+        var surface = TabletMapSurfaceBuilder.Build(
+            scene, "Customs", Artwork(), null, null, null, Now, lootFilter: filter);
+        var round = TabletMapSurfaceJson.Deserialize(TabletMapSurfaceJson.Serialize(surface));
+
+        Assert.Equal(filter, round!.LootFilter);
+        Assert.Single(round.Objects, item => item.Id == "loot:gpu");
+    }
+
+    [Fact]
     public void AHostileSceneCannotMakeAnUnboundedPayload()
     {
         var objects = Enumerable.Range(0, TabletMapSurfaceBuilder.MaximumObjects + 50)

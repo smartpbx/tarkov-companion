@@ -100,6 +100,7 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     }
     public ICommand RefreshCommand { get; }
     public string ValueBasisLabel => Text("Map.Loot.ValueBasis");
+    public string ValueThresholdLabel => Text("Map.Loot.ValueThreshold");
     public string MinimumTierLabel => Text("Map.Loot.MinimumTier");
     public string ProfileRelevanceLabel => Text("Map.Loot.ProfileRelevance");
     public string CategoryLabel => Text("Map.Loot.Category");
@@ -115,6 +116,8 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     public string PreviousPageLabel => Text("Map.Action.Previous");
     public string NextPageLabel => Text("Map.Action.Next");
     public IReadOnlyList<HighValueLootFilterChoiceViewModel> ValueBasisChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> CompactValueBasisChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> ValueThresholdChoices { get; private set; } = [];
     public IReadOnlyList<HighValueLootFilterChoiceViewModel> MinimumTierChoices { get; private set; } = [];
     public IReadOnlyList<HighValueLootFilterChoiceViewModel> ProfileRelevanceChoices { get; private set; } = [];
     public IReadOnlyList<HighValueLootFilterChoiceViewModel> CategoryChoices { get; private set; } = [];
@@ -122,6 +125,15 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     public IReadOnlyList<HighValueLootEntryViewModel> Rows { get; private set; } = [];
     public IReadOnlyList<HighValueLootEntry> AllEntries => _result.Entries;
     public HighValueLootLayerFilterState FilterState => _filterState;
+    public bool HasPerSlotValues =>
+        _filterState.Filter.ValueBasis == LootSpawnValueBasis.ValuePerSquare ||
+        _result.Entries.Any(entry => entry.MaximumValuePerSquare is not null);
+    public string CompactFilterLabel => Format(
+        "Map.Loot.CompactFilter",
+        DescribeThreshold(_filterState.Filter.EffectiveMinimumValueRoubles),
+        _filterState.Filter.ValueBasis == LootSpawnValueBasis.ValuePerSquare
+            ? Text("Map.Loot.PerSlot")
+            : Text("Map.Loot.PerItem"));
     public IReadOnlySet<MapSceneObjectId> VisibleObjectIds { get; private set; } = new HashSet<MapSceneObjectId>();
 
     /// <summary>The spawns the current filter would draw with the layer on, whether it is on or not.</summary>
@@ -259,6 +271,29 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
                 _filterState.Filter.ValueBasis == basis,
                 () => Request(_filterState.WithFilter(CloneFilter(valueBasis: basis)))))
             .ToArray();
+        CompactValueBasisChoices = new[]
+            {
+                (Basis: LootSpawnValueBasis.BestNet, Label: Text("Map.Loot.PerItem")),
+                (Basis: LootSpawnValueBasis.ValuePerSquare, Label: Text("Map.Loot.PerSlot")),
+            }
+            .Where(choice => choice.Basis != LootSpawnValueBasis.ValuePerSquare || HasPerSlotValues)
+            .Select(choice => Choice(
+                $"compact-basis-{choice.Basis}",
+                choice.Label,
+                choice.Basis == LootSpawnValueBasis.ValuePerSquare
+                    ? _filterState.Filter.ValueBasis == LootSpawnValueBasis.ValuePerSquare
+                    : _filterState.Filter.ValueBasis != LootSpawnValueBasis.ValuePerSquare,
+                () => Request(_filterState.WithFilter(CloneFilter(valueBasis: choice.Basis)))))
+            .ToArray();
+        ValueThresholdChoices = new long[] { 0, 50_000, 100_000, 250_000, 500_000 }
+            .Select(threshold => Choice(
+                threshold == 0 ? "threshold-any" : $"threshold-{threshold}",
+                DescribeThreshold(threshold),
+                _filterState.Filter.EffectiveMinimumValueRoubles == threshold,
+                () => Request(_filterState.WithFilter(CloneFilter(
+                    minimumValueRoubles: threshold,
+                    replaceMinimumValue: true)))))
+            .ToArray();
         MinimumTierChoices = new[]
             {
                 LootSpawnValueTier.Qualifying,
@@ -312,7 +347,7 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         var filtered = _result.Entries
             .Where(entry => TierRank(entry.Tier) >= TierRank(_filterState.MinimumTier))
             .OrderByDescending(entry => TierSortRank(entry.Tier))
-            .ThenByDescending(entry => entry.MaximumValue)
+            .ThenByDescending(entry => RankingValue(entry, _filterState.Filter.ValueBasis))
             .ThenBy(entry => entry.Spawn.Label, StringComparer.OrdinalIgnoreCase)
             .ThenBy(entry => entry.Spawn.SpawnId, StringComparer.Ordinal)
             .ToArray();
@@ -349,7 +384,9 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         bool? includeProfileRelevant = null,
         string? floorId = null,
         bool replaceFloor = false,
-        IReadOnlyList<string>? categories = null) => new(
+        IReadOnlyList<string>? categories = null,
+        long? minimumValueRoubles = null,
+        bool replaceMinimumValue = false) => new(
         valueBasis ?? _filterState.Filter.ValueBasis,
         _filterState.Filter.Thresholds,
         _filterState.Filter.MaximumPriceAge,
@@ -358,7 +395,8 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         includeProfileRelevant ?? _filterState.Filter.IncludeProfileRelevant,
         replaceFloor ? floorId : _filterState.Filter.FloorId,
         _filterState.Filter.ItemIds,
-        categories ?? _filterState.Filter.Categories);
+        categories ?? _filterState.Filter.Categories,
+        replaceMinimumValue ? minimumValueRoubles : _filterState.Filter.MinimumValueRoubles);
 
     private HighValueLootFilterChoiceViewModel Choice(
         string id,
@@ -409,6 +447,10 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
 
     private string DescribeBasis(LootSpawnValueBasis basis) => Text($"Map.Loot.Basis.{basis}");
 
+    private string DescribeThreshold(long threshold) => threshold == 0
+        ? Text("Map.Loot.Threshold.Any")
+        : Format("Map.Loot.Threshold.Amount", (threshold / 1000).ToString("N0", _presentation.Culture));
+
     private string DescribeTier(LootSpawnValueTier tier) => Text($"Map.Loot.Tier.{tier}");
 
     private static int TierRank(LootSpawnValueTier tier) => tier switch
@@ -424,6 +466,9 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     private static int TierSortRank(LootSpawnValueTier tier) => tier == LootSpawnValueTier.ProfileRelevant
         ? 6
         : TierRank(tier);
+
+    private static long? RankingValue(HighValueLootEntry entry, LootSpawnValueBasis basis) =>
+        basis == LootSpawnValueBasis.ValuePerSquare ? entry.MaximumValuePerSquare : entry.MaximumValue;
 
     private static IReadOnlyList<string> CategoriesFrom(HighValueLootLayerResult result) => result.Entries
         .SelectMany(entry => entry.Spawn.Candidates)
@@ -504,7 +549,9 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
                  {
                      nameof(Legend), nameof(StateMessage), nameof(FreshnessMessage), nameof(HasFreshnessMessage),
                      nameof(CoverageLabel), nameof(HasCoverage),
-                     nameof(ValueBasisChoices), nameof(MinimumTierChoices), nameof(ProfileRelevanceChoices),
+                     nameof(ValueBasisChoices), nameof(CompactValueBasisChoices), nameof(ValueThresholdChoices),
+                     nameof(HasPerSlotValues),
+                     nameof(CompactFilterLabel), nameof(MinimumTierChoices), nameof(ProfileRelevanceChoices),
                      nameof(CategoryChoices), nameof(FloorChoices), nameof(HasCategoryOptionsNotice),
                      nameof(HasFloorOptionsNotice), nameof(CategoryOptionsNotice), nameof(FloorOptionsNotice),
                      nameof(HasMultipleCategoryFilter), nameof(MultipleCategoryFilterMessage),

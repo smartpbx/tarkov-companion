@@ -1516,6 +1516,21 @@ internal static class Program
                 Pump(20);
             }
 
+            // [Issue 701] Exercise the same choices exposed beside the gem and in Layers. This
+            // runs before --loot-preset so the resulting frame and object count use the choice.
+            var lootThreshold = StringOption(args, "--loot-threshold");
+            var lootBasis = StringOption(args, "--loot-basis");
+            if (StringOption(args, "--loot-tour") is null &&
+                (lootThreshold is not null || lootBasis is not null) &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel lootFilterRaid)
+            {
+                ApplyLootValueFilter(
+                    lootFilterRaid,
+                    lootThreshold is null ? null : ParseLootThreshold(lootThreshold),
+                    lootBasis);
+                Pump(40);
+            }
+
             // [Issue 286] Press a step of the traffic phase control: auto, early, mid or late.
             if (StringOption(args, "--traffic-phase") is { } trafficPhase &&
                 shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel phasedRaid)
@@ -1918,7 +1933,15 @@ internal static class Program
             // [#657] --loot-tour on|off: pan, zoom and idle per map with the loot layer on or off.
             if (shell is not null && StringOption(args, "--loot-tour") is { } lootTour)
             {
-                LootTour.Run(services, viewModel, shell, lootTour == "on", (StringOption(args, "--loot-tour-maps") ?? "customs,interchange,streets-of-tarkov").Split(','), IntOption(args, "--loot-tour-idle", 60));
+                LootTour.Run(
+                    services,
+                    viewModel,
+                    shell,
+                    lootTour == "on",
+                    (StringOption(args, "--loot-tour-maps") ?? "customs,interchange,streets-of-tarkov").Split(','),
+                    IntOption(args, "--loot-tour-idle", 60),
+                    StringOption(args, "--loot-threshold") is { } threshold ? ParseLootThreshold(threshold) : null,
+                    StringOption(args, "--loot-basis"));
             }
 
             if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)
@@ -2455,6 +2478,38 @@ internal static class Program
     {
         var value = StringOption(args, name);
         return value is null ? fallback : int.Parse(value);
+    }
+
+    private static long ParseLootThreshold(string value) => value.Equals("any", StringComparison.OrdinalIgnoreCase)
+        ? 0
+        : long.TryParse(value, out var threshold) && threshold is 50_000 or 100_000 or 250_000 or 500_000
+            ? threshold
+            : throw new ArgumentException($"No loot threshold is named '{value}'.");
+
+    private static void ApplyLootValueFilter(
+        TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel raid,
+        long? threshold,
+        string? basis)
+    {
+        var loot = raid.Renderer?.HighValueLoot ??
+            throw new InvalidOperationException("The Raid map has no potential-loot filter.");
+        if (threshold is { } minimum)
+        {
+            loot.ValueThresholdChoices.Single(choice => choice.Id == $"threshold-{(minimum == 0 ? "any" : minimum)}")
+                .SelectCommand.Execute(null);
+            loot = raid.Renderer?.HighValueLoot ?? loot;
+        }
+
+        if (basis is not null)
+        {
+            var id = basis switch
+            {
+                "per-item" => "compact-basis-BestNet",
+                "per-slot" => "compact-basis-ValuePerSquare",
+                _ => throw new ArgumentException($"No loot value basis is named '{basis}'."),
+            };
+            loot.CompactValueBasisChoices.Single(choice => choice.Id == id).SelectCommand.Execute(null);
+        }
     }
 
     private static double? DoubleOption(string[] args, string name)

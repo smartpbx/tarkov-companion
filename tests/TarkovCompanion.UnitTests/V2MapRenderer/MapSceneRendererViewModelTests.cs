@@ -936,6 +936,27 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void Compact_loot_choices_request_source_filters_for_threshold_and_slot_value()
+    {
+        var requested = new List<HighValueLootLayerFilterState>();
+        var loot = new HighValueLootLayerViewModel(
+            MapOnlyLootResult("customs", "transform-1"),
+            HighValueLootLayerFilterState.Default,
+            null,
+            null,
+            true,
+            Presentation,
+            requested.Add,
+            _ => { });
+
+        loot.ValueThresholdChoices.Single(choice => choice.Id == "threshold-250000").SelectCommand.Execute(null);
+        loot.CompactValueBasisChoices.Single(choice => choice.Id == "compact-basis-ValuePerSquare").SelectCommand.Execute(null);
+
+        Assert.Equal(250_000, requested[0].Filter.EffectiveMinimumValueRoubles);
+        Assert.Equal(LootSpawnValueBasis.ValuePerSquare, requested[1].Filter.ValueBasis);
+    }
+
+    [Fact]
     public void High_value_filter_cap_keeps_the_active_choice_visible_and_discloses_multi_category_state()
     {
         var result = UnavailableLootResult();

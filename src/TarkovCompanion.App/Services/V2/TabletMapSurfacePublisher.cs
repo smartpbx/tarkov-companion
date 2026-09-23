@@ -155,7 +155,12 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 artwork is null ? null : _cockpit.BackgroundStatus(),
                 Utc(),
                 _sentToTabletUtc,
-                Volatile.Read(ref _loot));
+                Volatile.Read(ref _loot),
+                renderer.HighValueLoot is { } highValueLoot
+                    ? new(
+                        highValueLoot.FilterState.Filter.EffectiveMinimumValueRoubles,
+                        highValueLoot.FilterState.Filter.ValueBasis.ToString())
+                    : null);
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
 
             // The scene is rebuilt on every runtime tick and most ticks change nothing a tablet

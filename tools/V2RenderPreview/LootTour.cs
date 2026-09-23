@@ -30,7 +30,15 @@ internal static class LootTour
     private static InputProbe? _probe;
     private static TimeSpan _cpuAtStart;
 
-    public static void Run(IServiceProvider services, MainWindowViewModel viewModel, V2ShellViewModel shell, bool lootOn, string[] maps, int idleSeconds)
+    public static void Run(
+        IServiceProvider services,
+        MainWindowViewModel viewModel,
+        V2ShellViewModel shell,
+        bool lootOn,
+        string[] maps,
+        int idleSeconds,
+        long? threshold = null,
+        string? basis = null)
     {
         if (shell.RaidCockpit is not RaidCockpitViewModel raid)
         {
@@ -48,6 +56,10 @@ internal static class LootTour
         {
             Phase($"{map}: map switch", () => Select(raid, map), () => WaitForMap(viewModel, raid, map));
             Phase($"{map}: loot layer {(lootOn ? "on" : "off")}", () => SetLoot(raid, lootOn));
+            if (threshold is not null || basis is not null)
+            {
+                Phase($"{map}: loot value filter", () => SetValueFilter(raid, threshold, basis));
+            }
             Console.WriteLine(string.Create(Invariant, $"[loot] {map}: layer on {LootOn(raid)}, loot markers {raid.Renderer?.LootMarkers.Count}, badges {raid.Renderer?.LootBadges.Count}, spatial {raid.Renderer?.SpatialObjects.Count}"));
             Phase($"{map}: drag x6", () => { }, () => Drag(raid, 6));
             Phase($"{map}: zoom in x4", () => { }, () => Zoom(raid, 1, 4));
@@ -69,6 +81,7 @@ internal static class LootTour
         var probe = _probe = new InputProbe();
         UiStallMeter.Report(name + " (start)");
         _cpuAtStart = Cpu();
+        probe.Poll();
         UiStallMeter.Time(act);
         then?.Invoke();
         Pump();
@@ -105,6 +118,28 @@ internal static class LootTour
 
     private static bool? LootOn(RaidCockpitViewModel raid) =>
         raid.Renderer?.Layers.FirstOrDefault(layer => layer.Layer.Id == HighValueLootLayerService.LayerId)?.IsVisible;
+
+    private static void SetValueFilter(RaidCockpitViewModel raid, long? threshold, string? basis)
+    {
+        var loot = raid.Renderer?.HighValueLoot;
+        if (threshold is { } minimum)
+        {
+            loot?.ValueThresholdChoices.Single(choice => choice.Id == $"threshold-{(minimum == 0 ? "any" : minimum)}")
+                .SelectCommand.Execute(null);
+            loot = raid.Renderer?.HighValueLoot;
+        }
+
+        if (basis is not null)
+        {
+            var id = basis switch
+            {
+                "per-item" => "compact-basis-BestNet",
+                "per-slot" => "compact-basis-ValuePerSquare",
+                _ => throw new ArgumentException($"No loot value basis is named '{basis}'."),
+            };
+            loot?.CompactValueBasisChoices.Single(choice => choice.Id == id).SelectCommand.Execute(null);
+        }
+    }
 
     /// <summary>A drag of <paramref name="drags"/> strokes, each twelve pointer moves at about 60 Hz.</summary>
     private static void Drag(RaidCockpitViewModel raid, int drags)

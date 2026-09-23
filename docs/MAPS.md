@@ -139,6 +139,11 @@ says when additional choices were omitted. The current scene change contract has
 create-waypoint operation, so selected loot cannot yet be handed off as a planning stop without a
 new shared command owned by the map contract.
 
+The Layers menu and gem control offer a remembered potential-loot minimum (Any, 50k, 100k, 250k
+or 500k) ranked per item or per inventory slot. That choice is evaluated by the loot source before
+the stable-ID scene is reconciled, and the tablet receives both the filtered scene and the filter
+that explains it; neither desktop nor tablet presents those potential spawns as live detections.
+
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential
 spawns remain potential. An interior asset is renderable only after its source, licence, hash,

@@ -10,6 +10,35 @@ public sealed class HighValueLootLayerServiceTests
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 3, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void Minimum_value_filters_by_the_selected_item_or_slot_basis()
+    {
+        var snapshot = Snapshot([Spawn("bulky-value", [Candidate("bulky", "Bulky value", 300_000)])]);
+        var perItem = Filter(
+            valueBasis: LootSpawnValueBasis.BestNet,
+            includeProfileRelevant: false,
+            minimumValueRoubles: 250_000);
+        var perSlot = Filter(
+            valueBasis: LootSpawnValueBasis.ValuePerSquare,
+            includeProfileRelevant: false,
+            minimumValueRoubles: 250_000);
+
+        Assert.Single(Build(snapshot, perItem).Entries);
+        Assert.Empty(Build(snapshot, perSlot).Entries);
+    }
+
+    [Fact]
+    public void Any_value_keeps_a_known_below_default_value_visible_to_the_default_tier_projection()
+    {
+        var snapshot = Snapshot([Spawn("wire", [Candidate("wire", "Wire", 10_000)])]);
+        var any = Filter(includeProfileRelevant: false, minimumValueRoubles: 0);
+
+        var entry = Assert.Single(Build(snapshot, any).Entries);
+
+        Assert.Equal(LootSpawnValueTier.Qualifying, entry.Tier);
+        Assert.Equal(10_000, entry.MaximumValue);
+    }
+
+    [Fact]
     public void Unweighted_pool_shows_a_ceiling_and_counts_without_inventing_expected_value()
     {
         var spawn = Spawn(
@@ -1126,13 +1155,17 @@ public sealed class HighValueLootLayerServiceTests
         LootSpawnValueThresholds? thresholds = null,
         TimeSpan? maximumPriceAge = null,
         LootSpawnValueBasis valueBasis = LootSpawnValueBasis.BestNet,
-        IReadOnlyList<string>? itemIds = null) => new(
+        IReadOnlyList<string>? itemIds = null,
+        bool includeProfileRelevant = true,
+        long? minimumValueRoubles = null) => new(
         valueBasis,
         thresholds ?? LootSpawnValueThresholds.Default,
         maximumPriceAge ?? TimeSpan.FromHours(1),
         TimeSpan.FromDays(90),
         0.5,
-        itemIds: itemIds);
+        includeProfileRelevant,
+        itemIds: itemIds,
+        minimumValueRoubles: minimumValueRoubles);
 
     private static EvidencedValue<T> Complete<T>(
         string id,
