@@ -6,6 +6,7 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Profile;
+using TarkovCompanion.Core.Domain.Planning;
 
 namespace TarkovCompanion.UnitTests.V2Plan;
 
@@ -292,6 +293,64 @@ public sealed class HideoutWorkspaceViewModelTests
         Assert.False(Assert.Single(locked.Items).HasCheapestRoute);
     }
 
+    [Fact]
+    public async Task The_planned_path_shows_each_build_time_missing_item_gate_and_the_total()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            Stations = [new("nutrition", "Nutrition Unit", [1])],
+            Requirements = [new("nutrition", 1, "item-bolts", 3)],
+        };
+        var items = new FakeItemRepository();
+        items.Names["item-bolts"] = "Bolts";
+        var prerequisites = new FakePrerequisiteCatalog(new([], [new("nutrition", 1, "Metabolism level 3")])
+        {
+            ConstructionTimes = [new("nutrition", 1, TimeSpan.FromMinutes(90))],
+        });
+        var viewModel = new HideoutWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile(
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["item-bolts"] = 1 })),
+            items,
+            prerequisites: prerequisites);
+
+        await viewModel.RefreshAsync();
+
+        var step = Assert.Single(viewModel.Upgrades.PathSteps);
+        Assert.Equal("Build time · 1h 30m", step.DurationLabel);
+        Assert.Equal("Missing · Bolts ×2", step.MissingItems);
+        Assert.Equal("Gate · Metabolism level 3", step.GateLabel);
+        Assert.Equal("1 upgrade · 1h 30m total · in this order", viewModel.Upgrades.PathSummary);
+    }
+
+    [Fact]
+    public async Task Later_path_steps_do_not_reuse_items_consumed_by_earlier_steps()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            Stations = [new("generator", "Generator", [1, 2])],
+            Requirements =
+            [
+                new("generator", 1, "item-bolts", 2),
+                new("generator", 2, "item-bolts", 3),
+            ],
+        };
+        var items = new FakeItemRepository();
+        items.Names["item-bolts"] = "Bolts";
+        var viewModel = new HideoutWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile(
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["item-bolts"] = 4 })),
+            items);
+
+        await viewModel.RefreshAsync();
+
+        Assert.Equal("Have it all", viewModel.Upgrades.PathSteps[0].State);
+        Assert.Equal("Missing · Bolts ×1", viewModel.Upgrades.PathSteps[1].MissingItems);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(5);
@@ -402,5 +461,11 @@ public sealed class HideoutWorkspaceViewModelTests
     {
         public Task<IReadOnlyList<BarterOffer>> GetAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<BarterOffer>>(offers);
+    }
+
+    private sealed class FakePrerequisiteCatalog(HideoutPrerequisites prerequisites) : IHideoutPrerequisiteCatalog
+    {
+        public Task<HideoutPrerequisites> GetAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(prerequisites);
     }
 }

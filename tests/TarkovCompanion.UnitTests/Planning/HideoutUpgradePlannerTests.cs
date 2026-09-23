@@ -33,7 +33,16 @@ public sealed class HideoutUpgradePlannerTests
             new("vents", 1, "generator", 1),
             new("farm", 2, "generator", 3),
         ],
-        [new("farm", 1, "Mechanic loyalty 2")]);
+        [new("farm", 1, "Mechanic loyalty 2")])
+    {
+        ConstructionTimes =
+        [
+            new("generator", 1, TimeSpan.FromHours(2)),
+            new("generator", 2, TimeSpan.FromHours(4)),
+            new("vents", 1, TimeSpan.FromMinutes(30)),
+            new("farm", 1, TimeSpan.FromDays(1)),
+        ],
+    };
 
     private static readonly Dictionary<string, int> Nothing = new(StringComparer.Ordinal);
 
@@ -46,6 +55,8 @@ public sealed class HideoutUpgradePlannerTests
             ["generator 1", "generator 2", "vents 1", "farm 1"],
             path.Select(step => $"{step.StationId} {step.Level}"));
         Assert.Equal(["Mechanic loyalty 2"], path[^1].AlsoNeeds);
+        Assert.Equal(TimeSpan.FromHours(2), path[0].ConstructionTime);
+        Assert.Equal(TimeSpan.FromHours(30.5), TimeSpan.FromTicks(path.Sum(step => step.ConstructionTime!.Value.Ticks)));
     }
 
     [Fact]
