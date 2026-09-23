@@ -57,10 +57,10 @@ The production adapter preserves these source boundaries:
 - A complete finite world point is plotted only when it is inside the selected catalog variant's
   world bounds, the reviewed transform projects it, and the result is inside the derived scene
   bounds. Otherwise the pool remains map-only; no coordinate is invented.
-- Floors are attached only through explicit catalog extents; the base floor also requires an
-  explicit height bound rather than the parser's unbounded fallback. An unresolved floor remains
-  empty. It can render on a one-floor map, but a multi-floor view suppresses it until the layer is
-  known.
+- Physical floors are attached only through explicit catalog extents. An unbounded catalog base
+  is treated as an overview at presentation time, so every positioned spawn appears there and an
+  explicitly resolved spawn also appears on its own floor. An unresolved physical floor remains
+  hidden from specific-floor views rather than being guessed onto one.
 - Every supported map receives measured known, published, positioned, floor-resolved, and
   unresolved counts. Unsupported source maps and skipped catalog locations produce diagnostics;
   a zero or grossly mismatched first publication is refused instead of becoming a hollow head.

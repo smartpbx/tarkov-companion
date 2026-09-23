@@ -61,6 +61,7 @@ internal static class LootTour
                 Phase($"{map}: loot value filter", () => SetValueFilter(raid, threshold, basis));
             }
             Console.WriteLine(string.Create(Invariant, $"[loot] {map}: layer on {LootOn(raid)}, loot markers {raid.Renderer?.LootMarkers.Count}, badges {raid.Renderer?.LootBadges.Count}, spatial {raid.Renderer?.SpatialObjects.Count}"));
+            ReportLootFloors(services, raid, map);
             Phase($"{map}: drag x6", () => { }, () => Drag(raid, 6));
             Phase($"{map}: zoom in x4", () => { }, () => Zoom(raid, 1, 4));
             Phase($"{map}: drag zoomed x6", () => { }, () => Drag(raid, 6));
@@ -118,6 +119,43 @@ internal static class LootTour
 
     private static bool? LootOn(RaidCockpitViewModel raid) =>
         raid.Renderer?.Layers.FirstOrDefault(layer => layer.Layer.Id == HighValueLootLayerService.LayerId)?.IsVisible;
+
+    private static void ReportLootFloors(IServiceProvider services, RaidCockpitViewModel raid, string map)
+    {
+        if (raid.Renderer is not { HighValueLoot: { } loot } renderer)
+        {
+            return;
+        }
+
+        var before = services.GetRequiredService<IHighValueLootRuntimeSource>().Build(new(
+            renderer.Scene.LocationId,
+            renderer.Scene.TransformVersion,
+            renderer.Scene.Bounds,
+            DateTimeOffset.UtcNow,
+            loot.FilterState.Filter,
+            renderer.Scene.FloorIds,
+            OverviewFloorIds: []));
+        var beforeObjects = before.Objects.ToArray();
+        var afterObjects = renderer.Scene.Objects
+            .Where(item => item.LayerId == HighValueLootLayerService.LayerId)
+            .ToArray();
+        Console.WriteLine("| Loot map | floor | before eligible | before drawn | after eligible | after drawn |");
+        Console.WriteLine("| --- | --- | ---: | ---: | ---: | ---: |");
+        Console.WriteLine(string.Create(Invariant, $"| {map} | all | {beforeObjects.Length} | {beforeObjects.Length} | {afterObjects.Length} | {afterObjects.Length} |"));
+        foreach (var floor in renderer.Scene.FloorIds)
+        {
+            var beforeDrawn = DrawnOn(beforeObjects, floor);
+            var afterDrawn = DrawnOn(afterObjects, floor);
+            var label = renderer.Floors.FirstOrDefault(item =>
+                string.Equals(item.Id, floor, StringComparison.OrdinalIgnoreCase))?.Name ?? floor;
+            Console.WriteLine(string.Create(Invariant, $"| {map} | {label} | {beforeObjects.Length} | {beforeDrawn} | {afterObjects.Length} | {afterDrawn} |"));
+        }
+    }
+
+    private static int DrawnOn(IReadOnlyList<TarkovCompanion.Core.Domain.Maps.Scene.MapSceneObject> objects, string floor) =>
+        objects.Count(item =>
+            item.FloorIds.Count == 0 ||
+            item.FloorIds.Contains(floor, StringComparer.OrdinalIgnoreCase));
 
     private static void SetValueFilter(RaidCockpitViewModel raid, long? threshold, string? basis)
     {

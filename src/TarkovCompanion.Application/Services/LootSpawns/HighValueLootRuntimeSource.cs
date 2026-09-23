@@ -11,7 +11,8 @@ public sealed record HighValueLootRuntimeLayerRequest(
     MapSceneBounds MapBounds,
     DateTimeOffset EvaluatedUtc,
     HighValueLootFilter Filter,
-    IReadOnlyList<string>? FloorIds = null);
+    IReadOnlyList<string>? FloorIds = null,
+    IReadOnlyList<string>? OverviewFloorIds = null);
 
 /// <summary>
 /// Owns the one process-wide last-known-good loot publication consumed by desktop map scenes.
@@ -188,7 +189,8 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             request.EvaluatedUtc,
             request.Filter,
             snapshot,
-            request.FloorIds), cancellationToken);
+            request.FloorIds,
+            request.OverviewFloorIds), cancellationToken);
         return transformChanged ? MarkMaybeStale(result) : result;
     }
 
@@ -286,7 +288,8 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
                    string.Equals(request.TransformVersion, Request.TransformVersion, StringComparison.Ordinal) &&
                    request.MapBounds == Request.MapBounds &&
                    (ReferenceEquals(request.Filter, Request.Filter) || request.Filter == Request.Filter) &&
-                   (request.FloorIds ?? []).SequenceEqual(Request.FloorIds ?? [], StringComparer.Ordinal);
+                   (request.FloorIds ?? []).SequenceEqual(Request.FloorIds ?? [], StringComparer.Ordinal) &&
+                   (request.OverviewFloorIds ?? []).SequenceEqual(Request.OverviewFloorIds ?? [], StringComparer.Ordinal);
         }
     }
 }
