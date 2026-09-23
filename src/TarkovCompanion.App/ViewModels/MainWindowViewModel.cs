@@ -14,6 +14,7 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
@@ -1831,6 +1832,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     private string _diagnosticsStatus = "Nothing copied yet.";
     private readonly SelfTestJournal? _selfTest;
     private readonly SynchronizationContext? _profileChangeContext;
+    private readonly IProfileRuntimeContextService? _profileRuntimeContext;
     private PlayerProfile? _latestProfileChange;
 
     /// <summary>
@@ -1943,7 +1945,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         // V2 rough package 41 (#292, #281): the last self-test, so a problem report carries
         // which capability failed rather than only the state it failed in.
         SelfTestJournal? selfTest = null,
-        IPlayerProfileChangeSource? profileChanges = null)
+        IPlayerProfileChangeSource? profileChanges = null,
+        IProfileRuntimeContextService? profileRuntimeContext = null)
         : base("Settings & diagnostics", "Runtime configuration and a manual data refresh", "Not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
@@ -1956,6 +1959,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         _gameFolders = gameFolders;
         _observation = observation;
         _selfTest = selfTest;
+        _profileRuntimeContext = profileRuntimeContext;
         var synchronizationContext = SynchronizationContext.Current;
         _profileChangeContext = synchronizationContext?.GetType().Namespace?
             .StartsWith("Avalonia", StringComparison.Ordinal) == true
@@ -2705,7 +2709,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         var profile = snapshot.Profile;
         if (_latestProfileChange is { } changed)
         {
-            if (profile is null || profile.Id == changed.Id)
+            var activeProfileId = _profileRuntimeContext?.Current.ActiveProfile?.Context.Identity.ProfileId;
+            if (profile is null || profile.Id == changed.Id || activeProfileId == changed.Id)
             {
                 profile = changed;
             }
@@ -2842,7 +2847,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         SelfTestJournal? selfTest = null,
         // [V2 rough package 60 — Plan] #288: saved kits, optional for the same reason. With no
         // store the Loadout page offers no presets rather than a Save button that does nothing.
-        ILoadoutPresetStore? loadoutPresets = null)
+        ILoadoutPresetStore? loadoutPresets = null,
+        IProfileRuntimeContextService? profileRuntimeContext = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2877,7 +2883,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             gameFolders,
             observation,
             selfTest,
-            profileService as IPlayerProfileChangeSource)
+            profileService as IPlayerProfileChangeSource,
+            profileRuntimeContext)
         {
             // The quest exchange and the TarkovTracker import are rendered on Settings now,
             // bound through this, so they stop costing 180 px above the quest board.
