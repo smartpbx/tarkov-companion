@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TarkovCompanion.Application.Services.Events;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
@@ -91,7 +92,8 @@ public sealed class FixtureScanAdapter(
     FixtureScanOptions options,
     IItemRepository itemRepository,
     IRecommendationEngine recommendationEngine,
-    TimeProvider? timeProvider = null) : IScanAdapter
+    TimeProvider? timeProvider = null,
+    EventRuleService? eventRules = null) : IScanAdapter
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -117,7 +119,15 @@ public sealed class FixtureScanAdapter(
             null,
             null,
             Confidence.Certain);
-        var recommendation = recommendationEngine.Recommend(item, price, context, ValueTierThresholds.Default);
+        var activeRules = eventRules is null
+            ? ActiveEventRules.Empty
+            : (await eventRules.ReadActiveAsync(observedUtc, cancellationToken).ConfigureAwait(false)).Active;
+        var recommendation = recommendationEngine.Recommend(
+            item,
+            price,
+            context,
+            ValueTierThresholds.Default,
+            activeRules);
         return new(
             true,
             true,

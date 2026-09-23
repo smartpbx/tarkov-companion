@@ -3,6 +3,7 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Recommendations;
+using TarkovCompanion.Application.Services.Events;
 
 namespace TarkovCompanion.Application.Services;
 
@@ -12,18 +13,27 @@ public sealed class RecommendationEngine : IRecommendationEngine
         ItemDefinition item,
         ItemPriceSnapshot price,
         RecommendationContext context,
-        ValueTierThresholds thresholds)
+        ValueTierThresholds thresholds,
+        ActiveEventRules? eventRules = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(price);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(thresholds);
 
+        var activeRules = eventRules ?? ActiveEventRules.Empty;
+        var eventRuleExplanation = EconomicRuleExplanation(price, activeRules);
+        price = EventRulePriceAdjustment.Apply(price, activeRules);
+
         var economicValue = price.BestEconomicValue;
         var valuePerSlot = economicValue / item.Dimensions.Slots;
         var tier = thresholds.GetTier(valuePerSlot);
         var reasons = new List<RecommendationReason>();
         var action = ResolvePriority(item, price, context, valuePerSlot, thresholds, reasons);
+        if (eventRuleExplanation is not null)
+        {
+            reasons.Add(new(RecommendationReasonCode.ActiveEventRule, eventRuleExplanation, 8));
+        }
         var confidence = economicValue == 0
             ? new Confidence(Math.Min(context.ContextConfidence.Value, 0.60))
             : context.ContextConfidence;
@@ -42,6 +52,28 @@ public sealed class RecommendationEngine : IRecommendationEngine
             valuePerSlot,
             price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc,
             price.BestSaleChannel);
+    }
+
+    private static string? EconomicRuleExplanation(ItemPriceSnapshot price, ActiveEventRules rules)
+    {
+        var effects = new List<string>();
+        if (!rules.FleaEnabled && price.FleaPriceRoubles is not null)
+        {
+            effects.Add("the flea is closed");
+        }
+
+        foreach (var offer in price.TraderOffers)
+        {
+            var multiplier = rules.TraderMultiplier(offer.TraderId);
+            if (multiplier != 1m)
+            {
+                effects.Add($"{offer.TraderName} prices are x{multiplier:0.##}");
+            }
+        }
+
+        return effects.Count == 0
+            ? null
+            : $"Active event rules apply: {string.Join("; ", effects.Distinct(StringComparer.Ordinal))}.";
     }
 
     private static RecommendationAction ResolvePriority(

@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.VisualTree;
@@ -21,6 +22,7 @@ using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Services.V2.Appearance;
 using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.Application.Services.Personalization;
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
@@ -724,6 +726,35 @@ internal static class Program
                 events.NewEventName = "Halloween 2026";
                 DrainUntilComplete(events.CreateCommand.ExecuteAsync());
                 Pump(40);
+                var eventCatalog = services.GetRequiredService<IEventCatalog>();
+                var eventAuthoring = services.GetRequiredService<IEventAuthoring>();
+                var definition = eventCatalog.GetAsync(default).GetAwaiter().GetResult()
+                    .Single(item => item.Id == "halloween-2026");
+                var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+                var closedPlanMap = plan.Groups.FirstOrDefault(group =>
+                    string.Equals(group.MapLabel, "Interchange", StringComparison.OrdinalIgnoreCase));
+                DrainUntilComplete(eventAuthoring.SaveAsync(definition with
+                {
+                    RulesJson = JsonSerializer.Serialize(new
+                    {
+                        effects = new object[]
+                        {
+                            new { type = "trader-price-multiplier", traderId = "54cb50c76803fa8b248b4571", traderName = "Prapor", multiplier = 0.8 },
+                            new { type = "map-availability", mapId = "laboratory", mapName = "Labs", available = false },
+                            new
+                            {
+                                type = "map-availability",
+                                mapId = closedPlanMap?.MapId ?? "interchange",
+                                mapName = closedPlanMap?.MapLabel ?? "Interchange",
+                                available = false,
+                            },
+                            new { type = "flea-availability", enabled = false },
+                        },
+                    }),
+                }, default));
+                DrainUntilComplete(events.LoadAsync(default));
+                events.Selected = events.Events.Single(item => item.EventId == definition.Id);
+                Pump(40);
                 events.ItemQuery = "bandage";
                 DrainUntilComplete(events.SearchCommand.ExecuteAsync());
                 foreach (var match in events.Matches.Take(3).ToArray())
@@ -737,6 +768,9 @@ internal static class Program
                     events.Items[0].MarkSafeCommand.Execute(null);
                     Pump(60);
                 }
+
+                DrainUntilComplete(plan.RefreshAsync());
+                Pump(40);
             }
 
             // Issue 645: a fresh install's honest history state is one locally recorded price.

@@ -2,6 +2,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Events;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -103,6 +104,10 @@ public sealed class EventsPageViewModel : PageViewModel
     private string _scheduleStatus = string.Empty;
     private string _schedulePreview = string.Empty;
     private bool _isArchived;
+    private string _rulePreview = string.Empty;
+    private string _ruleStatus = string.Empty;
+    private bool _hasRulePreview;
+    private bool _hasRuleIssues;
 
     public EventsPageViewModel(
         IEventCatalog catalog,
@@ -262,6 +267,33 @@ public sealed class EventsPageViewModel : PageViewModel
     /// <summary>What the archive button will do, said on the button.</summary>
     public string ArchiveLabel => IsArchived ? "Bring back" : "Archive event";
 
+    /// <summary>The effects this definition would apply while its schedule is active.</summary>
+    public string RulePreview
+    {
+        get => _rulePreview;
+        private set => SetProperty(ref _rulePreview, value);
+    }
+
+    public string RuleStatus
+    {
+        get => _ruleStatus;
+        private set => SetProperty(ref _ruleStatus, value);
+    }
+
+    public bool HasRulePreview
+    {
+        get => _hasRulePreview;
+        private set => SetProperty(ref _hasRulePreview, value);
+    }
+
+    public bool HasRuleIssues
+    {
+        get => _hasRuleIssues;
+        private set => SetProperty(ref _hasRuleIssues, value);
+    }
+
+    public bool HasRuleInformation => Selected is not null;
+
     /// <summary>Whether a schedule can be edited at all: only with a selection and a writer.</summary>
     public bool CanEditSchedule => CanEdit && Selected is not null;
 
@@ -329,6 +361,7 @@ public sealed class EventsPageViewModel : PageViewModel
             SearchStatus = string.Empty;
             ScheduleStatus = string.Empty;
             OnPropertyChanged(nameof(CanEditSchedule));
+            OnPropertyChanged(nameof(HasRuleInformation));
             LoadScheduleFields(value);
             if (value is not null)
             {
@@ -678,6 +711,10 @@ public sealed class EventsPageViewModel : PageViewModel
             RenameTo = string.Empty;
             IsArchived = false;
             SchedulePreview = string.Empty;
+            RulePreview = string.Empty;
+            RuleStatus = string.Empty;
+            HasRulePreview = false;
+            HasRuleIssues = false;
             return;
         }
 
@@ -686,6 +723,28 @@ public sealed class EventsPageViewModel : PageViewModel
         RenameTo = definition.Name;
         IsArchived = !definition.Active;
         RefreshSchedulePreview();
+        RefreshRulePreview(definition);
+    }
+
+    private void RefreshRulePreview(EventDefinition definition)
+    {
+        var parsed = EventRuleParser.Parse(definition.RulesJson);
+        HasRuleIssues = !parsed.IsValid;
+        if (!parsed.IsValid)
+        {
+            HasRulePreview = false;
+            RulePreview = string.Empty;
+            RuleStatus = "Rules need attention · " + string.Join(" · ", parsed.Issues.Take(3));
+            return;
+        }
+
+        HasRulePreview = parsed.Rules.Effects.Count > 0;
+        RulePreview = HasRulePreview
+            ? $"While active: {EventRuleText.Preview(parsed.Rules)}."
+            : "While active: no typed effects.";
+        RuleStatus = parsed.Rules.Effects.Count == 1
+            ? "1 effect validated"
+            : $"{parsed.Rules.Effects.Count} effects validated";
     }
 
     /// <summary>Says what the typed window would mean, before anything is written.</summary>
@@ -734,8 +793,8 @@ public sealed class EventsPageViewModel : PageViewModel
     /// </summary>
     /// <remarks>
     /// Returns true for an empty box with a null date, because an absent end is a valid window
-    /// and refusing it would make an open-ended event impossible to save. Midnight UTC on the
-    /// named day: the file format is UTC and a window is a day, not an instant.
+    /// and refusing it would make an open-ended event impossible to save. The named day is the
+    /// player's local calendar day; storage remains the corresponding UTC instant.
     /// </remarks>
     internal static bool TryReadDate(string? input, out DateTimeOffset? value)
     {
@@ -751,7 +810,14 @@ public sealed class EventsPageViewModel : PageViewModel
             return false;
         }
 
-        value = new DateTimeOffset(parsed.Date, TimeSpan.Zero);
+        var localMidnight = DateTime.SpecifyKind(parsed.Date, DateTimeKind.Unspecified);
+        if (LocalTime.Zone.IsInvalidTime(localMidnight))
+        {
+            return false;
+        }
+
+        var utc = TimeZoneInfo.ConvertTimeToUtc(localMidnight, LocalTime.Zone);
+        value = new DateTimeOffset(utc, TimeSpan.Zero);
         return true;
     }
 

@@ -25,6 +25,7 @@ using TarkovCompanion.Infrastructure.Devices;
 using TarkovCompanion.Infrastructure.Diagnostics;
 using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.Events;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Loadouts;
@@ -513,6 +514,7 @@ public static class AppComposition
         services.AddSingleton(_ => new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
         services.AddSingleton<IEventCatalog>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
         services.AddSingleton<IEventAuthoring>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
+        services.AddSingleton<EventRuleService>();
         // #287 (event state on items): the Events page's Safe/Allergic/Untested result for every
         // item in a running event, read as one map for Intel's chips.
         services.AddSingleton<IIntelEventStateCatalog, IntelEventStateCatalog>();
@@ -731,7 +733,8 @@ public static class AppComposition
                     new("demo-graphics-card"),
                     _.GetRequiredService<IItemRepository>(),
                     _.GetRequiredService<IRecommendationEngine>(),
-                    timeProvider)
+                    timeProvider,
+                    _.GetRequiredService<EventRuleService>())
                 : OperatingSystem.IsWindows()
                     ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
                     : new UnavailableScanAdapter(timeProvider)));

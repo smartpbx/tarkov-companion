@@ -50,9 +50,10 @@ A window that ends before it starts is refused rather than written. Archiving sw
 off and keeps it, along with everything recorded against it; only Delete removes a definition, and
 renaming keeps the id the recorded results are stored against.
 
-Event *rules* remain a stored string that nothing reads. A rule engine is deliberately not built
-here: there is no consumer for one, and a schema invented ahead of its reader would be another
-complete foundation with no caller.
+Event rules are typed effects read from `rulesJson`, validated and previewed on Plan > Events.
+Active schedules can adjust trader prices, switch flea availability, close or open maps, describe
+boss-spawn changes and bound quest availability. Map closures affect the next-raid suggestion and
+economic rules reach the recommendation engine; invalid rules are shown and never applied.
 
 ## Ammunition intelligence
 

@@ -10,6 +10,7 @@ using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Events;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
@@ -18,6 +19,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
+using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -234,6 +236,8 @@ public sealed record PlanQuestSummaryViewModel(string Name, string TraderLabel, 
 public sealed class PlanMapGroupViewModel : BindableViewModel
 {
     private bool _isSelected;
+    private bool _isAvailable = true;
+    private string _availabilityLabel = string.Empty;
 
     internal PlanMapGroupViewModel(
         string? mapId,
@@ -285,6 +289,35 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
+
+    public bool IsAvailable
+    {
+        get => _isAvailable;
+        private set => SetProperty(ref _isAvailable, value);
+    }
+
+    public string AvailabilityLabel
+    {
+        get => _availabilityLabel;
+        private set => SetProperty(ref _availabilityLabel, value);
+    }
+
+    public bool HasAvailabilityLabel => AvailabilityLabel.Length > 0;
+
+    internal void ApplyEventRules(ActiveEventRules rules)
+    {
+        var closures = MapId is null
+            ? []
+            : rules.Rules
+                .Where(rule => rule.Effect is MapAvailabilityRule { Available: false } map &&
+                               string.Equals(map.MapId, MapId, StringComparison.OrdinalIgnoreCase))
+                .Select(rule => rule.EventName)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+        IsAvailable = closures.Length == 0;
+        AvailabilityLabel = IsAvailable ? string.Empty : $"Closed · {string.Join(", ", closures)}";
+        OnPropertyChanged(nameof(HasAvailabilityLabel));
+    }
 
     /// <summary>How many objective rows a map shows before the player asks for the rest.</summary>
     internal const int ObjectivePageSize = 4;
@@ -519,6 +552,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private readonly Func<string, Task> _openInRaid;
     private readonly QuestLogProgressService? _questLog;
     private string _gameLogStatus = string.Empty;
+    private readonly EventRuleService? _eventRuleService;
+    private ActiveEventRules _activeEventRules = ActiveEventRules.Empty;
+    private string _eventRuleSummary = string.Empty;
 
     public PlanWorkspaceViewModel(
         IPlayerProfileService profileService,
@@ -550,9 +586,11 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         AppDataPaths? paths = null,
         TimeProvider? clock = null,
         // #285: which foods and medicines the Events page records an allergy to.
-        AllergyWarningService? allergies = null)
+        AllergyWarningService? allergies = null,
+        EventRuleService? eventRuleService = null)
     {
         _allergies = allergies;
+        _eventRuleService = eventRuleService;
         _paths = paths;
         _clock = clock ?? TimeProvider.System;
         _itemRepository = itemRepository;
@@ -627,6 +665,20 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     }
 
     public bool HasGroups => Groups.Count > 0;
+
+    public string EventRuleSummary
+    {
+        get => _eventRuleSummary;
+        private set
+        {
+            if (SetProperty(ref _eventRuleSummary, value))
+            {
+                OnPropertyChanged(nameof(HasEventRuleSummary));
+            }
+        }
+    }
+
+    public bool HasEventRuleSummary => EventRuleSummary.Length > 0;
 
     public IReadOnlyList<PlanMapGroupViewModel> VisibleGroups => _visibleGroups;
 
@@ -1073,6 +1125,23 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                     .ConfigureAwait(true);
             }
 
+            if (_eventRuleService is not null)
+            {
+                var eventRules = await OffInterfaceThread
+                    .Run(() => _eventRuleService.ReadActiveAsync(cancellationToken), cancellationToken)
+                    .ConfigureAwait(true);
+                _activeEventRules = eventRules.Active;
+                var summary = EventRuleText.ActiveSummary(_activeEventRules);
+                EventRuleSummary = eventRules.InvalidDefinitions.Count > 0
+                    ? string.Join(" · ", new[] { summary, $"{eventRules.InvalidDefinitions.Count} event rule file(s) need attention" }.Where(value => value.Length > 0))
+                    : summary;
+            }
+            else
+            {
+                _activeEventRules = ActiveEventRules.Empty;
+                EventRuleSummary = string.Empty;
+            }
+
             var board = _board;
             _mapNames = await OffInterfaceThread.Run(() => ResolveMapNamesAsync(board, cancellationToken), cancellationToken).ConfigureAwait(true);
             UiActivity.Step("plan:mapnames");
@@ -1197,7 +1266,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         var composed = ComposeGroups(entries, Groups, NameOfMap, this, _selectGroup, _openInRaid);
         var composedChanged = !ReferenceEquals(composed, Groups);
         Groups = composed;
-        var suggested = MarkSuggestedRaid(composed);
+        foreach (var group in composed)
+        {
+            group.ApplyEventRules(_activeEventRules);
+        }
+
+        var suggested = MarkSuggestedRaid(composed, _activeEventRules);
         _suggestedRaid = suggested;
         OnPropertyChanged(nameof(HasSuggestedRaid));
         OnPropertyChanged(nameof(SuggestedRaidLabel));
@@ -1241,10 +1315,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     });
 
     /// <summary>Flags the map the next raid should be on, and returns it. The choice is <see cref="NextRaidPlanner"/>'s.</summary>
-    internal static PlanMapGroupViewModel? MarkSuggestedRaid(IReadOnlyList<PlanMapGroupViewModel> groups)
+    internal static PlanMapGroupViewModel? MarkSuggestedRaid(
+        IReadOnlyList<PlanMapGroupViewModel> groups,
+        ActiveEventRules? eventRules = null)
     {
         var best = NextRaidPlanner.Suggest(groups.Select(group =>
-            new TarkovCompanion.Core.Domain.Planning.NextRaidCandidate(group.MapId ?? string.Empty, group.MapLabel, group.Quests.Count, group.Objectives.Count)));
+            new TarkovCompanion.Core.Domain.Planning.NextRaidCandidate(group.MapId ?? string.Empty, group.MapLabel, group.Quests.Count, group.Objectives.Count)), eventRules);
         PlanMapGroupViewModel? suggested = null;
         foreach (var group in groups)
         {

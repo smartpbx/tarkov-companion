@@ -5,7 +5,7 @@
   "endUtc": null,
   "active": false,
   "applicableItemIds": [],
-  "rulesJson": "{\"consumePrecedence\":[\"allergic\",\"safe\",\"untested\"]}",
+  "rulesJson": "{\"effects\":[]}",
   "provenance": {
     "source": "local template",
     "observedUtc": "2026-09-09T00:00:00Z",
