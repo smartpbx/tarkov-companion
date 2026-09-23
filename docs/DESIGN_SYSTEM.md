@@ -381,6 +381,8 @@ Fluent's own `:focus-visible` never does. Overrides go into
 `Application.Resources`, which shadows the merged token dictionary and leaves the authored file as
 the design system's own record of the sizes — `V2AppearanceResources` reads its baseline from
 there, once, before anything is shadowed.
+It also listens to Avalonia platform colour changes and re-reads the operating-system values, so
+System follows light/dark changes during the session and Windows contrast mode takes precedence.
 
 **The palette that was left behind.** The rail, the buttons, the text boxes and the map chrome
 paint from `Themes/InstrumentPalette.axaml`, not from `V2ThemeVariants.axaml`, so a light theme

@@ -407,6 +407,10 @@
                               <Run Text="{Binding TraderLabel}" />
                             </TextBlock>
                             <WrapPanel ItemSpacing="8" LineSpacing="4">
+                              <Border Classes="v2-plan-chip" ToolTip.Tip="{Binding StateDetail}"
+                                      AutomationProperties.Name="Quest state">
+                                <TextBlock Classes="v2-label" Text="{Binding StateLabel}" />
+                              </Border>
                               <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="Wrap"
                                          IsVisible="{Binding HasMetadataLabel}" VerticalAlignment="Center" />
                               <!-- [Package 35] The quest's wiki page, where the quest is: a link out that opens the

@@ -39,9 +39,11 @@ come from, and has no judgement of its own.
 
 The tray is the quiet channel and the default one: the icon carries the raid state, and the tooltip
 carries the detail and a count of what has not been looked at. Nothing is drawn on screen unless
-`ShowsDesktopPopup` is switched on, which it is not by default — that is the whole of "nothing pops
-over a full-screen game unless the player asked for it". The pop-up is an in-window toast rather
-than a desktop one, so even switched on it cannot appear over a game that is covering the window.
+`ShowsDesktopPopup` is switched on, which it is not by default. Windows then uses a native
+Notification Center message, but never while a raid is loading or in progress. Its title and body
+are fixed, detail-free text so the lock screen cannot reveal item names, prices, squad names, or
+relay details. Quiet hours hold it back while the tray count still advances. If the native channel
+is unavailable, the existing in-window pop-up remains the fallback.
 
 ## Tray presence
 
@@ -63,7 +65,7 @@ then no tray at all.
 
 Every notification has a row: what it is in one plain sentence, whether it reaches you mid-raid, a
 switch, and a **Test this** button that sends the real notification through the real channels. Four
-of the five can otherwise only be seen by waiting for something to go wrong, which is a poor way to
+of the six can otherwise only be seen by waiting for something to go wrong, which is a poor way to
 discover that a switch does nothing. The test ignores the switch beside it on purpose — pressing it
 on a notification you have turned off is how you decide whether to turn it on.
 
@@ -72,4 +74,5 @@ six on, no pop-up) rather than to silence, and each switch is defaulted per prop
 written by an older build cannot silently turn off a notification added later.
 
 **Quiet hours** (off by default, 23:00 to 08:00 local) hold the pop-up back; the tray count still
-counts, and **Test this** ignores them.
+counts, and **Test this** ignores them. Test messages still obey the raid boundary: they do not
+raise a native Windows notification while a raid is loading or in progress.

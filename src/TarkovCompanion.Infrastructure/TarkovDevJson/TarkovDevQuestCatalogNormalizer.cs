@@ -140,7 +140,11 @@ public sealed class TarkovDevQuestCatalogNormalizer
                 NormalizeMapAssociations(objective),
                 NormalizeZones(objective.Zones ?? [], objective.PossibleLocations ?? [], rawJson),
                 SubtypeJson(rawJson),
-                rawJson));
+                rawJson)
+            {
+                RequiredTraderId = objective.Trader,
+                RequiredTraderLevel = objective.Level,
+            });
         }
 
         return normalized;

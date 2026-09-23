@@ -96,6 +96,23 @@
       "noticeKey": "communitytoolkit"
     },
     {
+      "name": "Microsoft.Toolkit.Uwp.Notifications",
+      "ids": [
+        "Microsoft.Toolkit.Uwp.Notifications"
+      ],
+      "version": "7.1.3",
+      "scope": "runtime",
+      "ships": true,
+      "license": "MIT",
+      "copyrightNotice": "Copyright © .NET Foundation and Contributors. All rights reserved.",
+      "purpose": "Native Windows notification payload construction and delivery.",
+      "authoritativeSource": "https://github.com/CommunityToolkit/WindowsCommunityToolkit/tree/72205c9add7c3fc1ed63bb77e6fc101e39f1ac33",
+      "licenseFiles": [
+        "LICENSES/Windows-Community-Toolkit-MIT.md"
+      ],
+      "noticeKey": "windows-community-toolkit"
+    },
+    {
       "name": "coverlet.collector",
       "ids": [
         "coverlet.collector"
@@ -244,6 +261,40 @@
       "license": "MIT",
       "copyrightNotice": "\u00a9 Microsoft Corporation. All rights reserved.",
       "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+      "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+      "licenseFiles": [
+        "LICENSES/Dotnet-Runtime-MIT.txt"
+      ],
+      "noticeKey": "microsoft-dotnet"
+    },
+    {
+      "name": "System.Drawing.Common",
+      "ids": [
+        "System.Drawing.Common"
+      ],
+      "version": "10.0.12",
+      "scope": "runtime",
+      "ships": true,
+      "license": "MIT",
+      "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+      "purpose": "Current supported dependency override for the Windows notification toolkit.",
+      "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+      "licenseFiles": [
+        "LICENSES/Dotnet-Runtime-MIT.txt"
+      ],
+      "noticeKey": "microsoft-dotnet"
+    },
+    {
+      "name": "Microsoft.Win32.SystemEvents",
+      "ids": [
+        "Microsoft.Win32.SystemEvents"
+      ],
+      "version": "10.0.12",
+      "scope": "runtime",
+      "ships": true,
+      "license": "MIT",
+      "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+      "purpose": "Windows system-event support resolved by System.Drawing.Common.",
       "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
       "licenseFiles": [
         "LICENSES/Dotnet-Runtime-MIT.txt"

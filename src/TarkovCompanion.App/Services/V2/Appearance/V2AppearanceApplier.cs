@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using TarkovCompanion.App.Themes.V2;
 using TarkovCompanion.Core.Domain.Personalization;
 
@@ -31,7 +32,7 @@ namespace TarkovCompanion.App.Services.V2.Appearance;
 /// can actually apply.
 /// </para>
 /// </remarks>
-public sealed class V2AppearanceApplier
+public sealed class V2AppearanceApplier : IDisposable
 {
     /// <summary>The class the window carries while transitions are suppressed.</summary>
     public const string ReducedMotionClass = "v2-motion-reduced";
@@ -47,13 +48,24 @@ public sealed class V2AppearanceApplier
     public const string FocusAlwaysVisibleClass = "v2-focus-always";
 
     private readonly Avalonia.Application _application;
-    private readonly Func<PlatformColorValues?> _readSystemColors;
+    private readonly IV2SystemAppearanceSource _systemAppearance;
     private Dictionary<string, object?>? _baseline;
+    private Func<WorkspacePreferences>? _readCurrentPreferences;
+    private bool _followsSystemChanges;
 
     public V2AppearanceApplier(Avalonia.Application application, Func<PlatformColorValues?>? readSystemColors = null)
+        : this(
+            application,
+            readSystemColors is null
+                ? new AvaloniaV2SystemAppearanceSource(application?.PlatformSettings)
+                : new DelegateV2SystemAppearanceSource(readSystemColors))
+    {
+    }
+
+    internal V2AppearanceApplier(Avalonia.Application application, IV2SystemAppearanceSource systemAppearance)
     {
         _application = application ?? throw new ArgumentNullException(nameof(application));
-        _readSystemColors = readSystemColors ?? (() => application.PlatformSettings?.GetColorValues());
+        _systemAppearance = systemAppearance ?? throw new ArgumentNullException(nameof(systemAppearance));
     }
 
     /// <summary>The variant last resolved, for a caller that wants to report it.</summary>
@@ -95,15 +107,64 @@ public sealed class V2AppearanceApplier
         window.Classes.Set(FocusAlwaysVisibleClass, preferences.FocusAlwaysVisible);
     }
 
+    /// <summary>Re-resolves the current preference whenever the desktop appearance changes.</summary>
+    /// <remarks>
+    /// The event payload is intentionally not used. <see cref="Apply"/> reads the platform again,
+    /// so a dark-mode and contrast-mode change delivered close together resolves from the final
+    /// state. The current stored preference is also read at notification time rather than captured.
+    /// </remarks>
+    public void FollowSystemChanges(Func<WorkspacePreferences> readCurrentPreferences)
+    {
+        _readCurrentPreferences = readCurrentPreferences ?? throw new ArgumentNullException(nameof(readCurrentPreferences));
+        if (_followsSystemChanges)
+        {
+            return;
+        }
+
+        _systemAppearance.Changed += OnSystemAppearanceChanged;
+        _followsSystemChanges = true;
+    }
+
+    public void Dispose()
+    {
+        if (_followsSystemChanges)
+        {
+            _systemAppearance.Changed -= OnSystemAppearanceChanged;
+            _followsSystemChanges = false;
+        }
+
+        _systemAppearance.Dispose();
+    }
+
     private (bool PrefersDark, bool RequestsHighContrast) ReadSystemColors()
     {
         // Headless render hosts and the earliest moments of startup have no platform settings.
         // Dark is the answer the application has always given when it could not ask.
-        var colors = _readSystemColors();
+        var colors = _systemAppearance.Read();
         return colors is null
             ? (true, false)
             : (colors.ThemeVariant == PlatformThemeVariant.Dark,
                 colors.ContrastPreference == ColorContrastPreference.High);
+    }
+
+    private void OnSystemAppearanceChanged(object? sender, EventArgs args)
+    {
+        void Reapply()
+        {
+            if (_readCurrentPreferences is { } read)
+            {
+                Apply(read());
+            }
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            Reapply();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(Reapply);
+        }
     }
 
     private IEnumerable<Window> Windows() =>
