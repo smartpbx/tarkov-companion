@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using TarkovCompanion.App.Services.Diagnostics;
 
 namespace TarkovCompanion.App.Services.V2.Notifications;
@@ -81,6 +82,25 @@ public static class CloseToTrayDecision
 
         return true;
     }
+
+    /// <summary>
+    /// Whether this one close of the main window should be turned into hiding it.
+    /// </summary>
+    /// <remarks>
+    /// #735. Only a close aimed at the window itself: the X, Alt+F4, or a tool's
+    /// <c>CloseMainWindow</c>. A close the application or Windows asked for is an exit. Hiding on
+    /// <see cref="WindowCloseReason.OSShutdown"/> cancelled the session ending, so Windows showed
+    /// the companion as blocking sign-out or shutdown and then killed it, and the next launch
+    /// reported a run that died; hiding on <see cref="WindowCloseReason.ApplicationShutdown"/>
+    /// turned the lifetime's own shutdown back into a tray icon.
+    /// </remarks>
+    /// <param name="closesToTray">This launch's <see cref="ShouldCloseToTray(bool, AppCommandLine?)"/>.</param>
+    /// <param name="reason">Why the window is closing.</param>
+    /// <param name="alreadyInTray">The window is hidden already and only an explicit shutdown ends the process.</param>
+    public static bool ShouldHideOnClose(bool closesToTray, WindowCloseReason reason, bool alreadyInTray) =>
+        closesToTray
+        && !alreadyInTray
+        && reason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined;
 
     private static bool IsTruthy(string? value) =>
         value is not null

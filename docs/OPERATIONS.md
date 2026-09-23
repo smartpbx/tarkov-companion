@@ -31,6 +31,8 @@ next to the application instead.
 | `breadcrumbs.log` | What the application was *about to do*, written before it does it — one line per navigation, per map load, per SVG read. Closed on every write, so it survives a process that is killed outright. Rolled at 512 KB. |
 | `breadcrumbs.running` | Present while a run is in progress; removed when it reaches its own shutdown. Finding one at startup is what makes the next launch report the previous one as died. |
 
+Every exit request (window close, tray Quit, Windows ending the session, update hand-over) writes `Exit requested (<why>)` and starts a 15-second clock; a process still alive when it runs out writes `last stage: <where it stuck>` and is terminated (#735). A session end is recorded as a clean exit.
+
 The breadcrumb file exists because a native fault cannot be caught. On 2026-09-19 an access
 violation inside Skia (`0xc0000005`, in `sk_canvas_draw_picture`, rasterising a map drawing)
 killed the application outright: no managed exception was raised, so the

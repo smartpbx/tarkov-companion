@@ -189,6 +189,9 @@ internal static class Program
             {
                 lifetimeExitCode = BuildAvaloniaApp(app).StartWithClassicDesktopLifetime(args);
                 CrashLog.Write("lifecycle", $"Desktop lifetime returned {lifetimeExitCode}.");
+                // Usually already armed by the close that got here (#735); this covers a lifetime
+                // that ended some other way, and otherwise only records the stage.
+                ExitDeadline.Current.Arm("desktop lifetime returned");
                 return lifetimeExitCode;
             }
             finally
@@ -258,10 +261,13 @@ internal static class Program
         var report = "not reached";
         var teardown = Task.Run(async () =>
         {
+            // Every step is a lambda (#735). `services.DisposeAsync().AsTask` as a method group
+            // called DisposeAsync on the spot, before the stage existed, so every synchronous
+            // Dispose inside it ran outside the stage's bound and outside its report.
             if (diagnosticChannel is not null)
             {
                 await stages
-                    .RunAsync("diagnostic-channel", diagnosticChannel.DisposeAsync().AsTask, TimeSpan.FromSeconds(1))
+                    .RunAsync("diagnostic-channel", () => diagnosticChannel.DisposeAsync().AsTask(), TimeSpan.FromSeconds(1))
                     .ConfigureAwait(false);
             }
 
@@ -276,7 +282,7 @@ internal static class Program
                     TimeSpan.FromSeconds(4))
                 .ConfigureAwait(false);
             await stages
-                .RunAsync("services", services.DisposeAsync().AsTask, stages.Remaining)
+                .RunAsync("services", () => services.DisposeAsync().AsTask(), stages.Remaining)
                 .ConfigureAwait(false);
             report = $"{stages.Report()}{(interfaceReport.Length == 0 ? string.Empty : $" · interface: {interfaceReport}")}";
         });
@@ -286,12 +292,14 @@ internal static class Program
             // Every step is already bounded, so this wait is the belt to that brace rather than
             // the thing doing the bounding. A little slack over the budget, so an ordinary
             // shutdown reports its own numbers instead of this line.
+            ExitDeadline.Current.Reached("teardown");
             var finished = teardown.Wait(ShutdownTimeout + TimeSpan.FromSeconds(1));
             CrashLog.Write(
                 "lifecycle",
                 finished
                     ? $"Teardown finished: {report}"
-                    : $"Teardown did not finish within {ShutdownTimeout.TotalSeconds:0} seconds; exiting anyway.");
+                    : $"Teardown did not finish within {ShutdownTimeout.TotalSeconds:0} seconds (still in '{stages.Current}'); exiting anyway.");
+            ExitDeadline.Current.Reached(finished ? "teardown finished" : $"teardown abandoned in '{stages.Current}'");
         }
         catch (AggregateException exception)
         {
@@ -302,6 +310,7 @@ internal static class Program
             // Last thing, and in a finally, because the question the next launch asks is only
             // "did this run reach its own shutdown". A teardown that timed out still did.
             CrashBreadcrumbs.MarkCleanExit();
+            ExitDeadline.Current.Reached("returning from Main");
             ArmExitWatchdog(exitCode);
         }
     }
@@ -329,6 +338,9 @@ internal static class Program
                     // Deliberate from here on, however it ends: the next launch must not report
                     // an update as a run that died.
                     CrashBreadcrumbs.MarkCleanExit();
+                    // The hand-over's own kill is armed only once the updater has started; this
+                    // bounds a hand-over that never gets that far (#735).
+                    ExitDeadline.Current.Arm("update hand-over");
                     app.StopAcceptingWork();
                     var children = MapRasterizerChildren.KillAll();
                     if (children > 0)
@@ -343,7 +355,7 @@ internal static class Program
                     if (diagnosticChannel is not null)
                     {
                         await stages
-                            .RunAsync("diagnostic-channel", diagnosticChannel.DisposeAsync().AsTask, TimeSpan.FromMilliseconds(300))
+                            .RunAsync("diagnostic-channel", () => diagnosticChannel.DisposeAsync().AsTask(), TimeSpan.FromMilliseconds(300))
                             .ConfigureAwait(false);
                     }
 
@@ -351,7 +363,7 @@ internal static class Program
                         .RunAsync("interface", () => app.StopAsync(stages.Remaining), TimeSpan.FromSeconds(1))
                         .ConfigureAwait(false);
                     await stages
-                        .RunAsync("services", services.DisposeAsync().AsTask, stages.Remaining)
+                        .RunAsync("services", () => services.DisposeAsync().AsTask(), stages.Remaining)
                         .ConfigureAwait(false);
                     Log($"Update hand-over teardown: {stages.Report()}");
                 }),
@@ -372,7 +384,8 @@ internal static class Program
     /// running with no window is the failure a second-monitor application can least afford.
     ///
     /// It says so in the log before it goes, because an exit nobody can account for is how this
-    /// class of bug stays invisible.
+    /// class of bug stays invisible. <see cref="Environment.Exit(int)"/> keeps the exit code but
+    /// can hang in exit handlers or native detach code; <see cref="ExitDeadline"/> is behind it.
     /// </remarks>
     private static void ArmExitWatchdog(int exitCode)
     {

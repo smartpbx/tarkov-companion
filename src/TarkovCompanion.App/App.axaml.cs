@@ -119,6 +119,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 // Attached after the window exists because closing to the tray only makes sense
                 // when there is a tray to close to, and the pop-up needs a window to draw in.
                 AttachNotifications(desktop, window, options);
+                AttachExitDeadline(desktop, window);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
                 services.GetRequiredService<DatabaseMaintenanceCoordinator>().Start();
                 // [#453] From here on a dispatcher that stops answering for five seconds says so
@@ -157,6 +158,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 Quit: () =>
                 {
                     _closesToTray = false;
+                    ExitDeadline.Current.Arm("tray Quit");
                     desktop.Shutdown();
                 }));
             services.GetRequiredService<PopupNotificationHost>()
@@ -170,8 +172,11 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             window.Closing += (_, args) =>
             {
                 // Already hidden under OnExplicitShutdown: let a second close (or Quit) finish.
-                if (!_closesToTray
-                    || (desktop.ShutdownMode == ShutdownMode.OnExplicitShutdown && !window.IsVisible))
+                // A close Windows or the lifetime asked for is an exit, never a hide (#735).
+                if (!CloseToTrayDecision.ShouldHideOnClose(
+                        _closesToTray,
+                        args.CloseReason,
+                        alreadyInTray: desktop.ShutdownMode == ShutdownMode.OnExplicitShutdown && !window.IsVisible))
                 {
                     return;
                 }
@@ -205,6 +210,38 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             _notifications = null;
             _closesToTray = false;
         }
+    }
+
+    /// <summary>
+    /// Starts the exit clock at every way this application is asked to end (#735).
+    /// </summary>
+    /// <remarks>
+    /// Subscribed after <see cref="AttachNotifications"/>, so the window's <c>Closing</c> handler
+    /// here runs last and sees whether the close-to-tray handler cancelled the close: a close
+    /// that became a hide is not an exit. Outside the tray's catch, so a machine with no tray
+    /// still gets it.
+    /// </remarks>
+    private void AttachExitDeadline(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
+    {
+        window.Closing += (_, args) =>
+        {
+            if (!args.Cancel)
+            {
+                ExitDeadline.Current.Arm($"main window closing, {args.CloseReason}");
+            }
+        };
+        desktop.ShutdownRequested += (_, _) =>
+        {
+            // Raised only by the platform here (nothing in this application calls TryShutdown):
+            // on Windows, the session ending. Windows may end this process as soon as that
+            // message is answered, and that is a deliberate end, not a run that died, so it is
+            // recorded as one before teardown has had its chance.
+            _closesToTray = false;
+            CrashBreadcrumbs.Drop("lifecycle", "Windows is ending the session");
+            CrashBreadcrumbs.MarkCleanExit();
+            ExitDeadline.Current.Arm("Windows is ending the session");
+        };
+        desktop.Exit += (_, _) => ExitDeadline.Current.Arm("desktop lifetime exit");
     }
 
     /// <summary>Brings the window back from the tray, optionally on a named workspace.</summary>

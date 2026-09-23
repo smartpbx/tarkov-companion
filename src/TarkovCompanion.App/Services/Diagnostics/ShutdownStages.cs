@@ -52,12 +52,19 @@ internal sealed class ShutdownStages(TimeSpan budget)
     /// what remains is a courtesy. Abandoning it is the only thing that is actually bounded —
     /// waiting on a cancellation that a step never observes is how this got slow in the first
     /// place.
+    ///
+    /// The step is started on the thread pool, not called here. <c>step().WaitAsync</c> only bounds
+    /// the task a step returns, and a step that blocks before returning one (a synchronous
+    /// <c>Dispose</c> inside <c>ServiceProvider.DisposeAsync</c> waiting on a thread or a file) was
+    /// not bounded at all: the stage never ended, the report was never written, and the log said
+    /// only that teardown as a whole ran out, not which step held it (#735).
     /// </remarks>
     public async Task RunAsync(string name, Func<Task> step, TimeSpan allowance)
     {
         var deadline = allowance < Remaining ? allowance : Remaining;
         var started = _elapsed.Elapsed;
         var overran = false;
+        Current = name;
         try
         {
             if (deadline <= TimeSpan.Zero)
@@ -66,7 +73,7 @@ internal sealed class ShutdownStages(TimeSpan budget)
             }
             else
             {
-                await step().WaitAsync(deadline).ConfigureAwait(false);
+                await Task.Run(step).WaitAsync(deadline).ConfigureAwait(false);
             }
         }
         catch (TimeoutException)
@@ -86,6 +93,9 @@ internal sealed class ShutdownStages(TimeSpan budget)
             CultureInfo.InvariantCulture,
             $"{name} {(_elapsed.Elapsed - started).TotalMilliseconds:0}ms{(overran ? " (abandoned)" : string.Empty)}"));
     }
+
+    /// <summary>The step started last, for a log line written while it may still be running.</summary>
+    public string? Current { get; private set; }
 
     /// <summary>
     /// Records a step that was deliberately not run, and why.
