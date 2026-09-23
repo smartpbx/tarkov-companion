@@ -70,9 +70,13 @@
   .capturePicker span { color: var(--quiet); font-size: 13px; }
   .capturePicker button { min-height: 44px; padding: 6px 10px; }
   .empty { color: var(--quiet); font-size: 13px; }
-  .markRow { display: flex; align-items: center; gap: 10px; }
-  .markRow > div:first-child { flex: 1; min-width: 0; }
+  .markRow { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .markInfo { flex: 1 1 150px; min-width: 0; }
+  .markActions { display: flex; gap: 6px; flex: none; }
+  .markEditor { display: flex; gap: 6px; flex: 1 0 100%; }
+  .markEditor input { flex: 1 1 140px; }
   .markRow button { flex: none; min-height: 44px; }
+  .markRow.moving { border-color: var(--cyan); }
   .markList { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
   .live-dot {
     width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
@@ -296,7 +300,7 @@
       <h2 style="margin-top:16px">Marks</h2>
       <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
            means, the way right-click and shift+right-click do on the desktop. -->
-      <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
+      <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Edit or move marks below.</p>
       <div class="form">
         <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
       </div>
@@ -925,6 +929,11 @@
   let camera = null;
   let localSelectionId = null;
   let localHiddenLayers = null;
+  // A Move button arms exactly one existing mark. The next map tap upserts that mark's stable
+  // protocol id and revision rather than deleting and creating it in the paired state. The
+  // desktop's local store sees MoveAsync, where #720's group forwarder deliberately removes and
+  // resends because the group relay has no move operation of its own.
+  let movingMarkId = null;
   // #290 "Send to tablet": the desktop's last send this page has seen. Undefined until the first
   // surface, which only sets it, so reloading the page never replays an old send.
   let seenSentToTablet;
@@ -2426,8 +2435,11 @@
 
     for (const mark of marks) {
       const row = document.createElement("div");
-      row.className = "row markRow";
+      const markId = mark.markId?.value ?? "";
+      row.className = `row markRow${movingMarkId === markId ? " moving" : ""}`;
+      row.dataset.markId = markId;
       const info = document.createElement("div");
+      info.className = "markInfo";
       const name = document.createElement("div");
       name.className = "name";
       name.textContent = mark.state.label || mark.kind;
@@ -2435,11 +2447,35 @@
       meta.className = "meta";
       meta.textContent = `${mark.kind} · ${mark.state.mapId}`;
       info.append(name, meta);
+      const actions = document.createElement("div");
+      actions.className = "markActions";
+      const move = document.createElement("button");
+      move.type = "button";
+      move.textContent = movingMarkId === markId ? "Cancel move" : "Move";
+      move.disabled = mark.state.mapId !== live?.surface?.mapId;
+      move.addEventListener("click", () => armMarkMove(mark));
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = "Remove";
       remove.addEventListener("click", () => removeMark(mark));
-      row.append(info, remove);
+      actions.append(move, remove);
+      const editor = document.createElement("div");
+      editor.className = "markEditor";
+      const label = document.createElement("input");
+      label.value = mark.state.label || "";
+      label.placeholder = "Label (blank clears)";
+      label.maxLength = 80;
+      label.setAttribute("aria-label", `Label for ${mark.state.label || mark.kind}`);
+      const save = document.createElement("button");
+      save.type = "button";
+      save.textContent = "Save label";
+      const saveLabel = () => editMark(mark, { label: label.value.trim().slice(0, 80) || null });
+      save.addEventListener("click", saveLabel);
+      label.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") saveLabel();
+      });
+      editor.append(label, save);
+      row.append(info, actions, editor);
       list.appendChild(row);
     }
 
@@ -2663,6 +2699,64 @@
         color: markKind === "Ping" ? "#C7A66B" : "#22D3EE",
       },
     });
+  }
+
+  function editMark(mark, change) {
+    if (!live?.authorityEpoch || !mark?.markId) return;
+    const state = {
+      ...mark.state,
+      ...(change || {}),
+    };
+    sendCommand({
+      type: "upsertMark",
+      ...commandHeader(live.marksRevision + 1),
+      markId: mark.markId,
+      expectedMarkRevision: mark.revision,
+      mark: {
+        kind: mark.kind,
+        scope: mark.scope,
+        state,
+        coordinateSpace: mark.coordinateSpace,
+        projectionVersion: mark.projectionVersion,
+        height: mark.height,
+        color: mark.color,
+      },
+    });
+  }
+
+  function armMarkMove(mark) {
+    const markId = mark?.markId?.value ?? null;
+    if (!markId || mark.state.mapId !== live?.surface?.mapId) return;
+    movingMarkId = movingMarkId === markId ? null : markId;
+    renderMarks();
+    if (movingMarkId) {
+      showNotice(`Tap the new position for ${mark.state.label || mark.kind}.`, "", true, () => {
+        movingMarkId = null;
+        renderMarks();
+      });
+    } else {
+      $("commandNotice").hidden = true;
+    }
+  }
+
+  function moveArmedMark(target) {
+    if (!movingMarkId) return false;
+    const mark = (live?.marks ?? []).find((item) => item.markId?.value === movingMarkId);
+    movingMarkId = null;
+    if (!mark) {
+      renderMarks();
+      return true;
+    }
+
+    editMark(mark, {
+      mapId: live.surface.mapId,
+      floorId: live.surface.view.floorId,
+      x: target.x,
+      y: target.y,
+    });
+    showNotice(`Moving ${mark.state.label || mark.kind}…`, "");
+    renderMarks();
+    return true;
   }
 
   function removeMark(mark) {
@@ -3010,6 +3104,10 @@
   function handleTap(at) {
     const target = at ? pressTarget(at) : null;
     if (!target) return;
+    if (moveArmedMark(target)) {
+      flash(target.px, target.py, COLOURS.Waypoint);
+      return;
+    }
     if (target.hit) {
       selectObject(target.hit);
       return;
@@ -3322,6 +3420,14 @@
     notice: $("commandNotice").hidden ? null : $("commandNotice").textContent,
     desktopWorkspace: live?.workspace?.workspace ?? null,
     pendingCommands: pending.count,
+    movingMarkId,
+    marks: (live?.marks ?? []).map((mark) => ({
+      id: mark.markId?.value ?? null,
+      revision: mark.revision,
+      label: mark.state?.label ?? null,
+      x: mark.state?.x ?? null,
+      y: mark.state?.y ?? null,
+    })),
     lastAcknowledgement,
     lootOpen: !$("lootSheet").hidden,
     lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
