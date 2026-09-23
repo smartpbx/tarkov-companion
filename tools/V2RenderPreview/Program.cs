@@ -797,6 +797,20 @@ internal static class Program
                 Pump(40);
             }
 
+            // #288: the rule editor with an effect being typed, one field wrong, to show the inline error.
+            if (args.Contains("--events-editing-demo"))
+            {
+                var editor = viewModel.Events.RuleEditor;
+                editor.AddBossCommand.Execute(null);
+                editor.Rows[^1].TargetText = "Killa";
+                editor.Rows[^1].Multiplier = "0";
+                editor.AddQuestCommand.Execute(null);
+                editor.Rows[^1].TargetText = "Shooter Born in Heaven";
+                editor.Rows[^1].StartText = "2026-10-20";
+                editor.Rows[^1].EndText = "2026-11-02";
+                Pump(40);
+            }
+
             // Issue 645: a fresh install's honest history state is one locally recorded price.
             // Seed that exact state after migrations so the Flea render proves it does not draw
             // three identical low/average/high figures.
