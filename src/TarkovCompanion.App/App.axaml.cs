@@ -137,6 +137,9 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 // Attached after the window exists because closing to the tray only makes sense
                 // when there is a tray to close to, and the pop-up needs a window to draw in.
                 AttachNotifications(desktop, window, options);
+                viewModel.PreviewShell?.ReleaseExperience?
+                    .InitializeAsync(_stopping.Token)
+                    .Observe("what's new", "initialize");
                 AttachExitDeadline(desktop, window);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
                 services.GetRequiredService<DatabaseMaintenanceCoordinator>().Start();

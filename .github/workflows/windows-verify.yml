@@ -59,6 +59,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.401
@@ -75,6 +77,10 @@ jobs:
           VERSION="$(./scripts/build-version.sh "${{ github.run_number }}")"
           echo "TARKOV_BUILD_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "This build is $VERSION."
+
+      - name: Build the player changelog
+        shell: bash
+        run: python3 scripts/generate-player-changelog.py --version "${TARKOV_BUILD_VERSION}"
       - name: Restore
         run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
       - name: Build
@@ -172,6 +178,8 @@ jobs:
       DOTNET_NOLOGO: 1
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
@@ -188,6 +196,10 @@ jobs:
           VERSION="$(./scripts/build-version.sh "${{ github.run_number }}")"
           echo "TARKOV_BUILD_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "This build is $VERSION."
+
+      - name: Build the player changelog
+        shell: bash
+        run: python scripts/generate-player-changelog.py --version "${TARKOV_BUILD_VERSION}"
 
       - name: Report runner session facts
         shell: powershell

@@ -11,6 +11,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.ReleaseExperience;
 using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
@@ -36,6 +37,7 @@ using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Recommendations;
+using TarkovCompanion.Application.Services.ReleaseExperience;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Group;
@@ -1002,6 +1004,14 @@ public static class AppComposition
         services.AddSingleton(provider => new SetupNotificationsViewModel(
             provider.GetRequiredService<NotificationBridge>(),
             () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));
+        services.AddSingleton<IReleaseExperienceStateStore>(_ =>
+            new JsonFileReleaseExperienceStateStore(Path.Combine(paths.Config, "release-experience.json")));
+        services.AddSingleton(_ => LoadPlayerChangelog());
+        services.AddSingleton(provider => new ReleaseExperienceViewModel(
+            provider.GetRequiredService<PlayerChangelog>(),
+            provider.GetRequiredService<IReleaseExperienceStateStore>(),
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            dispatch: action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
         // [#309] Setup > Privacy: preview before turning tidying on, a dry run, and the last-run ledger.
         services.AddSingleton(provider => new SetupCleanupViewModel(
@@ -1072,6 +1082,14 @@ public static class AppComposition
             ValidateOnBuild = true,
             ValidateScopes = true,
         });
+    }
+
+    private static PlayerChangelog LoadPlayerChangelog()
+    {
+        using var stream = typeof(AppComposition).Assembly.GetManifestResourceStream("TarkovCompanion.PlayerChangelog.json")
+            ?? throw new InvalidOperationException("The player changelog resource is missing.");
+        using var reader = new StreamReader(stream);
+        return PlayerChangelog.Parse(reader.ReadToEnd());
     }
 
     /// <summary>
