@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
@@ -29,7 +30,10 @@ public static class ExtractConditions
     /// Resolves the id of a handed-over item to its name. Given none, or given an item the
     /// catalog has never synced, the cost is still stated as a count.
     /// </param>
-    public static string? Describe(JsonElement extract, Func<string, string?>? itemName = null)
+    public static string? Describe(
+        JsonElement extract,
+        Func<string, string?>? itemName = null,
+        MapExtractRequirements? requirements = null)
     {
         if (extract.ValueKind != JsonValueKind.Object)
         {
@@ -42,12 +46,20 @@ public static class ExtractConditions
             parts.Add(faction);
         }
 
-        if (DescribeSwitches(extract) is { } switches)
+        if (requirements is not null)
+        {
+            var described = MapExtractRequirementReader.Describe(requirements);
+            if (described.Length > 0)
+            {
+                parts.Add(described);
+            }
+        }
+        else if (DescribeSwitches(extract) is { } switches)
         {
             parts.Add(switches);
         }
 
-        if (DescribeCost(extract, itemName) is { } cost)
+        if (requirements is null && DescribeCost(extract, itemName) is { } cost)
         {
             parts.Add(cost);
         }
