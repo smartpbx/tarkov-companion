@@ -26,6 +26,8 @@ internal sealed class LootScanPathHarness(
     LootScanCaptureHandoff handoff,
     ICaptureSessionPipeline? shippedPipeline = null)
 {
+    private static readonly TimeSpan MaximumScanWait = TimeSpan.FromMinutes(10);
+
     private static readonly WorkspaceOrigin Origin = new(
         new(Guid.Parse("37000000-0000-4000-8000-000000000001")),
         new(Guid.Parse("37000000-0000-4000-8000-000000000002")),
@@ -53,6 +55,16 @@ internal sealed class LootScanPathHarness(
                 handoff,
                 Origin,
                 clock);
+            var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void ObserveTerminal(object? sender, EventArgs args)
+            {
+                if (coordinator.Snapshot.Sessions.Any(item => item.IsTerminal))
+                {
+                    terminal.TrySetResult();
+                }
+            }
+
+            coordinator.Changed += ObserveTerminal;
             coordinator.ReviewRequested += (_, args) => coordinator.TryReview(
                 args.Review.SessionId,
                 args.Review.ArtifactId,
@@ -77,11 +89,20 @@ internal sealed class LootScanPathHarness(
                     sessionId),
                 CancellationToken.None);
 
-            var deadline = DateTime.UtcNow.AddSeconds(120);
-            while (DateTime.UtcNow < deadline && !coordinator.Snapshot.Sessions.Any(item => item.IsTerminal))
+            ObserveTerminal(null, EventArgs.Empty);
+            try
             {
-                clock.Advance(TimeSpan.FromMilliseconds(1));
-                await Task.Delay(1);
+                await terminal.Task.WaitAsync(MaximumScanWait);
+            }
+            catch (TimeoutException exception)
+            {
+                throw new TimeoutException(
+                    $"The real-frame capture session did not reach a terminal state within {MaximumScanWait}.",
+                    exception);
+            }
+            finally
+            {
+                coordinator.Changed -= ObserveTerminal;
             }
 
             return (builderPipeline.LastGrid, evaluated);

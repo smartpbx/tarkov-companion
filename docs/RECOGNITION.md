@@ -161,6 +161,10 @@ Each provider call's own frame timeout remains an inner cap, and each stage is c
 starts as well as during it, so a repository that ignores its token still does not start a lookup
 the budget has ruled out.
 
+V2 capture-session recognition has a five-minute outer supervisor safety bound. Its former
+45-second bound discarded valid real-frame grid results that took 64 seconds unloaded and up to
+130 seconds in paired loaded runs; explicit caller and shutdown cancellation remain immediate.
+
 Expiry is a measured outcome, not cancellation: whatever finished is kept and the stage that was
 cut says `ocr_pipeline_timeout`; caller cancellation still throws. A recognition cut before it
 finished is an unknown-context `Partial` scan; a dispatch or lookup cut keeps the recognition. The
