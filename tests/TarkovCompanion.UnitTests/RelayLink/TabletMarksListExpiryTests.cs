@@ -15,9 +15,9 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// the browser half is <c>scripts/test-tablet-marks-list-expiry.cjs</c>.
 /// </summary>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TabletMarksListExpiryTests
+public sealed class TabletMarksListExpiryTests : RealBrowserTestHarness
 {
-    [Fact]
+    [RealBrowserFact]
     public async Task ATabletsPingLeavesItsMarksListWhenItExpires()
     {
         if (!HasHeadlessBrowser())
@@ -85,7 +85,7 @@ public sealed class TabletMarksListExpiryTests
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         var stderrTask = browserProcess.StandardError.ReadToEndAsync();
         var stdoutLog = new List<string>();
         var stdoutGate = new object();
@@ -117,6 +117,7 @@ public sealed class TabletMarksListExpiryTests
 
             // Past the ping's own lifetime on the desktop's clock. Nothing is sent to the page.
             clock.Advance(ping.ExpiresUtc!.Value - clock.GetUtcNow() + TimeSpan.FromSeconds(1));
+            await desktop.Bridge.ExpireDueMarksAsync(CancellationToken.None);
 
             await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(40)));
             var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(10))

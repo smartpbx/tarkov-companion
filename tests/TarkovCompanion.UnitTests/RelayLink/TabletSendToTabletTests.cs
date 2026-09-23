@@ -14,9 +14,9 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// when the desk sends it, stays Independent, and is not pulled back by later publishes.
 /// </summary>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TabletSendToTabletTests
+public sealed class TabletSendToTabletTests : RealBrowserTestHarness
 {
-    [Fact]
+    [RealBrowserFact]
     public async Task SendToTabletMovesAnIndependentTabletToTheDesksViewAndNothingElseDoes()
     {
         if (!HasHeadlessBrowser())
@@ -84,7 +84,7 @@ public sealed class TabletSendToTabletTests
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         var stderrTask = browserProcess.StandardError.ReadToEndAsync();
         var stdoutLog = new List<string>();
         var stdoutGate = new object();

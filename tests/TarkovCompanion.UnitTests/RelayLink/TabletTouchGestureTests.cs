@@ -25,12 +25,12 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// processes are provably looking at the same instant rather than racing each other.
 /// </remarks>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TabletTouchGestureTests
+public sealed class TabletTouchGestureTests : RealBrowserTestHarness
 {
     private static readonly string[] ControlSteps =
         ["zoom-in", "zoom-out", "fit", "wheel", "drag", "pinch", "double-tap"];
 
-    [Fact]
+    [RealBrowserFact]
     public async Task GesturesMoveTheRightViewInEachMode()
     {
         if (!HasHeadlessBrowser())
@@ -143,7 +143,7 @@ public sealed class TabletTouchGestureTests
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         var stderrTask = browserProcess.StandardError.ReadToEndAsync();
         var stdoutLog = new List<string>();
         var stdoutGate = new object();

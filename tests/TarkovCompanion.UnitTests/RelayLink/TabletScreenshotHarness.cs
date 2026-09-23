@@ -24,9 +24,9 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// suite, so an empty environment variable is "do nothing" rather than "fail".
 /// </remarks>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TabletScreenshotHarness
+public sealed class TabletScreenshotHarness : RealBrowserTestHarness
 {
-    [Fact]
+    [RealBrowserFact]
     public async Task CaptureTabletScreenshots()
     {
         if (!HasHeadlessBrowser())
@@ -128,7 +128,7 @@ public sealed class TabletScreenshotHarness
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
         startInfo.ArgumentList.Add(outDir);
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         var stderrTask = browserProcess.StandardError.ReadToEndAsync();
         var stdoutLog = new List<string>();
         var stdoutGate = new object();

@@ -9,7 +9,9 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Profiles;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.UnitTests.Profiles;
 using TarkovCompanion.UnitTests.V2Shell;
@@ -160,6 +162,93 @@ public sealed class V2ShellCaptureBridgeTests
         Assert.Empty(fixture.Sessions.Armed);
     }
 
+    [Fact]
+    public async Task FakePipelineStreamAddsPendingRowsThenFinalResultReusesAndOrdersThem()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var correlation = CaptureCorrelationId.New();
+        fixture.Progress.Start(correlation);
+        fixture.Progress.Match(correlation, Named(0, 0, "item-a", "First matched"));
+        fixture.Progress.Match(correlation, Named(0, 1, "item-b", "Second matched"));
+
+        var live = Assert.IsType<TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel>(fixture.Shell.LootScanResult);
+        Assert.All(live.Decisions, row => Assert.True(row.IsPending));
+        var first = live.Decisions[0];
+        var second = live.Decisions[1];
+
+        live.Reconcile(Final(correlation,
+            Decision(Named(0, 1, "item-b", "Second matched"), LootScanVerdict.Leave),
+            Decision(Named(0, 0, "item-a", "First matched"), LootScanVerdict.Review)));
+
+        Assert.Same(second, live.Decisions[0]);
+        Assert.Same(first, live.Decisions[1]);
+        Assert.Equal(["LEAVE", "REVIEW"], live.Decisions.Select(row => row.VerdictLabel));
+        Assert.All(live.Decisions, row => Assert.False(row.IsPending));
+    }
+
+    [Fact]
+    public async Task FakePipelineIgnoresCancelledAndSupersededScanItems()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var oldCorrelation = CaptureCorrelationId.New();
+        var currentCorrelation = CaptureCorrelationId.New();
+        fixture.Progress.Start(oldCorrelation);
+        fixture.Progress.Match(oldCorrelation, Named(0, 0, "old", "Old item"));
+        fixture.Progress.Start(currentCorrelation);
+        fixture.Progress.Match(currentCorrelation, Named(0, 0, "new", "New item"));
+        fixture.Progress.Match(oldCorrelation, Named(0, 1, "late", "Late old item"));
+        fixture.Progress.Stop(currentCorrelation);
+        fixture.Progress.Match(currentCorrelation, Named(0, 1, "cancelled", "After cancel"));
+
+        var live = Assert.IsType<TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel>(fixture.Shell.LootScanResult);
+        Assert.Equal(currentCorrelation, live.CorrelationId);
+        Assert.Equal("Scan stopped", live.StatusLabel);
+        Assert.Equal("New item", Assert.Single(live.Decisions).Name);
+    }
+
+    private static LootScanDecision Decision(GridCellObservation cell, LootScanVerdict verdict) =>
+        new(cell.Anchor, cell.Item, verdict, [new LootScanReason("fixture", "Fixture decision")]);
+
+    private static LootScanResult Final(CaptureCorrelationId correlation, params LootScanDecision[] decisions) =>
+        new(
+            correlation.ToString(),
+            Session,
+            correlation,
+            new CaptureContextMetadata("raid", null, "customs", null, null, null, "desktop"),
+            "shot-1",
+            0,
+            new string('a', 64),
+            new string('a', 64),
+            "desktop",
+            Now,
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current, "fixture"),
+            decisions,
+            [],
+            []);
+
+    private static GridCellObservation Named(int row, int column, string id, string name)
+    {
+        var provenance = new EvidenceProvenance(
+            EvidenceSourceClass.GameWrittenScreenshot,
+            "fixture://progress",
+            Now,
+            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.97),
+            new ProducerIdentity("fixture", "1"));
+        EvidencedValue<T> Known<T>(string field, T value, EvidenceRegion? bounds = null) =>
+            new(field, value, new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current), provenance, bounds);
+        var item = new RecognizedItem(
+            Known("id", id),
+            Known("name", name),
+            Known<int?>("quantity", 1),
+            Known<int?>("width", 1),
+            Known<int?>("height", 1),
+            Known<bool?>("rotated", false),
+            new EvidencedValue<bool?>("fir", null, new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current), provenance),
+            Known("condition", ItemConditionReading.NotApplicable));
+        var bounds = new EvidenceRegion(column * 64, row * 64, 64, 64, EvidenceCoordinateSpace.SourcePixels);
+        return new($"cell-{row}-{column}", new GridCellAddress(row, column), Known("item", item, bounds));
+    }
+
     private static CaptureHandoffRequest IdentifiedHandoff(params CaptureIdentifiedItem[] identified) =>
         new(
             Session,
@@ -199,11 +288,17 @@ public sealed class V2ShellCaptureBridgeTests
     {
         private readonly string _config = V2ShellTestData.TemporaryDirectory();
 
-        private Fixture(V2ShellViewModel shell, FakeSessions sessions, IntelCaptureHandoff intel, V2ShellCaptureBridge bridge)
+        private Fixture(
+            V2ShellViewModel shell,
+            FakeSessions sessions,
+            IntelCaptureHandoff intel,
+            FakeLootProgress progress,
+            V2ShellCaptureBridge bridge)
         {
             Shell = shell;
             Sessions = sessions;
             Intel = intel;
+            Progress = progress;
             Bridge = bridge;
         }
 
@@ -212,6 +307,8 @@ public sealed class V2ShellCaptureBridgeTests
         public FakeSessions Sessions { get; }
 
         public IntelCaptureHandoff Intel { get; }
+
+        public FakeLootProgress Progress { get; }
 
         private V2ShellCaptureBridge Bridge { get; }
 
@@ -227,6 +324,7 @@ public sealed class V2ShellCaptureBridgeTests
             var runtime = new ProfileRuntimeContextService(profiles);
             await runtime.InitializeAsync(CancellationToken.None);
             var intel = new IntelCaptureHandoff();
+            var progress = new FakeLootProgress();
             var bridge = new V2ShellCaptureBridge(
                 shell,
                 sessions,
@@ -236,8 +334,9 @@ public sealed class V2ShellCaptureBridgeTests
                     new WorkspaceId(Guid.Parse("10000000-0000-0000-0000-000000000287")),
                     new CompanionDeviceId(Guid.Parse("10000000-0000-0000-0000-000000000288")),
                     WorkspaceOriginKind.DesktopApplication,
-                    "desktop"));
-            return new(shell, sessions, intel, bridge);
+                    "desktop"),
+                lootRecognitionProgress: progress);
+            return new(shell, sessions, intel, progress, bridge);
         }
 
         public void Arm(ScanIntent intent)
@@ -258,6 +357,38 @@ public sealed class V2ShellCaptureBridgeTests
             {
             }
         }
+    }
+
+    private sealed class FakeLootProgress : ILootScanRecognitionProgressSource
+    {
+        public event EventHandler<LootScanRecognitionStarted>? LootRecognitionStarted;
+
+        public event EventHandler<LootScanItemMatched>? LootItemMatched;
+
+        public event EventHandler<LootScanRecognitionStopped>? LootRecognitionStopped;
+
+        public void Start(CaptureCorrelationId correlation) => LootRecognitionStarted?.Invoke(this, new(
+            Session,
+            "shot-1",
+            correlation,
+            0,
+            new CaptureContextMetadata("raid", null, "customs", null, null, null, "desktop"),
+            new string('a', 64),
+            Now));
+
+        public void Match(CaptureCorrelationId correlation, GridCellObservation cell) => LootItemMatched?.Invoke(this, new(
+            Session,
+            "shot-1",
+            correlation,
+            0,
+            cell));
+
+        public void Stop(CaptureCorrelationId correlation) => LootRecognitionStopped?.Invoke(this, new(
+            Session,
+            "shot-1",
+            correlation,
+            0,
+            WasCancelled: true));
     }
 
     private sealed class FakeSessions : ICaptureSessionService

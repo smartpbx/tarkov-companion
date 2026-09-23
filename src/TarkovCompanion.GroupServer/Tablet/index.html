@@ -63,6 +63,9 @@
   .form input { flex: 1 1 160px; min-width: 0; }
   .modes { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .modes button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  .workspacePicker { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+  .workspacePicker button { min-height: 44px; padding: 6px 8px; flex: 1 1 auto; }
+  .workspacePicker button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
   .empty { color: var(--quiet); font-size: 13px; }
   .markRow { display: flex; align-items: center; gap: 10px; }
   .markRow > div:first-child { flex: 1; min-width: 0; }
@@ -214,6 +217,15 @@
         <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
         <button type="button" data-mode="Control" aria-pressed="false">Control</button>
         <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
+      </div>
+      <!-- #407: visible only while this tablet holds Control. These are the V2 shell's five
+           primary workspaces, not arbitrary addresses supplied by the browser. -->
+      <div class="workspacePicker" id="workspacePicker" role="group" aria-label="Desktop workspace" hidden>
+        <button type="button" data-workspace="Raid" aria-pressed="true">Raid</button>
+        <button type="button" data-workspace="Intel" aria-pressed="false">Intel</button>
+        <button type="button" data-workspace="Plan" aria-pressed="false">Plan</button>
+        <button type="button" data-workspace="Team" aria-pressed="false">Team</button>
+        <button type="button" data-workspace="Debrief" aria-pressed="false">Debrief</button>
       </div>
       <p class="quiet" id="modeNote">Following the desktop's map.</p>
     </div>
@@ -824,10 +836,12 @@
   // not answered" is said while it still matters.
   const ACK_WAIT_MS = 15_000;
   const pending = new CommandAcknowledgement.PendingCommands(ACK_WAIT_MS);
+  let lastAcknowledgement = null;
   // Requesting or changing a mode moves the buttons optimistically; a refusal has to put them back.
   const MODE_COMMAND_TYPES = new Set(["requestControl", "setInteractionMode"]);
   const FRAME_LIFETIME_MS = 60_000;
   const CONTROL_LEASE = "00:02:00";
+  const KNOWN_WORKSPACES = ["Raid", "Intel", "Plan", "Team", "Debrief"];
   // #407: a short, fixed list — this page has no catalogue of its own to ask, and the desktop's
   // published surface only ever names the one map it is currently showing.
   const KNOWN_MAPS = [
@@ -1329,8 +1343,16 @@
     renderFloors(surface);
     renderLayers(surface);
     renderResults(surface);
+    renderWorkspacePicker();
     drawMap();
     scheduleNextPingExpiry();
+  }
+
+  function renderWorkspacePicker() {
+    const current = live?.workspace?.workspace ?? "Raid";
+    for (const button of document.querySelectorAll("#workspacePicker button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.workspace === current));
+    }
   }
 
   function renderFloors(surface) {
@@ -1446,6 +1468,28 @@
       },
     });
     $("modeNote").textContent = "Sent the desktop to a different map…";
+  }
+
+  function switchWorkspace(workspace) {
+    if (mode !== "Control" || !KNOWN_WORKSPACES.includes(workspace) || !live) return;
+    if (workspace === "Raid") {
+      if (!live.surface) return;
+      sendCommand(navigateCommand(live.surface.view.floorId));
+    } else {
+      sendCommand({
+        type: "controlWorkspace",
+        ...commandHeader(live.workspaceRevision + 1),
+        action: {
+          type: "navigate",
+          workspace,
+          mapId: null,
+          floorId: null,
+          viewport: null,
+        },
+      });
+    }
+
+    $("modeNote").textContent = `Switching the desktop to ${workspace}…`;
   }
 
   // [#290] `ShowOnDesktopCommand` existed in the protocol with no caller: nothing on this page,
@@ -2240,7 +2284,13 @@
       // Echo suppression: a workspace change this tablet itself caused comes straight back as
       // an ordinary broadcast update, and applying it would fight the pan the person is still
       // making. Its origin device is this one, so it is dropped rather than followed.
-      if (update.origin?.deviceId?.value === live.deviceId) return;
+      if (update.origin?.deviceId?.value === live.deviceId) {
+        // Keep the canonical workspace name for the picker, but do not redraw the camera: during
+        // a streamed drag the local camera is already ahead of this echoed frame.
+        live.workspace = update.state.projection;
+        renderWorkspacePicker();
+        return;
+      }
       live.workspace = update.state.projection;
       renderSurface();
     } else if (update.type === "deviceMode") {
@@ -2294,6 +2344,8 @@
     // tablet is the one driving it.
     $("mapSwitcher").hidden = mode !== "Control";
     if (mode === "Control") renderMapSwitcher();
+    $("workspacePicker").hidden = mode !== "Control";
+    if (mode === "Control") renderWorkspacePicker();
     // #290: the way back from Independent without giving up Independent — this page's own view,
     // shown on the desktop once, is only ever meaningful in the one mode where the two have
     // deliberately drifted apart.
@@ -2396,6 +2448,7 @@
     const entry = streamed ? { type: "controlWorkspace", label: "Moving the map" } : pending.settle(commandId);
     if (!entry) return; // Another tab's command, or one this page already gave up on.
     const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement, entry.type);
+    lastAcknowledgement = { commandId, disposition: result.disposition };
     if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
     if (result.applied) return;
     // [#604] A move that lost a revision race mid-drag has already been caught up by the state
@@ -3130,6 +3183,9 @@
   $("searchTakeControl").addEventListener("click", () => requestMode("Control"));
 
   $("mapSwitch").addEventListener("change", (event) => switchMap(event.target.value));
+  for (const button of document.querySelectorAll("#workspacePicker button")) {
+    button.addEventListener("click", () => switchWorkspace(button.dataset.workspace));
+  }
   $("showOnDesktop").addEventListener("click", showCurrentViewOnDesktop);
 
   $("unpairHeader").addEventListener("click", () =>
@@ -3155,6 +3211,9 @@
     objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
     surfaceView: live?.surface?.view ?? null,
     notice: $("commandNotice").hidden ? null : $("commandNotice").textContent,
+    desktopWorkspace: live?.workspace?.workspace ?? null,
+    pendingCommands: pending.count,
+    lastAcknowledgement,
     lootOpen: !$("lootSheet").hidden,
     lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
   });

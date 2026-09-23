@@ -24,7 +24,7 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// finger. Moves the desktop was never handed within five seconds count as five seconds.
 /// </remarks>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TabletControlLatencyTests(ITestOutputHelper output)
+public sealed class TabletControlLatencyTests(ITestOutputHelper output) : RealBrowserTestHarness
 {
     /// <summary>
     /// Loose on purpose: CI runners are shared and slow. The dev measurement is in the PR and in
@@ -32,7 +32,7 @@ public sealed class TabletControlLatencyTests(ITestOutputHelper output)
     /// </summary>
     private static readonly TimeSpan P95Bound = TimeSpan.FromMilliseconds(900);
 
-    [Fact]
+    [RealBrowserFact]
     public async Task AControlDragReachesTheDesktopWhileTheFingerIsStillMoving()
     {
         if (!HasHeadlessBrowser())
@@ -136,7 +136,7 @@ public sealed class TabletControlLatencyTests(ITestOutputHelper output)
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         var stderrTask = browserProcess.StandardError.ReadToEndAsync();
         var stdoutLog = new List<string>();
         var stdoutGate = new object();

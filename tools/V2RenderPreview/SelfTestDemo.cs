@@ -41,7 +41,7 @@ internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : IS
                     38),
                 new(
                     "Screenshots",
-                    @"C:\Users\clayton\OneDrive\Documents\Escape from Tarkov\Screenshots",
+                    @"C:\Users\Player\Documents\Escape from Tarkov\Screenshots",
                     "of the folders that exist, it holds the newest screenshot",
                     true,
                     Now.AddMinutes(-3),
@@ -75,7 +75,7 @@ internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : IS
     public Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken) =>
         waitsForScreenshot
             ? Task.FromResult(new SelfTestScreenshot(
-                @"C:\Users\clayton\OneDrive\Documents\Escape from Tarkov\Screenshots",
+                @"C:\Users\Player\Documents\Escape from Tarkov\Screenshots",
                 null,
                 null,
                 null,
@@ -96,7 +96,7 @@ internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : IS
 
     private static SelfTestScreenshot Found() =>
         new(
-            @"C:\Users\clayton\OneDrive\Documents\Escape from Tarkov\Screenshots",
+            @"C:\Users\Player\Documents\Escape from Tarkov\Screenshots",
             "2026-09-18[20-58]_140.2, 3.4, -77.9_-0.033, -0.133, 0.004, -0.991_21.87 (0).png",
             Now.AddSeconds(-1),
             Now,

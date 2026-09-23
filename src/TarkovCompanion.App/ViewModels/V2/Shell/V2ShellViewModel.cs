@@ -17,7 +17,9 @@ using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
@@ -1439,6 +1441,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public void ShowLootScanResult(LootScanViewModel result)
     {
         ArgumentNullException.ThrowIfNull(result);
+        ApplyLootScanResult(result, result.Result);
+    }
+
+    /// <summary>Shows the correlated live model without starting the result auto-return timer.</summary>
+    public void ShowLootScanProgress(LootScanViewModel result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
         void Apply()
         {
             if (Volatile.Read(ref _lootScanResult) is { } previous)
@@ -1448,20 +1457,77 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
             result.ScanAgainRequested += LootScanAgainRequested;
             Volatile.Write(ref _lootScanResult, result);
-            // #572: this is the one path a capture result reaches the Loot page by itself; it
-            // marks the entry as automatic before it marks the route, in
-            // <see cref="EnterLootAutomatically"/>.
-            EnterLootAutomatically(result);
+            OnPropertyChanged(nameof(LootScanResult));
+            OnPropertyChanged(nameof(ShowsLootScanEmpty));
+            ShowLootScanStarting();
         }
 
+        DispatchLootUpdate(Apply);
+    }
+
+    /// <summary>Mutates only the live scan named by the event, on the interface thread.</summary>
+    public void UpdateLootScanProgress(CaptureCorrelationId correlationId, Action<LootScanViewModel> update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        DispatchLootUpdate(() =>
+        {
+            if (Volatile.Read(ref _lootScanResult) is { } current && current.CorrelationId == correlationId)
+            {
+                update(current);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Reconciles a live model before publishing the final result. The callback runs only when
+    /// this result was not superseded, after row reuse and navigation have completed.
+    /// </summary>
+    public void ApplyLootScanResult(
+        LootScanViewModel result,
+        LootScanResult final,
+        Action<LootScanViewModel>? applied = null)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(final);
+        DispatchLootUpdate(() =>
+        {
+            if (Volatile.Read(ref _lootScanResult) is { IsProgressive: true } active &&
+                active.CorrelationId != final.CorrelationId)
+            {
+                return;
+            }
+
+            if (result.IsProgressive)
+            {
+                result.Reconcile(final);
+            }
+
+            if (Volatile.Read(ref _lootScanResult) is { } previous && !ReferenceEquals(previous, result))
+            {
+                previous.ScanAgainRequested -= LootScanAgainRequested;
+            }
+
+            result.ScanAgainRequested -= LootScanAgainRequested;
+            result.ScanAgainRequested += LootScanAgainRequested;
+            Volatile.Write(ref _lootScanResult, result);
+            OnPropertyChanged(nameof(LootScanResult));
+            OnPropertyChanged(nameof(ShowsLootScanEmpty));
+            // #572: this is the one path a completed capture result reaches the Loot page by
+            // itself; it starts (or restarts) the result's auto-return wait.
+            EnterLootAutomatically(result);
+            applied?.Invoke(result);
+        });
+    }
+
+    private void DispatchLootUpdate(Action apply)
+    {
         if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
         {
-            Apply();
+            apply();
+            return;
         }
-        else
-        {
-            _dispatcherContext.Post(_ => Apply(), null);
-        }
+
+        _dispatcherContext.Post(_ => apply(), null);
     }
 
     private void LootScanAgainRequested(object? sender, EventArgs e) => ScanLootCommand.Execute(null);

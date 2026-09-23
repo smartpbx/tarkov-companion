@@ -110,6 +110,9 @@
     <Style Selector="TextBlock.loot-verdict.review">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Info}" />
     </Style>
+    <Style Selector="TextBlock.loot-verdict.pending">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
 
     <!-- A decision row in the context panel. -->
     <Style Selector="Button.loot-row">
@@ -144,6 +147,9 @@
     </Style>
     <Style Selector="Border.loot-edge.review">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Info}" />
+    </Style>
+    <Style Selector="Border.loot-edge.pending">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
 
     <!-- Grid tiles: an item footprint on the reviewed grid. -->
@@ -407,6 +413,7 @@
                           <TextBlock Classes="v2-heading-3 loot-verdict"
                                      Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
                                      Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
+                                     Classes.pending="{Binding IsPending}"
                                      Text="{Binding VerdictLabel}" />
                           <TextBlock Classes="v2-heading-3" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
                                      AutomationProperties.HeadingLevel="3" />
@@ -537,12 +544,13 @@
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                     <Border Classes="loot-edge"
                             Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
-                            Classes.review="{Binding IsReview}" />
+                            Classes.review="{Binding IsReview}" Classes.pending="{Binding IsPending}" />
                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" Margin="0,8">
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                         <TextBlock Classes="v2-body loot-verdict"
                                    Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
                                    Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
+                                   Classes.pending="{Binding IsPending}"
                                    Text="{Binding VerdictLabel}" />
                         <TextBlock Grid.Column="1" Classes="v2-body loot-strong" Text="{Binding Name}"
                                    TextTrimming="CharacterEllipsis" />
