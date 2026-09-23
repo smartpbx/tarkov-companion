@@ -113,7 +113,9 @@ public sealed class EventsPageViewModel : PageViewModel
         IEventCatalog catalog,
         IEventTrackerService tracker,
         IItemRepository itemRepository,
-        IEventAuthoring? authoring = null)
+        IEventAuthoring? authoring = null,
+        Func<CancellationToken, Task<IReadOnlyList<EventTargetChoice>>>? traderChoices = null,
+        Func<CancellationToken, Task<IReadOnlyList<EventTargetChoice>>>? mapChoices = null)
         : base("Events", "Seasonal events, and what you record against them", "Runtime state not loaded")
     {
         _catalog = catalog;
@@ -126,6 +128,32 @@ public sealed class EventsPageViewModel : PageViewModel
         DeleteCommand = new AsyncDelegateCommand(() => DeleteAsync(CancellationToken.None));
         SaveScheduleCommand = new AsyncDelegateCommand(() => SaveScheduleAsync(CancellationToken.None));
         ToggleArchivedCommand = new AsyncDelegateCommand(() => SetArchivedAsync(!IsArchived, CancellationToken.None));
+        DuplicateCommand = new AsyncDelegateCommand(() => DuplicateAsync(CancellationToken.None));
+        _traderChoices = traderChoices;
+        _mapChoices = mapChoices;
+        RuleEditor.Changed += (_, _) => ShowRuleState();
+    }
+
+    private readonly Func<CancellationToken, Task<IReadOnlyList<EventTargetChoice>>>? _traderChoices;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<EventTargetChoice>>>? _mapChoices;
+    private bool _choicesLoaded;
+    private string _history = string.Empty;
+
+    /// <summary>The selected event's typed effects, as editable rows (#288).</summary>
+    public EventRuleEditorViewModel RuleEditor { get; } = new();
+
+    /// <summary>Copies the selected event, rules and items included, under a new name.</summary>
+    public AsyncDelegateCommand DuplicateCommand { get; }
+
+    /// <summary>When the selected definition was last written.</summary>
+    /// <remarks>
+    /// The definition file records when it was last saved and nothing about who saved it, so this
+    /// says only when. A file written by hand without a date reads as the file's own modified time.
+    /// </remarks>
+    public string History
+    {
+        get => _history;
+        private set => SetProperty(ref _history, value);
     }
 
     public AsyncDelegateCommand RefreshCommand { get; }
@@ -416,6 +444,7 @@ public sealed class EventsPageViewModel : PageViewModel
         try
         {
             Status = "Reading local event definitions…";
+            await LoadChoicesAsync(cancellationToken).ConfigureAwait(true);
             var definitions = await _catalog.GetAsync(cancellationToken).ConfigureAwait(true);
             _definitions = definitions.ToDictionary(definition => definition.Id, StringComparer.Ordinal);
 
@@ -711,6 +740,8 @@ public sealed class EventsPageViewModel : PageViewModel
             RenameTo = string.Empty;
             IsArchived = false;
             SchedulePreview = string.Empty;
+            History = string.Empty;
+            RuleEditor.Clear();
             RulePreview = string.Empty;
             RuleStatus = string.Empty;
             HasRulePreview = false;
@@ -718,23 +749,51 @@ public sealed class EventsPageViewModel : PageViewModel
             return;
         }
 
-        ScheduleStart = definition.StartUtc is { } start ? Local(start) : string.Empty;
-        ScheduleEnd = definition.EndUtc is { } end ? Local(end) : string.Empty;
+        // The player's own calendar day, written the same way in every culture so it reads back.
+        ScheduleStart = definition.StartUtc is { } start ? LocalTime.SortableDate(start) : string.Empty;
+        ScheduleEnd = definition.EndUtc is { } end ? LocalTime.SortableDate(end) : string.Empty;
         RenameTo = definition.Name;
         IsArchived = !definition.Active;
+        History = $"Last changed {Local(definition.Provenance.ObservedUtc)}";
         RefreshSchedulePreview();
-        RefreshRulePreview(definition);
+        RuleEditor.Load(definition.RulesJson);
     }
 
-    private void RefreshRulePreview(EventDefinition definition)
+    /// <summary>Reads the trader and map pickers once; a failure leaves typed ids, not an error.</summary>
+    private async Task LoadChoicesAsync(CancellationToken cancellationToken)
     {
-        var parsed = EventRuleParser.Parse(definition.RulesJson);
+        if (_choicesLoaded || (_traderChoices is null && _mapChoices is null))
+        {
+            return;
+        }
+
+        IReadOnlyList<EventTargetChoice> traders = [], maps = [];
+        try
+        {
+            traders = _traderChoices is null ? [] : await _traderChoices(cancellationToken).ConfigureAwait(true);
+            maps = _mapChoices is null ? [] : await _mapChoices(cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            WorkspaceFault.Record("events", "read trader and map choices", exception.Message);
+        }
+
+        // Only a read that found something is kept: before the first sync both lists are empty,
+        // and the next reload should ask again.
+        _choicesLoaded = traders.Count > 0 && maps.Count > 0;
+        RuleEditor.UseChoices(traders, maps);
+    }
+
+    /// <summary>The preview and status lines, from the rows as they stand.</summary>
+    private void ShowRuleState()
+    {
+        var parsed = RuleEditor.Result.Parsed;
         HasRuleIssues = !parsed.IsValid;
         if (!parsed.IsValid)
         {
             HasRulePreview = false;
             RulePreview = string.Empty;
-            RuleStatus = "Rules need attention · " + string.Join(" · ", parsed.Issues.Take(3));
+            RuleStatus = RuleEditor.Status + " · " + string.Join(" · ", parsed.Issues.Take(3));
             return;
         }
 
@@ -850,6 +909,20 @@ public sealed class EventsPageViewModel : PageViewModel
             return;
         }
 
+        // Untouched rules keep the text they were stored as, so archiving a hand-written event
+        // with a rule this build cannot read is not refused over a rule nobody changed.
+        var rulesJson = definition.RulesJson;
+        if (RuleEditor.IsDirty)
+        {
+            if (!RuleEditor.IsValid)
+            {
+                ScheduleStatus = "Not saved · fix the marked effects.";
+                return;
+            }
+
+            rulesJson = RuleEditor.Result.RulesJson;
+        }
+
         try
         {
             // The id is kept even when the name changes: it is what the recorded results are
@@ -861,6 +934,8 @@ public sealed class EventsPageViewModel : PageViewModel
                     StartUtc = start,
                     EndUtc = end,
                     Active = !IsArchived,
+                    RulesJson = rulesJson,
+                    Provenance = definition.Provenance with { ObservedUtc = DateTimeOffset.UtcNow },
                 },
                 cancellationToken).ConfigureAwait(true);
             await LoadAsync(cancellationToken, definition.Id).ConfigureAwait(true);
@@ -869,6 +944,49 @@ public sealed class EventsPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             ScheduleStatus = $"Not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>Copies the selected event as saved, under "name copy", and selects the copy.</summary>
+    /// <remarks>
+    /// The copy is how next year's event starts from this year's rules and items. What was recorded
+    /// against the original stays with the original: it is keyed by the original's id, and a
+    /// result recorded in one season is not evidence about the next.
+    /// </remarks>
+    private async Task DuplicateAsync(CancellationToken cancellationToken)
+    {
+        if (_authoring is null
+            || Selected is not { } summary
+            || !_definitions.TryGetValue(summary.EventId, out var definition))
+        {
+            return;
+        }
+
+        var name = $"{definition.Name} copy";
+        var id = Slug(name);
+        for (var suffix = 2; _definitions.ContainsKey(id); suffix++)
+        {
+            name = $"{definition.Name} copy {suffix}";
+            id = Slug(name);
+        }
+
+        try
+        {
+            await _authoring.SaveAsync(
+                definition with
+                {
+                    Id = id,
+                    Name = name,
+                    ApplicableItemIds = new HashSet<string>(definition.ApplicableItemIds, StringComparer.Ordinal),
+                    Provenance = definition.Provenance with { ObservedUtc = DateTimeOffset.UtcNow },
+                },
+                cancellationToken).ConfigureAwait(true);
+            await LoadAsync(cancellationToken, id).ConfigureAwait(true);
+            Status = $"Created {name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Not copied · {exception.Message}";
         }
     }
 
