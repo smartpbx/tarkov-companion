@@ -200,5 +200,6 @@ public sealed partial class RaidCockpitViewModel
     internal static MapSceneObjectStyle? ObjectiveRouteStyle(MapSceneObject item) =>
         item.LayerId != ObjectiveRouteSceneBuilder.LayerId ? null
         : item.Kind == MapSceneObjectKind.Route ? new MapSceneObjectStyle(PlanRouteColor, LineThickness: 3, Opacity: 0.9, Dashed: true)
-        : new MapSceneObjectStyle(PlanRouteColor);
+        // [#307] A stop's number is the same gold badge an objective pin carries, not the pin's own small label.
+        : new MapSceneObjectStyle(PlanRouteColor, Badge: item.Kind == MapSceneObjectKind.Waypoint ? item.Label : null);
 }

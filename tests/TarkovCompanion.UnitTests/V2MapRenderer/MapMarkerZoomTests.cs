@@ -115,6 +115,38 @@ public sealed class MapMarkerZoomTests
         Assert.False(renderer.PointMarkers.Single(marker => marker.Label == "a").IsShownOnPlan);
     }
 
+    [Fact]
+    public void A_dense_spot_holding_a_route_step_is_never_one_count_badge()
+    {
+        // [#307] The route's own step on Customs' Warehouse 17 hid under a "7" count badge.
+        var renderer = Renderer(
+            styleResolver: item => item.Label == "step" ? new MapSceneObjectStyle("#FFF1C75B", Badge: "7") : null,
+            At("waypoint-a", MapSceneObjectKind.Waypoint, 100, 100),
+            At("step", MapSceneObjectKind.Waypoint, 104, 102),
+            At("ping", MapSceneObjectKind.Ping, 98, 105));
+
+        Assert.Empty(renderer.StackMarkers);
+        Assert.All(renderer.PointMarkers, marker => Assert.True(marker.IsShownOnPlan));
+        var step = renderer.PointMarkers.Single(marker => marker.Label == "step");
+        Assert.Equal("7", step.PinBadge);
+        Assert.False(step.ShowsPinLetter);
+    }
+
+    [Fact]
+    public void A_route_step_badge_keeps_its_screen_size_at_every_zoom()
+    {
+        var renderer = Renderer(
+            styleResolver: _ => new MapSceneObjectStyle(Badge: "3"),
+            At("step", MapSceneObjectKind.Waypoint, 100, 100));
+        var step = Assert.Single(renderer.PointMarkers);
+
+        Assert.Equal(1, step.PinBadgeScale * step.MarkerScale, 9);
+        renderer.RequestZoom(1);
+        step = Assert.Single(renderer.PointMarkers);
+        Assert.True(step.MarkerScale > MapMarkerScale.AtFit);
+        Assert.Equal(1, step.PinBadgeScale * step.MarkerScale, 9);
+    }
+
     private static readonly MapSceneLayer Layer = new(new("extracts"), "Extracts", 10, true);
 
     private static MapSceneObject Extract(string id, double x, double y) => At(id, MapSceneObjectKind.Extract, x, y);
@@ -133,7 +165,11 @@ public sealed class MapMarkerZoomTests
         new DataProvenance("fixture", new DateTimeOffset(2026, 9, 22, 0, 0, 0, TimeSpan.Zero), Confidence: new Confidence(1)),
         faction: kind == MapSceneObjectKind.Extract ? MapFeatureFaction.Pmc : MapFeatureFaction.Unknown);
 
-    private static MapSceneRendererViewModel Renderer(params MapSceneObject[] objects)
+    private static MapSceneRendererViewModel Renderer(params MapSceneObject[] objects) => Renderer(null, objects);
+
+    private static MapSceneRendererViewModel Renderer(
+        Func<MapSceneObject, MapSceneObjectStyle?>? styleResolver,
+        params MapSceneObject[] objects)
     {
         var scene = new MapSceneSnapshot(
             1,
@@ -150,7 +186,8 @@ public sealed class MapMarkerZoomTests
         var renderer = new MapSceneRendererViewModel(
             scene,
             MapSceneRendererPresentation.English(CultureInfo.InvariantCulture, TimeZoneInfo.Utc),
-            showsDetailsPanel: false);
+            showsDetailsPanel: false,
+            styleResolver: styleResolver);
         renderer.ViewChangeRequested += change =>
         {
             var result = MapSceneViewReducer.Apply(renderer.Scene, change);

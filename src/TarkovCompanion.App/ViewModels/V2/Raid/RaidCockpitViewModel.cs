@@ -1067,7 +1067,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </remarks>
     public string RaidPhaseLabel => _raid.Clock.Length > 0
         ? _raid.Clock
-        : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
+        : _stateStore.Current.Raid.State switch
+        {
+            RaidLifecycleState.InRaid => "In raid",
+            // The top bar says "Raid unknown" for the same state; the card must not claim more.
+            RaidLifecycleState.Unknown => "Raid unknown",
+            _ => "Not in raid",
+        };
 
     /// <summary>
     /// False while no countdown is running, so the quiet phase label stands alone.
