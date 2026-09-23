@@ -270,7 +270,7 @@
             <Rectangle Height="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" Margin="0,4" />
             <TextBlock Classes="v2-heading-3" Text="By map" AutomationProperties.HeadingLevel="2"
                        IsVisible="{Binding HasGroups}" />
-            <ItemsControl ItemsSource="{Binding Groups}" IsVisible="{Binding HasGroups}">
+            <ItemsControl ItemsSource="{Binding VisibleGroups}" IsVisible="{Binding HasGroups}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
@@ -280,29 +280,27 @@
                           Command="{Binding SelectCommand}"
                           AutomationProperties.Name="{Binding MapLabel}"
                           AutomationProperties.ItemStatus="{Binding Summary}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                      <Border Classes="v2-plan-tile">
-                        <Path Classes="v2-icon v2-icon-muted" Classes.v2-icon-action="{Binding IsSelected}"
-                              Data="{DynamicResource V2.Icon.Map}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                      </Border>
-                      <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                      <StackPanel Spacing="4" VerticalAlignment="Center">
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MapLabel}"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="v2-label" Text="{Binding Summary}" />
                         <!-- #288: the map where one raid moves the most quests along. -->
-                        <Border Classes="v2-plan-chip" HorizontalAlignment="Left" IsVisible="{Binding IsSuggested}"
-                                AutomationProperties.AutomationId="v2-plan-suggested-raid">
-                          <TextBlock Classes="v2-label" Text="Suggested next raid"
-                                     Foreground="{DynamicResource V2.Brush.Action}" />
-                        </Border>
+                        <TextBlock Classes="v2-label" Text="Suggested next raid" IsVisible="{Binding IsSuggested}"
+                                   Foreground="{DynamicResource V2.Brush.Action}"
+                                   AutomationProperties.AutomationId="v2-plan-suggested-raid" />
                       </StackPanel>
-                      <Path Grid.Column="2" Classes="v2-icon v2-icon-muted" Classes.v2-icon-action="{Binding IsSelected}"
+                      <Path Grid.Column="1" Classes="v2-icon v2-icon-muted" Classes.v2-icon-action="{Binding IsSelected}"
                             Data="{DynamicResource V2.Icon.ChevronRight}" VerticalAlignment="Center" />
                     </Grid>
                   </Button>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <Button Classes="v2-target v2-plan-link v2-plan-link-action" HorizontalAlignment="Left"
+                    Content="{Binding MoreGroupsLabel}" Command="{Binding ShowMoreGroupsCommand}"
+                    IsVisible="{Binding HasMoreGroups}"
+                    AutomationProperties.AutomationId="v2-plan-maps-show-all" />
 
             <Button Classes="v2-target v2-plan-bundle" Command="{Binding OpenHideoutCommand}"
                     AutomationProperties.AutomationId="v2-plan-open-hideout"
@@ -348,15 +346,15 @@
          and width are set by the code-behind; see PlanWorkspaceView.axaml.cs. -->
     <Border x:Name="PlanPanel" Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" Width="440" Classes="v2-plan-panel">
       <Panel>
-        <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasSelectedGroup}" TextWrapping="Wrap"
+        <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasPresentedSelectedGroup}" TextWrapping="Wrap"
                    Text="Pick a map to see its objectives." />
         <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
              would resolve IsVisible against SelectedGroup. -->
-        <Panel IsVisible="{Binding HasSelectedGroup}">
+        <Panel IsVisible="{Binding HasPresentedSelectedGroup}">
         <!-- Two columns, of which the panel beside the map uses one. Under the map the code-behind
              moves Requirements and Open in Raid into the second, so the objectives keep the
              panel's whole height instead of the sliver left over after the other two. -->
-        <Grid RowDefinitions="Auto,*,Auto,Auto" ColumnDefinitions="*,Auto" DataContext="{Binding SelectedGroup}">
+        <Grid RowDefinitions="Auto,*,Auto,Auto" ColumnDefinitions="*,Auto" DataContext="{Binding PresentedSelectedGroup}">
           <StackPanel x:Name="PlanPanelHeading" Grid.Row="0" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
             <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
                        TextTrimming="CharacterEllipsis" />
@@ -398,26 +396,8 @@
                               <Run Text="{Binding TraderLabel}" />
                             </TextBlock>
                             <WrapPanel ItemSpacing="8" LineSpacing="4">
-                              <Border Classes="v2-plan-chip" IsVisible="{Binding IsOptional}">
-                                <TextBlock Classes="v2-label" Text="Optional" />
-                              </Border>
-                              <Border Classes="v2-plan-chip" IsVisible="{Binding HasStatusLabel}">
-                                <TextBlock Classes="v2-label" Text="{Binding StatusLabel}" />
-                              </Border>
-                              <!-- [Package 47] This quest's state is the game's own word, not
-                                   something typed on this page. -->
-                              <Border Classes="v2-plan-chip" IsVisible="{Binding StateCameFromTheGame}">
-                                <TextBlock Classes="v2-label" Text="{Binding StateSourceLabel}" />
-                              </Border>
-                              <Border Classes="v2-plan-chip" IsVisible="{Binding HasHandlingLabel}">
-                                <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
-                              </Border>
-                              <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" VerticalAlignment="Center"
-                                         IsVisible="{Binding HasRemainingLabel}" />
-                              <TextBlock Classes="v2-label" Text="No map position" VerticalAlignment="Center" Opacity="0.8"
-                                         IsVisible="{Binding ShowsNoMapPosition}" />
-                              <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}"
-                                         VerticalAlignment="Center" />
+                              <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="Wrap"
+                                         IsVisible="{Binding HasMetadataLabel}" VerticalAlignment="Center" />
                               <!-- [Package 35] The quest's wiki page, where the quest is: a link out that opens the
                                    player's browser. Nothing of the page is fetched or shown here. -->
                               <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="Wiki" Padding="6,0"
@@ -434,34 +414,8 @@
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Tick}" />
                           </Button>
                           <Button Classes="v2-target v2-icon-btn v2-plan-link" AutomationProperties.Name="More actions"
-                                  ToolTip.Tip="More actions">
+                                  ToolTip.Tip="More actions" Click="ObjectiveActionsClicked">
                             <Path Classes="v2-icon v2-icon-muted" StrokeThickness="3" Data="{DynamicResource V2.Icon.More}" />
-                            <Button.Flyout>
-                              <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                <MenuItem Header="Start quest" Command="{Binding StartQuestCommand}"
-                                          IsVisible="{Binding CanStartQuest}" />
-                                <MenuItem Header="Mark quest done" Command="{Binding MarkQuestDoneCommand}"
-                                          IsVisible="{Binding CanMarkQuestDone}" />
-                                <MenuItem Header="Mark quest failed" Command="{Binding FailQuestCommand}"
-                                          IsVisible="{Binding CanFailQuest}" />
-                                <MenuItem Header="Reset quest" Command="{Binding ResetQuestCommand}"
-                                          IsVisible="{Binding CanResetQuest}" />
-                                <MenuItem Header="{Binding PinQuestLabel}" Command="{Binding TogglePinQuestCommand}" />
-                                <Separator />
-                                <MenuItem Header="One more" Command="{Binding IncrementCountCommand}"
-                                          IsVisible="{Binding CanChangeCount}" />
-                                <MenuItem Header="One fewer" Command="{Binding DecrementCountCommand}"
-                                          IsVisible="{Binding CanChangeCount}" />
-                                <MenuItem Header="Reset objective" Command="{Binding ResetObjectiveCommand}"
-                                          IsVisible="{Binding CanResetObjective}" />
-                                <MenuItem Header="{Binding PinObjectiveLabel}" Command="{Binding TogglePinObjectiveCommand}" />
-                                <Separator />
-                                <MenuItem Header="Show on map" Command="{Binding ShowOnMapCommand}"
-                                          IsVisible="{Binding CanShowOnMap}" />
-                                <MenuItem Header="Open wiki" Command="{Binding OpenWikiCommand}"
-                                          IsVisible="{Binding HasWikiLink}" />
-                              </MenuFlyout>
-                            </Button.Flyout>
                           </Button>
                         </StackPanel>
                       </Grid>
@@ -469,7 +423,7 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <Button Classes="v2-target v2-plan-link v2-plan-link-action" Margin="38,4,0,8"
-                        Content="{Binding MoreObjectivesLabel}" Command="{Binding ShowAllObjectivesCommand}"
+                        Content="{Binding MoreObjectivesLabel}" Command="{Binding ShowMoreObjectivesCommand}"
                         IsVisible="{Binding HasMoreObjectives}"
                         AutomationProperties.AutomationId="v2-plan-objectives-show-all" />
                 </StackPanel>
@@ -481,7 +435,7 @@
           <Border x:Name="PlanRequirementsCard" Grid.Row="2" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section"
                   Margin="16,0,16,12" MaxHeight="260" IsVisible="{Binding HasRequirements}"
                   AutomationProperties.AutomationId="v2-plan-requirements">
-            <Grid RowDefinitions="Auto,*">
+            <Grid RowDefinitions="Auto,*,Auto">
               <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
                 <TextBlock Classes="v2-heading-3" Text="Requirements" AutomationProperties.HeadingLevel="2" />
                 <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding RequirementsSummary}"
@@ -489,7 +443,7 @@
               </Grid>
               <!-- [#453] Virtualised: "Locked" on Customs asks for over a hundred items, and building
                    every row of a card that shows five held the interface thread. -->
-              <ItemsControl Grid.Row="1" ItemsSource="{Binding Requirements}">
+              <ItemsControl Grid.Row="1" ItemsSource="{Binding VisibleRequirements}">
                   <ItemsControl.Template>
                     <ControlTemplate>
                       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
@@ -520,6 +474,11 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
               </ItemsControl>
+              <Button Grid.Row="2" Classes="v2-target v2-plan-link v2-plan-link-action"
+                      HorizontalAlignment="Left" Margin="30,4,0,0"
+                      Content="{Binding MoreRequirementsLabel}" Command="{Binding ShowMoreRequirementsCommand}"
+                      IsVisible="{Binding HasMoreRequirements}"
+                      AutomationProperties.AutomationId="v2-plan-requirements-show-more" />
             </Grid>
           </Border>
           <StackPanel x:Name="PlanPanelActions" Grid.Row="3" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
