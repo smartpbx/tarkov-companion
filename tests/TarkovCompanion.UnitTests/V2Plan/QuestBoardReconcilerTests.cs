@@ -68,7 +68,7 @@ public sealed class QuestBoardReconcilerTests
     }
 
     [Fact]
-    public void A_map_draws_one_page_of_rows_until_the_player_asks_for_all_of_them()
+    public void A_map_draws_one_page_of_rows_and_adds_one_page_at_a_time()
     {
         // Outside the interface thread there is nothing to spread the rows over, so they arrive at once.
         var board = Board([.. Enumerable.Range(0, 45).Select(index => Quest($"q{index:D2}", 1))]);
@@ -78,12 +78,36 @@ public sealed class QuestBoardReconcilerTests
         Assert.True(group.HasMoreObjectives);
         var shown = group.VisibleObjectives;
 
-        group.ShowAllObjectivesCommand.Execute(null);
+        group.ShowMoreObjectivesCommand.Execute(null);
 
         Assert.Same(shown, group.VisibleObjectives);
-        Assert.Equal(45, group.VisibleObjectives.Count);
-        Assert.Equal(group.Objectives, group.VisibleObjectives);
-        Assert.False(group.HasMoreObjectives);
+        Assert.Equal(PlanMapGroupViewModel.ObjectivePageSize * 2, group.VisibleObjectives.Count);
+        Assert.True(group.HasMoreObjectives);
+    }
+
+    [Fact]
+    public void The_map_picker_draws_only_the_requested_number_of_maps()
+    {
+        var board = Board([.. Enumerable.Range(0, 12).Select(index => Quest($"q{index:D2}", 1, $"map-{index:D2}"))]);
+        var groups = Compose(board, []);
+
+        var firstPage = PlanWorkspaceViewModel.GroupPage(groups, PlanWorkspaceViewModel.GroupPageSize);
+
+        Assert.Equal(PlanWorkspaceViewModel.GroupPageSize, firstPage.Count);
+        Assert.Equal(groups.Take(PlanWorkspaceViewModel.GroupPageSize), firstPage);
+        Assert.Same(groups, PlanWorkspaceViewModel.GroupPage(groups, groups.Count));
+    }
+
+    [Fact]
+    public void The_requirements_card_draws_only_the_requested_number_of_rows()
+    {
+        var requirements = Enumerable.Range(0, 12).ToArray();
+
+        var firstPage = PlanMapGroupViewModel.RequirementPage(requirements, PlanMapGroupViewModel.RequirementPageSize);
+
+        Assert.Equal(PlanMapGroupViewModel.RequirementPageSize, firstPage.Count);
+        Assert.Equal(requirements.Take(PlanMapGroupViewModel.RequirementPageSize), firstPage);
+        Assert.Same(requirements, PlanMapGroupViewModel.RequirementPage(requirements, requirements.Length));
     }
 
     private static IReadOnlyList<PlanMapGroupViewModel> Compose(QuestBoardReadModel board, IReadOnlyList<PlanMapGroupViewModel> previous) =>

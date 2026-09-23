@@ -43,19 +43,6 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
         _owner = owner;
         _number = number;
         _isLast = isLast;
-        OpenWikiCommand = new DelegateCommand(() => _owner.TryOpenWiki(task.WikiUri));
-        MarkObjectiveDoneCommand = new AsyncDelegateCommand(
-            () => _owner.MarkObjectiveDoneAsync(objective.ObjectiveId, objective.TargetCount ?? objective.RecordedCount));
-        MarkQuestDoneCommand = new AsyncDelegateCommand(() => _owner.MarkQuestDoneAsync(task.TaskId));
-        ShowOnMapCommand = new AsyncDelegateCommand(() => _owner.ShowOnMapAsync(objective.MapIds[0]));
-        StartQuestCommand = new AsyncDelegateCommand(() => _owner.SetQuestStateAsync(task.TaskId, RecordedTaskState.Active));
-        FailQuestCommand = new AsyncDelegateCommand(() => _owner.SetQuestStateAsync(task.TaskId, RecordedTaskState.Failed));
-        ResetQuestCommand = new AsyncDelegateCommand(() => _owner.SetQuestStateAsync(task.TaskId, RecordedTaskState.NotStarted));
-        TogglePinQuestCommand = new AsyncDelegateCommand(() => _owner.TogglePinAsync(QuestPinTargetKind.Task, task.TaskId, task.IsPinned));
-        TogglePinObjectiveCommand = new AsyncDelegateCommand(() => _owner.TogglePinAsync(QuestPinTargetKind.Objective, objective.ObjectiveId, objective.IsPinned));
-        IncrementCountCommand = new AsyncDelegateCommand(() => _owner.SetObjectiveCountAsync(objective, 1));
-        DecrementCountCommand = new AsyncDelegateCommand(() => _owner.SetObjectiveCountAsync(objective, -1));
-        ResetObjectiveCommand = new AsyncDelegateCommand(() => _owner.SetObjectiveStateAsync(objective, RecordedObjectiveState.Unknown));
     }
 
     internal QuestSummaryReadModel Task { get; }
@@ -120,6 +107,8 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
                 _hasMapPosition = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(ShowsNoMapPosition));
+                OnPropertyChanged(nameof(MetadataLabel));
+                OnPropertyChanged(nameof(HasMetadataLabel));
             }
         }
     }
@@ -154,6 +143,20 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool HasStatusLabel => StatusLabel.Length > 0;
 
+    /// <summary>The row's compact secondary facts, without constructing a hidden control for each possible fact.</summary>
+    public string MetadataLabel => string.Join(" · ", new[]
+    {
+        IsOptional ? "Optional" : string.Empty,
+        StatusLabel,
+        StateSourceLabel,
+        HandlingLabel,
+        RemainingLabel,
+        ShowsNoMapPosition ? "No map position" : string.Empty,
+        IsUnsupported ? "Unsupported objective" : string.Empty,
+    }.Where(value => value.Length > 0));
+
+    public bool HasMetadataLabel => MetadataLabel.Length > 0;
+
     /// <summary>Not yet started, or failed and started over.</summary>
     public bool CanStartQuest => Task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted or RecordedTaskState.Failed;
 
@@ -174,29 +177,51 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool CanResetObjective => Objective.RecordedState != RecordedObjectiveState.Unknown;
 
-    public ICommand OpenWikiCommand { get; }
+    private ICommand? _openWikiCommand;
+    private ICommand? _markObjectiveDoneCommand;
+    private ICommand? _markQuestDoneCommand;
+    private ICommand? _showOnMapCommand;
+    private ICommand? _startQuestCommand;
+    private ICommand? _failQuestCommand;
+    private ICommand? _resetQuestCommand;
+    private ICommand? _togglePinQuestCommand;
+    private ICommand? _togglePinObjectiveCommand;
+    private ICommand? _incrementCountCommand;
+    private ICommand? _decrementCountCommand;
+    private ICommand? _resetObjectiveCommand;
 
-    public ICommand MarkObjectiveDoneCommand { get; }
+    public ICommand OpenWikiCommand => _openWikiCommand ??= new DelegateCommand(() => _owner.TryOpenWiki(Task.WikiUri));
 
-    public ICommand MarkQuestDoneCommand { get; }
+    public ICommand MarkObjectiveDoneCommand => _markObjectiveDoneCommand ??= new AsyncDelegateCommand(
+        () => _owner.MarkObjectiveDoneAsync(Objective.ObjectiveId, Objective.TargetCount ?? Objective.RecordedCount));
 
-    public ICommand ShowOnMapCommand { get; }
+    public ICommand MarkQuestDoneCommand => _markQuestDoneCommand ??= new AsyncDelegateCommand(() => _owner.MarkQuestDoneAsync(Task.TaskId));
 
-    public ICommand StartQuestCommand { get; }
+    public ICommand ShowOnMapCommand => _showOnMapCommand ??= new AsyncDelegateCommand(() => _owner.ShowOnMapAsync(Objective.MapIds[0]));
 
-    public ICommand FailQuestCommand { get; }
+    public ICommand StartQuestCommand => _startQuestCommand ??= new AsyncDelegateCommand(
+        () => _owner.SetQuestStateAsync(Task.TaskId, RecordedTaskState.Active));
 
-    public ICommand ResetQuestCommand { get; }
+    public ICommand FailQuestCommand => _failQuestCommand ??= new AsyncDelegateCommand(
+        () => _owner.SetQuestStateAsync(Task.TaskId, RecordedTaskState.Failed));
 
-    public ICommand TogglePinQuestCommand { get; }
+    public ICommand ResetQuestCommand => _resetQuestCommand ??= new AsyncDelegateCommand(
+        () => _owner.SetQuestStateAsync(Task.TaskId, RecordedTaskState.NotStarted));
 
-    public ICommand TogglePinObjectiveCommand { get; }
+    public ICommand TogglePinQuestCommand => _togglePinQuestCommand ??= new AsyncDelegateCommand(
+        () => _owner.TogglePinAsync(QuestPinTargetKind.Task, Task.TaskId, Task.IsPinned));
 
-    public ICommand IncrementCountCommand { get; }
+    public ICommand TogglePinObjectiveCommand => _togglePinObjectiveCommand ??= new AsyncDelegateCommand(
+        () => _owner.TogglePinAsync(QuestPinTargetKind.Objective, Objective.ObjectiveId, Objective.IsPinned));
 
-    public ICommand DecrementCountCommand { get; }
+    public ICommand IncrementCountCommand => _incrementCountCommand ??= new AsyncDelegateCommand(
+        () => _owner.SetObjectiveCountAsync(Objective, 1));
 
-    public ICommand ResetObjectiveCommand { get; }
+    public ICommand DecrementCountCommand => _decrementCountCommand ??= new AsyncDelegateCommand(
+        () => _owner.SetObjectiveCountAsync(Objective, -1));
+
+    public ICommand ResetObjectiveCommand => _resetObjectiveCommand ??= new AsyncDelegateCommand(
+        () => _owner.SetObjectiveStateAsync(Objective, RecordedObjectiveState.Unknown));
 }
 
 /// <summary>One quest with objectives in a map group, for the context panel's quest list.</summary>
@@ -262,28 +287,27 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public bool CanOpenInRaid => MapId is not null;
 
     /// <summary>How many objective rows a map shows before the player asks for the rest.</summary>
-    internal const int ObjectivePageSize = 30;
+    internal const int ObjectivePageSize = 4;
 
-    private bool _showsAllObjectives;
+    private int _visibleObjectiveLimit = ObjectivePageSize;
     private bool _isSuggested;
-    private ICommand? _showAllObjectives;
+    private ICommand? _showMoreObjectives;
 
     /// <summary>How many rows are added to the drawn list per dispatcher turn.</summary>
-    internal const int ObjectiveChunkSize = 8;
+    internal const int ObjectiveChunkSize = 1;
 
-    private TarkovCompanion.App.ViewModels.V2.MapRenderer.ReconciledList<PlanObjectiveRowViewModel>? _visible;
+    private ReconciledList<PlanObjectiveRowViewModel>? _visible;
     private bool _growthPosted;
 
     /// <summary>
     /// The rows the list draws. Each row is a card with chips, two buttons and a twelve-entry
     /// menu, and "All" on Customs is 150 of them: drawn at once they held the interface thread
-    /// for over a second. The first page is what fits a few screens; the rest is one press away.
+    /// for over a second. The first page fits the panel; each press adds one bounded page.
     /// </summary>
     /// <remarks>
-    /// [#453] Filled a few rows per dispatcher turn rather than a page at once: thirty cards built
-    /// in one turn still held the thread for about 300 ms when a filter chip changed the map. The
-    /// first rows appear at once, the rest behind queued input, and the list is appended to rather
-    /// than replaced, so the rows already drawn stay drawn.
+    /// [#453] Filled a few rows per dispatcher turn rather than every objective at once. All can
+    /// put 149 cards on one map; the first screen is drawn now and later pages stay bounded too.
+    /// The list is appended to rather than replaced, so the rows already drawn stay drawn.
     /// </remarks>
     public IReadOnlyList<PlanObjectiveRowViewModel> VisibleObjectives
     {
@@ -299,7 +323,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
         }
     }
 
-    private int VisibleTarget => _showsAllObjectives ? Objectives.Count : Math.Min(Objectives.Count, ObjectivePageSize);
+    private int VisibleTarget => Math.Min(Objectives.Count, _visibleObjectiveLimit);
 
     private void Grow()
     {
@@ -309,30 +333,31 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
             return;
         }
 
-        var post = UiThreadPost.BehindInput();
+        var paceOnInterfaceThread = UiThreadPost.BehindInput() is not null;
         var target = VisibleTarget;
-        var until = post is null ? target : Math.Min(target, _visible.Count + ObjectiveChunkSize);
+        var until = paceOnInterfaceThread ? Math.Min(target, _visible.Count + ObjectiveChunkSize) : target;
         for (var index = _visible.Count; index < until; index++)
         {
             _visible.Add(Objectives[index]);
         }
 
-        if (_visible.Count < target && post is not null && !_growthPosted)
+        if (_visible.Count < target && paceOnInterfaceThread && !_growthPosted)
         {
             _growthPosted = true;
-            post(Grow);
+            DispatcherTimer.RunOnce(Grow, TimeSpan.FromMilliseconds(50), DispatcherPriority.Background);
         }
     }
 
-    public bool HasMoreObjectives => !_showsAllObjectives && Objectives.Count > ObjectivePageSize;
+    public bool HasMoreObjectives => _visibleObjectiveLimit < Objectives.Count;
 
-    public string MoreObjectivesLabel => $"Show all {Objectives.Count:N0}";
+    public string MoreObjectivesLabel => $"Show {Math.Min(ObjectivePageSize, Objectives.Count - _visibleObjectiveLimit):N0} more";
 
-    public ICommand ShowAllObjectivesCommand => _showAllObjectives ??= new DelegateCommand(() =>
+    public ICommand ShowMoreObjectivesCommand => _showMoreObjectives ??= new DelegateCommand(() =>
     {
-        _showsAllObjectives = true;
+        _visibleObjectiveLimit = Math.Min(Objectives.Count, _visibleObjectiveLimit + ObjectivePageSize);
         Grow();
         OnPropertyChanged(nameof(HasMoreObjectives));
+        OnPropertyChanged(nameof(MoreObjectivesLabel));
     });
 
     /// <summary>The map <see cref="NextRaidPlanner"/> picks: one raid there moves the most quests.</summary>
@@ -343,6 +368,11 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     }
 
     private IReadOnlyList<PlanRequirementRowViewModel> _requirements = [];
+    private IReadOnlyList<PlanRequirementRowViewModel> _visibleRequirements = [];
+    private int _visibleRequirementLimit = RequirementPageSize;
+    private ICommand? _showMoreRequirements;
+
+    internal const int RequirementPageSize = 5;
 
     /// <summary>What this map's objectives ask the player to bring, hand in or find, against what they hold.</summary>
     public IReadOnlyList<PlanRequirementRowViewModel> Requirements
@@ -352,13 +382,38 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
         {
             if (SetProperty(ref _requirements, value))
             {
+                _visibleRequirementLimit = RequirementPageSize;
+                VisibleRequirements = RequirementPage(value, _visibleRequirementLimit);
                 OnPropertyChanged(nameof(HasRequirements));
                 OnPropertyChanged(nameof(StillNeededCount));
                 OnPropertyChanged(nameof(RequirementsSummary));
                 OnPropertyChanged(nameof(RequirementsReady));
+                OnPropertyChanged(nameof(HasMoreRequirements));
+                OnPropertyChanged(nameof(MoreRequirementsLabel));
             }
         }
     }
+
+    public IReadOnlyList<PlanRequirementRowViewModel> VisibleRequirements
+    {
+        get => _visibleRequirements;
+        private set => SetProperty(ref _visibleRequirements, value);
+    }
+
+    public bool HasMoreRequirements => _visibleRequirementLimit < Requirements.Count;
+
+    public string MoreRequirementsLabel => $"Show {Math.Min(RequirementPageSize, Requirements.Count - _visibleRequirementLimit):N0} more";
+
+    public ICommand ShowMoreRequirementsCommand => _showMoreRequirements ??= new DelegateCommand(() =>
+    {
+        _visibleRequirementLimit = Math.Min(Requirements.Count, _visibleRequirementLimit + RequirementPageSize);
+        VisibleRequirements = RequirementPage(Requirements, _visibleRequirementLimit);
+        OnPropertyChanged(nameof(HasMoreRequirements));
+        OnPropertyChanged(nameof(MoreRequirementsLabel));
+    });
+
+    internal static IReadOnlyList<T> RequirementPage<T>(IReadOnlyList<T> requirements, int count) =>
+        requirements.Count <= count ? requirements : [.. requirements.Take(count)];
 
     public bool HasRequirements => Requirements.Count > 0;
 
@@ -404,6 +459,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 public sealed class PlanWorkspaceViewModel : BindableViewModel
 {
     private const string AnyMapKey = "";
+    internal const int GroupPageSize = 5;
 
     private readonly IPlayerProfileService _profileService;
     private readonly IQuestReadService _readService;
@@ -428,7 +484,14 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private string _status = "Loading your quest board…";
     private string _scopeLabel = "No profile loaded";
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
+    private readonly ReconciledList<PlanMapGroupViewModel> _visibleGroups = new();
+    private int _visibleGroupTarget;
+    private bool _groupGrowthPosted;
+    private int _visibleGroupLimit = GroupPageSize;
+    private ICommand? _showMoreGroups;
     private PlanMapGroupViewModel? _selectedGroup;
+    private PlanMapGroupViewModel? _presentedSelectedGroup;
+    private int _selectionPresentationVersion;
     private readonly IItemRepository? _itemRepository;
     private readonly AppDataPaths? _paths;
     private readonly TimeProvider _clock;
@@ -552,12 +615,53 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _groups, value))
             {
+                _visibleGroupLimit = GroupPageSize;
+                _visibleGroupTarget = Math.Min(value.Count, _visibleGroupLimit);
+                _visibleGroups.Clear();
+                GrowVisibleGroups();
                 OnPropertyChanged(nameof(HasGroups));
+                OnPropertyChanged(nameof(HasMoreGroups));
+                OnPropertyChanged(nameof(MoreGroupsLabel));
             }
         }
     }
 
     public bool HasGroups => Groups.Count > 0;
+
+    public IReadOnlyList<PlanMapGroupViewModel> VisibleGroups => _visibleGroups;
+
+    public bool HasMoreGroups => _visibleGroupLimit < Groups.Count;
+
+    public string MoreGroupsLabel => $"Show {Math.Min(GroupPageSize, Groups.Count - _visibleGroupLimit):N0} more maps";
+
+    public ICommand ShowMoreGroupsCommand => _showMoreGroups ??= new DelegateCommand(() =>
+    {
+        _visibleGroupLimit = Math.Min(Groups.Count, _visibleGroupLimit + GroupPageSize);
+        _visibleGroupTarget = _visibleGroupLimit;
+        GrowVisibleGroups();
+        OnPropertyChanged(nameof(HasMoreGroups));
+        OnPropertyChanged(nameof(MoreGroupsLabel));
+    });
+
+    private void GrowVisibleGroups()
+    {
+        _groupGrowthPosted = false;
+        if (_visibleGroups.Count < _visibleGroupTarget)
+        {
+            _visibleGroups.Add(Groups[_visibleGroups.Count]);
+        }
+
+        if (_visibleGroups.Count < _visibleGroupTarget && !_groupGrowthPosted)
+        {
+            _groupGrowthPosted = true;
+            DispatcherTimer.RunOnce(GrowVisibleGroups, TimeSpan.FromMilliseconds(75), DispatcherPriority.Background);
+        }
+    }
+
+    internal static IReadOnlyList<PlanMapGroupViewModel> GroupPage(
+        IReadOnlyList<PlanMapGroupViewModel> groups,
+        int count) => groups.Count <= count ? groups : [.. groups.Take(count)];
+
 
     /// <summary>The map bundle the centre list and context panel show; the first one by default.</summary>
     public PlanMapGroupViewModel? SelectedGroup
@@ -583,9 +687,65 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedGroup));
+            PresentSelectionAfterLayout(value);
             _ = FollowSelectedGroupAsync();
             _ = ResolveRequirementNamesAsync(value);
         }
+    }
+
+    /// <summary>The selected map currently drawn in the context panel.</summary>
+    /// <remarks>
+    /// Changing the filter also replaces the map cards. Letting that layout settle before the
+    /// objective panel changes keeps two independent visual trees out of one interface turn.
+    /// Selection state and map following still change synchronously; only presentation waits one
+    /// frame. The version prevents a quick second selection from drawing an older one.
+    /// </remarks>
+    public PlanMapGroupViewModel? PresentedSelectedGroup
+    {
+        get => _presentedSelectedGroup;
+        private set
+        {
+            if (SetProperty(ref _presentedSelectedGroup, value))
+            {
+                OnPropertyChanged(nameof(HasPresentedSelectedGroup));
+            }
+        }
+    }
+
+    public bool HasPresentedSelectedGroup => PresentedSelectedGroup is not null;
+
+    private void PresentSelectionAfterLayout(PlanMapGroupViewModel? value)
+    {
+        var version = ++_selectionPresentationVersion;
+        DispatcherTimer.RunOnce(
+            () =>
+            {
+                if (version != _selectionPresentationVersion)
+                {
+                    return;
+                }
+
+                // Detaching the previous dense panel and attaching the next one in the same
+                // layout turn costs as much as drawing both. Give removal one render pass too.
+                PresentedSelectedGroup = null;
+                UiActivity.Step("plan:panel-cleared");
+                DispatcherTimer.RunOnce(
+                    () =>
+                    {
+                        if (version == _selectionPresentationVersion)
+                        {
+                            PresentedSelectedGroup = value;
+                            UiActivity.Step("plan:panel-presented");
+                        }
+                    },
+                    TimeSpan.FromMilliseconds(150),
+                    DispatcherPriority.Background);
+            },
+            // A background callback posted immediately can still run before Avalonia's queued
+            // layout. One tenth of a second remains below the interaction budget and gives the
+            // map cards their own render pass before objective controls are attached.
+            TimeSpan.FromMilliseconds(550),
+            DispatcherPriority.Background);
     }
 
     /// <summary>The selected map with only its active objectives, numbered like the list.</summary>

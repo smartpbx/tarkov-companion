@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 
@@ -233,6 +235,43 @@ public sealed partial class PlanWorkspaceView : UserControl
         {
             PlanPanelHeading.IsVisible = visible;
         }
+    }
+
+    /// <summary>Builds the uncommon objective menu only when the player asks for it.</summary>
+    /// <remarks>
+    /// Each objective used to construct twelve menu controls while the All filter was trying to
+    /// draw the page. Avalonia does not defer a flyout declared inside a data template, so those
+    /// invisible controls dominated the input turn even though the menu was closed.
+    /// </remarks>
+    private void ObjectiveActionsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is not Button { DataContext: PlanObjectiveRowViewModel row } button)
+        {
+            return;
+        }
+
+        var menu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
+        menu.Items.Add(Action("Start quest", row.StartQuestCommand, row.CanStartQuest));
+        menu.Items.Add(Action("Mark quest done", row.MarkQuestDoneCommand, row.CanMarkQuestDone));
+        menu.Items.Add(Action("Mark quest failed", row.FailQuestCommand, row.CanFailQuest));
+        menu.Items.Add(Action("Reset quest", row.ResetQuestCommand, row.CanResetQuest));
+        menu.Items.Add(Action(row.PinQuestLabel, row.TogglePinQuestCommand));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Action("One more", row.IncrementCountCommand, row.CanChangeCount));
+        menu.Items.Add(Action("One fewer", row.DecrementCountCommand, row.CanChangeCount));
+        menu.Items.Add(Action("Reset objective", row.ResetObjectiveCommand, row.CanResetObjective));
+        menu.Items.Add(Action(row.PinObjectiveLabel, row.TogglePinObjectiveCommand));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Action("Show on map", row.ShowOnMapCommand, row.CanShowOnMap));
+        menu.Items.Add(Action("Open wiki", row.OpenWikiCommand, row.HasWikiLink));
+        menu.ShowAt(button);
+
+        static MenuItem Action(string header, System.Windows.Input.ICommand command, bool visible = true) => new()
+        {
+            Header = header,
+            Command = command,
+            IsVisible = visible,
+        };
     }
 
     /// <summary>
