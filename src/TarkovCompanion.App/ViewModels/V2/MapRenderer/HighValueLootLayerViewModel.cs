@@ -123,6 +123,14 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     public IReadOnlyList<HighValueLootEntry> AllEntries => _result.Entries;
     public HighValueLootLayerFilterState FilterState => _filterState;
     public IReadOnlySet<MapSceneObjectId> VisibleObjectIds { get; private set; } = new HashSet<MapSceneObjectId>();
+
+    /// <summary>The spawns the current filter would draw with the layer on, whether it is on or not.</summary>
+    /// <remarks>
+    /// [#677] The Layers menu counts the loot layer from this. Counted from
+    /// <see cref="VisibleObjectIds"/>, which is empty while the layer is off, the switch read
+    /// "nothing to show" and could not be turned on; only the gem preset could show loot.
+    /// </remarks>
+    public IReadOnlySet<MapSceneObjectId> ShowableObjectIds { get; private set; } = new HashSet<MapSceneObjectId>();
     public int FilteredCount { get; private set; }
     public int PageCount => FilteredCount == 0 ? 0 : (FilteredCount + PageSize - 1) / PageSize;
     public int PageNumber => PageCount == 0 ? 0 : _pageIndex + 1;
@@ -301,6 +309,17 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
 
     private void BuildRows()
     {
+        var filtered = _result.Entries
+            .Where(entry => TierRank(entry.Tier) >= TierRank(_filterState.MinimumTier))
+            .OrderByDescending(entry => TierSortRank(entry.Tier))
+            .ThenByDescending(entry => entry.MaximumValue)
+            .ThenBy(entry => entry.Spawn.Label, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.Spawn.SpawnId, StringComparer.Ordinal)
+            .ToArray();
+        ShowableObjectIds = filtered
+            .Where(entry => entry.SceneObjectId is not null)
+            .Select(entry => entry.SceneObjectId!.Value)
+            .ToHashSet();
         if (!_isLayerVisible)
         {
             FilteredCount = 0;
@@ -309,13 +328,6 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
             return;
         }
 
-        var filtered = _result.Entries
-            .Where(entry => TierRank(entry.Tier) >= TierRank(_filterState.MinimumTier))
-            .OrderByDescending(entry => TierSortRank(entry.Tier))
-            .ThenByDescending(entry => entry.MaximumValue)
-            .ThenBy(entry => entry.Spawn.Label, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.Spawn.SpawnId, StringComparer.Ordinal)
-            .ToArray();
         FilteredCount = filtered.Length;
         var pageCount = FilteredCount == 0 ? 0 : (FilteredCount + PageSize - 1) / PageSize;
         _pageIndex = pageCount == 0 ? 0 : Math.Clamp(_pageIndex, 0, pageCount - 1);
@@ -329,10 +341,7 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
                 () => _select(entry),
                 () => RequestWaypoint(entry)))
             .ToArray();
-        VisibleObjectIds = filtered
-            .Where(entry => entry.SceneObjectId is not null)
-            .Select(entry => entry.SceneObjectId!.Value)
-            .ToHashSet();
+        VisibleObjectIds = ShowableObjectIds;
     }
 
     private HighValueLootFilter CloneFilter(

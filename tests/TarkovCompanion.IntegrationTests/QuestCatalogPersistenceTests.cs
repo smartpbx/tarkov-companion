@@ -70,6 +70,44 @@ public sealed class QuestCatalogPersistenceTests
     }
 
     [Fact]
+    public async Task TheSameStoredCatalogReadsAsTheSameSnapshotUntilItIsRewritten()
+    {
+        // [#678] Every read rebuilt the catalog from ~11 MB of JSON text; a map switch reads it
+        // several times, and those large strings set off full collections.
+        await using var database = await TestDatabase.CreateAsync();
+        var catalog = ParseAndNormalize(await FixtureJson.ReadAsync("tasks-contract.json"), GameMode.Regular);
+        await new SqliteDataRefreshRepository(database.Factory).RefreshTasksAsync(catalog, TestContext.Current.CancellationToken);
+        var quests = new SqliteQuestCatalog(database.Factory);
+        Task<QuestCatalogSnapshot?> Read() => quests.GetAsync(GameMode.Regular, "EN", TestContext.Current.CancellationToken);
+
+        var first = await Read();
+        Assert.NotNull(first);
+        Assert.Same(first, await Read());
+
+        await ExecuteAsync(database.Factory, "UPDATE quest_catalog_snapshots SET fetched_utc = '2026-09-11T00:00:00.0000000+00:00';");
+        var afterSync = await Read();
+        Assert.NotSame(first, afterSync);
+
+        await ExecuteAsync(database.Factory, "DELETE FROM quest_objective_item_targets WHERE rowid = (SELECT min(rowid) FROM quest_objective_item_targets);");
+        var afterRepair = await Read();
+        Assert.NotSame(afterSync, afterRepair);
+        Assert.True(
+            afterRepair!.Tasks.Sum(task => task.Objectives.Sum(objective => objective.ItemTargets.Count)) <
+            afterSync!.Tasks.Sum(task => task.Objectives.Sum(objective => objective.ItemTargets.Count)));
+    }
+
+    private static async Task ExecuteAsync(SqliteConnectionFactory factory, string sql)
+    {
+        var connection = await factory.OpenAsync(TestContext.Current.CancellationToken);
+        await using (connection)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
     public async Task ATaskWhoseWikiColumnIsEmptyLinksThroughTheFeedsOwnWikiLinkInItsRawJson()
     {
         // Migration 0012 added wiki_url and left existing rows null until the next sync, but the

@@ -272,6 +272,33 @@ spawns' buttons (626 on Streets): 65.7% UI busy idle, a 1.5 s turn every 2 s. No
 get a control, kept across rebuilds, and the runtime source returns the same built layer for a minute:
 6.8% idle on Streets, same as off (11.1%).
 
+## Map switch and first Raid visit (#678)
+
+`--stall-tour --stall-tour-only maps`, three alternating A/B runs on dev, longest input wait in ms.
+A switch built every mark's four drawings (~40 controls each, three hidden), stitched Customs'
+tiles on the interface thread, ran the whole shell Refresh once per map property raised during a
+load, and read the quest catalog (~11 MB of JSON text) several times; the large strings set off
+full collections that paused the interface thread. Now each mark builds only its kind's template
+(`MapMarkKindTemplates`), tiles are drawn on a worker (`MapTileLease` keeps their bitmaps alive),
+legacy page changes reach the shell once per turn, and `SqliteQuestCatalog` returns the same
+snapshot until the stored catalog changes. `UiStallMeter` prints GC counts and pause per step;
+`TARKOV_ALLOC_TICKS=1` adds sampled allocations by type. Headless composites on the interface
+thread, which a Windows build does on its render thread.
+
+| Step | before | after |
+| --- | --- | --- |
+| navigate to raid (first visit) | 2079, 2905, 2600 | 1300, 1365, 1582 |
+| map switch to reserve (first) | 568, 380, 461 | 234, 265, 371 |
+| map switch to streets (first) | 352, 350, 373 | 242, 268, 270 |
+| map switch to lighthouse (first) | 547, 688, 608 | 294, 279, 313 |
+| map switch to customs (first) | 933, 1494, 1602 | 459, 374, 554 |
+| map switch to reserve | 504, 1057, 1340 | 211, 213, 225 |
+| map switch to streets | 442, 501, 345 | 166, 230, 256 |
+| map switch to lighthouse | 483, 680, 779 | 266, 290, 247 |
+
+Managed heap after a forced full collection, `--memory-tour 10`: before 152 / 147 / 149 MB after
+0 / 5 / 10 switches, after 132 / 136 / 137 MB.
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the

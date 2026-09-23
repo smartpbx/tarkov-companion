@@ -36,6 +36,58 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
         var sourceMode = SourceMode(gameMode);
         var normalizedLanguage = language.Trim().ToLowerInvariant();
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        // [#678] The same stored catalog reads as the same snapshot. Every read built it again from
+        // about 11 MB of JSON text (raw and translated payloads, and every task's own), and a map
+        // switch reads it several times: large-object strings that set off full collections,
+        // which pause the interface thread whatever thread allocated them.
+        var stamp = await LoadStampAsync(connection, sourceMode, normalizedLanguage, cancellationToken).ConfigureAwait(false);
+        if (stamp is not null && _last is { } last && last.Stamp == stamp)
+        {
+            return last.Snapshot;
+        }
+
+        var built = await BuildAsync(connection, sourceMode, normalizedLanguage, cancellationToken).ConfigureAwait(false);
+        _last = stamp is not null && built is not null ? new(stamp, built) : null;
+        return built;
+    }
+
+    private CachedSnapshot? _last;
+
+    private sealed record CachedSnapshot(string Stamp, QuestCatalogSnapshot Snapshot);
+
+    /// <summary>
+    /// What a stored catalog is, cheaply: a sync rewrites the snapshot row (new fetch time) with
+    /// its tasks, and the row counts catch a repair migration that rewrote child rows alone.
+    /// </summary>
+    private static async Task<string?> LoadStampAsync(
+        SqliteConnection connection,
+        string sourceMode,
+        string language,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT source_mode || '|' || language || '|' || payload_sha256 || '|' || translated_payload_sha256 || '|' ||
+                   fetched_utc || '|' || validated_utc || '|' ||
+                   (SELECT count(*) FROM quest_catalog_tasks
+                    WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language) || '|' ||
+                   (SELECT count(*) FROM quest_catalog_objectives
+                    WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language) || '|' ||
+                   (SELECT count(*) FROM quest_objective_item_targets
+                    WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language)
+            FROM quest_catalog_snapshots
+            WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language;
+            """;
+        AddScope(command, sourceMode, language);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+    }
+
+    private static async Task<QuestCatalogSnapshot?> BuildAsync(
+        SqliteConnection connection,
+        string sourceMode,
+        string normalizedLanguage,
+        CancellationToken cancellationToken)
+    {
         var snapshot = await LoadSnapshotAsync(
             connection,
             sourceMode,

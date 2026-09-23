@@ -1347,7 +1347,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// video memory. Returns null when there is nothing to draw, or when this process has no
     /// rendering platform to draw with — a unit-test host, for one.
     /// </remarks>
-    private ComposedTileArtwork? ComposeTileArtwork(MapRenderModel model)
+    private async Task<ComposedTileArtwork?> ComposeTileArtworkAsync(MapRenderModel model, CancellationToken cancellationToken)
     {
         var tiles = _map.Tiles.Where(tile => tile.HasArtwork).ToArray();
         if (tiles.Length == 0 ||
@@ -1400,25 +1400,45 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return new(unchanged, sha);
         }
 
+        // [#678] Drawn on a worker: Customs is about two hundred tiles scaled onto one surface,
+        // 160-270 ms that held the interface thread on every visit to the map. Only a new set of
+        // tiles gets here; an unchanged one returned above without leaving the thread. The lease
+        // keeps the tile cache from disposing a tile while the worker draws it.
+        var placements = tiles
+            .Select(tile => (
+                tile.Image,
+                Source: new Rect(0, 0, tile.Image.Size.Width, tile.Image.Size.Height),
+                Destination: new Rect(
+                    (tile.Left - cropLeft) * scale,
+                    (tile.Top - cropTop) * scale,
+                    tile.Size * scale,
+                    tile.Size * scale)))
+            .ToArray();
+        RenderTargetBitmap? surface;
         try
         {
-            var surface = new RenderTargetBitmap(new PixelSize(width, height));
-            using (var context = surface.CreateDrawingContext())
-            {
-                foreach (var tile in tiles)
+            using var lease = MapTileLease.Take();
+            surface = await Task.Run(
+                () =>
                 {
-                    context.DrawImage(
-                        tile.Image,
-                        new Rect(0, 0, tile.Image.Size.Width, tile.Image.Size.Height),
-                        new Rect(
-                            (tile.Left - cropLeft) * scale,
-                            (tile.Top - cropTop) * scale,
-                            tile.Size * scale,
-                            tile.Size * scale));
-                }
-            }
+                    var drawn = new RenderTargetBitmap(new PixelSize(width, height));
+                    try
+                    {
+                        using var context = drawn.CreateDrawingContext();
+                        foreach (var (image, source, destination) in placements)
+                        {
+                            context.DrawImage(image, source, destination);
+                        }
+                    }
+                    catch
+                    {
+                        drawn.Dispose();
+                        throw;
+                    }
 
-            return new(surface, sha);
+                    return drawn;
+                },
+                cancellationToken).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
         {
@@ -1426,6 +1446,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             // has no picture, and the renderer says so rather than drawing the wrong one.
             return null;
         }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            // A newer rebuild took over while this one drew; it composes its own picture.
+            surface.Dispose();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        return new(surface, sha);
     }
 
     private sealed record ComposedTileArtwork(Bitmap Image, string ContentSha256);
@@ -2203,7 +2232,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         MapSceneAsset asset;
         if (model.Background?.Kind == MapBackgroundKind.TileTemplate)
         {
-            if (ComposeTileArtwork(model) is not { } composed)
+            if (await ComposeTileArtworkAsync(model, cancellationToken).ConfigureAwait(true) is not { } composed)
             {
                 // Still arriving, not missing. V1 empties its tiles the moment another map is
                 // chosen and says "unavailable" only when a load has finished with none, so an

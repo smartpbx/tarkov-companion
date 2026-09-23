@@ -86,6 +86,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private readonly V2ShellPersistenceQueue _persistence;
     private readonly TimeProvider _clock;
     private readonly CoalescingDispatch _apply;
+
+    /// <summary>[#678] The legacy pages' changes, one Refresh per turn rather than one per property.</summary>
+    /// <remarks>
+    /// Loading a map raises a dozen or more properties on the map model inside one turn (canvas
+    /// size, zoom, tiles, floors, status), and each ran the whole shell Refresh inline: about
+    /// 1.8 s of interface time over the stall tour's map switches.
+    /// </remarks>
+    private readonly DeferredDispatch _legacyApply;
     private readonly SynchronizationContext? _dispatcherContext;
     private readonly ConcurrentQueue<V2ShellPersistenceResult> _persistenceResults = new();
     private V2NavigationRail _navigationRail = V2NavigationRail.Labels;
@@ -484,6 +492,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 Refresh(announceBackgroundChange: true);
             }
         });
+
+        _legacyApply = new(_dispatcherContext, _apply.Request);
 
         Router.Navigated += RouterNavigated;
         _runtime.Changed += RuntimeChanged;
@@ -2017,7 +2027,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             return;
         }
 
-        _apply.Request();
+        _legacyApply.Request();
     }
 
     /// <summary>Rejects the preview-to-window-title notification from its own context feed.</summary>
