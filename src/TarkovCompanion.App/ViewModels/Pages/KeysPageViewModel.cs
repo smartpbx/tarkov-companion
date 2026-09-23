@@ -115,13 +115,17 @@ public sealed class KeysPageViewModel : PageViewModel
         // SourceId reads an "id" property that file does not have, so it is null for every
         // location and no lookup through it can ever match. The maps table is synced from
         // tarkov.dev and is keyed by exactly that id.
-        IMapDataService? maps = null)
+        IMapDataService? maps = null,
+        // #283: which keys the player owns, from stash and Key case scans. Without it the page
+        // says nothing about ownership, as before.
+        IPlayerProfileService? profiles = null)
         : base("Keys", "Keep or sell, what each key opens, its uses and its price", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
         _questProgress = questProgress;
         _maps = maps;
+        _profiles = profiles;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
@@ -263,6 +267,29 @@ public sealed class KeysPageViewModel : PageViewModel
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
+    private readonly IPlayerProfileService? _profiles;
+    private IReadOnlyDictionary<string, int> _owned = new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>The profile's owned counts; empty until read, and always without a profile.</summary>
+    public IReadOnlyDictionary<string, int> Owned
+    {
+        get => _owned;
+        private set => SetProperty(ref _owned, value);
+    }
+
+    public bool TracksOwnership => _profiles is not null;
+
+    /// <summary>Re-reads the owned counts: a scan finished since the keys were loaded.</summary>
+    public async Task RefreshOwnedAsync(CancellationToken cancellationToken)
+    {
+        if (_profiles is null)
+        {
+            return;
+        }
+
+        Owned = (await _profiles.GetActiveAsync(cancellationToken).ConfigureAwait(true)).OwnedItemCounts;
+    }
+
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
         try
@@ -309,6 +336,7 @@ public sealed class KeysPageViewModel : PageViewModel
                 .ToArray();
             ApplyFilter();
 
+            await RefreshOwnedAsync(cancellationToken).ConfigureAwait(true);
             var withoutMap = _allKeys.Count(row => !row.HasMap);
             var keep = _allKeys.Count(row => row.IsKeep);
             var sell = _allKeys.Count(row => row.IsSell);

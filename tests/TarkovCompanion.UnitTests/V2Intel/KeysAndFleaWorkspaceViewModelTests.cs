@@ -114,7 +114,31 @@ public sealed class KeysWorkspaceViewModelTests
         Assert.Equal(page.Selected!.ItemId, opened);
     }
 
-    private static async Task<(KeysPageViewModel Page, KeysWorkspaceViewModel Workspace)> LoadedAsync(Action<string>? openItem = null)
+    /// <summary>#283: a key a scan found is marked on its row, the You own chip keeps only those, and the panel says so.</summary>
+    [Fact]
+    public async Task KeysAScanFoundAreMarkedAndFilterable()
+    {
+        var profile = new OwnedCountsProfile(new Dictionary<string, int>(StringComparer.Ordinal) { ["marked"] = 1, ["dorm"] = 0 });
+        var (page, workspace) = await LoadedAsync(profiles: profile);
+        await WaitUntilAsync(() => workspace.HasKeys);
+
+        Assert.Equal("Owned", Assert.Single(workspace.Keys, row => row.Key.ItemId == "marked").Owned);
+        Assert.False(Assert.Single(workspace.Keys, row => row.Key.ItemId == "dorm").HasOwned);
+
+        workspace.VerdictFilters.Single(chip => chip.Filter == KeyVerdictFilter.Owned).SelectCommand.Execute(null);
+        Assert.Equal(["marked"], workspace.Keys.Select(row => row.Key.ItemId));
+
+        page.Selected = page.Keys.Single(key => key.ItemId == "marked");
+        Assert.Equal("You own it.", workspace.SelectedOwned);
+        page.Selected = page.Keys.Single(key => key.ItemId == "dorm");
+        Assert.Equal("You don't own it.", workspace.SelectedOwned);
+        page.Selected = page.Keys.Single(key => key.ItemId == "resort");
+        Assert.Equal("Owned: not scanned. Stash › Key cases.", workspace.SelectedOwned);
+    }
+
+    private static async Task<(KeysPageViewModel Page, KeysWorkspaceViewModel Workspace)> LoadedAsync(
+        Action<string>? openItem = null,
+        TarkovCompanion.Core.Abstractions.IPlayerProfileService? profiles = null)
     {
         var facts = new[]
         {
@@ -129,7 +153,8 @@ public sealed class KeysWorkspaceViewModelTests
                 Item("marked", "Marked key", category: ItemCategory.Key),
                 Item("resort", "Health resort key", category: ItemCategory.Key)),
             questProgress: null,
-            maps: new NamedMaps(("map-customs", "Customs"), ("map-shoreline", "Shoreline")));
+            maps: new NamedMaps(("map-customs", "Customs"), ("map-shoreline", "Shoreline")),
+            profiles: profiles);
         var workspace = new KeysWorkspaceViewModel(page, openItem);
 
         await page.LoadAsync();

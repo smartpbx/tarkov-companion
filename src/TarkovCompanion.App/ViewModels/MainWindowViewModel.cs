@@ -2899,11 +2899,12 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             // never filled in sends a report that says "database ready" and stops there.
             StartupFaults = () => StartupFaults,
         };
-        Ammo = new(itemFactCatalog, itemRepository);
-        Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
+        Ammo = new(itemFactCatalog, itemRepository, profileService);
+        Keys = new(itemFactCatalog, itemRepository, questProgress, maps, profileService);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider,
             new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider),
-            itemAcquisitions);
+            itemAcquisitions,
+            profileService);
         Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);

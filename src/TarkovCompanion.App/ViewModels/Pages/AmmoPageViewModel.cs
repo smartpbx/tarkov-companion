@@ -90,11 +90,22 @@ public sealed class AmmoPageViewModel : PageViewModel
     private string _advice = NoRoundSelected;
     private string _explanation = string.Empty;
 
-    public AmmoPageViewModel(IItemFactCatalog catalog, IItemRepository itemRepository)
+    // #283: what the player owns, from stash and Ammo case scans. Optional: without a profile the
+    // page ranks rounds exactly as before and says nothing about ownership.
+    private readonly IPlayerProfileService? _profiles;
+    private IReadOnlyDictionary<string, string[]> _roundsByCaliber = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<AmmoPackContents> _packs = [];
+    private OwnedAmmo _owned = OwnedAmmo.None;
+
+    public AmmoPageViewModel(
+        IItemFactCatalog catalog,
+        IItemRepository itemRepository,
+        IPlayerProfileService? profiles = null)
         : base("Ammo", "Rounds ranked by what gets through armour", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
+        _profiles = profiles;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
@@ -229,6 +240,31 @@ public sealed class AmmoPageViewModel : PageViewModel
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
+    /// <summary>Rounds the player owns; <see cref="OwnedAmmo.None"/> until a profile is read.</summary>
+    public OwnedAmmo Owned
+    {
+        get => _owned;
+        private set => SetProperty(ref _owned, value);
+    }
+
+    public bool TracksOwnership => _profiles is not null;
+
+    /// <summary>The rounds of one caliber, for its owned total.</summary>
+    public IReadOnlyList<string> RoundIdsOf(string caliber) =>
+        _roundsByCaliber.TryGetValue(caliber, out var ids) ? ids : [];
+
+    /// <summary>Re-reads the owned counts: a scan finished since the table was loaded.</summary>
+    public async Task RefreshOwnedAsync(CancellationToken cancellationToken)
+    {
+        if (_profiles is null)
+        {
+            return;
+        }
+
+        var profile = await _profiles.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+        Owned = new OwnedAmmo(profile.OwnedItemCounts, _packs);
+    }
+
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
         try
@@ -246,6 +282,11 @@ public sealed class AmmoPageViewModel : PageViewModel
             // rather than reading as an unknown item.
             var packs = await _catalog.GetAmmoPacksAsync(cancellationToken).ConfigureAwait(true);
             _intelligence = new AmmoIntelligenceService(stats, packs);
+            _packs = packs;
+            _roundsByCaliber = stats
+                .GroupBy(stat => stat.Caliber, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Select(stat => stat.ItemId).ToArray(), StringComparer.OrdinalIgnoreCase);
+            await RefreshOwnedAsync(cancellationToken).ConfigureAwait(true);
 
             var calibers = new List<AmmoCaliberViewModel>();
             foreach (var group in stats.GroupBy(stat => stat.Caliber, StringComparer.OrdinalIgnoreCase))

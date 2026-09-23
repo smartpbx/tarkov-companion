@@ -10,6 +10,9 @@ public enum KeyVerdictFilter
     Keep,
     KeepForLater,
     Sell,
+
+    /// <summary>Keys a scan or a hand count says the player has (#283).</summary>
+    Owned,
 }
 
 /// <summary>One verdict chip above the key list.</summary>
@@ -87,6 +90,11 @@ public sealed class KeyListRowViewModel : BindableViewModel
 
     public string Cost => Key.AcquisitionCost;
 
+    /// <summary>"Owned", "Owned ×2", or empty when none is recorded.</summary>
+    public string Owned { get; init; } = string.Empty;
+
+    public bool HasOwned => Owned.Length > 0;
+
     public string AutomationId => $"v2-keys-row-{Key.ItemId}";
 }
 
@@ -120,6 +128,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
             new(KeyVerdictFilter.Keep, "Keep", SelectFilter),
             new(KeyVerdictFilter.KeepForLater, "Keep for later", SelectFilter),
             new(KeyVerdictFilter.Sell, "Sell", SelectFilter),
+            new(KeyVerdictFilter.Owned, "You own", SelectFilter),
         ];
         MarkChips();
         OpenInIntelCommand = new DelegateCommand(() =>
@@ -158,6 +167,12 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
             {
                 MarkChips();
                 RaiseKeys();
+                // A chip that hides the open key opens the first key it shows instead, so the
+                // panel never describes a key the list no longer has.
+                if (_page.Selected is { } open && !Narrow(_page.Keys, Filter, _page.Owned).Contains(open))
+                {
+                    _page.Selected = Narrow(_page.Keys, Filter, _page.Owned).FirstOrDefault();
+                }
             }
         }
     }
@@ -172,10 +187,13 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
                 var selected = _page.Selected;
                 _rows =
                 [
-                    .. Narrow(_page.Keys, Filter).Select(key => new KeyListRowViewModel(
+                    .. Narrow(_page.Keys, Filter, _page.Owned).Select(key => new KeyListRowViewModel(
                         key,
                         ReferenceEquals(key, selected),
-                        new DelegateCommand(() => _page.Selected = key))),
+                        new DelegateCommand(() => _page.Selected = key))
+                    {
+                        Owned = OwnedLabel(_page.Owned.GetValueOrDefault(key.ItemId)),
+                    }),
                 ];
             }
 
@@ -246,9 +264,32 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
 
     public bool HasSelectedLockIds => _page.SelectedLocks.Count > 0;
 
-    /// <summary>Keeps the rows a verdict chip asks for. A key the page could not judge belongs to no chip but All.</summary>
-    internal static IReadOnlyList<KeyRowViewModel> Narrow(IReadOnlyList<KeyRowViewModel> keys, KeyVerdictFilter filter) => filter switch
+    /// <summary>Whether the player has the chosen key, or how to find out.</summary>
+    public string SelectedOwned => _page.Selected is { } key && _page.TracksOwnership
+        ? _page.Owned.TryGetValue(key.ItemId, out var count)
+            ? count > 0 ? $"You own {(count == 1 ? "it" : $"{count:N0}")}." : "You don't own it."
+            : "Owned: not scanned. Stash › Key cases."
+        : string.Empty;
+
+    public bool HasSelectedOwned => SelectedOwned.Length > 0;
+
+    /// <summary>Re-reads what the player owns; the shell calls it each time the page is shown.</summary>
+    public Task LoadOwnedAsync() => _page.RefreshOwnedAsync(CancellationToken.None);
+
+    internal static string OwnedLabel(int count) => count switch
     {
+        <= 0 => string.Empty,
+        1 => "Owned",
+        _ => $"Owned ×{count:N0}",
+    };
+
+    /// <summary>Keeps the rows a verdict chip asks for. A key the page could not judge belongs to no chip but All.</summary>
+    internal static IReadOnlyList<KeyRowViewModel> Narrow(
+        IReadOnlyList<KeyRowViewModel> keys,
+        KeyVerdictFilter filter,
+        IReadOnlyDictionary<string, int>? owned = null) => filter switch
+    {
+        KeyVerdictFilter.Owned => [.. keys.Where(key => owned?.GetValueOrDefault(key.ItemId) > 0)],
         KeyVerdictFilter.Keep => [.. keys.Where(key => key.IsKeep)],
         KeyVerdictFilter.KeepForLater => [.. keys.Where(key => key.IsKeepForLater)],
         KeyVerdictFilter.Sell => [.. keys.Where(key => key.IsSell)],
@@ -260,7 +301,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     /// <summary>Opens the first key when none is chosen, so the context panel is never an empty column beside a full list.</summary>
     private void EnsureSelection()
     {
-        if (_page.Selected is null && Narrow(_page.Keys, Filter).FirstOrDefault() is { } first)
+        if (_page.Selected is null && Narrow(_page.Keys, Filter, _page.Owned).FirstOrDefault() is { } first)
         {
             _page.Selected = first;
         }
@@ -308,7 +349,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
                     nameof(HasSelectedKey), nameof(ShowsNoSelectedKey), nameof(SelectedName), nameof(SelectedVerdict),
                     nameof(SelectedIsKeep), nameof(SelectedIsKeepForLater), nameof(SelectedIsSell), nameof(SelectedReason),
                     nameof(HasSelectedReason), nameof(SelectedMap), nameof(SelectedLocks), nameof(SelectedUses),
-                    nameof(SelectedCost), nameof(SelectedProvenance),
+                    nameof(SelectedCost), nameof(SelectedProvenance), nameof(SelectedOwned), nameof(HasSelectedOwned),
                 })
                 {
                     OnPropertyChanged(name);
@@ -322,6 +363,11 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
             case nameof(KeysPageViewModel.Status):
                 OnPropertyChanged(nameof(Status));
                 OnPropertyChanged(nameof(NoKeysLabel));
+                break;
+            case nameof(KeysPageViewModel.Owned):
+                RaiseKeys();
+                OnPropertyChanged(nameof(SelectedOwned));
+                OnPropertyChanged(nameof(HasSelectedOwned));
                 break;
             case nameof(KeysPageViewModel.SearchQuery):
                 OnPropertyChanged(nameof(SearchQuery));

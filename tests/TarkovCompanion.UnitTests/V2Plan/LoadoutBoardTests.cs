@@ -212,6 +212,24 @@ public sealed class LoadoutBoardTests
         Assert.Empty(await new JsonFileLoadoutPresetStore(path).GetAsync(CancellationToken.None));
     }
 
+    /// <summary>#283: the ammo line says how many of the assigned round a stash or case scan counted.</summary>
+    [Fact]
+    public async Task TheAssignedRoundSaysHowManyAreOwned()
+    {
+        var profile = new TarkovCompanion.UnitTests.V2Intel.OwnedCountsProfile(
+            new Dictionary<string, int>(StringComparer.Ordinal) { ["m855"] = 20, ["m855-pack"] = 1 });
+        var page = new LoadoutPageViewModel(new FactCatalog(), new SearchService(), new Repository(), null, new FixedClock(), profiles: profile);
+        page.Apply(Snapshot(items: 4));
+        await page.LoadRecognizedItemsAsync(["carbine", "m855"]);
+
+        await page.EvaluateAsync();
+        Assert.EndsWith(" · 50 owned", page.AmmoTierSummary, StringComparison.Ordinal);
+
+        profile.Owned = new Dictionary<string, int>(StringComparer.Ordinal);
+        await page.EvaluateAsync();
+        Assert.EndsWith(" · owned not scanned", page.AmmoTierSummary, StringComparison.Ordinal);
+    }
+
     private static LoadoutPageViewModel Page(ILoadoutPresetStore? presets = null) =>
         new(new FactCatalog(), new SearchService(), new Repository(), presets, new FixedClock());
 
@@ -269,7 +287,7 @@ public sealed class LoadoutBoardTests
             Task.FromResult<IReadOnlyList<AmmoStats>>([]);
 
         public Task<IReadOnlyList<AmmoPackContents>> GetAmmoPacksAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<AmmoPackContents>>([]);
+            Task.FromResult<IReadOnlyList<AmmoPackContents>>([new("m855-pack", "m855", 30, new DataProvenance("fixture", Now))]);
 
         public Task<IReadOnlyList<LoadoutItemFacts>> GetLoadoutFactsAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<LoadoutItemFacts>>(
@@ -286,6 +304,8 @@ public sealed class LoadoutBoardTests
                 new("helmet", "Helmet", ItemCategory.Helmet, 20_000, 1.2, null,
                     new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal)),
                 new("bandage", "Bandage", ItemCategory.Medicine, 2_000, 0.1, null,
+                    new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal)),
+                new("m855", "M855", ItemCategory.Ammunition, 300, 0.01, "5.56x45",
                     new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal)),
             ]);
 
@@ -314,6 +334,7 @@ public sealed class LoadoutBoardTests
                 "carbine" => Carbine,
                 "helmet" => Helmet,
                 "bandage" => Bandage,
+                "m855" => Item("m855", "M855", ItemCategory.Ammunition),
                 _ => null,
             });
 
