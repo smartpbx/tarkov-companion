@@ -494,9 +494,17 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         ScanTargets =
         [
             // [f920 capture] "Ammo" and "Keys" were offered here and armed intents the stash
-            // handoff ignores: the capture ran and this page never changed. The ammo and key
-            // summaries below are counted from a full stash scan, which is the one target.
+            // handoff ignored: the capture ran and this page never changed. #283 made them guided
+            // case sub-scans, one screenshot per open case, which raise the owned counts the Ammo
+            // and Keys pages read. Without a guided scan service there is nothing to run them.
             new StashScanTargetViewModel(ScanIntent.Stash, "Full stash", SelectScanTarget) { IsSelected = true },
+            .. guidedScan is null
+                ? Array.Empty<StashScanTargetViewModel>()
+                :
+                [
+                    new StashScanTargetViewModel(ScanIntent.Ammo, "Ammo cases", SelectScanTarget),
+                    new StashScanTargetViewModel(ScanIntent.Keys, "Key cases", SelectScanTarget),
+                ],
         ];
     }
 
@@ -535,7 +543,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         ? PausedNextStep(_guidedScan!.Current)
         : _guidedScan?.Current.NextStep ?? string.Empty;
 
-    private static string PausedNextStep(GuidedStashScanProgress progress) => progress.Screenshots == 0
+    private static string PausedNextStep(GuidedStashScanProgress progress) => progress.Kind != StashScanKind.Full
+        ? progress.Screenshots == 0
+            ? "A case scan is waiting. Press Keep going, then " + StashSubScan.NextStep(progress.Kind, GuidedStashFrameOutcome.Added, 0).ToLower(CultureInfo.CurrentCulture)
+            : $"An unfinished case scan is waiting: {progress.Screenshots.ToString(CultureInfo.CurrentCulture)} case{(progress.Screenshots == 1 ? string.Empty : "s")}. Keep going, finish, or discard it."
+        : progress.Screenshots == 0
         ? "An unfinished scan is waiting. Press Keep going, then scroll to the top of your stash and take a screenshot."
         : $"An unfinished scan is waiting: {progress.Screenshots.ToString(CultureInfo.CurrentCulture)} screenshot{(progress.Screenshots == 1 ? string.Empty : "s")}, rows 1–{progress.RowsCovered.ToString(CultureInfo.CurrentCulture)}. Keep going, finish with what you have, or discard it.";
 
@@ -793,12 +805,19 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private void RequestScan(ScanIntent intent) => ScanRequested?.Invoke(this, intent);
 
     /// <summary>
-    /// A full-stash scan is a scroll-through, so it starts a guided scan; ammo and key scans are
-    /// still one screenshot through the shared capture dialog.
+    /// A full-stash scan is a scroll-through and an ammo or key scan a run of open cases; both
+    /// start a guided scan that keeps capture armed until Finish.
     /// </summary>
     private async Task StartSelectedScanAsync()
     {
-        if (ScanTarget != ScanIntent.Stash || _guidedScan is null || CurrentScope() is not { } scope)
+        var kind = ScanTarget switch
+        {
+            ScanIntent.Stash => StashScanKind.Full,
+            ScanIntent.Ammo => StashScanKind.Ammo,
+            ScanIntent.Keys => StashScanKind.Keys,
+            _ => (StashScanKind?)null,
+        };
+        if (kind is null || _guidedScan is null || CurrentScope() is not { } scope)
         {
             RequestScan(ScanTarget);
             return;
@@ -808,7 +827,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             .StartAsync(
                 scope,
                 _profileContext?.Current.ActiveProfile?.Context.DataSnapshot.SnapshotId ?? "unversioned",
-                CancellationToken.None)
+                CancellationToken.None,
+                kind.Value)
             .ConfigureAwait(true);
         _arming?.Resume();
     }
@@ -828,7 +848,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         _selected = null;
         await LoadAsync(CancellationToken.None).ConfigureAwait(true);
-        Status = $"Scan saved. {finished.OwnedCounts.Summary}";
+        Status = $"{StashSubScan.SavedHeadline(finished.Kind)}. {finished.Summary}";
     }
 
     private async Task UndoLastScreenshotAsync()
@@ -892,7 +912,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         if (_guidedScan is { Current.IsCollecting: true } guided)
         {
             await BuildItemBreakdownAsync(guided.Current.Reconstruction, cancellationToken).ConfigureAwait(true);
-            Status = IsScanPaused ? "A stash scan is waiting to be finished." : "Scanning your stash.";
+            Status = (IsScanPaused, guided.Current.Kind) switch
+            {
+                (true, _) => "A scan is waiting to be finished.",
+                (false, StashScanKind.Ammo) => "Scanning your ammo cases.",
+                (false, StashScanKind.Keys) => "Scanning your key cases.",
+                _ => "Scanning your stash.",
+            };
         }
     }
 
@@ -1641,6 +1667,18 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     private InventoryProfileScope? CurrentScope()
     {
+        // The capture handoff freezes the profile context's scope into every screenshot, and the
+        // assembler refuses a scan whose scope differs. The legacy profile names the mode
+        // "Regular" where the context says "Pvp", so a guided scan started from the legacy scope
+        // threw on its first screenshot (#283, found rendering a real case screenshot).
+        if (_profileContext?.Current.ActiveProfile is { } active)
+        {
+            return new InventoryProfileScope(
+                active.Context.Identity.ProfileId,
+                active.Context.Identity.Generation,
+                active.Context.Mode.ToString());
+        }
+
         var profile = _runtime.Current.Profile;
         return profile is null
             ? null

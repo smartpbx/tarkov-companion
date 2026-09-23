@@ -111,4 +111,42 @@ public sealed class StashOwnedCountsApplier(IPlayerProfileService profiles, IReq
 
         return new(raised, lowered, unchanged, exact) { RecordedNone = recordedNone };
     }
+
+    /// <summary>
+    /// A case sub-scan's counts: only items in <paramref name="only"/> (every named item when it
+    /// is null), and only ever raised, since one case is not the whole stash.
+    /// </summary>
+    public async Task<StashOwnedCountsChange> ApplyRaisingAsync(
+        StashReconstruction reconstruction,
+        IReadOnlySet<string>? only,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reconstruction);
+        var seenCounts = reconstruction.OwnedCounts
+            .Where(pair => only is null || only.Contains(pair.Key))
+            .ToArray();
+        if (seenCounts.Length == 0)
+        {
+            return StashOwnedCountsChange.None;
+        }
+
+        var profile = await profiles.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        var owned = new Dictionary<string, int>(profile.OwnedItemCounts, StringComparer.Ordinal);
+        var raised = 0;
+        foreach (var (itemId, seen) in seenCounts)
+        {
+            if (seen > owned.GetValueOrDefault(itemId))
+            {
+                owned[itemId] = seen;
+                raised++;
+            }
+        }
+
+        if (raised > 0)
+        {
+            await profiles.SaveAsync(profile with { OwnedItemCounts = owned }, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new(raised, 0, seenCounts.Length - raised, WasExact: false);
+    }
 }

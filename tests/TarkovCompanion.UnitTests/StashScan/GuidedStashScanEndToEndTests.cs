@@ -171,6 +171,76 @@ public sealed class GuidedStashScanEndToEndTests(ITestOutputHelper output) : IDi
         Assert.Equal((0, 1), (whole.Raised, whole.Lowered));
     }
 
+    /// <summary>
+    /// #283: an Ammo scan is a run of open cases. Each screenshot is its own case, the result is
+    /// saved beside the stash snapshot rather than replacing it, and only rounds and packs are
+    /// counted, and only upward.
+    /// </summary>
+    [Fact]
+    public async Task AnAmmoScanKeepsEachCaseApartAndOnlyRaisesRoundsAndPacks()
+    {
+        const string Round = "syn-nuts";
+        const string Pack = "syn-wires";
+        const string HeldHigh = "syn-tape";
+        var layout = SyntheticStashLayout.Build(rows: 34);
+        var profiles = new MemoryProfileService(Profile(owned: new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [HeldHigh] = 900,
+        }));
+        var snapshots = new MemorySnapshotStore();
+        var scan = Service(
+            snapshots,
+            profiles,
+            new JsonFileGuidedStashScanStore(Path.Combine(_directory, "ammo-scan.json")),
+            new AmmoCatalog([Round, HeldHigh], [Pack]));
+
+        await scan.StartAsync(Scope, "data-1", CancellationToken.None, StashScanKind.Ammo);
+        Assert.Equal(StashScanKind.Ammo, scan.Current.Kind);
+        // Two cases, painted from rows that would overlap if they were one stash.
+        Assert.Equal(GuidedStashFrameOutcome.Added, await AddAsync(scan, layout, firstRow: 0));
+        Assert.Equal(GuidedStashFrameOutcome.Added, await AddAsync(scan, layout, firstRow: 6));
+        Assert.StartsWith("2 cases", scan.Current.Headline, StringComparison.Ordinal);
+
+        var finished = await scan.FinishAsync(CancellationToken.None);
+
+        Assert.NotNull(finished);
+        Assert.Equal(StashScanKind.Ammo, finished!.Kind);
+        Assert.False(snapshots.Saved!.IsCurrent);
+        Assert.Equal(
+            ["ammo-case-1", "ammo-case-2"],
+            snapshots.Saved.Recognition.Result.Value!.CapturedRegions.Select(region => region.ContainerPath).Order(StringComparer.Ordinal));
+        var seen = finished.Reconstruction.OwnedCounts;
+        var owned = (await profiles.GetActiveAsync(CancellationToken.None)).OwnedItemCounts;
+        Assert.True(seen.GetValueOrDefault(Round) > 0 && seen.GetValueOrDefault(Pack) > 0, "the painted cases need a round and a pack");
+        Assert.Equal(seen[Round], owned[Round]);
+        Assert.Equal(seen[Pack], owned[Pack]);
+        // Seen fewer than held: one case is not the stash, so the count stays.
+        Assert.Equal(900, owned[HeldHigh]);
+        // Seen, named, and not ammo: untouched.
+        Assert.True(seen.ContainsKey(Bolts));
+        Assert.False(owned.ContainsKey(Bolts));
+        Assert.Equal("Ammo scan saved", scan.Current.Headline);
+    }
+
+    [Fact]
+    public async Task AKeysScanResumedAfterARestartIsStillAKeysScan()
+    {
+        var layout = SyntheticStashLayout.Build(rows: 34);
+        var profiles = new MemoryProfileService(Profile(owned: new Dictionary<string, int>(StringComparer.Ordinal)));
+        var pendingStore = new JsonFileGuidedStashScanStore(Path.Combine(_directory, "keys-scan.json"));
+        var first = Service(new MemorySnapshotStore(), profiles, pendingStore);
+        await first.StartAsync(Scope, "data-1", CancellationToken.None, StashScanKind.Keys);
+        await AddAsync(first, layout, firstRow: 0);
+        await AddAsync(first, layout, firstRow: 6);
+
+        var second = Service(new MemorySnapshotStore(), profiles, pendingStore);
+        await second.InitializeAsync(CancellationToken.None);
+
+        Assert.Equal(StashScanKind.Keys, second.Current.Kind);
+        Assert.Equal(2, second.Current.Screenshots);
+        Assert.Equal(2, second.Current.PlacedScreenshots);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))
@@ -182,7 +252,8 @@ public sealed class GuidedStashScanEndToEndTests(ITestOutputHelper output) : IDi
     private static GuidedStashScanService Service(
         IStashSnapshotStore snapshots,
         IPlayerProfileService profiles,
-        IGuidedStashScanPendingStore pendingStore)
+        IGuidedStashScanPendingStore pendingStore,
+        IItemFactCatalog? itemFacts = null)
     {
         var assembler = new StashScanAssembler();
         return new(
@@ -191,7 +262,31 @@ public sealed class GuidedStashScanEndToEndTests(ITestOutputHelper output) : IDi
             new StashReconstructionProjector(),
             new StashScanWorkflow(assembler, snapshots, new StashSnapshotComparer()),
             new StashOwnedCountsApplier(profiles),
-            pendingStore);
+            pendingStore,
+            itemFacts: itemFacts);
+    }
+
+    private sealed class AmmoCatalog(IReadOnlyList<string> rounds, IReadOnlyList<string> packs) : IItemFactCatalog
+    {
+        private static readonly DataProvenance Provenance = new("fixture", DateTimeOffset.UnixEpoch);
+
+        public Task<IReadOnlyList<TarkovCompanion.Core.Domain.Ammo.AmmoStats>> GetAmmoAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<TarkovCompanion.Core.Domain.Ammo.AmmoStats>>(
+                [.. rounds.Select(id => new TarkovCompanion.Core.Domain.Ammo.AmmoStats(id, "Caliber9x19PARA", 50, 20, null, null, 1, null, null, null, false, false, Provenance))]);
+
+        public Task<IReadOnlyList<TarkovCompanion.Core.Domain.Ammo.AmmoPackContents>> GetAmmoPacksAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<TarkovCompanion.Core.Domain.Ammo.AmmoPackContents>>(
+                [.. packs.Select(id => new TarkovCompanion.Core.Domain.Ammo.AmmoPackContents(id, rounds[0], 50, Provenance))]);
+
+        public Task<IReadOnlyList<TarkovCompanion.Application.Services.Intelligence.LoadoutItemFacts>> GetLoadoutFactsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<TarkovCompanion.Application.Services.Intelligence.LoadoutItemFacts>>([]);
+
+        public Task<IReadOnlyList<TarkovCompanion.Application.Services.Intelligence.KeyFacts>> GetKeyFactsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<TarkovCompanion.Application.Services.Intelligence.KeyFacts>>([]);
+
+        public void Invalidate()
+        {
+        }
     }
 
     /// <summary>One painted screen through the real pixel reader and reconstructor, into the scan.</summary>

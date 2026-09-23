@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -35,7 +36,8 @@ public sealed record GuidedStashScanPending(
     string ProfileGeneration,
     string GameMode,
     string DataSnapshotId,
-    RecognitionResultEnvelope<StashRecognition>? Recognition);
+    RecognitionResultEnvelope<StashRecognition>? Recognition,
+    StashScanKind Kind = StashScanKind.Full);
 
 /// <summary>Where an unfinished guided scan waits while the application is closed.</summary>
 public interface IGuidedStashScanPendingStore
@@ -59,6 +61,9 @@ public sealed record GuidedStashScanProgress(
     string NextStep,
     StashReconstruction Reconstruction)
 {
+    /// <summary>A full scroll-through, or an Ammo or Keys case sub-scan.</summary>
+    public StashScanKind Kind { get; init; } = StashScanKind.Full;
+
     public static GuidedStashScanProgress Idle { get; } = new(
         GuidedStashScanStage.Idle,
         null,
@@ -77,7 +82,15 @@ public sealed record GuidedStashScanProgress(
 public sealed record GuidedStashScanFinished(
     StashScanAssemblyResult Assembly,
     StashReconstruction Reconstruction,
-    StashOwnedCountsChange OwnedCounts);
+    StashOwnedCountsChange OwnedCounts)
+{
+    public StashScanKind Kind { get; init; } = StashScanKind.Full;
+
+    /// <summary>What the scan did to the owned counts, in the player's terms.</summary>
+    public string Summary => Kind != StashScanKind.Full && OwnedCounts == StashOwnedCountsChange.None
+        ? $"No {(Kind == StashScanKind.Keys ? "keys" : "ammo")} named, so owned counts are unchanged."
+        : OwnedCounts.Summary;
+}
 
 /// <summary>
 /// One stash, several screenshots: holds the frames of a scroll-through until the player says the
@@ -105,7 +118,8 @@ public sealed class GuidedStashScanService(
     StashScanWorkflow workflow,
     StashOwnedCountsApplier ownedCounts,
     IGuidedStashScanPendingStore pendingStore,
-    TimeProvider? timeProvider = null)
+    TimeProvider? timeProvider = null,
+    IItemFactCatalog? itemFacts = null)
 {
     private const string RootContainer = "stash";
 
@@ -149,7 +163,8 @@ public sealed class GuidedStashScanService(
     public async Task<GuidedStashScanProgress> StartAsync(
         InventoryProfileScope scope,
         string dataSnapshotId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        StashScanKind kind = StashScanKind.Full)
     {
         ArgumentNullException.ThrowIfNull(scope);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -167,7 +182,8 @@ public sealed class GuidedStashScanService(
                 scope.Generation,
                 scope.GameMode,
                 dataSnapshotId,
-                null);
+                null,
+                kind);
             _resumed = false;
             _frames.Clear();
             await pendingStore.SaveAsync(_pending, cancellationToken).ConfigureAwait(false);
@@ -223,6 +239,7 @@ public sealed class GuidedStashScanService(
                 EvidenceConfidence.Unscored,
                 Producer);
             var ordinal = _frames.Count == 0 ? 0 : _frames.Max(frame => frame.CaptureOrdinal) + 1;
+            var subScan = _pending.Kind != StashScanKind.Full;
             _frames.Add(new StashScanCaptureFrame(
                 new CaptureSessionId(_pending.SessionId),
                 artifactId,
@@ -230,13 +247,14 @@ public sealed class GuidedStashScanService(
                 correlationId,
                 context,
                 contentSha256,
-                RootContainer,
+                subScan ? StashSubScan.CasePath(_pending.Kind, ordinal) : RootContainer,
                 captured,
                 decodeRevision,
                 provenance,
                 reconstruction,
                 UnknownTotal(provenance),
-                confirmsContainerStart: ordinal == 0));
+                // Every case is its own container, whole on its screenshot: nothing to stitch.
+                confirmsContainerStart: ordinal == 0 || subScan));
 
             var previousRows = Current.RowsCovered;
             var previousPlaced = Current.PlacedScreenshots;
@@ -246,7 +264,9 @@ public sealed class GuidedStashScanService(
 
             var reconstructionNow = projector.Project(assembly.Recognition.Result.Value!);
             var placed = _frames.Count - reconstructionNow.UnplacedRegions;
-            var outcome = placed <= previousPlaced
+            var outcome = subScan
+                ? GuidedStashFrameOutcome.Added
+                : placed <= previousPlaced
                 ? GuidedStashFrameOutcome.AddedUnplaced
                 : Rows(reconstructionNow) <= previousRows && ordinal > 0
                     ? GuidedStashFrameOutcome.AddedNoNewRows
@@ -299,12 +319,22 @@ public sealed class GuidedStashScanService(
                 return null;
             }
 
+            var kind = _pending.Kind;
             var request = Request(_pending, Aligned(_pending, _frames));
+            // A case scan is saved beside the stash snapshot, never in its place: it saw one case.
             var assembly = await workflow
-                .CompleteAsync(request, Guid.NewGuid(), makeCurrent: true, cancellationToken)
+                .CompleteAsync(request, Guid.NewGuid(), makeCurrent: kind == StashScanKind.Full, cancellationToken)
                 .ConfigureAwait(false);
             var reconstruction = projector.Project(assembly.Recognition.Result.Value!);
-            var change = await ownedCounts.ApplyAsync(reconstruction, cancellationToken).ConfigureAwait(false);
+            var change = kind == StashScanKind.Full
+                ? await ownedCounts.ApplyAsync(reconstruction, cancellationToken).ConfigureAwait(false)
+                : await ownedCounts.ApplyRaisingAsync(
+                        reconstruction,
+                        await StashSubScan.ItemsOfAsync(kind, itemFacts, cancellationToken).ConfigureAwait(false),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+            var finished = new GuidedStashScanFinished(assembly, reconstruction, change) { Kind = kind };
 
             // Only now, with the snapshot durably saved, does the pending copy go.
             await pendingStore.ClearAsync(cancellationToken).ConfigureAwait(false);
@@ -313,12 +343,12 @@ public sealed class GuidedStashScanService(
             _frames.Clear();
             Publish(GuidedStashScanProgress.Idle with
             {
-                Headline = "Scan saved",
+                Headline = StashSubScan.SavedHeadline(kind),
                 NextStep = string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{reconstruction.KnownTiles} named, {reconstruction.UnknownTiles} unknown. {change.Summary}"),
+                    $"{reconstruction.KnownTiles} named, {reconstruction.UnknownTiles} unknown. {finished.Summary}"),
             });
-            return new(assembly, reconstruction, change);
+            return finished;
         }
         finally
         {
@@ -350,6 +380,11 @@ public sealed class GuidedStashScanService(
     /// <summary>Identity alignment first; layout alignment only for what that left unplaced.</summary>
     private IReadOnlyList<StashScanCaptureFrame> Aligned(GuidedStashScanPending pending, IReadOnlyList<StashScanCaptureFrame> frames)
     {
+        if (pending.Kind != StashScanKind.Full)
+        {
+            return frames;
+        }
+
         var firstPass = assembler.Assemble(Request(pending, frames));
         return aligner.AddLayoutOrigins(frames, firstPass, _timeProvider.GetUtcNow());
     }
@@ -379,6 +414,23 @@ public sealed class GuidedStashScanService(
         var rows = Rows(reconstruction);
         var placed = _frames.Count - reconstruction.UnplacedRegions;
         var culture = CultureInfo.CurrentCulture;
+        if (_pending.Kind != StashScanKind.Full)
+        {
+            return new(
+                GuidedStashScanStage.Collecting,
+                _pending.StartedUtc,
+                _resumed,
+                _frames.Count,
+                placed,
+                rows,
+                StashSubScan.Headline(_pending.Kind, _frames.Count, reconstruction),
+                StashSubScan.NextStep(_pending.Kind, outcome, _frames.Count),
+                reconstruction)
+            {
+                Kind = _pending.Kind,
+            };
+        }
+
         var headline = _frames.Count == 0
             ? "Scan started"
             : string.Create(culture, $"{_frames.Count} screenshot{(_frames.Count == 1 ? string.Empty : "s")} · rows 1–{rows}");
@@ -459,7 +511,8 @@ public sealed class GuidedStashScanService(
                 region.Grid,
                 unresolved,
                 []);
-            var isStart = region.CaptureOrdinal == 0 && region.OriginInContainer.Value is { Row: 0, Column: 0 };
+            var isStart = (region.CaptureOrdinal == 0 || pending.Kind != StashScanKind.Full) &&
+                          region.OriginInContainer.Value is { Row: 0, Column: 0 };
             yield return new StashScanCaptureFrame(
                 new CaptureSessionId(pending.SessionId),
                 region.ArtifactId,

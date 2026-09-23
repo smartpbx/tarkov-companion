@@ -149,17 +149,24 @@ public sealed class GuidedStashScanArming : IDisposable
 
             var now = _timeProvider.GetUtcNow();
             var context = _captureContext.Describe();
+            // A case sub-scan (#283) arms its own intent, whose screen is read as a case window.
+            var (intent, hint) = _guidedScan.Current.Kind switch
+            {
+                StashScanKind.Ammo => (ScanIntent.Ammo, "Open the next ammo case and take a screenshot."),
+                StashScanKind.Keys => (ScanIntent.Keys, "Open the next key case and take a screenshot."),
+                _ => (ScanIntent.Stash, "Scroll your stash and take the next screenshot."),
+            };
             var receipt = _captureSessions.Arm(new(
                 new(
                     new CaptureSessionId(Guid.NewGuid()),
-                    ScanIntent.Stash,
+                    intent,
                     _origin,
                     now,
                     ProfileId: context.ActiveProfile,
                     MapId: context.ActiveMap,
                     ExpiresUtc: null),
                 context,
-                new("stash_scroll", "Scroll your stash and take the next screenshot.")));
+                new("stash_scroll", hint)));
             if (!receipt.Accepted && receipt.Code != "intent_already_armed")
             {
                 _logger.LogInformation("The guided stash scan could not re-arm capture: {Code}.", receipt.Code);
