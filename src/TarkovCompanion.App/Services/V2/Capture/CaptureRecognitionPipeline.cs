@@ -352,6 +352,8 @@ public sealed class CaptureRecognitionPipeline(
     {
         ScanIntent.Loot => InventoryGridSurface.VisibleLoot,
         ScanIntent.Stash => InventoryGridSurface.Stash,
+        // #283: an Ammo or Keys sub-scan is a screenshot of an open case; the case window is read.
+        ScanIntent.Ammo or ScanIntent.Keys => InventoryGridSurface.Container,
         _ => null,
     };
 

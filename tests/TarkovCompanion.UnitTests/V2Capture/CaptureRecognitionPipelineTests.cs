@@ -56,6 +56,8 @@ public sealed class CaptureRecognitionPipelineTests
     [InlineData(ScanIntent.Auto, ScanContext.SingleItem, true, null)]
     [InlineData(ScanIntent.Loot, ScanContext.Unknown, false, InventoryGridSurface.VisibleLoot)]
     [InlineData(ScanIntent.Stash, ScanContext.Container, true, InventoryGridSurface.Stash)]
+    [InlineData(ScanIntent.Ammo, ScanContext.Unknown, false, InventoryGridSurface.Container)]
+    [InlineData(ScanIntent.Keys, ScanContext.Container, false, InventoryGridSurface.Container)]
     [InlineData(ScanIntent.Flea, ScanContext.Container, true, null)]
     public void AGridIsMeasuredForAnArmedGridIntentOrAnUnarmedContainerInRaid(
         ScanIntent intent,

@@ -118,6 +118,7 @@ public sealed class GridPixelReconstructionBuilder(
     private readonly StashPanelLatticeDetector _stashLattice = new();
     private readonly StashFootprintReader _stashFootprints = new();
     private readonly GearScreenLayoutReader _gearScreen = new();
+    private readonly CaseWindowLocator _caseWindow = new();
 
     public async Task<GridReconstructionRequest> BuildAsync(
         CapturedImage image,
@@ -159,7 +160,10 @@ public sealed class GridPixelReconstructionBuilder(
         }
 
         var stashSpec = surface == InventoryGridSurface.Stash ? _stashLattice.Detect(image, cancellationToken) : null;
+        // #283: a case sub-scan reads the open case window, never the stash or gear behind it.
+        var caseSpec = surface == InventoryGridSurface.Container ? _caseWindow.Locate(image, cancellationToken) : null;
         var spec = stashSpec
+            ?? caseSpec
             ?? _gridDetector.Detect(image, cancellationToken)
             ?? DetectInCenteredSafeArea(image, cancellationToken);
         var scrollPosition = stashSpec is null ? null : StashScrollbarReader.Read(image, stashSpec, cancellationToken);
