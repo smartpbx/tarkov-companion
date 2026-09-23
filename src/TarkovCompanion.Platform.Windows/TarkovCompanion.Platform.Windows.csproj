@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Keep a portable target for fixture tests, and compile real WinRT notification delivery
+         only into the Windows target consumed by the shipping app. -->
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
@@ -8,6 +13,12 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <!-- Desktop toast payload and registration compatibility for the installed Windows build. -->
+    <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" />
+    <!-- The toolkit's old lower bound resolves a vulnerable 4.7.0 without this direct pin. -->
+    <PackageReference Include="System.Drawing.Common" />
   </ItemGroup>
   <ItemGroup>
     <!-- The shell interop struct's field offsets are pinned by a test. Getting them wrong

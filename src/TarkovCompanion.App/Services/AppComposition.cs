@@ -85,6 +85,7 @@ using TarkovCompanion.Infrastructure.TarkovTracker;
 using TarkovCompanion.Infrastructure.Wiki;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
+using TarkovCompanion.Platform.Windows.Notifications;
 using TarkovCompanion.Platform.Windows.Security;
 using TarkovCompanion.Platform.Windows.Storage;
 using TarkovCompanion.Platform.Windows.Watching;
@@ -989,6 +990,7 @@ public static class AppComposition
         // for the life of the process and is resolved by the shell that shows Setup.
         services.AddSingleton<TrayPresenceHost>();
         services.AddSingleton<PopupNotificationHost>();
+        services.AddSingleton<INativeNotificationChannel, WindowsToastNotificationChannel>();
         services.AddSingleton<INotificationSettingsStore>(_ =>
             new JsonFileNotificationSettingsStore(Path.Combine(paths.Config, "notifications.json")));
         services.AddSingleton(provider => new NotificationBridge(
@@ -998,7 +1000,8 @@ public static class AppComposition
             [provider.GetRequiredService<TrayPresenceHost>()],
             provider.GetRequiredService<PopupNotificationHost>,
             () => provider.GetRequiredService<MainWindowViewModel>().Settings,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            nativePopupChannel: provider.GetRequiredService<INativeNotificationChannel>()));
         services.AddSingleton(provider => new SetupNotificationsViewModel(
             provider.GetRequiredService<NotificationBridge>(),
             () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));

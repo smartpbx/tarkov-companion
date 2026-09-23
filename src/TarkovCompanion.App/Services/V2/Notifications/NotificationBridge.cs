@@ -2,11 +2,12 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.Services.V2.Notifications;
 
 /// <summary>
-/// Turns everything the application already knows into the five notifications, and hands them out.
+/// Turns everything the application already knows into the six notifications, and hands them out.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,6 +33,7 @@ public sealed class NotificationBridge : IDisposable
     private readonly NotificationCoordinator _coordinator;
     private readonly IReadOnlyList<INotificationChannel> _quietChannels;
     private readonly Func<INotificationChannel?> _popupChannel;
+    private readonly INativeNotificationChannel? _nativePopupChannel;
     private readonly Func<SettingsPageViewModel?> _settingsPage;
     private readonly TimeProvider _timeProvider;
     private readonly ITimer _flushTimer;
@@ -52,13 +54,15 @@ public sealed class NotificationBridge : IDisposable
         // graph the moment notifications are composed.
         Func<SettingsPageViewModel?>? settingsPage = null,
         TimeProvider? timeProvider = null,
-        NotificationCoordinator? coordinator = null)
+        NotificationCoordinator? coordinator = null,
+        INativeNotificationChannel? nativePopupChannel = null)
     {
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
         _quietChannels = quietChannels ?? throw new ArgumentNullException(nameof(quietChannels));
         _popupChannel = popupChannel ?? throw new ArgumentNullException(nameof(popupChannel));
+        _nativePopupChannel = nativePopupChannel;
         _settingsPage = settingsPage ?? (static () => null);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _coordinator = coordinator ?? new NotificationCoordinator();
@@ -193,11 +197,27 @@ public sealed class NotificationBridge : IDisposable
         // until asked for.
         if (_settings.ShowsDesktopPopup && (ignoreQuietHours || !IsQuietNow()))
         {
-            _popupChannel()?.Show(request);
+            if (_nativePopupChannel is { IsAvailable: true } native)
+            {
+                // Windows may retain this text in Notification Center and show it on a lock
+                // screen. It therefore gets the deliberately detail-free projection, and unlike
+                // the in-window fallback it never interrupts a loading or active raid.
+                if (!IsRaidActive())
+                {
+                    native.Show(NotificationPrivacy.ForLockScreen(request));
+                }
+            }
+            else
+            {
+                _popupChannel()?.Show(request);
+            }
         }
 
         Raised?.Invoke(this, request);
     }
+
+    private bool IsRaidActive() =>
+        _stateStore.Current.Raid.State is RaidLifecycleState.LoadingRaid or RaidLifecycleState.InRaid;
 
     /// <summary>Internal for direct coverage: what the coordinator is actually shown.</summary>
     internal NotificationInputs BuildInputs(ApplicationRuntimeSnapshot snapshot)
