@@ -704,6 +704,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     public ICommand IncreaseFollowZoomCommand { get; }
 
+    public string FollowZoomLabel => string.Create(CultureInfo.CurrentCulture, $"{_followZoom.Value:0.#}×");
+
     public string FollowLabel => string.Create(CultureInfo.CurrentCulture, $"Follow {_followZoom.Value:0.#}×");
 
     /// <summary>Turn the plan a quarter, remembered per map.</summary>
@@ -1754,6 +1756,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         }
 
         _followZoom.Set(Renderer.CameraZoom);
+        OnPropertyChanged(nameof(FollowZoomLabel));
         OnPropertyChanged(nameof(FollowLabel));
         FollowPlayer();
     }
@@ -1761,6 +1764,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private void ChangeFollowZoom(int steps)
     {
         _followZoom.ChangeBy(steps);
+        OnPropertyChanged(nameof(FollowZoomLabel));
         OnPropertyChanged(nameof(FollowLabel));
         if (_map.FollowsPlayer)
         {

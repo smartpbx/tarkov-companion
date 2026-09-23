@@ -116,6 +116,38 @@ public sealed class RaidMapSpaceTests
     }
 
     [Fact]
+    public void Follow_zoom_steps_do_not_take_three_cells_from_the_raid_strip()
+    {
+        // #675 put −, Follow N× and + beside one another. That narrowed the presentation control
+        // enough to wrap it, reducing the plan from 0.801 to 0.741 of a 1080-pixel window. The
+        // current value stays on the strip; its two 32-pixel step targets live in its flyout.
+        var view = XDocument.Load(RepositoryFile(CockpitView));
+        var controls = view.Descendants()
+            .Where(element => element.Attribute("AutomationProperties.AutomationId") is not null)
+            .ToArray();
+
+        _ = OneById(controls, "v2-raid-follow");
+        _ = OneById(controls, "v2-raid-follow-zoom");
+        foreach (var step in new[] { "v2-raid-follow-zoom-out", "v2-raid-follow-zoom-in" })
+        {
+            var control = OneById(controls, step);
+            Assert.Contains(control.Ancestors(), ancestor => ancestor.Name.LocalName == "Button.Flyout");
+        }
+
+        static XElement OneById(IEnumerable<XElement> elements, string id)
+        {
+            var matches = elements
+                .Where(element => string.Equals(
+                    element.Attribute("AutomationProperties.AutomationId")?.Value,
+                    id,
+                    StringComparison.Ordinal))
+                .ToArray();
+            Assert.Single(matches);
+            return matches[0];
+        }
+    }
+
+    [Fact]
     public void The_windows_gallery_holds_a_floor_under_the_map_card()
     {
         // The measurement the Windows page gallery makes, kept honest here so a change to the
