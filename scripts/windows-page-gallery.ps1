@@ -805,7 +805,8 @@ function Close-AppProcess {
     # with an empty detail: run 35910833358 said "required forced termination" and nothing else,
     # and the startup.log tail beside it (the last launch of the whole job, not this one) was read
     # as this launch's story.
-    $StartedUtc = try { $Process.StartTime.ToUniversalTime() } catch { [DateTime]::UtcNow.AddMinutes(-5) }
+    $StartedUtc = [DateTime]::UtcNow.AddMinutes(-5)
+    try { $StartedUtc = $Process.StartTime.ToUniversalTime() } catch { }
     $Asked = "not asked"
     try {
         $Forced = $false
@@ -821,12 +822,13 @@ function Close-AppProcess {
                 # an exit stuck after it, and the application's own lifecycle lines say where.
                 # Each read is guarded: a process that ends in the middle of them is an exit that
                 # took just over twenty seconds, which is itself the answer.
-                $State = try {
+                $State = "CloseMainWindow returned $Asked"
+                try {
                     $Process.Refresh()
-                    "CloseMainWindow returned $Asked; window still up: $($Process.MainWindowHandle -ne [IntPtr]::Zero); responding: $($Process.Responding); threads: $($Process.Threads.Count)"
+                    $State = "CloseMainWindow returned $Asked; window still up: $($Process.MainWindowHandle -ne [IntPtr]::Zero); responding: $($Process.Responding); threads: $($Process.Threads.Count)"
                 }
                 catch {
-                    "CloseMainWindow returned $Asked; the process ended while its state was read ($($_.Exception.Message))"
+                    $State = "CloseMainWindow returned $Asked; the process ended while its state was read ($($_.Exception.Message))"
                 }
                 $script:ForcedCloseDetail = "$State. " + (Get-LaunchLifecycleLines -Since $StartedUtc)
                 try { $Process.Kill() } catch { $script:ForcedCloseDetail += " Kill: $($_.Exception.Message)" }
