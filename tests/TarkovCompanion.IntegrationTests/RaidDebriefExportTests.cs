@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
@@ -107,6 +108,38 @@ public sealed class RaidDebriefExportTests
         Assert.Equal("inferred", scan.GetProperty("itemSource").GetString());
         Assert.Equal("estimated", scan.GetProperty("valueSource").GetString());
         Assert.Equal(0.93, scan.GetProperty("confidence").GetDouble());
+    }
+
+    [Fact]
+    public async Task A_scan_marked_wrong_keeps_its_stable_event_and_is_omitted_from_totals_and_export()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var raidId = await harness.StartEndedRaidAsync();
+        await harness.History.RecordEventAsync(
+            raidId,
+            "scan",
+            Start.AddMinutes(5),
+            JsonSerializer.Serialize(new ScanExecutionResult(
+                true, true, "item-gpu", "Graphics card", 12_000, 12_000, "Take", new(0.93), Start.AddMinutes(5), "screenshot", "detail")),
+            CancellationToken.None);
+        var scan = Assert.Single(await harness.History.ListEventsAsync(raidId, "scan", CancellationToken.None));
+
+        await harness.History.RecordEventAsync(
+            raidId,
+            RaidScanCorrection.EventType,
+            Start.AddMinutes(25),
+            new RaidScanCorrection(scan.Id, true, Start.AddMinutes(25)).ToPayload(),
+            CancellationToken.None);
+
+        Assert.Equal(scan.Id, Assert.Single(await harness.History.ListEventsAsync(raidId, "scan", CancellationToken.None)).Id);
+        Assert.Single(await harness.History.ListEventPayloadsAsync(raidId, "scan", CancellationToken.None));
+        var row = Assert.Single(await ExportRowsAsync(harness));
+        Assert.Equal("0", row["scans"]);
+        Assert.Equal("0", row["scans_recognised"]);
+        await using var json = new MemoryStream();
+        await harness.History.ExportJsonAsync(json, CancellationToken.None);
+        using var document = JsonDocument.Parse(json.ToArray());
+        Assert.Equal(0, document.RootElement.GetProperty("raids")[0].GetProperty("scans").GetArrayLength());
     }
 
     [Fact]

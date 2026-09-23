@@ -820,6 +820,13 @@ public interface IIntegrationSecretStore
 /// <param name="Positions">Where the player was, oldest first.</param>
 public sealed record RaidTrail(Guid RaidId, DateTimeOffset? StartedUtc, IReadOnlyList<ScreenshotPosition> Positions);
 
+/// <summary>One append-only raid event with an identity that survives reloads.</summary>
+public sealed record RaidHistoryEvent(string Id, string PayloadJson)
+{
+    /// <summary>The stable identity of a row already stored in SQLite.</summary>
+    public static string StoredId(Guid raidId, long eventId) => $"{raidId:N}:{eventId}";
+}
+
 public interface IRaidHistoryService
 {
     Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken);
@@ -903,6 +910,24 @@ public interface IRaidHistoryService
         Guid raidId,
         string type,
         CancellationToken cancellationToken);
+
+    /// <summary>One kind of event with the stable identity of each append-only row.</summary>
+    /// <remarks>
+    /// The default preserves compatibility for fixture stores: their ordered append-only lists
+    /// make the ordinal stable. Persistent stores override it with their database row identity.
+    /// </remarks>
+    async Task<IReadOnlyList<RaidHistoryEvent>> ListEventsAsync(
+        Guid raidId,
+        string type,
+        CancellationToken cancellationToken)
+    {
+        var payloads = await ListEventPayloadsAsync(raidId, type, cancellationToken).ConfigureAwait(false);
+        return
+        [
+            .. payloads.Select((payload, index) =>
+                new RaidHistoryEvent($"{raidId:N}:ordered:{type}:{index}", payload)),
+        ];
+    }
 
     Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
         string mapId,

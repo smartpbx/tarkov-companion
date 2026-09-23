@@ -1677,6 +1677,23 @@ internal static class Program
                         CancellationToken.None));
                 }
 
+                if (args.Contains("--debrief-wrong-scan-demo"))
+                {
+                    var history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
+                    var scans = history.ListEventsAsync(seeded.Result, "scan", CancellationToken.None);
+                    DrainUntilComplete(scans);
+                    var correctedUtc = DateTimeOffset.UtcNow;
+                    DrainUntilComplete(history.RecordEventAsync(
+                        seeded.Result,
+                        TarkovCompanion.Application.Services.Raids.RaidScanCorrection.EventType,
+                        correctedUtc,
+                        new TarkovCompanion.Application.Services.Raids.RaidScanCorrection(
+                            scans.Result[0].Id,
+                            true,
+                            correctedUtc).ToPayload(),
+                        CancellationToken.None));
+                }
+
                 var debrief = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>();
                 DrainUntilComplete(debrief.LoadAsync());
                 // The demo composition records a live raid of its own, which is the newest and so

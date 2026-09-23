@@ -510,7 +510,14 @@
                           </StackPanel>
                           <TextBlock Classes="v2-label" Text="{Binding DetailLabel}" IsVisible="{Binding HasDetail}" />
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding TimeLabel}" VerticalAlignment="Top" />
+                        <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
+                          <TextBlock Classes="v2-debrief-muted" Text="{Binding TimeLabel}" HorizontalAlignment="Right" />
+                          <TextBlock Classes="v2-label" Text="{Binding CorrectionLabel}" IsVisible="{Binding HasCorrection}"
+                                     HorizontalAlignment="Right" />
+                          <Button Classes="v2-target v2-debrief-plain" MinHeight="28" Padding="8,2"
+                                  Content="{Binding CorrectionActionLabel}" Command="{Binding CorrectionCommand}"
+                                  AutomationProperties.Name="{Binding CorrectionActionLabel}" />
+                        </StackPanel>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>

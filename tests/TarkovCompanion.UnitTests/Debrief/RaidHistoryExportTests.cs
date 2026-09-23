@@ -191,6 +191,31 @@ public sealed class RaidHistoryExportTests
     }
 
     [Fact]
+    public void A_stored_scan_keeps_the_event_identity_supplied_by_the_history_store()
+    {
+        var stored = JsonSerializer.Serialize(new ScanExecutionResult(
+            true, true, "item-gpu", "Graphics card", 12_000, 12_000, "Take", new(0.93), Start, "screenshot", "detail"));
+
+        var scan = RaidScanFact.TryParse("raid:42", stored);
+
+        Assert.NotNull(scan);
+        Assert.Equal("raid:42", scan.Id);
+    }
+
+    [Fact]
+    public void The_latest_scan_correction_decides_whether_the_scan_is_wrong()
+    {
+        var wrong = new RaidScanCorrection("raid:42", true, Start).ToPayload();
+        var restored = new RaidScanCorrection("raid:42", false, Start.AddMinutes(1)).ToPayload();
+        var other = new RaidScanCorrection("raid:43", true, Start.AddMinutes(2)).ToPayload();
+
+        var wrongIds = RaidScanCorrection.WrongScanIds([wrong, "not json", restored, other]);
+
+        Assert.DoesNotContain("raid:42", wrongIds);
+        Assert.Contains("raid:43", wrongIds);
+    }
+
+    [Fact]
     public void A_payload_that_is_not_a_scan_costs_one_row_and_nothing_else()
     {
         Assert.Null(RaidScanFact.TryParse("not json"));

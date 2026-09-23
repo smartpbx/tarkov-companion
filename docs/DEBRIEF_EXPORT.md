@@ -76,6 +76,9 @@ sources (always `manual` where present) on `sources`. A field nobody typed is `n
 zero is a real answer the player entered, absence is that nobody was asked yet. Every version 2
 field keeps its name and place.
 
+A scan the player marks wrong keeps its original event plus the correction in local history, but
+is omitted from scan counts and the exported scan list.
+
 ## Not in version 3
 
 Offered extracts, per-map coverage as a numerator and denominator, a recommendation version on each
