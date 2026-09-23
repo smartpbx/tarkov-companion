@@ -38,6 +38,22 @@ public interface IQuestScreenshotImageSource
         CancellationToken cancellationToken);
 }
 
+public enum QuestScreenshotLayout
+{
+    SideTaskList,
+    OperationalTaskList,
+    StoryChapter,
+}
+
+public sealed record QuestScreenshotTextRegion(
+    QuestScreenshotLayout Layout,
+    PixelRect Region);
+
+public interface IQuestTaskColumnRegionDetector
+{
+    QuestScreenshotTextRegion Detect(CapturedImage image);
+}
+
 /// <summary>Reads quest-list screenshots, previews their consequences, then applies confirmation.</summary>
 /// <remarks>
 /// OCR and matching do not write progress. Confirmation re-reads the current progress before it
@@ -50,7 +66,9 @@ public sealed class QuestScreenshotSyncService(
     IQuestProgressStore progress,
     IQuestProgressCommandService commands,
     IOcrEngine ocr,
+    IQuestTaskColumnRegionDetector taskColumn,
     QuestListMatcher matcher,
+    QuestListMatchMerger merger,
     QuestHistoryInference inference,
     QuestTrackingOptions options)
 {
@@ -70,14 +88,16 @@ public sealed class QuestScreenshotSyncService(
             throw new ArgumentException("At least one screenshot is required.", nameof(images));
         }
 
-        var lines = new List<string>();
+        var catalogLines = new List<string>();
+        var operationalLines = new List<string>();
         var engines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var image in images)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var detected = taskColumn.Detect(image);
             var result = await ocr.RecognizeAsync(
                     image,
-                    new OcrRequest(ScanContext.Unknown),
+                    new OcrRequest(ScanContext.Unknown, detected.Region),
                     cancellationToken)
                 .ConfigureAwait(false);
             if (!result.IsAvailable)
@@ -87,13 +107,17 @@ public sealed class QuestScreenshotSyncService(
             }
 
             engines.Add(result.Engine);
-            lines.AddRange(result.Lines.Select(line => line.Text));
+            var destination = detected.Layout == QuestScreenshotLayout.OperationalTaskList
+                ? operationalLines
+                : catalogLines;
+            destination.AddRange(result.Lines.Select(line => line.Text));
         }
 
         return await AnalyzeLinesAsync(
-            lines,
+            catalogLines,
             images.Count,
             string.Join(" + ", engines.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)),
+            operationalLines,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -101,11 +125,23 @@ public sealed class QuestScreenshotSyncService(
         IEnumerable<string> ocrLines,
         int imageCount,
         string ocrEngine,
+        CancellationToken cancellationToken) =>
+        await AnalyzeLinesAsync(ocrLines, imageCount, ocrEngine, [], cancellationToken).ConfigureAwait(false);
+
+    private async Task<QuestScreenshotSyncPreview> AnalyzeLinesAsync(
+        IEnumerable<string> ocrLines,
+        int imageCount,
+        string ocrEngine,
+        IEnumerable<string> operationalLines,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ocrLines);
         var (_, snapshot, questCatalog) = await ContextAsync(cancellationToken).ConfigureAwait(false);
-        var matched = matcher.Match(ocrLines, questCatalog.Tasks);
+        var matched = merger.Merge(
+            matcher.Match(ocrLines, questCatalog.Tasks).Lines.Concat(
+                operationalLines
+                    .Where(line => !string.IsNullOrWhiteSpace(line))
+                    .Select(line => new QuestListLineMatch(line.Trim(), QuestListLineKind.Unmatched, []))));
         var history = inference.Preview(matched.Matched.Select(line => line.Confirmed!.TaskId), questCatalog, snapshot);
         return new(imageCount, ocrEngine, matched.Lines, history);
     }

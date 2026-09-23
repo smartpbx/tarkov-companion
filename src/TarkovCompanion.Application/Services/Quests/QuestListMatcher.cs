@@ -106,6 +106,17 @@ public sealed class QuestListMatcher
 
     internal static string Normalize(string value)
     {
+        var bracket = value.LastIndexOf('[');
+        if (bracket >= 0 &&
+            value.IndexOf(']', bracket) is var close && close > bracket &&
+            string.IsNullOrWhiteSpace(value[(close + 1)..]))
+        {
+            // Seasonal builds relabel the same event quest (for example [Season PvP] versus
+            // the catalog's [PVP ZONE]). The stable quest name before the trailing tag is the
+            // identity; the changing event label is not a spelling difference.
+            value = value[..bracket];
+        }
+
         var decomposed = value.Normalize(NormalizationForm.FormD);
         var builder = new StringBuilder(decomposed.Length);
         var pendingSpace = false;

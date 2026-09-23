@@ -10,7 +10,8 @@
         <StackPanel Spacing="3">
           <TextBlock Classes="v2-heading-3" Text="Sync quests from screenshots"
                      AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-label" Text="Open Character › TASKS and capture each screenful." />
+          <TextBlock Classes="v2-label"
+                     Text="SIDE and OPERATIONAL: scroll and capture. STORY: one image per chapter." />
         </StackPanel>
         <Border Grid.Column="1" Classes="v2-plan-chip" IsVisible="{Binding ShowEmptyOffer}">
           <TextBlock Classes="v2-label" Text="Recommended for an empty profile" />
