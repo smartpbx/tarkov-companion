@@ -6,7 +6,7 @@ namespace TarkovCompanion.Application.Services.Notifications;
 /// What each notification looks like, for the "test this" button beside it in Setup.
 /// </summary>
 /// <remarks>
-/// [V2 rough package 43] Four of the five can only be seen by waiting for something to go wrong —
+/// [V2 rough package 43] Several of the six can only be seen by waiting for something to go wrong —
 /// a failed refresh, a dead relay — which is a poor way to find out that a switch does nothing or
 /// that the wording is unreadable on a dark second monitor. Pressing the button shows the real
 /// thing through the real channel; only the words are invented, and they say so.
@@ -82,7 +82,7 @@ public static class NotificationSamples
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
-    /// <summary>The five, in the order Setup lists them: the one that matters most first.</summary>
+    /// <summary>The six, in the order Setup lists them: the one that matters most first.</summary>
     public static IReadOnlyList<NotificationKind> All { get; } =
     [
         NotificationKind.SquadMark,
