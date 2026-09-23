@@ -58,17 +58,35 @@ public sealed class StashPlanSource(
     private readonly StashOrganizationPlanner _planner = planner ?? new StashOrganizationPlanner();
 
     /// <param name="specialistKind">Which items are ammo or keys, which the caller already knows from the catalog.</param>
+    public Task<StashSortPlan> BuildAsync(
+        StashReconstruction reconstruction,
+        string snapshotId,
+        ProfileRecord profile,
+        Func<string, StashSpecialistIntelligenceKind> specialistKind,
+        DateTimeOffset evaluatedUtc,
+        CancellationToken cancellationToken) =>
+        BuildAsync(
+            reconstruction,
+            snapshotId,
+            profile,
+            specialistKind,
+            StashReviewCommandState.Empty,
+            evaluatedUtc,
+            cancellationToken);
+
     public async Task<StashSortPlan> BuildAsync(
         StashReconstruction reconstruction,
         string snapshotId,
         ProfileRecord profile,
         Func<string, StashSpecialistIntelligenceKind> specialistKind,
+        StashReviewCommandState reviewState,
         DateTimeOffset evaluatedUtc,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(reconstruction);
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(specialistKind);
+        ArgumentNullException.ThrowIfNull(reviewState);
         ArgumentException.ThrowIfNullOrWhiteSpace(snapshotId);
 
         var scope = new InventoryProfileScope(
@@ -78,12 +96,19 @@ public sealed class StashPlanSource(
         var (rates, needs) = await _facts.ReadSharedFactsAsync(cancellationToken).ConfigureAwait(false);
         var inputs = new List<StashPlanningItemInput>();
         var reasons = new Dictionary<string, IReadOnlyList<RecommendationReason>>(StringComparer.Ordinal);
-        foreach (var tile in reconstruction.Containers
+        var tiles = reconstruction.Containers
                      .SelectMany(container => container.Tiles)
                      .Where(tile => tile.ItemId is not null)
-                     .Take(StashScanBounds.MaximumPlanItems))
+                     .Take(StashScanBounds.MaximumPlanItems)
+                     .ToArray();
+        foreach (var tile in tiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (reviewState.IgnoredItemKeys.Contains(tile.ItemKey))
+            {
+                continue;
+            }
+
             var itemId = tile.ItemId!;
             var unread = new EvidenceProvenance(
                 EvidenceSourceClass.PublicStructuredData,
@@ -131,7 +156,7 @@ public sealed class StashPlanSource(
             var economics = read?.Economics;
             var net = Best(economics?.FleaNetRoubles, economics?.TraderRoubles)
                       ?? Unread<long?>("stash.plan.net-value", "net-value.unread", unread);
-            inputs.Add(new(
+            inputs.Add(new StashPlanningItemInput(
                 tile.ItemKey,
                 itemId,
                 tile.ContainerPath,
@@ -154,7 +179,10 @@ public sealed class StashPlanSource(
                         band.ToString(),
                         read.Scarcity.Obtainability.Status,
                         read.Scarcity.Obtainability.Provenance)
-                    : Unread<string>("stash.plan.obtainability", "obtainability.unread", unread)));
+                    : Unread<string>("stash.plan.obtainability", "obtainability.unread", unread))
+            {
+                IsPinned = reviewState.PinnedItemKeys.Contains(tile.ItemKey),
+            });
         }
 
         var plan = _planner.Build(new(

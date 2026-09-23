@@ -78,6 +78,12 @@ public sealed record StashPlanningItemInput
     public EvidencedValue<string> Scarcity { get; }
     public EvidencedValue<string> Obtainability { get; }
 
+    /// <summary>A snapshot-scoped review pin; unlike a profile pin it addresses this occurrence.</summary>
+    public bool IsPinned { get; init; }
+
+    /// <summary>How many matching occurrences can be moved together, including this one.</summary>
+    public int MoveTogetherCount { get; init; } = 1;
+
     private static string Required(string value, string parameterName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
@@ -133,13 +139,30 @@ public sealed class StashOrganizationPlanner
     public StashOrganizationPlan Build(StashOrganizationPlanRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var items = request.Items.Select(item => Project(item, request.GeneratedUtc)).ToArray();
+        var moveTogetherCounts = request.Items
+            .Where(CanMoveTogether)
+            .GroupBy(item => item.CanonicalItemId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var items = request.Items
+            .Select(item => Project(
+                item with { MoveTogetherCount = moveTogetherCounts.GetValueOrDefault(item.CanonicalItemId, 1) },
+                request.GeneratedUtc))
+            .ToArray();
         return new StashOrganizationPlan(
             request.PlanId,
             request.SnapshotId,
             request.Revision,
             request.GeneratedUtc,
             items);
+    }
+
+    private static bool CanMoveTogether(StashPlanningItemInput input)
+    {
+        var decision = input.Recommendation?.Decision.Value;
+        var specialistUnresolved = input.SpecialistKind != StashSpecialistIntelligenceKind.None &&
+                                   input.SpecialistStatus.Completeness != ResultCompleteness.Complete;
+        return !input.IsPinned &&
+               (specialistUnresolved || decision is null || decision.Action == RecommendationAction.Review);
     }
 
     private static StashOrganizationItem Project(
@@ -149,17 +172,23 @@ public sealed class StashOrganizationPlanner
         var decision = input.Recommendation?.Decision.Value;
         var specialistUnresolved = input.SpecialistKind != StashSpecialistIntelligenceKind.None &&
                                    input.SpecialistStatus.Completeness != ResultCompleteness.Complete;
-        var group = specialistUnresolved || decision is null
-            ? StashPlanGroup.Review
-            : decision.Action switch
-            {
-                RecommendationAction.Keep => StashPlanGroup.Keep,
-                RecommendationAction.SellOnFlea or RecommendationAction.SellToTrader => StashPlanGroup.Sell,
-                RecommendationAction.UseSoon => StashPlanGroup.UseSoon,
-                RecommendationAction.Organize => StashPlanGroup.Organize,
-                RecommendationAction.Review => StashPlanGroup.Review,
-                _ => StashPlanGroup.Review,
-            };
+        var organizeTogether = input.MoveTogetherCount > 1 &&
+                               (specialistUnresolved || decision is null || decision.Action == RecommendationAction.Review);
+        var group = input.IsPinned
+            ? StashPlanGroup.Keep
+            : organizeTogether
+                ? StashPlanGroup.Organize
+                : specialistUnresolved || decision is null
+                    ? StashPlanGroup.Review
+                    : decision.Action switch
+                    {
+                        RecommendationAction.Keep => StashPlanGroup.Keep,
+                        RecommendationAction.SellOnFlea or RecommendationAction.SellToTrader => StashPlanGroup.Sell,
+                        RecommendationAction.UseSoon => StashPlanGroup.UseSoon,
+                        RecommendationAction.Organize => StashPlanGroup.Organize,
+                        RecommendationAction.Review => StashPlanGroup.Review,
+                        _ => StashPlanGroup.Review,
+                    };
         var allReasonCodes = decision?.Reasons.Select(reason => BoundedCode(reason.Code)).ToArray() ?? [];
         var reasonCodes = allReasonCodes
             .Take(StashScanBounds.MaximumReasonsPerItem - 1)
@@ -187,7 +216,30 @@ public sealed class StashOrganizationPlanner
             reasonCodes.Add("stash.recommendation.unresolved");
         }
 
-        var recommendationStatus = specialistUnresolved
+        if (organizeTogether)
+        {
+            reasonCodes.Insert(0, $"stash.organize.move-together.{input.MoveTogetherCount}");
+        }
+
+        if (input.IsPinned)
+        {
+            reasonCodes.Insert(0, "stash.review-command.pinned");
+        }
+
+        if (reasonCodes.Count > StashScanBounds.MaximumReasonsPerItem)
+        {
+            reasonCodes.RemoveRange(StashScanBounds.MaximumReasonsPerItem, reasonCodes.Count - StashScanBounds.MaximumReasonsPerItem);
+        }
+
+        var recommendationStatus = input.IsPinned
+            ? new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "stash.plan.review-pin")
+            : organizeTogether
+                ? new ResultStatus(
+                    ResultCompleteness.Partial,
+                    CombineFreshness(input.Recommendation?.Decision.Status.Freshness, input.SpecialistStatus.Freshness),
+                    "stash.plan.move-together",
+                    "Matching occurrences can be grouped even while their keep or sell decision remains unresolved.")
+                : specialistUnresolved
             ? new ResultStatus(
                 input.Recommendation is null ? ResultCompleteness.Unknown : ResultCompleteness.Partial,
                 CombineFreshness(input.Recommendation?.Decision.Status.Freshness, input.SpecialistStatus.Freshness),
