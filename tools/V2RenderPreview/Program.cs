@@ -1134,6 +1134,24 @@ internal static class Program
                     }
                 }
 
+                // Keep a selected extract and its revealed switch chain while returning to the
+                // whole-plan view, so close switch steps can be judged together at 1920x1080.
+                if (args.Contains("--map-fit") && raid.Renderer is { } fitRenderer)
+                {
+                    if (raid.FollowsPlayer)
+                    {
+                        raid.ToggleFollowCommand.Execute(null);
+                    }
+
+                    fitRenderer.FitPlanCommand.Execute(null);
+                    Pump(40);
+                    Console.WriteLine("Numbered switch steps: " + string.Join(
+                        " | ",
+                        fitRenderer.SpatialObjects
+                            .Where(item => item.IsSwitchMark && item.HasMarkerNumber)
+                            .Select(item => $"{item.MarkerGlyph} {item.Label} ({item.PinOffsetX:0.#},{item.PinOffsetY:0.#})")));
+                }
+
                 // [Issue 571] Marks an objective done by hand for the render — the same "Done" the
                 // Objectives list offers — so a before/after render can show it leaving the map and
                 // the list without driving a live app through the gesture.

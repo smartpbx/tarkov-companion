@@ -2049,9 +2049,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     /// <summary>
     /// The (dx, dy) each of <paramref name="points"/> should be drawn with, in the same order, so
-    /// a waypoint, quest objective, ping, extract or transit point landing on another one is still
-    /// legible. Zero for every point that is not one of those kinds, or that has nothing else near
-    /// it.
+    /// a waypoint, quest objective, ping, extract, transit, or active numbered switch landing on
+    /// another one is still legible. Zero for every point that is not one of those kinds, or that
+    /// has nothing else near it.
     /// </summary>
     /// <remarks>
     /// Issue 573: extracts joined this list alongside 508's original three. Several extracts and
@@ -2065,11 +2065,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var result = new (double DeltaX, double DeltaY)[points.Count];
         var eligible = new List<int>();
         var anchors = new List<(double X, double Y)>();
+        var numberedSwitches = new List<int>();
+        var numberedSwitchAnchors = new List<(double X, double Y)>();
         for (var index = 0; index < points.Count; index++)
         {
             var icon = MapSceneRendererObjectViewModel.IconFor(points[index]);
+            var isNumberedSwitch = points[index].Kind == MapSceneObjectKind.Switch &&
+                SwitchStepGlyph(points[index]) is not null;
             if (icon is not (MapSceneMarkerIcon.Waypoint or MapSceneMarkerIcon.Objective or MapSceneMarkerIcon.Ping
-                or MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit))
+                or MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit) && !isNumberedSwitch)
             {
                 continue;
             }
@@ -2077,6 +2081,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             var projected = _projection.Project(points[index].Geometry.Points[0]);
             eligible.Add(index);
             anchors.Add((projected.X, projected.Y));
+            if (isNumberedSwitch)
+            {
+                numberedSwitches.Add(index);
+                numberedSwitchAnchors.Add((projected.X, projected.Y));
+            }
         }
 
         if (eligible.Count < 2)
@@ -2088,6 +2097,29 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         for (var slot = 0; slot < eligible.Count; slot++)
         {
             result[eligible[slot]] = resolved[slot];
+        }
+
+        // Elevator call and extract controls can share almost the same catalog point as the
+        // selected extract. The ordinary 16-DIP ring still leaves their 20-DIP numbered chips
+        // under its larger badge/name plate, so active switch pairs use a wider horizontal fan.
+        // The anchor remains exact; only the drawn chip moves, as with every overlap nudge here.
+        foreach (var group in MapMarkerOverlapLayout.Stacks(
+                     numberedSwitchAnchors,
+                     MapMarkerOverlapLayout.CollisionDistance,
+                     minimumCount: 2))
+        {
+            if (group.Count == 2)
+            {
+                result[numberedSwitches[group[0]]] = (-30, 0);
+                result[numberedSwitches[group[1]]] = (30, 0);
+                continue;
+            }
+
+            for (var slot = 0; slot < group.Count; slot++)
+            {
+                var angle = (2 * Math.PI * slot / group.Count) - (Math.PI / 2);
+                result[numberedSwitches[group[slot]]] = (30 * Math.Cos(angle), 30 * Math.Sin(angle));
+            }
         }
 
         return result;
@@ -3353,10 +3385,11 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// </summary>
     public bool ShowsSelectedName => IsSelected && (IsExtractIcon || IsTransitIcon);
     /// <summary>
-    /// A switch in the active extract chain keeps its short catalog name beside its numbered
-    /// step. The quiet background layer remains glyph-only until an extract gives it context.
+    /// Extract and transit selections keep their names beside the marker. Numbered switch steps
+    /// keep only the always-visible number; their existing hover tooltip carries the name so two
+    /// nearby controls cannot cover each other with wide persistent plates.
     /// </summary>
-    public bool ShowsPersistentName => ShowsSelectedName || (IsSwitchMark && HasMarkerNumber);
+    public bool ShowsPersistentName => ShowsSelectedName;
 
     /// <summary>
     /// [Issue 594] "RUAF Roadblock" read as "RU…" near the card's right edge, clipped by
@@ -3577,7 +3610,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// Where the marker sits in the stack of markers: the selected one on top, so two objectives
     /// standing on the same helicopter do not leave the one that was picked underneath the other.
     /// </summary>
-    public int ZOrder => _isSelected ? 10 : 0;
+    public int ZOrder => IsSwitchMark && HasMarkerNumber ? 20 : _isSelected ? 10 : 0;
 
     public void UpdateCamera(MapSceneCamera camera)
     {
