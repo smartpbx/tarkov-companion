@@ -361,7 +361,7 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:StashItemRowViewModel">
                       <Button Classes="stash-row" Command="{Binding SelectCommand}">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
                           <TextBlock Classes="stash-group" Classes.keep="{Binding IsKeep}" Classes.sell="{Binding IsSell}"
                                      Classes.organize="{Binding IsOrganize}"
                                      Classes.review="{Binding IsReview}" Text="{Binding GroupLabel}" />
@@ -372,6 +372,9 @@
                           <TextBlock Grid.Column="2" Classes="v2-body" VerticalAlignment="Center" Text="{Binding QuantityLabel}" />
                           <Button Grid.Column="3" Classes="v2-plain" Content="Wiki"
                                   IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
+                          <Button Grid.Column="4" Classes="v2-outline" Content="Open kit"
+                                  IsVisible="{Binding HasLoadoutLink}" Command="{Binding OpenLoadoutCommand}"
+                                  AutomationProperties.AutomationId="v2-stash-open-loadout" />
                         </Grid>
                       </Button>
                     </DataTemplate>
@@ -490,6 +493,10 @@
               <TextBlock Classes="v2-heading-3" Text="Correct this item" AutomationProperties.HeadingLevel="3" />
               <TextBlock Classes="v2-body stash-strong" Text="{Binding SelectedItemDisplayName}" TextWrapping="Wrap" />
               <TextBlock Classes="v2-label" Text="{Binding SelectedItemSortLabel}" TextWrapping="Wrap" />
+              <Button Classes="v2-outline" Content="Open recognized kit in Loadout"
+                      IsVisible="{Binding SelectedItemHasLoadoutLink}"
+                      Command="{Binding SelectedItemOpenLoadoutCommand}"
+                      AutomationProperties.AutomationId="v2-stash-open-selected-loadout" />
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Classes="v2-field-input" Watermark="Corrected item id"
                          Text="{Binding IdentityCorrection}"

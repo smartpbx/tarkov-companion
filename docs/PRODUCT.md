@@ -132,6 +132,8 @@ Warnings cover profile-unobtainable ammunition, low-tier ammunition paired with 
 
 Loadout alternatives and Intel's item detail order trader cash and barter sources the active profile can use before dimmed sources gated by loyalty or a completed quest.
 
+Recognized gear in a Stash scan can open this same Loadout board, pre-filled by catalog category for review and evaluation.
+
 The kit is shown as ten slots, filled or not, rather than as a list of whatever happens to be
 assigned (#288). The two questions a kit is looked at to answer are what is in it and what is
 still missing, and a list answers only the first. Pressing a slot aims the search at it; a filled

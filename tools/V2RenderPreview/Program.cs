@@ -1969,6 +1969,13 @@ internal static class Program
                     DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)stashWorkspace.PinSelectedCommand).ExecuteAsync());
                 }
 
+                if (args.Contains("--stash-open-loadout-demo") &&
+                    stashWorkspace.Items.FirstOrDefault(item => item.HasLoadoutLink) is { OpenLoadoutCommand: TarkovCompanion.App.ViewModels.AsyncDelegateCommand openLoadout })
+                {
+                    DrainUntilComplete(openLoadout.ExecuteAsync());
+                    Pump(40);
+                }
+
                 Pump(20);
             }
 

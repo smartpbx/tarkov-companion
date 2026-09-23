@@ -397,6 +397,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         Registry = V2RouteRegistry.Default;
         Variant = V2ShellVariants.For(mode);
         Router = new V2ShellRouter(Variant, Registry);
+        if (legacy is not null && _stashScan is not null)
+        {
+            _stashScan.AttachLoadoutNavigation(async itemIds =>
+            {
+                if (await legacy.Loadout.LoadRecognizedItemsAsync(itemIds).ConfigureAwait(true) > 0)
+                {
+                    GoTo(V2Routes.Loadout, "v2-stash-open-loadout");
+                }
+            });
+        }
         _preview = preview;
         _persistence = new(save ?? _preview.SaveAsync, reset ?? _preview.ResetAsync);
         _persistence.Completed += PersistenceCompleted;
