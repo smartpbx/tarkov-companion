@@ -104,8 +104,8 @@ in `docs/LICENSING.md` and `docs/THIRD_PARTY_NOTICES.md`. The full Apache-2.0 te
 
 `OcrCoordinator` runs a full-frame OCR pass, detects the visible context from the
 data-driven `Recognition/anchors.en.json` catalog, and runs a second OCR pass in a region
-relative to the matched anchor bounds. Every anchor carries provenance that currently
-labels it as simulator-derived and live-unvalidated. Full-frame lines are merged back into
+relative to the matched anchor bounds. Every anchor carries provenance; legacy anchors remain
+labelled simulator-derived and live-unvalidated until measured on player frames. Full-frame lines are merged back into
 the candidate set, so a draggable panel or imperfect contextual crop cannot discard text
 that the first pass already observed. Overlapping full/contextual reads use the same
 geometry-aware deterministic deduplication rule as tiled Windows reads; the source file is
@@ -116,6 +116,9 @@ going quadratic. An available empty full-frame read surfaces as `CoordinatedOcrR
 with `ocr_no_text`, which `RecognitionService` reports instead of `context_unknown`. A frame that
 timed out or was rejected keeps its own diagnostic instead of being reported as an unavailable
 provider.
+
+TASKS recognition uses hand-transcribed 2026-09-22 player frames: list pages require the
+STORY/SIDE/OPERATIONAL tabs plus table headers, while STORY chapters require objective headings.
 
 A partial or otherwise degraded provider read keeps its diagnostic all the way to the scan, for
 every context a scan dispatches to. The merged candidate set carries the degradation of whichever

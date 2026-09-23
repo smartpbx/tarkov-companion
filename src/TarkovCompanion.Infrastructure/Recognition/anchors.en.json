@@ -17,5 +17,18 @@
   { "context": "FleaListings", "term": "filter by item", "weight": 0.45, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
   { "context": "FleaListings", "term": "purchase", "weight": 0.25, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
   { "context": "FleaListings", "term": "price", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
-  { "context": "FleaListings", "term": "trader rating", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" }
+  { "context": "FleaListings", "term": "trader rating", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "QuestTasks", "term": "story", "weight": 0.10, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "side", "weight": 0.10, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "operational", "weight": 0.10, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "trader", "weight": 0.15, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "type", "weight": 0.10, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "class", "weight": 0.10, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "task", "weight": 0.15, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "location", "weight": 0.15, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "status", "weight": 0.15, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "progress", "weight": 0.15, "provenance": "live-validated/2026-09-22 (hand-transcribed TASKS screenshots)" },
+  { "context": "QuestTasks", "term": "chapter", "weight": 0.15, "provenance": "live-validated/2026-09-22 (hand-transcribed STORY screenshots)" },
+  { "context": "QuestTasks", "term": "main objectives", "weight": 0.45, "provenance": "live-validated/2026-09-22 (hand-transcribed STORY screenshots)" },
+  { "context": "QuestTasks", "term": "optional objectives", "weight": 0.45, "provenance": "live-validated/2026-09-22 (hand-transcribed STORY screenshots)" }
 ]

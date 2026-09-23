@@ -26,6 +26,7 @@ public enum ScanContext
     Container,
     ExtractList,
     FleaListings,
+    QuestTasks,
 }
 
 public sealed record PixelRect(int X, int Y, int Width, int Height);
