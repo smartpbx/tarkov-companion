@@ -13,6 +13,7 @@ using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.ReleaseExperience;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
@@ -203,7 +204,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #667: Setup's screenshot quest onboarding, absent in lightweight shell tests.
         QuestScreenshotSyncViewModel? questSync = null,
         // #274: persisted quest/hideout look-ahead controls in Setup > Progress.
-        RecommendationHorizonSettingsViewModel? recommendationHorizons = null)
+        RecommendationHorizonSettingsViewModel? recommendationHorizons = null,
+        // #314: the after-update banner and its player-facing change list.
+        ReleaseExperienceViewModel? releaseExperience = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -231,6 +234,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             intelEventStates)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
+        ReleaseExperience = releaseExperience;
         SetupWorkspace?.AttachPairing(_companionPairing);
         if (selfTest is not null && SetupWorkspace is not null)
         {
@@ -1083,6 +1087,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <summary>Opens the capture dialog with Loot decision selected; the player still presses Arm.</summary>
     public ICommand ScanLootCommand { get; }
     public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
+    public ReleaseExperienceViewModel? ReleaseExperience { get; }
     public int ShellBodyRowSpan =>
         ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;

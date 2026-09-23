@@ -16,6 +16,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
+using TarkovCompanion.App.ViewModels.V2.ReleaseExperience;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Services.V2.Appearance;
 using TarkovCompanion.App.Services.Windowing;
@@ -306,6 +307,16 @@ internal static class Program
                 window.Show();
                 Pump(20);
                 UiStallMeter.Report("first layout and paint");
+            }
+
+            // #314: the real post-update banner and the list it opens. The render's data root is
+            // new every run, so ordinary initialization correctly treats it as a first install;
+            // this preview seam supplies the prior-update state without persisting fake history.
+            if (args.Contains("--whats-new-banner") || args.Contains("--whats-new-list"))
+            {
+                services.GetRequiredService<ReleaseExperienceViewModel>()
+                    .PresentForPreview(args.Contains("--whats-new-list"));
+                Pump(20);
             }
 
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to

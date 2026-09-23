@@ -31,6 +31,7 @@
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
+    <EmbeddedResource Include="../../docs/CHANGELOG-player.json" LogicalName="TarkovCompanion.PlayerChangelog.json" />
   </ItemGroup>
   <ItemGroup>
     <!-- The OCR probe's atomic report write is proven by interrupting a write partway through,

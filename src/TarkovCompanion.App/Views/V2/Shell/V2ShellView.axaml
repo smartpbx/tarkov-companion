@@ -487,6 +487,29 @@
           </StackPanel>
         </Border>
 
+        <!-- #314: shown only after an installed version changes, and hidden by the view model for
+             both loading and active raids. The link opens a bounded list compiled into this build. -->
+        <Border Classes="v2-surface-banner" IsVisible="{Binding ReleaseExperience.IsBannerVisible}"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-whats-new-banner"
+                AutomationProperties.Name="Update installed">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+            <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center"
+                       Text="{Binding ReleaseExperience.BannerText}" />
+            <Button Grid.Column="1" Classes="v2-target v2-banner-action"
+                    AutomationProperties.AutomationId="v2-whats-new-open"
+                    Content="{Binding ReleaseExperience.OpenLabel}"
+                    Command="{Binding ReleaseExperience.OpenCommand}" />
+            <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-topbar-plain"
+                    AutomationProperties.AutomationId="v2-whats-new-dismiss"
+                    AutomationProperties.Name="Dismiss What's new"
+                    ToolTip.Tip="Dismiss"
+                    Command="{Binding ReleaseExperience.DismissCommand}">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+            </Button>
+          </Grid>
+        </Border>
+
         <!-- V2 rough package 20: a global problem (a failed endpoint refresh, an unavailable
              surface) reads as ONE single-line banner here and nowhere else. No dashed outline, no
              repeated remainder sub-line, no second copy inside the workspace: the Raid map lost
@@ -846,6 +869,39 @@
         </Grid>
       </Grid>
     </Grid>
+
+    <Border Classes="v2-shell-dialog-scrim" IsVisible="{Binding ReleaseExperience.IsListOpen}" ZIndex="9">
+      <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center"
+              Width="640" MaxHeight="720"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.ControlTypeOverride="Window"
+              AutomationProperties.AutomationId="v2-whats-new-list"
+              AutomationProperties.Name="{Binding ReleaseExperience.ListTitle}">
+        <StackPanel Classes="v2-stack">
+          <TextBlock Classes="v2-heading-2" Focusable="True"
+                     AutomationProperties.HeadingLevel="1"
+                     Text="{Binding ReleaseExperience.ListTitle}" />
+          <ItemsControl ItemsSource="{Binding ReleaseExperience.Changes}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="0,5">
+                  <TextBlock Grid.Column="0" Classes="v2-body" Text="•" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding}" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Classes="v2-outline" Content="Close"
+                    AutomationProperties.AutomationId="v2-whats-new-close"
+                    Command="{Binding ReleaseExperience.CloseCommand}" />
+            <Button Classes="v2-primary" Content="Got it"
+                    AutomationProperties.AutomationId="v2-whats-new-got-it"
+                    Command="{Binding ReleaseExperience.DismissCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Border>
 
     <!-- Exactly one modal layer. Its three mutually exclusive bodies have distinct title ids so
          focus requests and packaged UI Automation can prove which dialog actually opened. -->

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "version": "2.0.0-dev",
+      "changes": [
+        "See a short summary after Tarkov Companion updates.",
+        "Open the update banner to review player-visible changes.",
+        "Dismiss the banner once for each installed build."
+      ]
+    }
+  ]
+}
