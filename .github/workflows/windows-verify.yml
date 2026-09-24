@@ -16,6 +16,13 @@ name: Windows verification
 
 on:
   workflow_dispatch:
+    inputs:
+      # [#279] Upload this run's V2 A gallery captures as the approved set that every later run
+      # is pixel-diffed against (advisory). See docs/WINDOWS_VERIFICATION.md.
+      approve-baselines:
+        description: Approve this run's gallery captures as the baselines
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -172,6 +179,10 @@ jobs:
     needs: checks
     runs-on: windows-latest
     timeout-minutes: 60
+    # actions: read only to download the approved gallery baselines, an artifact of an earlier run.
+    permissions:
+      contents: read
+      actions: read
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
@@ -230,6 +241,7 @@ jobs:
           $Scripts = @(
             "scripts/windows-launch-probe.ps1",
             "scripts/windows-page-gallery.ps1",
+            "scripts/windows-gallery-diff.ps1",
             "scripts/windows-smoke.ps1",
             "scripts/windows-verification-evidence.ps1",
             "scripts/verify-windows-verification-static.ps1",
@@ -489,6 +501,64 @@ jobs:
             !verification/pages/v2-a-plan-events-*.png
           if-no-files-found: warn
           retention-days: 7
+
+      # [#279] Approved baselines with advisory pixel diffs. The approved set is the newest
+      # unexpired `gallery-baselines` artifact from any run of this workflow (90-day retention; a
+      # dispatch with approve-baselines replaces it). Nothing here can fail the job: main's run
+      # gates publishing, and a diff is a thing to look at, not a verdict.
+      - name: Fetch the approved gallery baselines
+        id: gallery-baselines
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Found = gh api "repos/${{ github.repository }}/actions/artifacts?name=gallery-baselines&per_page=30" `
+            --jq '[.artifacts[] | select(.expired | not)] | sort_by(.created_at) | reverse | .[0] | select(. != null) | "\(.workflow_run.id) \(.workflow_run.head_branch) \(.created_at)"'
+          if ([string]::IsNullOrWhiteSpace($Found)) { "No approved gallery baselines yet."; exit 0 }
+          $RunId, $Branch, $Created = $Found.Trim().Split(" ")
+          gh run download $RunId -R "${{ github.repository }}" -n gallery-baselines -D verification/gallery-baselines
+          "GALLERY_BASELINE_LABEL=the set approved in run $RunId ($Branch, $Created)" >> $env:GITHUB_ENV
+          "Approved baselines: run $RunId on $Branch at $Created."
+
+      - name: Compare the gallery with the approved baselines
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: powershell
+        run: |
+          $Label = if ($env:GALLERY_BASELINE_LABEL) { $env:GALLERY_BASELINE_LABEL } else { "the approved set" }
+          ./scripts/windows-gallery-diff.ps1 `
+            -CurrentDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/pages") `
+            -BaselineDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/gallery-baselines") `
+            -DiffDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/gallery-diffs") `
+            -BaselineLabel $Label
+
+      - name: Publish the gallery diffs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-diffs
+          path: verification/gallery-diffs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Same set as v2-route-gallery, plus the mask sidecars. Only a gallery that passed can be
+      # approved.
+      - name: Approve these captures as the gallery baselines
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.approve-baselines && steps.page-gallery.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-baselines
+          path: |
+            verification/pages/v2-a-*.png
+            verification/pages/v2-a-*.capture.json
+            !verification/pages/v2-a-plan-events-*
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Headless self-test after first run
         id: self-test-warm
