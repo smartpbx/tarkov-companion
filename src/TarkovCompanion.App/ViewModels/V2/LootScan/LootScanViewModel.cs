@@ -7,6 +7,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.Views.V2.Primitives;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.LootScan;
+using TarkovCompanion.Application.Services.Recommendations;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
@@ -83,7 +84,7 @@ public sealed class LootScanViewModel : BindableViewModel
             .ThenBy(entry => entry.Index)
             .Select(entry => entry.Decision)
             .ToArray());
-        Issues = result.Issues.Select(issue => issue.Explanation).Distinct(StringComparer.Ordinal).ToArray();
+        Issues = result.Issues.Select(AdviceText.Reason).Distinct(StringComparer.Ordinal).ToArray();
         PreviousPageCommand = new DelegateCommand(PreviousPage);
         NextPageCommand = new DelegateCommand(NextPage);
         ScanAgainCommand = new DelegateCommand(() => ScanAgainRequested?.Invoke(this, EventArgs.Empty));
@@ -637,7 +638,7 @@ public sealed class LootScanViewModel : BindableViewModel
         _result = result;
         _isProgressive = false;
         _progressStopped = false;
-        Issues = result.Issues.Select(issue => issue.Explanation).Distinct(StringComparer.Ordinal).ToArray();
+        Issues = result.Issues.Select(AdviceText.Reason).Distinct(StringComparer.Ordinal).ToArray();
         LootGrid = BuildLootGrid();
         CarriedGrid = BuildCarriedGrid();
         Select((selectedAnchor is { } anchor ? _decisions.FirstOrDefault(item => item.SourceAnchor == anchor) : null) ??
@@ -1112,10 +1113,17 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     /// </remarks>
     private string Named(string label)
     {
-        if (StrongestAdvice is not { Code: var code, Explanation: var sentence } ||
+        if (StrongestAdvice is not { Code: var code, Explanation: var sentence } advice ||
             !code.StartsWith("need.", StringComparison.Ordinal))
         {
             return label;
+        }
+
+        // The engine's phrase names the count and the need outright; the English sentence is read
+        // only for a reason that came back from storage without one.
+        if (advice.Words is { Code: AdviceSentence.NeedKeep or AdviceSentence.NeedKeepAfterHoldings or AdviceSentence.NeedKeepFoundInRaid or AdviceSentence.NeedKeepFoundInRaidAfterHoldings, Arguments: [int count, string need, ..] })
+        {
+            return Message(_text.ReasonNeedTemplate, ("reason", label), ("count", count.ToString(_culture)), ("need", need));
         }
 
         var match = NeedSentence.Match(sentence);
@@ -1391,13 +1399,13 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 // The planner's sentence is about the fit. Why the item is wanted at all - the
                 // quest by name, the hideout level, the pin - is the engine's, and a TAKE that
                 // said only "it fits" left the player to guess which of those it was.
-                var fit = string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation));
-                return StrongestAdvice is { } wanted ? $"{wanted.Explanation} {fit}" : fit;
+                var fit = string.Join(" ", _decision.Reasons.Select(AdviceText.Reason));
+                return StrongestAdvice is { } wanted ? $"{AdviceText.Reason(wanted)} {fit}" : fit;
             }
 
             if (_decision.Verdict != LootScanVerdict.Review)
             {
-                return string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation));
+                return string.Join(" ", _decision.Reasons.Select(AdviceText.Reason));
             }
 
             if (_decision.Item.Value is null)
@@ -1414,7 +1422,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
             if ((_decision.Recommendation?.Decision.Value?.Reasons ?? [])
                 .FirstOrDefault(reason => reason.Code == "event.allergic") is { } allergy)
             {
-                return allergy.Explanation;
+                return AdviceText.Reason(allergy);
             }
 
             if (IsAdvisedTake)
@@ -1422,14 +1430,14 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 var strongest = _decision.Recommendation!.Decision.Value!.Reasons
                     .OrderByDescending(reason => reason.Priority)
                     .FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality);
-                return GapSentence(strongest?.Explanation ?? _text.WhyWorthItsSquares);
+                return GapSentence(strongest is null ? _text.WhyWorthItsSquares : AdviceText.Reason(strongest));
             }
 
             return _decision.Reasons.FirstOrDefault()?.Code switch
             {
                 "recommendation.incomplete" or "economics.incomplete" or "recommendation.missing" =>
                     CatalogValueRoubles is null ? _text.WhyNoPrice : GapSentence(_text.WhyValuedOnly),
-                _ => string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation)),
+                _ => string.Join(" ", _decision.Reasons.Select(AdviceText.Reason)),
             };
         }
     }
@@ -1557,7 +1565,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
             .Select(reason => Message(
                 _text.RecommendationReasonTemplate,
                 ("category", reason.Category.ToString()),
-                ("reason", reason.Explanation),
+                ("reason", AdviceText.Reason(reason)),
                 ("code", reason.Code),
                 ("evidence", DescribeProvenance(reason.Provenance))))
             .ToArray() ?? [];

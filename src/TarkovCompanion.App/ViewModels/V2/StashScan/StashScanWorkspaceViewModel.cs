@@ -152,8 +152,9 @@ public static class StashSortWording
 
         if (planned.Group != StashPlanGroup.Review)
         {
-            return ordered.FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality)?.Explanation
-                   ?? string.Empty;
+            return ordered.FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality) is { } shown
+                ? AdviceText.Reason(shown)
+                : string.Empty;
         }
 
         var gaps = ordered

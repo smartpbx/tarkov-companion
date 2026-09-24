@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Recommendations;
@@ -106,7 +107,7 @@ public sealed class ItemRecommendationAdvisor(
             results[item.Id] = new(
                 decision.Action,
                 Verdict(decision.Action),
-                decision.Reasons.FirstOrDefault()?.Explanation ?? decision.Summary,
+                decision.Reasons.FirstOrDefault() is { } reason ? AdviceText.Reason(reason) : AdviceText.Summary(decision),
                 recommendation.RulesetVersion);
         }
 

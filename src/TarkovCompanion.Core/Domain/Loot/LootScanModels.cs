@@ -1,4 +1,6 @@
+using System.Text.Json.Serialization;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Recommendations;
@@ -317,6 +319,18 @@ public sealed record LootScanReason
     public string Code { get; }
 
     public string Explanation { get; }
+
+    private readonly PhraseAside _words;
+
+    /// <summary>
+    /// The same sentence as <see cref="Explanation"/>, as a code the App says in the interface
+    /// language. Never stored or sent: a record read back has none and shows its English.
+    /// </summary>
+    [JsonIgnore]
+    public Phrase? Words { get => _words.Value; private init => _words = new(value); }
+
+    /// <summary>This record, carrying <paramref name="words"/> beside its English.</summary>
+    public LootScanReason WithWords(Phrase? words) => this with { Words = words };
 }
 
 /// <summary>Explicit raw inputs plus the evidence-gated value projection shown to the user.</summary>
@@ -521,6 +535,18 @@ public sealed record LootScanIssue
     public string Explanation { get; }
 
     public GridCellAddress? SourceAnchor { get; }
+
+    private readonly PhraseAside _words;
+
+    /// <summary>
+    /// The same sentence as <see cref="Explanation"/>, as a code the App says in the interface
+    /// language. Never stored or sent: a record read back has none and shows its English.
+    /// </summary>
+    [JsonIgnore]
+    public Phrase? Words { get => _words.Value; private init => _words = new(value); }
+
+    /// <summary>This record, carrying <paramref name="words"/> beside its English.</summary>
+    public LootScanIssue WithWords(Phrase? words) => this with { Words = words };
 }
 
 public sealed record LootScanStageTiming

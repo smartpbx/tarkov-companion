@@ -8,7 +8,7 @@ using V2Action = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
 
 namespace TarkovCompanion.UnitTests.Recommendations;
 
-public sealed class ExplainableRecommendationEngineTests
+public sealed partial class ExplainableRecommendationEngineTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
 
