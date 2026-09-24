@@ -38,6 +38,9 @@ public enum GallerySceneKind
     /// that wrapped it and took 32 pixels from the map. No other scene had a clock without a squad.
     /// </remarks>
     InRaid,
+
+    /// <summary>[#286] Draw mode on, two lines of the player's and one of a squadmate's.</summary>
+    Draw,
 }
 
 public static class GallerySceneKinds
@@ -45,7 +48,7 @@ public static class GallerySceneKinds
     public static GallerySceneKind Parse(string value) =>
         Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
             ? kind
-            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks or inraid, not '{value}'.");
+            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid or draw, not '{value}'.");
 }
 
 /// <summary>
@@ -131,6 +134,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                 GallerySceneKind.Squad => await SquadAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.Marks => await MarksAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.InRaid => await InRaidAsync(raid, cancellationToken).ConfigureAwait(true),
+                GallerySceneKind.Draw => await DrawAsync(raid, cancellationToken).ConfigureAwait(true),
                 _ => $"{raid.MapExtracts.Count} extracts",
             };
 
@@ -200,6 +204,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
             GallerySceneKind.Route => kinds.Contains(MapSceneObjectKind.QuestObjective),
             GallerySceneKind.Squad => kinds.Contains(MapSceneObjectKind.TeammateLastKnown),
             GallerySceneKind.Marks => kinds.Count(kind => kind is MapSceneObjectKind.Ping or MapSceneObjectKind.Waypoint) >= _placedMarks,
+            GallerySceneKind.Draw => renderer.GeometryObjects.Count(item => item.SceneObject.Id.Value.Contains("drawing:", StringComparison.Ordinal)) >= 3,
             _ => true,
         };
     }
@@ -326,6 +331,47 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         await WaitForAsync(() => raid.ShowsStripPhase, StepTimeout, "the raid clock on the strip", cancellationToken)
             .ConfigureAwait(true);
         return $"clock '{raid.RaidPhaseLabel}'";
+    }
+
+    /// <summary>
+    /// [#286] The squad scene's raid, Draw mode on, two lines drawn the way a drag hands them over
+    /// and one squadmate's line as the relay would: the three kinds of line a player sees.
+    /// </summary>
+    private async Task<string> DrawAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
+    {
+        // No relay on a verification machine: the session's "not sharing" would replace the demo squad.
+        await services.GetRequiredService<GroupSessionService>().DisposeAsync().ConfigureAwait(true);
+        var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
+        var demo = GallerySquad.Build(model);
+        var members = demo.Group.Members.ToArray();
+        var index = Array.FindIndex(members, member => member.Position is not null);
+        if (index >= 0)
+        {
+            var at = members[index].Position!.Value;
+            members[index] = members[index] with
+            {
+                Drawings =
+                [
+                    new("gallery", members[index].MapId ?? mapId, null,
+                        [.. Enumerable.Range(0, 12).Select(step => (at.X + (step * 12.0), at.Z + (25 * Math.Sin(step / 3.0))))]),
+                ],
+            };
+        }
+
+        services.GetRequiredService<IRuntimeStateStore>().Update(snapshot => snapshot with
+        {
+            Raid = demo.Raid,
+            Group = demo.Group with { Members = members },
+        });
+        var bounds = raid.Renderer!.Scene.Bounds;
+        MapScenePoint At(double fx, double fy) => new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy));
+        raid.SetInteractionMode(MapInteractionMode.Draw);
+        raid.AddDrawing([.. Enumerable.Range(0, 240).Select(step => At(0.25 + (step / 240.0 * 0.4), 0.45 + (0.08 * Math.Sin(step / 18.0))))]);
+        raid.AddDrawing([.. Enumerable.Range(0, 180).Select(step =>
+            At(0.6 + (0.07 * Math.Cos(step / 180.0 * 2 * Math.PI)), 0.3 + (0.1 * Math.Sin(step / 180.0 * 2 * Math.PI))))]);
+        await WaitForAsync(() => raid.HasOwnDrawings && raid.IsDrawMode, StepTimeout, "two lines and Draw mode", cancellationToken)
+            .ConfigureAwait(true);
+        return $"{raid.DrawingStore.Drawings.Count} lines, {(index >= 0 ? "a squad line" : "no squad line")}";
     }
 
     private async Task<string> MarksAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)

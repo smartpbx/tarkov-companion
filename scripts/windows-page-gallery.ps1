@@ -1654,6 +1654,25 @@ foreach ($InRaidMap in @("customs", "interchange")) {
             }) }
     })
 }
+# [#286] Draw mode: the pencil lit on the strip, the Draw bar over the map, two white lines of the
+# player's and one squadmate's line in their colour. The strip must stay one row with the pencil.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-customs-draw-1920"
+    args = @("--ui-shell", "v2-a", "--map", "customs")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "draw"
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    captureBeforeInteraction = $true
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "assert"; description = "Draw mode's switch and bar, and the map keeps its height"
+            expectedAutomationIds = @("v2-map-plan", "v2-raid-draw", "v2-raid-draw-bar", "v2-raid-layers")
+            expectedBounds = @([pscustomobject]@{
+                automationId = "v2-map-plan"
+                minimumWindowWidthFraction = 0.66
+                minimumWindowHeightFraction = 0.75 })
+        }) }
+})
 # [#797] Reserve's objectives stood under one "3" count box: the same route scene on Reserve
 # shows each objective's lettered pin, fanned apart where they share a bunker, and zone outlines.
 $Shots.Add([pscustomobject]@{
