@@ -56,6 +56,16 @@ and has neither a step that could publish nor a token that could.
    1280x720, 1500x900, 1120x720 (the window minimum) and 150%/200% text at 1080p for some
    routes: reported in the log and the job summary (with per-family timings and every PNG
    captured), never failing the step.
+   Each Variant A capture is then pixel-diffed (`scripts/windows-gallery-diff.ps1`, advisory,
+   never failing) against the approved set: the newest `gallery-baselines` artifact, kept 90
+   days. A pixel counts as changed when a channel differs by more than 24 and no pixel within
+   one pixel of it matches in the other image. Clocks, "x s ago", the update banner and the
+   taskbar strip are masked by the bounds the gallery writes beside each PNG
+   (`<shot>.capture.json`). The job summary lists each shot's changed percentage against a 0.5%
+   line, and the `gallery-diffs` artifact holds an approved | this run | changed panel for each
+   shot over it. To approve a new set, look at a run's `v2-route-gallery`, then run
+   `gh workflow run windows-verify.yml --ref main -f approve-baselines=true`; only a run whose
+   gallery step passed uploads it, and it becomes the set every later run compares against.
 8. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
    showing a populated catalog is evidence that the desktop launches since then produced it.
 9. Seeds a data-preservation marker, runs the packed installer silently, requires the marker

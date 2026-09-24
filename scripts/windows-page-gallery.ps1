@@ -77,7 +77,15 @@ param(
     [string] $FailOnWarningPattern = '^\[(Binding|Property|Visual|Layout|Control)\]|Could not find|does not have|Unable to resolve|Cannot resolve|Unable to convert|Static resource',
 
     # Recorded per launch in the report. The count is always exact; only the copies are bounded.
-    [int] $MaximumRecordedFaultsPerLaunch = 20
+    [int] $MaximumRecordedFaultsPerLaunch = 20,
+
+    # [#279] Text whose pixels change between two otherwise identical runs: clocks, "x s ago",
+    # the update banner. Their on-screen bounds are written beside each V2 A capture
+    # (<shot>.capture.json, with the part of the window under the taskbar), and
+    # windows-gallery-diff.ps1 masks them before it compares the shot with the approved one.
+    [string[]] $DiffMaskAutomationIds = @(
+        "v2-shell-topbar-clock", "v2-shell-topbar-freshness", "v2-shell-context-local-time",
+        "v2-whats-new-banner", "v2-raid-extract-clock", "v2-team-clock-skew", "v2-setup-clock-skew")
 )
 
 Set-StrictMode -Version Latest
@@ -140,6 +148,51 @@ function Save-ScreenImage {
     finally {
         $Bitmap.Dispose()
     }
+
+    Save-CaptureMasks -Path $Path -WindowHandle $WindowHandle -Capture $WindowBounds
+}
+
+<#
+    [#279] Where the volatile regions of a V2 A capture were, in image pixels, written beside the
+    PNG for the pixel diff. Only V2 A shots, because only they are diffed (the same set the
+    v2-route-gallery artifact publishes). Advisory like the diff itself: a lookup that fails
+    leaves the shot unmasked rather than failing it.
+#>
+function Save-CaptureMasks {
+    param([string] $Path, [IntPtr] $WindowHandle, [System.Drawing.Rectangle] $Capture)
+
+    if (-not (Split-Path -Leaf $Path).StartsWith("v2-a-", [StringComparison]::OrdinalIgnoreCase)) { return }
+    $Masks = [System.Collections.Generic.List[object]]::new()
+    try {
+        # The taskbar is on top of a window as tall as the desktop, and its clock ticks.
+        $Work = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $Inside = [System.Drawing.Rectangle]::Intersect($Capture, $Work)
+        if ($Inside.Bottom -lt $Capture.Bottom) {
+            $Masks.Add([ordered]@{ id = "taskbar"; x = 0; y = $Inside.Bottom - $Capture.Y
+                width = $Capture.Width; height = $Capture.Bottom - $Inside.Bottom })
+        }
+        $Root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+        if ($null -ne $Root -and $DiffMaskAutomationIds.Count -gt 0) {
+            $Ids = @($DiffMaskAutomationIds | ForEach-Object {
+                [System.Windows.Automation.PropertyCondition]::new(
+                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $_) })
+            $Condition = if ($Ids.Count -eq 1) { $Ids[0] } else { [System.Windows.Automation.OrCondition]::new([System.Windows.Automation.Condition[]] $Ids) }
+            foreach ($Element in $Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $Condition)) {
+                if ($Element.Current.IsOffscreen) { continue }
+                $Box = $Element.Current.BoundingRectangle
+                if ($Box.IsEmpty -or $Box.Width -le 0 -or $Box.Height -le 0) { continue }
+                $Masks.Add([ordered]@{ id = $Element.Current.AutomationId
+                    x = [int][Math]::Floor($Box.Left - $Capture.X); y = [int][Math]::Floor($Box.Top - $Capture.Y)
+                    width = [int][Math]::Ceiling($Box.Width); height = [int][Math]::Ceiling($Box.Height) })
+            }
+        }
+    }
+    catch {
+        Write-Host "Capture masks for '$(Split-Path -Leaf $Path)' incomplete: $($_.Exception.Message)"
+    }
+    $Sidecar = [System.IO.Path]::ChangeExtension($Path, ".capture.json")
+    [ordered]@{ width = $Capture.Width; height = $Capture.Height; masks = $Masks.ToArray() } |
+        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $Sidecar -Encoding UTF8
 }
 
 function Set-WindowSize {
