@@ -54,11 +54,11 @@ public sealed class PlateFitProjectionTests
 
         var service = new LoadoutIntelligenceService(facts, new AmmoIntelligenceService([]));
         var fits = await service.EvaluateAsync(Kit("armor-a", "plate-a"), null, TestContext.Current.CancellationToken);
-        Assert.DoesNotContain(fits.CompatibilityIssues, issue => issue.Contains("armor", StringComparison.Ordinal));
+        Assert.DoesNotContain(fits.CompatibilityIssues, issue => issue.Kind == LoadoutFindingKind.PlateDoesNotFit);
 
         var wrong = await service.EvaluateAsync(Kit("armor-a", "plate-b"), null, TestContext.Current.CancellationToken);
         Assert.False(wrong.IsCompatible);
-        Assert.Contains(wrong.CompatibilityIssues, issue => issue.Contains("Plate B is not compatible with the selected armor", StringComparison.Ordinal));
+        Assert.Contains(wrong.CompatibilityIssues, issue => issue is { Kind: LoadoutFindingKind.PlateDoesNotFit, Item: "Plate B" });
     }
 
     private static LoadoutSelection Kit(string armorId, string plateId) =>
