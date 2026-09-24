@@ -116,11 +116,11 @@ async function main() {
     const tabletA = await openTablet("A");
     const tabletB = await openTablet("B");
     const stateOf = (page) => page.evaluate(() => window.__tabletTestState());
-    const paired = (page) => page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    const paired = (page) => page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
 
     // A: the QR link, exactly what a phone camera opens. Nothing typed at all.
     await tabletA.goto(`${relayOrigin}/tablet#${qrFragmentA}`, { waitUntil: "load" });
-    await tabletA.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
+    await tabletA.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
     await handOver("A_ASKED");
     await paired(tabletA);
 
@@ -129,7 +129,7 @@ async function main() {
     await tabletB.fill("#pairingCode", codeB);
     await tabletB.fill("#pairingName", "Bob's tablet");
     await tabletB.click("#pairingGo");
-    await tabletB.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
+    await tabletB.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
     await handOver("B_ASKED");
     await paired(tabletB);
 

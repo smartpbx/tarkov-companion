@@ -214,7 +214,7 @@ public sealed class TabletControlMapSyncBrowserTests : RealBrowserTestHarness
             Assert.False(browserProcess.HasExited, "The browser exited before pairing.");
             await ((AsyncDelegateCommand)desktop.Panel.ApproveCommand).ExecuteAsync();
 
-            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(45)));
+            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(120)));
             var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(5))
                 .ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : "<stderr read timed out>", TaskScheduler.Default);
             string[] lines;
@@ -425,7 +425,7 @@ public sealed class TabletControlMapSyncBrowserTests : RealBrowserTestHarness
 
     private static async Task UntilAsync(Func<bool> condition, string what)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(30);
+        var deadline = DateTime.UtcNow.AddSeconds(90); // liveness: the browser starts with the rest of the suite running
         while (!condition())
         {
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for " + what + ".");

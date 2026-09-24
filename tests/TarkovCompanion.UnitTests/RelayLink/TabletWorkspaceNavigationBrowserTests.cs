@@ -121,7 +121,7 @@ public sealed class TabletWorkspaceNavigationBrowserTests
                 new ControlLeaseId(Guid.NewGuid())));
             Assert.Equal(CommandDisposition.Applied, disposition);
 
-            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(40)));
+            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(120)));
             var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(10))
                 .ContinueWith(task => task.IsCompletedSuccessfully ? task.Result : "<stderr read timed out>", TaskScheduler.Default);
             string stdout;
@@ -177,7 +177,7 @@ public sealed class TabletWorkspaceNavigationBrowserTests
 
     private static async Task UntilAsync(Func<bool> condition, string what)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var deadline = DateTime.UtcNow.AddSeconds(90); // liveness: the browser starts with the rest of the suite running
         while (!condition())
         {
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for " + what + ".");

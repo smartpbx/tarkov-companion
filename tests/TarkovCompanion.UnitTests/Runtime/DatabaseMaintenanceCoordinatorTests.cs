@@ -9,17 +9,30 @@ public sealed class DatabaseMaintenanceCoordinatorTests
 {
     private static readonly DateTimeOffset Epoch = new(2026, 9, 23, 0, 0, 0, TimeSpan.Zero);
 
+    /// <summary>How long a signal may take to arrive before the test gives up on it.</summary>
+    /// <remarks>
+    /// A liveness bound, not a measurement: every wait here is on a signal, and the clock is the
+    /// manual one. The failures seen under load were never slowness — see the cancellation test —
+    /// so this only has to be longer than a busy pool takes to start a work item.
+    /// </remarks>
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
     [Fact]
     public async Task Maintenance_runs_after_six_hours_on_a_worker_and_then_reschedules()
     {
         var clock = new ManualTimeProvider(Epoch);
         var runtime = Runtime(clock);
-        var callerThread = Environment.CurrentManagedThreadId;
-        var ran = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Whether maintenance ran inside the timer callback, on the thread that fired it — in the
+        // app, whichever thread that is. Comparing thread ids with the test's first line said
+        // nothing: the test resumes on pool threads, and the maintenance work item once landed on
+        // the very thread the test had started on, which is not the fault being guarded.
+        var advancing = 0;
+        var advancingThread = 0;
+        var ran = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var coordinator = new DatabaseMaintenanceCoordinator(
             _ =>
             {
-                ran.TrySetResult(Environment.CurrentManagedThreadId);
+                ran.TrySetResult(Volatile.Read(ref advancing) == 1 && Environment.CurrentManagedThreadId == advancingThread);
                 return Task.CompletedTask;
             },
             runtime,
@@ -30,11 +43,14 @@ public sealed class DatabaseMaintenanceCoordinatorTests
         await RuntimeTestTasks.DrainAsync();
         Assert.False(ran.Task.IsCompleted);
 
+        advancingThread = Environment.CurrentManagedThreadId;
+        Volatile.Write(ref advancing, 1);
         clock.Advance(TimeSpan.FromMinutes(1));
-        var workerThread = await ran.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Volatile.Write(ref advancing, 0);
+        var ranInsideTheTimer = await ran.Task.WaitAsync(Patience);
         await RuntimeTestTasks.UntilAsync(() => clock.NextTimerUtc == Epoch.AddHours(12));
 
-        Assert.NotEqual(callerThread, workerThread);
+        Assert.False(ranInsideTheTimer, "Maintenance ran on the thread that fired the timer, inside its callback.");
     }
 
     [Fact]
@@ -62,7 +78,7 @@ public sealed class DatabaseMaintenanceCoordinatorTests
         SetRaidState(runtime, RaidLifecycleState.Menu);
         clock.Advance(DatabaseMaintenanceCoordinator.RaidRetryInterval);
 
-        await ran.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await ran.Task.WaitAsync(Patience);
     }
 
     [Fact]
@@ -75,20 +91,33 @@ public sealed class DatabaseMaintenanceCoordinatorTests
         await using var coordinator = new DatabaseMaintenanceCoordinator(
             async token =>
             {
-                using var registration = token.Register(cancelled.SetResult);
                 entered.SetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                // Observed where the maintenance sees it, not through a registration. The
+                // registration was disposed by this lambda's own `using` when the delay's
+                // cancellation resumed it inline, which on some runs happened before the
+                // registration's own callback had been reached: the token was cancelled and the
+                // coordinator had moved on to its retry, but the test waited for a signal that had
+                // been unregistered (6 of 20 runs under load, 2026-09-24).
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    cancelled.SetResult();
+                    throw;
+                }
             },
             runtime,
             clock);
 
         coordinator.Start();
         clock.Advance(DatabaseMaintenanceCoordinator.CheckInterval);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await entered.Task.WaitAsync(Patience);
 
         SetRaidState(runtime, RaidLifecycleState.LoadingRaid);
 
-        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await cancelled.Task.WaitAsync(Patience);
     }
 
     private static RuntimeStateStore Runtime(TimeProvider clock) => new(
