@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -1067,9 +1068,27 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// The clock is <see cref="RaidPageViewModel.Clock"/>, the same string the top bar shows, not a
     /// second reading of the same raid in another format.
     /// </remarks>
-    public string RaidPhaseLabel => _raid.Clock.Length > 0
-        ? _raid.Clock
-        : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
+    /// <remarks>
+    /// [#266] Without a clock it says the state in the top bar's own words. It used to say "Not in
+    /// raid" for every other state, so before any log evidence the top bar read "Raid unknown" and
+    /// the strip under the map asserted "Not in raid" about the same moment.
+    /// </remarks>
+    public string RaidPhaseLabel => PhaseLabel(_raid.Clock, _stateStore.Current.Raid.State);
+
+    internal static string PhaseLabel(string clock, RaidLifecycleState state) => clock.Length > 0
+        ? clock
+        : V2ShellText.Get($"V2.Shell.Context.RaidState.{state}");
+
+    /// <summary>Whether the strip under the map shows the phase: only while a raid clock runs.</summary>
+    /// <remarks>
+    /// [#266] Without a clock the words are the top bar's and the Raid plan card's, a third time.
+    /// On Customs at 1920x1080 the strip has about 20 pixels to spare; "Raid unknown" is wider than
+    /// the "Not in raid" it replaced, pushed the off-plan chip onto a second line, and took 32
+    /// pixels of height from the map (Windows gallery: 0.741 of the window against a 0.75 floor).
+    /// </remarks>
+    public bool ShowsStripPhase => ShowsPhaseInStrip(_raid.Clock);
+
+    internal static bool ShowsPhaseInStrip(string clock) => clock.Length > 0;
 
     /// <summary>
     /// False while no countdown is running, so the quiet phase label stands alone.
@@ -2138,6 +2157,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             case nameof(RaidPageViewModel.Clock):
                 OnPropertyChanged(nameof(RaidPhaseLabel));
+                OnPropertyChanged(nameof(ShowsStripPhase));
                 OnPropertyChanged(nameof(ExtractClockSummary));
                 Corrections.ShowClock(_raid.Clock);
                 break;
