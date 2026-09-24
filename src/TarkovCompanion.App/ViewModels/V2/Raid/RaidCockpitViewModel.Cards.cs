@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 
 namespace TarkovCompanion.App.ViewModels.V2.Raid;
@@ -25,34 +26,34 @@ public sealed partial class RaidCockpitViewModel
         [nameof(LootPanel)] = nameof(LootNearbySummary),
     };
 
-    public string SquadSummary => Counted(GroupPanel.Count, "in squad", "in squad");
+    public string SquadSummary => Counted(GroupPanel.Count, RaidText.SquadCount);
 
     public string ExtractsSummary
     {
         get
         {
             var offered = MapExtracts.Count(row => row.IsOffered);
-            var all = Counted(MapExtracts.Count, "extract", "extracts");
-            return offered > 0 ? $"{offered} offered · {all}" : all;
+            var all = Counted(MapExtracts.Count, RaidText.ExtractCount);
+            return offered > 0 ? RaidText.OfferedAndAll(offered, all) : all;
         }
     }
 
-    public string MarksSummary => Counted(Marks.Count, "mark", "marks");
+    public string MarksSummary => Counted(Marks.Count, RaidText.MarkCount);
 
-    public string GroupMarksSummary => Counted(MarkList.Count, "waypoint", "waypoints");
+    public string GroupMarksSummary => Counted(MarkList.Count, RaidText.WaypointCount);
 
-    public string TasksSummary => Counted(QuestPanel.Count, "task", "tasks");
+    public string TasksSummary => Counted(QuestPanel.Count, RaidText.TaskCount);
 
-    public string SpawnAreasSummary => Counted(SpawnAreas.Count, "area", "areas");
+    public string SpawnAreasSummary => Counted(SpawnAreas.Count, RaidText.AreaCount);
 
-    public string SpawnsSummary => Counted(SpawnPanel.Count, "spawn", "spawns");
+    public string SpawnsSummary => Counted(SpawnPanel.Count, RaidText.SpawnCount);
 
-    public string WaysOutSummary => Counted(ExtractPanel.Count, "way out", "ways out");
+    public string WaysOutSummary => Counted(ExtractPanel.Count, RaidText.WayOutCount);
 
-    public string LootNearbySummary => Counted(LootPanel.Count, "item", "items");
+    public string LootNearbySummary => Counted(LootPanel.Count, RaidText.ItemCount);
 
-    internal static string Counted(int count, string one, string many) =>
-        count == 0 ? "None" : $"{count} {(count == 1 ? one : many)}";
+    internal static string Counted(int count, Func<int, string> counted) =>
+        count == 0 ? RaidText.None : counted(count);
 
     /// <summary>
     /// Keeps the closed cards' one-line summaries current, and the Corrections card (its own open

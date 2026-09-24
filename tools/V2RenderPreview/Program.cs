@@ -2022,7 +2022,7 @@ internal static class Program
                 shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel phasedRaid)
             {
                 phasedRaid.TrafficPhases
-                    .FirstOrDefault(choice => string.Equals(choice.Label, trafficPhase, StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault(choice => string.Equals(choice.Id, trafficPhase, StringComparison.OrdinalIgnoreCase))
                     ?.SelectCommand.Execute(null);
                 Pump(40);
             }

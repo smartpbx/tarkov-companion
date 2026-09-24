@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.ReleaseExperience;
 using TarkovCompanion.Application.Services.Runtime;
@@ -46,11 +47,11 @@ public sealed class ReleaseExperienceViewModel : BindableViewModel, IDisposable
 
     public string Version => _release?.Version ?? _currentVersion;
 
-    public string BannerText => $"Updated to {Version}";
+    public string BannerText => ShellText.UpdatedTo(Version);
 
-    public string OpenLabel => "What's new";
+    public string OpenLabel => ShellText.WhatsNew;
 
-    public string ListTitle => $"What's new in {Version}";
+    public string ListTitle => ShellText.WhatsNewIn(Version);
 
     public IReadOnlyList<string> Changes => _release?.Changes ?? [];
 

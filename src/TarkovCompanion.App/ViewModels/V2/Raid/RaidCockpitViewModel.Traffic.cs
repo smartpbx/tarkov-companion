@@ -1,5 +1,6 @@
 using System.Globalization;
 using Avalonia.Media.Imaging;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
@@ -50,16 +51,16 @@ public sealed partial class RaidCockpitViewModel
     /// </remarks>
     public IReadOnlyList<TrafficPhaseChoiceViewModel> TrafficPhases => _trafficPhases ??=
     [
-        PhaseChoice("Auto", null),
-        PhaseChoice("Early", RaidPhase.Early),
-        PhaseChoice("Mid", RaidPhase.Mid),
-        PhaseChoice("Late", RaidPhase.Late),
+        PhaseChoice("auto", RaidText.PhaseAuto, null),
+        PhaseChoice("early", RaidText.PhaseEarly, RaidPhase.Early),
+        PhaseChoice("mid", RaidText.PhaseMid, RaidPhase.Mid),
+        PhaseChoice("late", RaidText.PhaseLate, RaidPhase.Late),
     ];
 
-    public string TrafficPhaseTip => "Spawns count most early, extracts late. The model's assumption, not recorded data.";
+    public string TrafficPhaseTip => RaidText.TrafficPhaseTip;
 
-    private TrafficPhaseChoiceViewModel PhaseChoice(string label, RaidPhase? phase) =>
-        new(label, _chosenPriorPhase == phase, new DelegateCommand(() => ChoosePriorPhase(phase)));
+    private TrafficPhaseChoiceViewModel PhaseChoice(string id, string label, RaidPhase? phase) =>
+        new(label, _chosenPriorPhase == phase, new DelegateCommand(() => ChoosePriorPhase(phase))) { Id = id };
 
     private void ChoosePriorPhase(RaidPhase? phase)
     {
@@ -75,10 +76,10 @@ public sealed partial class RaidCockpitViewModel
     }
 
     private string PhaseBasis => _chosenPriorPhase is not null
-        ? "chosen by you"
-        : _priorPhaseFromClock ? "from the raid clock" : "planning default";
+        ? RaidText.PhaseChosenByYou
+        : _priorPhaseFromClock ? RaidText.PhaseFromRaidClock : RaidText.PhasePlanningDefault;
 
-    public string TrafficBannerTitle => "MODELLED TRAFFIC · NOT LIVE";
+    public string TrafficBannerTitle => RaidText.TrafficBannerTitle;
 
     public string TrafficBannerBasis => MapPriorTraffic.SourceClass;
 
@@ -102,8 +103,8 @@ public sealed partial class RaidCockpitViewModel
     private string? PriorNotice => _prior switch
     {
         null => null,
-        { HasField: true } => "Modelled traffic — prior from map structure, not recorded raids",
-        _ => "No traffic estimate — this map has no spawn, extract or loot data yet",
+        { HasField: true } => RaidText.PriorModelled,
+        _ => RaidText.PriorNone,
     };
 
     private IReadOnlyList<string> PriorRows
@@ -118,11 +119,11 @@ public sealed partial class RaidCockpitViewModel
             var basis = prior.Basis;
             var rows = new List<string>
             {
-                $"{PhaseName(prior.Phase)} raid · {PhaseBasis}",
-                $"Model {MapPriorTraffic.ModelVersion} · phase weighting assumed",
+                RaidText.PhaseRaid(PhaseName(prior.Phase), PhaseBasis),
+                RaidText.ModelVersion(MapPriorTraffic.ModelVersion),
                 CoverageLabel(basis, SpawnAreas.Count),
-                $"{DataThroughLabel(basis)} · generated {LocalTime.ShortTime(basis.GeneratedUtc)}",
-                $"Confidence low · {prior.Confidence.Value:P0} · unvalidated",
+                RaidText.DataThroughGenerated(DataThroughLabel(basis), LocalTime.ShortTime(basis.GeneratedUtc)),
+                RaidText.ConfidenceLow(prior.Confidence.Value),
             };
             if (OwnRaidsLabel(basis) is { Length: > 0 } own)
             {
@@ -136,9 +137,9 @@ public sealed partial class RaidCockpitViewModel
 
     private static string PhaseName(RaidPhase phase) => phase switch
     {
-        RaidPhase.Early => "Early",
-        RaidPhase.Mid => "Mid",
-        _ => "Late",
+        RaidPhase.Early => RaidText.PhaseEarly,
+        RaidPhase.Mid => RaidText.PhaseMid,
+        _ => RaidText.PhaseLate,
     };
 
     private static string Level(double intensity) => TrafficLevel(intensity);
@@ -150,27 +151,26 @@ public sealed partial class RaidCockpitViewModel
 
     internal static string TrafficLevel(double intensity) => intensity switch
     {
-        >= HighestTrafficLevel => "Highest",
-        >= HighTrafficLevel => "High",
-        _ => "Raised",
+        >= HighestTrafficLevel => RaidText.LevelHighest,
+        >= HighTrafficLevel => RaidText.LevelHigh,
+        _ => RaidText.LevelRaised,
     };
 
     private static string CoverageLabel(TrafficPriorBasis basis, int spawnAreaCount) => string.Join(" · ", new[]
     {
-        spawnAreaCount > 0 ? $"{spawnAreaCount} {(spawnAreaCount == 1 ? "spawn area" : "spawn areas")}" : "no spawn areas",
-        basis.Extracts > 0 ? $"{basis.Extracts} ways out (transits included; co-op hidden)" : "no ways out",
-        basis.LootSpawns > 0 ? $"{basis.LootSpawns} loot spawns" : "no loot data",
+        spawnAreaCount > 0 ? RaidText.SpawnAreaCount(spawnAreaCount) : RaidText.NoSpawnAreasLower,
+        basis.Extracts > 0 ? RaidText.WaysOutSummary(basis.Extracts) : RaidText.NoWaysOut,
+        basis.LootSpawns > 0 ? RaidText.LootSpawns(basis.LootSpawns) : RaidText.NoLootData,
     });
 
     private static string DataThroughLabel(TrafficPriorBasis basis) => basis.DataThroughUtc is { } through
-        ? $"Catalog through {LocalTime.ToLocal(through).ToString("d MMM", CultureInfo.CurrentCulture)}"
-        : "Catalog date unknown";
+        ? RaidText.CatalogThrough(LocalTime.ToLocal(through).ToString("d MMM", CultureInfo.CurrentCulture))
+        : RaidText.CatalogDateUnknown;
 
     private static string OwnRaidsLabel(TrafficPriorBasis basis) => basis.OwnRaids switch
     {
         0 => string.Empty,
-        1 => "includes 1 of your raids",
-        _ => $"includes {basis.OwnRaids} of your raids",
+        _ => RaidText.IncludesOwnRaids(basis.OwnRaids),
     };
 
     /// <summary>Which third of the raid the clock says this is; the start of one when there is no raid.</summary>
@@ -238,14 +238,14 @@ public sealed partial class RaidCockpitViewModel
                 TrafficLayerId,
                 MapSceneObjectKind.Traffic,
                 MapSceneTruthKind.HistoricalEstimate,
-                $"Modelled traffic · {Level(hotspot.Intensity)} · {hotspot.Name}",
-                $"Why: {string.Join(", ", hotspot.Drivers)}. {MapPriorTraffic.SourceClass}.",
+                RaidText.ModelledTrafficAt(Level(hotspot.Intensity), hotspot.Name),
+                RaidText.WhyDrivers(string.Join(", ", hotspot.Drivers), MapPriorTraffic.SourceClass),
                 new(MapSceneGeometryKind.Region, Circle(hotspot.Position, hotspot.RadiusUnits, planBounds)),
                 [],
                 provenance,
                 estimate))
             .ToArray();
-        return ([new(TrafficLayerId, "Modelled traffic", 5, true)], objects);
+        return ([new(TrafficLayerId, RaidText.LayerModelledTraffic, 5, true)], objects);
     }
 
     /// <summary>What every object drawn from the prior carries: through when, from what, how sure.</summary>
@@ -259,7 +259,7 @@ public sealed partial class RaidCockpitViewModel
                 dataThrough,
                 prior.Basis.GeneratedUtc,
                 CoverageLabel(prior.Basis, SpawnAreas.Count),
-                "Not validated against recorded raids",
+                RaidText.NotValidated,
                 transformVersion,
                 MapPriorTraffic.ModelVersion),
             new("map-structure-prior", prior.Basis.GeneratedUtc, Confidence: prior.Confidence));
@@ -370,5 +370,8 @@ public sealed class TrafficPhaseChoiceViewModel(string label, bool isSelected, S
 
     public System.Windows.Input.ICommand SelectCommand { get; } = selectCommand;
 
-    public string AutomationId => $"v2-raid-traffic-phase-{Label.ToLowerInvariant()}";
+    /// <summary>"auto", "early", "mid" or "late": what automation and the render tool press, whatever the label says.</summary>
+    public string Id { get; init; } = string.Empty;
+
+    public string AutomationId => $"v2-raid-traffic-phase-{Id}";
 }

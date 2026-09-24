@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Strategy.Prior;
 
 namespace TarkovCompanion.App.ViewModels.V2.Raid;
@@ -9,7 +10,7 @@ namespace TarkovCompanion.App.ViewModels.V2.Raid;
 /// <param name="Value">The band or the level, in words and a number.</param>
 public sealed record TrafficLegendRow(string Rank, string Label, string Value)
 {
-    public string AccessibleName => $"{Rank}. {Label}, {Value}";
+    public string AccessibleName => RaidText.LegendRowName(Rank, Label, Value);
 }
 
 /// <summary>
@@ -44,10 +45,10 @@ internal static class TrafficLegend
     /// </remarks>
     public static IReadOnlyList<TrafficLegendRow> Bands() =>
     [
-        new("1", "No tint", $"low · under {Percent(TrafficHeatPicture.Floor)}"),
-        new("2", "Amber", $"raised · {Percent(TrafficHeatPicture.Floor)}+"),
-        new("3", "Orange", $"high · {Percent(RaidCockpitViewModel.HighTrafficLevel)}+"),
-        new("4", "Red", $"highest · {Percent(RaidCockpitViewModel.HighestTrafficLevel)}+"),
+        new("1", RaidText.BandNoTint, RaidText.BandLow(Percent(TrafficHeatPicture.Floor))),
+        new("2", RaidText.BandAmber, RaidText.BandRaised(Percent(TrafficHeatPicture.Floor))),
+        new("3", RaidText.BandOrange, RaidText.BandHigh(Percent(RaidCockpitViewModel.HighTrafficLevel))),
+        new("4", RaidText.BandRed, RaidText.BandHighest(Percent(RaidCockpitViewModel.HighestTrafficLevel))),
     ];
 
     /// <summary>The hottest places, highest first, ties by name so the order is stable.</summary>

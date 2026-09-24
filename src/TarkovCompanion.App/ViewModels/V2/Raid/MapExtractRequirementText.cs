@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.App.ViewModels.V2.Raid;
@@ -16,16 +17,16 @@ internal static class MapExtractRequirementText
         var parts = new List<string>(8);
         if (requirements.SwitchChain.Count > 0)
         {
-            parts.Add("Needs power: " + string.Join(", then ", requirements.SwitchChain.Select(item => item.Name)));
+            parts.Add(RaidText.NeedsPower(string.Join(RaidText.PowerChainJoiner, requirements.SwitchChain.Select(item => item.Name))));
         }
 
         if (requirements.Transfer is { } transfer)
         {
             parts.Add(transfer.CurrencySymbol is { } symbol
-                ? string.Create(CultureInfo.CurrentCulture, $"Costs {transfer.Count:N0} {symbol}")
+                ? RaidText.CostsCurrency(transfer.Count, symbol)
                 : transfer.ItemName is { Length: > 0 } name
-                    ? transfer.Count == 1 ? $"Needs key: {name}" : $"Needs {transfer.Count:N0} × {name}"
-                    : transfer.Count == 1 ? "Needs an item" : $"Needs {transfer.Count:N0} of an item");
+                    ? transfer.Count == 1 ? RaidText.NeedsKey(name) : RaidText.NeedsCountOf(transfer.Count, name)
+                    : transfer.Count == 1 ? RaidText.NeedsAnItem : RaidText.NeedsCountOfAnItem(transfer.Count));
         }
 
         foreach (var condition in requirements.Conditions)
@@ -33,13 +34,13 @@ internal static class MapExtractRequirementText
             switch (condition.Kind)
             {
                 case MapExtractConditionKind.NoBackpack:
-                    parts.Add("No backpack");
+                    parts.Add(RaidText.NoBackpack);
                     break;
                 case MapExtractConditionKind.NoArmor:
-                    parts.Add("No armored vest");
+                    parts.Add(RaidText.NoArmoredVest);
                     break;
                 case MapExtractConditionKind.Items when condition.Items.Count > 0:
-                    parts.Add("Bring " + string.Join(" + ", condition.Items));
+                    parts.Add(RaidText.Bring(string.Join(" + ", condition.Items)));
                     break;
                 case MapExtractConditionKind.TimedWindow when condition.TimedWindow is { } window:
                     parts.Add(DescribeTimedWindow(extractName, window, timeLeft));
@@ -49,12 +50,12 @@ internal static class MapExtractRequirementText
 
         if (requirements.RequiresCoOp)
         {
-            parts.Add("Needs co-op partner");
+            parts.Add(RaidText.NeedsCoOpPartner);
         }
 
         if (requirements.IsOneTime)
         {
-            parts.Add("One use");
+            parts.Add(RaidText.OneUse);
         }
 
         return string.Join(" · ", parts);
@@ -67,24 +68,26 @@ internal static class MapExtractRequirementText
     /// </remarks>
     internal static string DescribeTimedWindow(string extractName, MapExtractTimedWindow window, string? timeLeft)
     {
-        var subject = extractName.Contains("train", StringComparison.OrdinalIgnoreCase) ? "Train" : extractName;
+        var subject = extractName.Contains("train", StringComparison.OrdinalIgnoreCase) ? RaidText.Train : extractName;
         if (!TimeSpan.TryParse(timeLeft, CultureInfo.InvariantCulture, out var left) || left < TimeSpan.Zero)
         {
-            return string.Create(
-                CultureInfo.InvariantCulture,
-                $"{subject} arrives with {window.ArrivalStartsAtTimeLeft.TotalMinutes:0}–{window.ArrivalEndsAtTimeLeft.TotalMinutes:0} min left, stays {window.Duration.TotalMinutes:0} min");
+            return RaidText.TrainArrivesWith(
+                subject,
+                window.ArrivalStartsAtTimeLeft.TotalMinutes,
+                window.ArrivalEndsAtTimeLeft.TotalMinutes,
+                window.Duration.TotalMinutes);
         }
 
         if (left > window.ArrivalStartsAtTimeLeft)
         {
             var until = Math.Max(1, (int)Math.Ceiling((left - window.ArrivalStartsAtTimeLeft).TotalMinutes));
-            return string.Create(CultureInfo.InvariantCulture, $"{subject} in ~{until} min, stays {window.Duration.TotalMinutes:0} min");
+            return RaidText.TrainIn(subject, until, window.Duration.TotalMinutes);
         }
 
         if (left > window.ArrivalEndsAtTimeLeft)
         {
             var until = Math.Max(1, (int)Math.Ceiling((left - window.ArrivalEndsAtTimeLeft).TotalMinutes));
-            return string.Create(CultureInfo.InvariantCulture, $"{subject} arriving now–~{until} min, stays {window.Duration.TotalMinutes:0} min");
+            return RaidText.TrainArrivingNow(subject, until, window.Duration.TotalMinutes);
         }
 
         var earliestDeparture = window.ArrivalStartsAtTimeLeft - window.Duration;
@@ -92,15 +95,15 @@ internal static class MapExtractRequirementText
         if (left > earliestDeparture)
         {
             var maximum = Math.Max(1, (int)Math.Ceiling((left - latestDeparture).TotalMinutes));
-            return $"{subject} here, up to {maximum} min left";
+            return RaidText.TrainHere(subject, maximum);
         }
 
         if (left > latestDeparture)
         {
             var maximum = Math.Max(1, (int)Math.Ceiling((left - latestDeparture).TotalMinutes));
-            return $"{subject} may still be here, up to {maximum} min left";
+            return RaidText.TrainMayStillBeHere(subject, maximum);
         }
 
-        return $"{subject} has left";
+        return RaidText.TrainHasLeft(subject);
     }
 }

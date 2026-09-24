@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Raid;
@@ -23,6 +24,6 @@ public sealed partial class RaidCockpitViewModel
 
         return clock.EndsWith(" left", StringComparison.Ordinal)
             ? $"{clock} · {detail}"
-            : $"Time left unknown · {detail}";
+            : RaidText.TimeLeftUnknown(detail);
     }
 }

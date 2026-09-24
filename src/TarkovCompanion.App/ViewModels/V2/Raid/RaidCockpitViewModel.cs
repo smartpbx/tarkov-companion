@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
@@ -140,7 +141,7 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
             return;
         }
 
-        var next = RaidMarkLifetimes.TimeLeft(_mark, nowUtc);
+        var next = RaidText.MarkTimeLeft(_mark, nowUtc);
         if (next != _timeLeft)
         {
             _timeLeft = next;
@@ -154,7 +155,7 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
         ? string.Empty
         : string.Join(
             " · ",
-            new[] { RaidMarkLifetimes.ScopeName(Scope), TimeLeft, _mark?.Route is { } route ? $"route stop {route.Step}" : string.Empty }
+            new[] { RaidText.MarkScope(Scope), TimeLeft, _mark?.Route is { } route ? RaidText.RouteStop(route.Step) : string.Empty }
                 .Where(part => part.Length > 0));
 
     public bool IsPrivate => Scope == RaidMarkScope.Private;
@@ -197,7 +198,9 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
     /// <summary>The number, custom name, or "Ping" — whichever the map dot beside this row shows.</summary>
     public string Label { get; }
 
-    public string KindLabel => (Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint") + (IsGroupMark ? " · group" : string.Empty);
+    public string KindLabel => IsGroupMark
+        ? RaidText.KindGroup(Kind == RaidMarkKind.Ping ? RaidText.Ping : RaidText.Waypoint)
+        : Kind == RaidMarkKind.Ping ? RaidText.Ping : RaidText.Waypoint;
 
     // [Issue 508] So this row can carry the same colour as its pin on the map (see
     // RaidCockpitView.axaml's v2-raid-mark-waypoint/v2-raid-mark-ping), the same way its Label
@@ -268,6 +271,10 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
     /// <summary>Faction or "Transit": who can use it, in one or two words.</summary>
     public string Detail { get; }
 
+    /// <summary>A transit rather than an extract; the Corrections card lists extracts only.</summary>
+    /// <remarks>[#314] Asked of the kind, not of <see cref="Detail"/>, which is translated.</remarks>
+    public bool IsTransit { get; init; }
+
     public MapExtractRequirements? Requirements { get; }
 
     public string RequirementText { get; private set; }
@@ -308,8 +315,8 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
 
     public string OfferLabel => _offerState switch
     {
-        MapSceneOfferState.Offered => "Offered",
-        MapSceneOfferState.NotOffered => "Not offered",
+        MapSceneOfferState.Offered => RaidText.Offered,
+        MapSceneOfferState.NotOffered => RaidText.NotOffered,
         _ => "",
     };
 
@@ -456,7 +463,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     // removing an objective, by hand or because the game reported its quest done, never
     // relabels the ones still on the map.
     private readonly QuestObjectiveLetterAssignment _questLetters = new();
-    private string _unavailableReason = "Loading the map…";
+    private string _unavailableReason = RaidText.LoadingTheMap;
     private string? _cachedAssetVariantKey;
     private string? _modelFloorId;
     private IReadOnlyDictionary<MapSceneObjectId, MapSceneObjectStyle> _objectStyles =
@@ -566,7 +573,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _earlyRaidSpawns = new(_timeProvider);
-        _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, LocalTime.Zone);
+        _presentation = MapSceneRendererPresentation.Current(CultureInfo.CurrentCulture, LocalTime.Zone);
         var synchronizationContext = SynchronizationContext.Current;
         // [#453] Paced and behind input: see PacedDispatch.
         _rebuildRequest = PacedDispatch.ForInterfaceThread(
@@ -687,7 +694,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     public bool ShowsContextPanel => !_contextPanelHidden;
 
-    public string ContextPanelToggleLabel => _contextPanelHidden ? "Show the raid plan" : "Hide the raid plan";
+    public string ContextPanelToggleLabel => _contextPanelHidden ? RaidText.ShowRaidPlan : RaidText.HideRaidPlan;
 
     /// <summary>Drags the panel's edge. The width the player sees is the width that is kept.</summary>
     public void ResizeContextPanel(double width)
@@ -737,7 +744,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     }
 
     /// <summary>"Co-op extracts: Dim" — what the menu button says today, and what pressing it does next.</summary>
-    public string CoOpExtractVisibilityLabel => $"Co-op extracts: {_coOpExtractVisibility}";
+    public string CoOpExtractVisibilityLabel => RaidText.CoOpExtracts(RaidText.CoOpVisibility(_coOpExtractVisibility));
 
     public void CycleCoOpExtractVisibility() => CoOpExtractVisibility = _coOpExtractVisibility switch
     {
@@ -820,9 +827,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     public ICommand IncreaseFollowZoomCommand { get; }
 
-    public string FollowZoomLabel => string.Create(CultureInfo.CurrentCulture, $"{_followZoom.Value:0.#}×");
+    public string FollowZoomLabel => RaidText.FollowZoom(_followZoom.Value);
 
-    public string FollowLabel => string.Create(CultureInfo.CurrentCulture, $"Follow {_followZoom.Value:0.#}×");
+    public string FollowLabel => RaidText.FollowWithZoom(_followZoom.Value);
 
     /// <summary>Turn the plan a quarter, remembered per map.</summary>
     public ICommand RotateCommand { get; }
@@ -1002,8 +1009,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             var placed = QuestObjectives.Count(row => row.IsPlaced);
             var unplaced = QuestObjectives.Count - placed;
             return unplaced == 0
-                ? string.Create(CultureInfo.CurrentCulture, $"{placed:N0} on the plan")
-                : string.Create(CultureInfo.CurrentCulture, $"{placed:N0} on the plan · {unplaced:N0} with no location");
+                ? RaidText.ObjectivesOnPlan(placed)
+                : RaidText.ObjectivesOnPlanAndUnplaced(placed, unplaced);
         }
     }
 
@@ -1110,8 +1117,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         " · ",
         new[]
         {
-            MapExtracts.Count == 0 ? null : $"{MapExtracts.Count} ways out (transits included; co-op hidden)",
-            SpawnAreas.Count == 0 ? null : $"{SpawnAreas.Count} {(SpawnAreas.Count == 1 ? "spawn area" : "spawn areas")}",
+            MapExtracts.Count == 0 ? null : RaidText.WaysOutSummary(MapExtracts.Count),
+            SpawnAreas.Count == 0 ? null : RaidText.SpawnAreaCount(SpawnAreas.Count),
         }.Where(part => part is not null));
 
     /// <summary>Extracts and transits on the current map, offered first.</summary>
@@ -1421,9 +1428,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _stackRefusal = !_map.IsStacked || model.Floors.Count <= 1
             ? string.Empty
             : variant.SvgPath is null
-                ? "Stacked floors need a drawn map; this one is a photograph"
+                ? RaidText.StackNeedsDrawnMap
                 : model.Background?.Kind == MapBackgroundKind.TileTemplate
-                    ? "Stacked floors need the drawing — choose it above"
+                    ? RaidText.StackNeedsDrawing
                     : string.Empty;
         if (_stackRefusal.Length > 0 || !_map.IsStacked || model.Floors.Count <= 1)
         {
@@ -2087,14 +2094,14 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             yield return new(
                 variant.Key,
                 true,
-                "Drawing",
+                RaidText.ArtworkDrawing,
                 DescribeVariant(variant),
                 isSelectedVariant && prefersDrawing,
                 select);
             yield return new(
                 variant.Key,
                 false,
-                "Photo",
+                RaidText.ArtworkPhoto,
                 DescribeVariant(variant),
                 isSelectedVariant && !prefersDrawing,
                 select);
@@ -2116,10 +2123,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var kind = variant.SvgPath is not null && variant.TilePath is not null
             ? variant.DisplayName
             : variant.SvgPath is not null
-                ? "Drawing"
-                : "Photo";
+                ? RaidText.ArtworkDrawing
+                : RaidText.ArtworkPhoto;
         return variant.Floors.Count > 1
-            ? string.Create(CultureInfo.CurrentCulture, $"{kind} · {variant.Floors.Count} floors")
+            ? RaidText.ArtworkFloors(kind, variant.Floors.Count)
             : kind;
     }
 
@@ -2279,7 +2286,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                     {
                         // #289: scope and time left under the name, and the Options menu.
                         SetOptions = SetMarkOptionsAsync,
-                        TimeLeft = RaidMarkLifetimes.TimeLeft(item.Mark, _timeProvider.GetUtcNow()),
+                        TimeLeft = RaidText.MarkTimeLeft(item.Mark, _timeProvider.GetUtcNow()),
                     }),
                 .. GroupMarkRows(mapId),
             ];
@@ -2318,7 +2325,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             yield return new(
                 ping.Id,
                 RaidMarkKind.Ping,
-                string.IsNullOrWhiteSpace(ping.Label) ? "Ping" : ping.Label!,
+                string.IsNullOrWhiteSpace(ping.Label) ? RaidText.Ping : ping.Label!,
                 ping.By,
                 id => session.RemoveMarkAsync(id, CancellationToken.None));
         }
@@ -2438,7 +2445,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 _cachedAssetVariantKey = null;
                 _cachedAsset = null;
                 _backgroundSha = null;
-                SetUnavailable(model.Background.Message ?? "The map's tiles are not available yet.");
+                SetUnavailable(model.Background.Message ?? RaidText.TilesUnavailable);
                 return;
             }
 
@@ -2472,7 +2479,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             if (variant.SvgPath is null)
             {
-                SetUnavailable("This map has no reviewed 2D plan yet, so the V2 renderer cannot draw it.");
+                SetUnavailable(RaidText.NoReviewedPlan);
                 return;
             }
 
@@ -2499,10 +2506,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                     _cachedAsset = null;
                     _backgroundSha = null;
                     ReplaceBackgroundImage(null);
-                    SetUnavailable(assetResult.Message ?? "The reviewed map asset is not available yet.");
+                    SetUnavailable(assetResult.Message ?? RaidText.AssetUnavailable);
                     if (assetResult.FloorNotDrawn)
                     {
-                        MapFault.Show("Could not draw this floor", "The app is fine. Retry draws it again.");
+                        MapFault.Show(RaidText.FloorNotDrawn, RaidText.FloorNotDrawnAppFine);
                     }
 
                     return;
@@ -2512,7 +2519,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 {
                     // The cache handed back the whole drawing instead. Say so: every floor at once
                     // with no explanation reads as a broken map.
-                    MapFault.Show("Could not draw this floor", "Every floor is shown instead. Retry draws it again.");
+                    MapFault.Show(RaidText.FloorNotDrawn, RaidText.FloorNotDrawnEveryFloor);
                 }
                 else
                 {
@@ -2750,7 +2757,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         cancellationToken.ThrowIfCancellationRequested();
         if (result.Scene is not { } scene)
         {
-            SetUnavailable(result.UnavailableReason ?? "The map scene is unavailable.");
+            SetUnavailable(result.UnavailableReason ?? RaidText.SceneUnavailable);
             return;
         }
 
@@ -2937,17 +2944,20 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 item.Id,
                 point,
                 item.Label,
-                item.Kind == MapSceneObjectKind.Transit ? "Transit" : item.Faction switch
+                item.Kind == MapSceneObjectKind.Transit ? RaidText.Transit : item.Faction switch
                 {
-                    MapFeatureFaction.Pmc => "PMC",
-                    MapFeatureFaction.Scav => "Scav",
-                    MapFeatureFaction.Shared => "PMC · Scav",
+                    MapFeatureFaction.Pmc => RaidText.Pmc,
+                    MapFeatureFaction.Scav => RaidText.Scav,
+                    MapFeatureFaction.Shared => RaidText.PmcAndScav,
                     _ => "",
                 },
                 item.OfferState,
                 select is null ? NoOpCommand : new DelegateCommand(() => select(item.Id, point, item.Label)),
                 item.ExtractRequirements,
-                timeLeft);
+                timeLeft)
+            {
+                IsTransit = item.Kind == MapSceneObjectKind.Transit,
+            };
         })
         .ToArray();
 
@@ -3149,7 +3159,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var extractRows = BuildExtractRows(extractObjects, SelectExtract, _raid.TimeLeft);
         Corrections.Refresh(
             _raid.Corrections.Apply(_stateStore.Current.Raid),
-            [.. extractRows.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
+            [.. extractRows.Where(row => !row.IsTransit).Select(row => row.Name)]);
         // [#453] Kept when every row reads the same: a new list makes the panel build every row's
         // controls again, and a squadmate moving rebuilt the scene three times a second.
         var rows = WithRouteEstimates(extractRows);
@@ -3462,10 +3472,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 PlayerLayerId,
                 MapSceneObjectKind.LastKnownPosition,
                 MapSceneTruthKind.LocalLastKnown,
-                string.Create(
-                    CultureInfo.CurrentCulture,
-                    $"You · {LocalTime.Time(position.Timestamp)} · facing {heading:F0}°"),
-                stale ? "From an older screenshot — you have probably moved since." : null,
+                RaidText.YouAtFacing(LocalTime.Time(position.Timestamp), heading),
+                stale ? RaidText.OlderScreenshot : null,
                 MapSceneGeometry.At(here),
                 [],
                 new DataProvenance("screenshot", position.Timestamp.ToUniversalTime()),
@@ -3481,7 +3489,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 PlayerLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.LocalLastKnown,
-                "Your path this raid",
+                RaidText.YourPathThisRaid,
                 null,
                 new(MapSceneGeometryKind.Line, trail),
                 [],
@@ -3497,8 +3505,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 PlayerLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.PersonalPlan,
-                "Your planned route",
-                "Selected on the Raid page before these screenshot observations.",
+                RaidText.YourPlannedRoute,
+                RaidText.PlannedRouteDetail,
                 new(MapSceneGeometryKind.Line, plannedRoute),
                 [],
                 new DataProvenance("personal-plan", nowUtc)));
@@ -3507,7 +3515,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         if (playerObjects.Count > 0)
         {
-            layers.Add(new(PlayerLayerId, "You", 70, true));
+            layers.Add(new(PlayerLayerId, RaidText.LayerYou, 70, true));
             objects.AddRange(playerObjects);
         }
 
@@ -3575,7 +3583,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                     SquadLayerId,
                     MapSceneObjectKind.Route,
                     MapSceneTruthKind.TeamSharedLastKnown,
-                    $"{member.Name}'s path",
+                    RaidText.MemberPath(member.Name),
                     null,
                     new(MapSceneGeometryKind.Line, memberTrail),
                     [],
@@ -3586,7 +3594,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         if (squadObjects.Count > 0)
         {
-            layers.Add(new(SquadLayerId, "Squad", 60, true));
+            layers.Add(new(SquadLayerId, RaidText.Squad, 60, true));
             objects.AddRange(squadObjects);
         }
 
@@ -3612,8 +3620,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.LocalLastKnown,
                 visited[index].StartedUtc is { } started
-                    ? $"Raid on {LocalTime.Date(started)}"
-                    : "An earlier raid",
+                    ? RaidText.RaidOn(LocalTime.Date(started))
+                    : RaidText.AnEarlierRaid,
                 null,
                 new(MapSceneGeometryKind.Line, points),
                 [],
@@ -3627,7 +3635,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         if (visitedObjects.Count > 0)
         {
-            layers.Add(new(VisitedLayerId, "Visited", 20, inputs.ShowsVisited));
+            layers.Add(new(VisitedLayerId, RaidText.LayerVisited, 20, inputs.ShowsVisited));
             objects.AddRange(visitedObjects);
         }
 
@@ -3651,12 +3659,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// apart, so the seconds were never more than a guess.
     /// </remarks>
     internal static string Describe(TimeSpan age) => age == TimeSpan.MaxValue
-        ? "Position unknown"
+        ? RaidText.PositionUnknown
         : age < TimeSpan.FromSeconds(15)
-            ? "From a screenshot just now"
+            ? RaidText.FromScreenshotJustNow
             : age < TimeSpan.FromMinutes(1)
-                ? string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalSeconds / 15 * 15}s ago")
-                : string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalMinutes}m ago");
+                ? RaidText.FromScreenshotSecondsAgo((int)age.TotalSeconds / 15 * 15)
+                : RaidText.FromScreenshotMinutesAgo((int)age.TotalMinutes);
 
     private static bool TryPlan(MapRenderModel model, WorldPosition position, out MapScenePoint point)
     {
@@ -3706,7 +3714,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return (null, []);
         }
 
-        var layer = new MapSceneLayer(MarksLayerId, "My marks", 40, true);
+        var layer = new MapSceneLayer(MarksLayerId, RaidText.LayerMyMarks, 40, true);
         var objects = labeled
             .Select(item => new MapSceneObject(
                 new($"{MarkIdPrefix}{item.Mark.Id}"),
@@ -3785,7 +3793,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             if (mark.Kind == RaidMarkKind.Ping)
             {
-                result.Add((mark, "Ping"));
+                result.Add((mark, RaidText.Ping));
                 continue;
             }
 
@@ -3808,7 +3816,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// already says which of those it is ("Loading the tarkov.dev map catalog…", "Loading Customs
     /// · interactive…") and, when the list cannot be fetched at all, that and why.
     /// </remarks>
-    private string WaitingForMap() => string.IsNullOrWhiteSpace(_map.Status) ? "Loading maps…" : _map.Status;
+    private string WaitingForMap() => string.IsNullOrWhiteSpace(_map.Status) ? RaidText.LoadingMaps : _map.Status;
 
     private void SetUnavailable(string reason)
     {

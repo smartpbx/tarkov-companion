@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Planning;
@@ -81,10 +82,11 @@ public sealed partial class RaidCockpitViewModel
         }
 
         // The extract routes label reads "From the selected spawn"; the objective route puts its
-        // origin after "from", so it keeps only the noun.
-        var label = _map.PlayerPosition is not null && start.Label.Contains("screenshot", StringComparison.Ordinal)
-            ? "your last screenshot"
-            : "the selected spawn";
+        // origin after "from", so it keeps only the noun. [#314] Matched against the same translated
+        // words RouteStart gave it, not against English.
+        var label = _map.PlayerPosition is not null && string.Equals(start.Label, RaidText.FromYourLastScreenshot, StringComparison.Ordinal)
+            ? RaidText.YourLastScreenshot
+            : RaidText.TheSelectedSpawn;
         return new(new(start.At.X, start.At.Y), label, unitsPerMetre);
     }
 

@@ -2,6 +2,7 @@
              x:DataType="vm:V2ShellViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
              xmlns:local="using:TarkovCompanion.App.Views.V2.Shell"
              xmlns:stashVm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
@@ -316,7 +317,7 @@
                      SelectedItem="{Binding RaidCockpitWorkspace.SelectedMap, Mode=OneWay}"
                      SelectionChanged="TopBarMapSelectionChanged"
                      AutomationProperties.AutomationId="v2-shell-topbar-map"
-                     AutomationProperties.Name="Switch map">
+                     AutomationProperties.Name="{x:Static l:ShellText.SwitchMap}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="raidVm:RaidMapPickerItemViewModel">
                 <TextBlock Text="{Binding Name}" />
@@ -546,10 +547,10 @@
             <TextBlock Classes="v2-body" VerticalAlignment="Center"
                        Text="{Binding QuestScreenshotOfferText}" />
             <Button Grid.Column="1" Classes="v2-target v2-banner-action"
-                    Content="Review sync" Command="{Binding ReviewQuestScreenshotOfferCommand}"
+                    Content="{x:Static l:ShellText.ReviewSync}" Command="{Binding ReviewQuestScreenshotOfferCommand}"
                     AutomationProperties.AutomationId="v2-quest-sync-offer-review" />
             <Button Grid.Column="2" Classes="v2-target v2-banner-action"
-                    Content="Not now" Command="{Binding DismissQuestScreenshotOfferCommand}"
+                    Content="{x:Static l:ShellText.NotNow}" Command="{Binding DismissQuestScreenshotOfferCommand}"
                     AutomationProperties.AutomationId="v2-quest-sync-offer-dismiss" />
           </Grid>
         </Border>
@@ -583,7 +584,7 @@
               Margin="0,8,16,0" MaxWidth="560" CornerRadius="6"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.AutomationId="v2-whats-new-banner"
-                AutomationProperties.Name="Update installed">
+                AutomationProperties.Name="{x:Static l:ShellText.UpdateInstalled}">
         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
             <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center"
                        Text="{Binding ReleaseExperience.BannerText}" />
@@ -593,8 +594,8 @@
                     Command="{Binding ReleaseExperience.OpenCommand}" />
             <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-topbar-plain"
                     AutomationProperties.AutomationId="v2-whats-new-dismiss"
-                    AutomationProperties.Name="Dismiss What's new"
-                    ToolTip.Tip="Dismiss"
+                    AutomationProperties.Name="{x:Static l:ShellText.DismissWhatsNew}"
+                    ToolTip.Tip="{x:Static l:ShellText.Dismiss}"
                     Command="{Binding ReleaseExperience.DismissCommand}">
               <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
             </Button>
@@ -912,10 +913,10 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-            <Button Classes="v2-outline" Content="Close"
+            <Button Classes="v2-outline" Content="{x:Static l:ShellText.Close}"
                     AutomationProperties.AutomationId="v2-whats-new-close"
                     Command="{Binding ReleaseExperience.CloseCommand}" />
-            <Button Classes="v2-primary" Content="Got it"
+            <Button Classes="v2-primary" Content="{x:Static l:ShellText.GotIt}"
                     AutomationProperties.AutomationId="v2-whats-new-got-it"
                     Command="{Binding ReleaseExperience.DismissCommand}" />
           </StackPanel>

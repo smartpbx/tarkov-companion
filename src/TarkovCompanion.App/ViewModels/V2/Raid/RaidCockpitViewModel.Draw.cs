@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -60,12 +61,12 @@ public sealed partial class RaidCockpitViewModel
 
     /// <summary>What the Draw switch says it does, for its tooltip and a screen reader.</summary>
     public string DrawModeLabel => IsDrawMode
-        ? $"Drawing for {RaidMarkLifetimes.ScopeName(NewMarkScope)} · Esc to stop"
-        : "Draw on the map";
+        ? RaidText.DrawingFor(RaidText.MarkScope(NewMarkScope))
+        : RaidText.DrawOnTheMap;
 
     /// <summary>"Squad · This raid": what a line drawn now will be.</summary>
     public string DrawSettingsLabel =>
-        $"{RaidMarkLifetimes.ScopeName(NewMarkScope)} · {RaidMarkLifetimes.Name(_newDrawingLifetime)}";
+        $"{RaidText.MarkScope(NewMarkScope)} · {RaidText.MarkLifetime(_newDrawingLifetime)}";
 
     public RaidMarkLifetime NewDrawingLifetime => _newDrawingLifetime;
 
@@ -265,7 +266,7 @@ public sealed partial class RaidCockpitViewModel
                 DrawingsLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.UserAuthored,
-                "My drawing",
+                RaidText.MyDrawing,
                 DrawingHoverDetail(drawing),
                 new(MapSceneGeometryKind.Line, [.. drawing.Points.Select(point => new MapScenePoint(point.X, point.Y))]),
                 drawing.FloorId is null ? [] : [drawing.FloorId],
@@ -296,8 +297,8 @@ public sealed partial class RaidCockpitViewModel
                 DrawingsLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.UserAuthored,
-                $"{member}'s drawing",
-                $"Drawn by {member}",
+                RaidText.MemberDrawing(member),
+                RaidText.DrawnBy(member),
                 new(MapSceneGeometryKind.Line, points),
                 drawing.FloorId is null ? [] : [drawing.FloorId],
                 new DataProvenance("group-relay", nowUtc)));
@@ -306,17 +307,17 @@ public sealed partial class RaidCockpitViewModel
 
         return objects.Count == 0
             ? (null, [], styles)
-            : (new MapSceneLayer(DrawingsLayerId, "Drawings", 45, true), objects, styles);
+            : (new MapSceneLayer(DrawingsLayerId, RaidText.LayerDrawings, 45, true), objects, styles);
     }
 
     /// <summary>"Squad · This raid" or "Just me · 5 min · ends 21:04", for a hover.</summary>
     internal static string DrawingHoverDetail(RaidDrawing drawing)
     {
         ArgumentNullException.ThrowIfNull(drawing);
-        var ends = drawing.ExpiresUtc is { } expires ? $"ends {LocalTime.ShortTime(expires)}" : string.Empty;
+        var ends = drawing.ExpiresUtc is { } expires ? RaidText.Ends(LocalTime.ShortTime(expires)) : string.Empty;
         return string.Join(
             " · ",
-            new[] { RaidMarkLifetimes.ScopeName(drawing.Scope), RaidMarkLifetimes.Name(drawing.Lifetime), ends }.Where(part => part.Length > 0));
+            new[] { RaidText.MarkScope(drawing.Scope), RaidText.MarkLifetime(drawing.Lifetime), ends }.Where(part => part.Length > 0));
     }
 
     /// <summary>The drawings layer for the scene being built, with its styles.</summary>
