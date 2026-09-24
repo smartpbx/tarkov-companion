@@ -28,9 +28,40 @@ public sealed class RelayLinkRealBrowserTests : RealBrowserTestHarness
     [RealBrowserFact]
     public async Task PairingSurvivesAReloadInARealBrowser()
     {
-        if (!HasHeadlessBrowser())
+        var stdout = await PairThroughScriptAsync("test-relay-browser-pairing.cjs");
+        if (stdout is null)
         {
             return;
+        }
+
+        Assert.Contains("PAIRED:Raid tablet", stdout, StringComparison.Ordinal);
+        Assert.Contains("STILL_CONNECTED_AFTER_RELOAD:Raid tablet", stdout, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// [#840] One approval poll answered 503 and the next never answered at all. Before, the first
+    /// ended the ceremony and the second held it for good: the page never showed the code and
+    /// needed a reload.
+    /// </summary>
+    [RealBrowserFact]
+    public async Task PairingCarriesOnPastAFailedAndAnUnansweredApprovalPoll()
+    {
+        var stdout = await PairThroughScriptAsync("test-tablet-pairing-stall.cjs");
+        if (stdout is null)
+        {
+            return;
+        }
+
+        Assert.Contains("RECOVERED:", stdout, StringComparison.Ordinal);
+        Assert.Contains("PAIRED:Raid tablet", stdout, StringComparison.Ordinal);
+    }
+
+    /// <summary>Pairs the page a script drives with a desktop that approves it; null without a browser.</summary>
+    private async Task<string?> PairThroughScriptAsync(string scriptName)
+    {
+        if (!HasHeadlessBrowser())
+        {
+            return null;
         }
 
         using var certificate = CreateSelfSignedCertificate("localhost");
@@ -54,7 +85,7 @@ public sealed class RelayLinkRealBrowserTests : RealBrowserTestHarness
         Assert.True(desktop.Panel.IsAwaitingTablet, desktop.Panel.StatusMessage);
         var pairingCode = desktop.Panel.PairingCode!;
 
-        var scriptPath = Path.Combine(RepositoryRoot(), "scripts", "test-relay-browser-pairing.cjs");
+        var scriptPath = Path.Combine(RepositoryRoot(), "scripts", scriptName);
         Assert.True(File.Exists(scriptPath), $"Missing {scriptPath}.");
         var startInfo = new ProcessStartInfo("node")
         {
@@ -97,8 +128,7 @@ public sealed class RelayLinkRealBrowserTests : RealBrowserTestHarness
             var stderr = await stderrTask;
             Assert.True(browserProcess.HasExited, $"The headless browser did not finish in time.\nstdout:\n{stdout}\nstderr:\n{stderr}");
             Assert.True(browserProcess.ExitCode == 0, $"exit code {browserProcess.ExitCode}\nstdout:\n{stdout}\nstderr:\n{stderr}");
-            Assert.Contains("PAIRED:Raid tablet", stdout, StringComparison.Ordinal);
-            Assert.Contains("STILL_CONNECTED_AFTER_RELOAD:Raid tablet", stdout, StringComparison.Ordinal);
+            return stdout;
         }
         finally
         {

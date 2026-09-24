@@ -68,7 +68,7 @@ async function main() {
     await page.fill("#pairingCode", pairingCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 }); // liveness, not a measurement: a loaded machine has taken over 15 s
+    await page.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     const surfaceDeadline = Date.now() + 15000;
     while (!(await state()).hasSurface && Date.now() < surfaceDeadline) await sleep(100);
@@ -103,6 +103,9 @@ async function main() {
       error: document.getElementById("pairingError")?.textContent || null,
       shown: ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]
         .filter((id) => document.getElementById(id) && document.getElementById(id).style.display !== "none"),
+      cardHidden: document.getElementById("pairing")?.hidden ?? null,
+      live: window.__tabletTestState?.().hasLive ?? null,
+      stages: window.__tabletTestState?.().pairingStages ?? null,
     })).catch(() => null);
     console.error(`PAIRING_PAGE: ${JSON.stringify(pairingPage)}`);
     await browser.close();

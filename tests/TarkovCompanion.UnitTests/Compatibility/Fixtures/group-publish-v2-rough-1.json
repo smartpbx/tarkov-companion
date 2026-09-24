@@ -1,0 +1,21 @@
+{
+  "name": "OldClay",
+  "mapId": "customs",
+  "raidState": "InRaid",
+  "side": "pmc",
+  "x": 56.16,
+  "z": 110.52,
+  "heading": 214.5,
+  "positionAge": 12.4,
+  "loadout": ["M4A1", "Slick"],
+  "quests": ["Debut"],
+  "sinceSeconds": null,
+  "questIds": ["quest-debut"],
+  "y": -2.95,
+  "observed": [{ "name": "OldGeo", "loadout": ["AK-74N"], "level": 31, "side": "Usec", "scavLockedUntil": null }],
+  "trail": [{ "x": 50.0, "z": 100.0, "age": 40.0, "y": -2.9 }],
+  "extracts": ["ZB-1011"],
+  "transits": [],
+  "raidClockSeconds": 1500.0,
+  "raidClockAge": 30.0
+}
