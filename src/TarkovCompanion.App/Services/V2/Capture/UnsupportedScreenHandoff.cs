@@ -85,7 +85,7 @@ public sealed record ScanRetentionLabel(string Label, string Detail);
 /// </remarks>
 public static class ScanRetention
 {
-    public const string NotKept = "Image not kept";
+    public static string NotKept => TarkovCompanion.App.Localization.ShellText.RetentionNotKept;
 
     public static ScanRetentionLabel Describe(
         CaptureSourceKind source,
@@ -93,20 +93,19 @@ public static class ScanRetention
         bool heldInMemory)
     {
         var held = heldInMemory
-            ? $" Held in memory for {ScanFrameMemory.HoldFor.TotalMinutes:0} minutes so Read as… can use it."
-            : " Read as… needs a new capture.";
+            ? " " + TarkovCompanion.App.Localization.ShellText.RetentionHeld(ScanFrameMemory.HoldFor.TotalMinutes.ToString("0", System.Globalization.CultureInfo.CurrentCulture))
+            : " " + TarkovCompanion.App.Localization.ShellText.RetentionNeedsNewCapture;
         if (source != CaptureSourceKind.GameWrittenScreenshot)
         {
-            return new(NotKept, "No copy is saved." + held);
+            return new(NotKept, TarkovCompanion.App.Localization.ShellText.RetentionNoCopy + held);
         }
 
         return tidy is { IsEnabled: true } on
             ? new(
-                $"{NotKept} · game file tidied after {on.SafeRetentionHours} h",
-                "No copy is saved. The game's own screenshot goes to the recycle bin after "
-                    + $"{on.SafeRetentionHours} hours (Setup > Privacy)." + held)
+                TarkovCompanion.App.Localization.ShellText.RetentionTidied(on.SafeRetentionHours),
+                TarkovCompanion.App.Localization.ShellText.RetentionRecycled(on.SafeRetentionHours) + held)
             : new(
-                $"{NotKept} · game file stays",
-                "No copy is saved. The game's own screenshot stays in its folder." + held);
+                TarkovCompanion.App.Localization.ShellText.RetentionStays,
+                TarkovCompanion.App.Localization.ShellText.RetentionStaysDetail + held);
     }
 }

@@ -11,8 +11,6 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// </remarks>
 public static class CaptureIntentSupport
 {
-    public const string NotSupportedYet = "not supported yet";
-
     public static bool IsSupported(ScanIntent intent) =>
         intent is not (ScanIntent.ExtractsAndMap or ScanIntent.HealthAndCharacter);
 }

@@ -63,7 +63,7 @@ public sealed class LoadFaultNoticeViewModel : BindableViewModel
 
     public bool CanRetry => !_isRetrying;
 
-    public string RetryLabel => _isRetrying ? "Retrying…" : "Retry";
+    public string RetryLabel => _isRetrying ? TarkovCompanion.App.Localization.ShellText.FaultRetrying : TarkovCompanion.App.Localization.ShellText.FaultRetry;
 
     public ICommand RetryCommand { get; }
 

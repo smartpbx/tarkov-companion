@@ -48,9 +48,7 @@ public sealed partial class V2ShellViewModel
 
         StartupFaultNotice.Show(
             DescribeStartupFaults(faults),
-            faults.Count == 1
-                ? "The rest of the app is working. Retry loads it again."
-                : "The rest of the app is working. Retry loads them again.");
+            TarkovCompanion.App.Localization.ShellText.FaultRestWorks(faults.Count));
     }
 
     /// <summary>"Hideout and Map did not load", from the names startup uses for its pages.</summary>
@@ -62,9 +60,9 @@ public sealed partial class V2ShellViewModel
         var list = names.Length switch
         {
             1 => names[0],
-            2 => $"{names[0]} and {names[1]}",
-            _ => $"{string.Join(", ", names[..^1])} and {names[^1]}",
+            2 => TarkovCompanion.App.Localization.ShellText.FaultListTwo(names[0], names[1]),
+            _ => TarkovCompanion.App.Localization.ShellText.FaultListMany(string.Join(", ", names[..^1]), names[^1]),
         };
-        return $"{list} did not load";
+        return TarkovCompanion.App.Localization.ShellText.FaultDidNotLoad(list);
     }
 }

@@ -1,3 +1,5 @@
+using System.Globalization;
+using TarkovCompanion.App.Localization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -181,7 +183,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         {
             if (_manualIntake is null)
             {
-                _shell.ReportManualImage("Pictures cannot be read here");
+                _shell.ReportManualImage(ShellText.CaptureCannotReadHere);
                 return;
             }
 
@@ -201,7 +203,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 }
                 catch (InvalidOperationException)
                 {
-                    _shell.ReportManualImage("The last capture is still being read");
+                    _shell.ReportManualImage(ShellText.CaptureStillReading);
                     return;
                 }
             }
@@ -216,14 +218,14 @@ public sealed class V2ShellCaptureBridge : IDisposable
             {
                 { FilePath: { } path } => await _manualIntake.SubmitFileAsync(path, origin, CancellationToken.None).ConfigureAwait(false),
                 { Pixels: { } pixels } => await _manualIntake.SubmitImageAsync(pixels, origin, CancellationToken.None).ConfigureAwait(false),
-                _ => new ManualImageOutcome(false, "There was no picture to read"),
+                _ => new ManualImageOutcome(false, ShellText.CaptureNoPicture),
             };
             _shell.ReportManualImage(outcome.Message);
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Could not take in a picture the player chose.");
-            _shell.ReportManualImage("That picture could not be read");
+            _shell.ReportManualImage(ShellText.CapturePictureUnreadable);
         }
     }
 
@@ -237,10 +239,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
             {
                 foreach (var item in batch.Items)
                 {
-                    _shell.ReportManualImageBatchItem(batch.BatchId, item.Id, "Unavailable", true);
+                    _shell.ReportManualImageBatchItem(batch.BatchId, item.Id, ShellText.CaptureRowUnavailable, true);
                 }
 
-                _shell.ReportManualImageBatch("Pictures cannot be read here");
+                _shell.ReportManualImageBatch(ShellText.CaptureCannotReadHere);
                 return;
             }
 
@@ -299,11 +301,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
                     cancellation.Token)
                 .ConfigureAwait(false);
             _shell.ReportManualImageBatch(
-                $"Queued {outcome.Accepted} · {outcome.Failed} not queued · {outcome.Cancelled} cancelled");
+                ShellText.CaptureBatchOutcome(outcome.Accepted, outcome.Failed, outcome.Cancelled));
         }
         catch (OperationCanceledException) when (cancellation?.IsCancellationRequested == true)
         {
-            _shell.ReportManualImageBatch("Batch cancelled");
+            _shell.ReportManualImageBatch(ShellText.CaptureBatchCancelled);
         }
         catch (Exception exception)
         {
@@ -313,11 +315,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 var row = _shell.CaptureBatchItems.FirstOrDefault(existing => existing.Id == item.Id);
                 if (row is not null && !row.IsTerminal)
                 {
-                    _shell.ReportManualImageBatchItem(batch.BatchId, item.Id, "Could not be read", true);
+                    _shell.ReportManualImageBatchItem(batch.BatchId, item.Id, ShellText.CaptureRowUnreadable, true);
                 }
             }
 
-            _shell.ReportManualImageBatch("The picture batch could not be read");
+            _shell.ReportManualImageBatch(ShellText.CaptureBatchUnreadable);
         }
         finally
         {
@@ -371,8 +373,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 ScanIntent.Flea,
                 RecognizedContext.Flea,
                 scan.ObservedUtc,
-                $"{scan.ItemName ?? "Flea offers"} · {viewModel.SummaryLabel}",
-                "Screenshot · flea rows",
+                V2ShellText.Format("V2.Shell.Capture.Evidence", CultureInfo.CurrentCulture, scan.ItemName ?? ShellText.CaptureReviewFleaOffers, viewModel.SummaryLabel),
+                ShellText.CaptureReviewScreenshotFleaRows,
                 false);
             _reviewSource = BuildSource(scan.ArtifactId, ScanIntent.Flea, null);
         }
@@ -447,7 +449,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                     MapId: null,
                     ExpiresUtc: now.AddSeconds(30)),
                 context,
-                new("hold_screen", "Hold the screen steady until the capture completes.")));
+                new("hold_screen", ShellText.CaptureHoldScreen)));
             if (!receipt.Accepted)
             {
                 throw new InvalidOperationException($"Capture could not be armed: {receipt.Code}.");
@@ -662,7 +664,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     {
         var alternates = identification.Alternates.Count == 0
             ? string.Empty
-            : $" · also {string.Join(", ", identification.Alternates.Take(2).Select(item => item.DisplayName))}";
+            : ShellText.CaptureReviewAlso(string.Join(", ", identification.Alternates.Take(2).Select(item => item.DisplayName)));
         lock (_gate)
         {
             _attention = null;
@@ -673,10 +675,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 identification.EffectiveIntent,
                 RecognizedContext.Item,
                 identification.ObservedUtc,
-                $"{identification.Best.DisplayName} · {identification.Best.Confidence.Value:P0} sure{alternates}",
+                ShellText.CaptureReviewIdentified(identification.Best.DisplayName, identification.Best.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture)) + alternates,
                 identification.DiagnosticCode is { } code
-                    ? $"Screenshot · {code}"
-                    : "Screenshot",
+                    ? ShellText.CaptureReviewScreenshotCode(code)
+                    : ShellText.CaptureReviewScreenshot,
                 canCorrect: false)
             {
                 Candidates =
@@ -763,7 +765,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                     null,
                     result.EvaluatedUtc,
                     $"{applied.TakeSummary}, {applied.SwapSummary}, {applied.LeaveSummary}, {applied.ReviewSummary}",
-                    "Loot Scan decision",
+                    ShellText.CaptureReviewLootScan,
                     false);
             }
 
@@ -849,12 +851,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
             {
                 var (status, terminal) = artifact.Disposition switch
                 {
-                    CaptureArtifactDisposition.Accepted => ("Done", true),
-                    CaptureArtifactDisposition.NoChange when session.CancellationRequested => ("Cancelled", true),
-                    CaptureArtifactDisposition.NoChange => ("No change", true),
-                    CaptureArtifactDisposition.RetryRequested => ("Retry requested", true),
-                    _ when artifact.Review is not null => ("Needs review", false),
-                    _ => ("Reading", false),
+                    CaptureArtifactDisposition.Accepted => (ShellText.CaptureRowDone, true),
+                    CaptureArtifactDisposition.NoChange when session.CancellationRequested => (ShellText.CaptureRowCancelled, true),
+                    CaptureArtifactDisposition.NoChange => (ShellText.CaptureRowNoChange, true),
+                    CaptureArtifactDisposition.RetryRequested => (ShellText.CaptureRowRetryRequested, true),
+                    _ when artifact.Review is not null => (ShellText.CaptureRowNeedsReview, false),
+                    _ => (ShellText.CaptureRowReading, false),
                 };
                 _shell.ReportManualImageBatchItem(batchId, row.Id, status, terminal, row.CorrelationId);
             }
@@ -863,7 +865,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 _shell.ReportManualImageBatchItem(
                     batchId,
                     row.Id,
-                    session.CancellationRequested ? "Cancelled" : "Not completed",
+                    session.CancellationRequested ? ShellText.CaptureRowCancelled : ShellText.CaptureRowNotCompleted,
                     true,
                     row.CorrelationId);
             }
@@ -935,7 +937,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
             readAs,
             held,
             held ? intent => ReadAsAsync(artifactId, intent) : null,
-            correction is null ? null : $"Read as {IntentLabel(correction.To)} by you · was {IntentLabel(correction.From)}");
+            correction is null ? null : ShellText.ReadAsByYou(IntentLabel(correction.To), IntentLabel(correction.From)));
         if (_tidyStore is not null)
         {
             _ = ApplyTidyAsync(source);
@@ -1004,7 +1006,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     {
         if (_reanalysis is null)
         {
-            return new(false, "Cannot read it again here");
+            return new(false, ShellText.ReadAsCannotHere);
         }
 
         try
@@ -1047,7 +1049,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         catch (InvalidOperationException exception)
         {
             _logger.LogInformation(exception, "Read as {Intent} could not arm.", intent);
-            return new(false, "The last capture is still being read");
+            return new(false, ShellText.CaptureStillReading);
         }
     }
 

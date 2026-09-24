@@ -1299,25 +1299,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         CanConnectTarkovTracker = status.CanConnect;
         CanRefreshTarkovTracker = status.CanRefresh;
         CanDisconnectTarkovTracker = status.SecureStorageAvailable && status.Connected;
-        var availability = !status.SecureStorageAvailable
-            ? SetupText.QuestsTrackerNoStorage
-            : !status.FeatureEnabled
-                ? SetupText.QuestsTrackerOff
-                : !status.NetworkAccessEnabled
-                    ? SetupText.QuestsTrackerOffline
-                    : status.RequiresReconnect
-                        ? SetupText.QuestsTrackerRejected
-                        : status.Connected
-                            ? SetupText.QuestsTrackerConnected(status.GameMode)
-                            : SetupText.QuestsTrackerNotConnected(status.GameMode);
-        var quota = status.Quota.Remaining is { } remaining
-            ? " " + SetupText.QuestsTrackerQuota(remaining, status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?")
-            : " " + SetupText.QuestsTrackerQuotaUnknown;
-        var backoff = status.NextEligibleRefreshUtc is { } next
-            ? " " + SetupText.QuestsTrackerNextRefresh(LocalTime.Moment(next))
-            : string.Empty;
-        TarkovTrackerStatus = string.Join(" ", new[] { operation, availability }
-                .Where(value => !string.IsNullOrWhiteSpace(value))) + quota + backoff;
+        TarkovTrackerStatus = TarkovTrackerStatusLine.Compose(status, operation);
     }
 
     private async Task ExportProgressAsync()

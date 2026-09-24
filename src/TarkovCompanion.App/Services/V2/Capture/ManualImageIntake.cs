@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -63,17 +64,17 @@ public sealed class ManualImageIntake(
     {
         if (!IsImageFile(path))
         {
-            return new(false, "That file is not a picture");
+            return new(false, ShellText.CaptureNotAPictureFile);
         }
 
         if (!File.Exists(path))
         {
-            return new(false, "That file is no longer there");
+            return new(false, ShellText.CaptureFileGone);
         }
 
         var image = await _loader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
         return image is null
-            ? new(false, "That picture could not be read")
+            ? new(false, ShellText.CapturePictureUnreadable)
             : await SubmitAsync(image, origin, CaptureSourceKind.UserSelectedImage, cancellationToken).ConfigureAwait(false);
     }
 
@@ -135,7 +136,7 @@ public sealed class ManualImageIntake(
                 if (index >= MaximumBatchImages)
                 {
                     failed++;
-                    Publish(new(input.Id, $"Not queued · limit {MaximumBatchImages}", true));
+                    Publish(new(input.Id, ShellText.CaptureRowNotQueuedLimit(MaximumBatchImages), true));
                     continue;
                 }
 
@@ -145,7 +146,7 @@ public sealed class ManualImageIntake(
                     break;
                 }
 
-                Publish(new(input.Id, "Reading", false));
+                Publish(new(input.Id, ShellText.CaptureRowReading, false));
                 CapturedImage? image;
                 if (input.Image is not null)
                 {
@@ -154,13 +155,13 @@ public sealed class ManualImageIntake(
                 else if (!IsImageFile(input.FilePath))
                 {
                     failed++;
-                    Publish(new(input.Id, "Not a picture", true));
+                    Publish(new(input.Id, ShellText.CaptureRowNotAPicture, true));
                     continue;
                 }
                 else if (!File.Exists(input.FilePath))
                 {
                     failed++;
-                    Publish(new(input.Id, "File is no longer there", true));
+                    Publish(new(input.Id, ShellText.CaptureRowFileGone, true));
                     continue;
                 }
                 else
@@ -172,7 +173,7 @@ public sealed class ManualImageIntake(
                     catch (Exception exception) when (exception is not OperationCanceledException)
                     {
                         failed++;
-                        Publish(new(input.Id, "Could not be read", true));
+                        Publish(new(input.Id, ShellText.CaptureRowUnreadable, true));
                         continue;
                     }
                 }
@@ -180,7 +181,7 @@ public sealed class ManualImageIntake(
                 if (image is null)
                 {
                     failed++;
-                    Publish(new(input.Id, "Could not be read", true));
+                    Publish(new(input.Id, ShellText.CaptureRowUnreadable, true));
                     continue;
                 }
 
@@ -202,7 +203,7 @@ public sealed class ManualImageIntake(
                     {
                         prepared[remaining].Source.Dispose();
                         cancelled++;
-                        Publish(new(prepared[remaining].Input.Id, "Cancelled", true));
+                        Publish(new(prepared[remaining].Input.Id, ShellText.CaptureRowCancelled, true));
                     }
 
                     _sessions.Cancel(sessionId, "manual-batch-cancelled");
@@ -227,12 +228,12 @@ public sealed class ManualImageIntake(
                 if (receipt.Disposition == CaptureQueueDisposition.Accepted)
                 {
                     accepted++;
-                    Publish(new(item.Input.Id, "Queued", false, correlationId));
+                    Publish(new(item.Input.Id, ShellText.CaptureRowQueued, false, correlationId));
                 }
                 else if (receipt.Disposition == CaptureQueueDisposition.Cancelled)
                 {
                     cancelled++;
-                    Publish(new(item.Input.Id, "Cancelled", true, correlationId));
+                    Publish(new(item.Input.Id, ShellText.CaptureRowCancelled, true, correlationId));
                     cancelled += CancelRemaining(prepared, index + 1, Publish);
                     _sessions.Cancel(sessionId, "manual-batch-cancelled");
                     break;
@@ -240,7 +241,7 @@ public sealed class ManualImageIntake(
                 else
                 {
                     failed++;
-                    Publish(new(item.Input.Id, $"Not queued · {receipt.Code}", true, correlationId));
+                    Publish(new(item.Input.Id, ShellText.CaptureRowNotQueued(receipt.Code), true, correlationId));
                     cancelled += CancelRemaining(prepared, index + 1, Publish);
                     _sessions.Cancel(sessionId, "manual-batch-admission-failed");
                     break;
@@ -259,7 +260,7 @@ public sealed class ManualImageIntake(
             foreach (var input in inputs.Where(input => !terminal.Contains(input.Id)))
             {
                 cancelled++;
-                Publish(new(input.Id, "Cancelled", true));
+                Publish(new(input.Id, ShellText.CaptureRowCancelled, true));
             }
 
             _sessions.Cancel(sessionId, "manual-batch-cancelled");
@@ -299,9 +300,9 @@ public sealed class ManualImageIntake(
             .ConfigureAwait(false);
         return receipt.Disposition switch
         {
-            CaptureQueueDisposition.Accepted => new(true, $"Reading a {image.Width} × {image.Height} picture"),
-            CaptureQueueDisposition.Duplicate => new(false, "That picture was already read"),
-            _ => new(false, $"The picture was not taken in ({receipt.Code})"),
+            CaptureQueueDisposition.Accepted => new(true, ShellText.CaptureReadingPicture(image.Width, image.Height)),
+            CaptureQueueDisposition.Duplicate => new(false, ShellText.CaptureAlreadyRead),
+            _ => new(false, ShellText.CaptureNotTakenIn(receipt.Code)),
         };
     }
 
@@ -312,7 +313,7 @@ public sealed class ManualImageIntake(
     {
         for (var index = first; index < inputs.Count; index++)
         {
-            report(new(inputs[index].Id, "Cancelled", true));
+            report(new(inputs[index].Id, ShellText.CaptureRowCancelled, true));
         }
 
         return inputs.Count - first;
@@ -326,7 +327,7 @@ public sealed class ManualImageIntake(
         for (var index = first; index < prepared.Count; index++)
         {
             prepared[index].Source.Dispose();
-            report(new(prepared[index].Input.Id, "Cancelled", true));
+            report(new(prepared[index].Input.Id, ShellText.CaptureRowCancelled, true));
         }
 
         return prepared.Count - first;
