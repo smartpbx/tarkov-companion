@@ -106,6 +106,10 @@ public sealed class AmmoPageViewModel : PageViewModel
     private IReadOnlyList<AmmoPackContents> _packs = [];
     private OwnedAmmo _owned = OwnedAmmo.None;
 
+    // [#279] Reads in flight and reads finished, for HasLoaded.
+    private int _reading;
+    private bool _settled;
+
     public AmmoPageViewModel(
         IItemFactCatalog catalog,
         IItemRepository itemRepository,
@@ -241,6 +245,7 @@ public sealed class AmmoPageViewModel : PageViewModel
             // ranking is dropped with them rather than left on screen looking current.
             Reset();
             Status = snapshot.Data.Detail;
+            _settled = true;
             return;
         }
 
@@ -248,6 +253,13 @@ public sealed class AmmoPageViewModel : PageViewModel
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
+
+    /// <summary>
+    /// [#279] True once a read of the table has finished (with rows, none cached, or an error) and
+    /// no other read is running. The Windows gallery photographed "Reading the ammunition table…"
+    /// three times on one run; it now waits for this instead.
+    /// </summary>
+    public bool HasLoaded => _settled && _reading == 0;
 
     /// <summary>Rounds the player owns; <see cref="OwnedAmmo.None"/> until a profile is read.</summary>
     public OwnedAmmo Owned
@@ -275,6 +287,20 @@ public sealed class AmmoPageViewModel : PageViewModel
     }
 
     public async Task LoadAsync(CancellationToken cancellationToken)
+    {
+        _reading++;
+        try
+        {
+            await ReadAsync(cancellationToken).ConfigureAwait(true);
+        }
+        finally
+        {
+            _reading--;
+            _settled = true;
+        }
+    }
+
+    private async Task ReadAsync(CancellationToken cancellationToken)
     {
         try
         {

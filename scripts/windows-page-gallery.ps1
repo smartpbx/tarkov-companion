@@ -1509,6 +1509,7 @@ $V2AcceptanceWidths = @(
         routes = @("raid", "intel-ammo", "plan", "plan-loadout", "team", "setup") }
 )
 
+$V2DataPages = @("intel-ammo", "intel-crafts", "intel-stash", "intel-item", "setup")
 $V2AcceptanceRoutes = @(
     # [V2 rough package 46] The map card is the page. It was 0.641 x 0.727 of a 1920x1080 window
     # and is now 0.700 x 0.801; the floors below fail the old layout and leave the new one room.
@@ -1636,6 +1637,13 @@ foreach ($Route in $V2AcceptanceRoutes) {
         if ($Route.key -eq "raid" -and $Size.suffix -eq "1920-text150") {
             $Shot["galleryScene"] = "map"
             $Shot["args"] = @("--ui-shell", "v2-a", "--map", "customs")
+        }
+        # [#279] Pages that read their data after the window is up. Run 36032134540 photographed
+        # intel-ammo at three sizes while it said "Reading the ammunition table…". The "page"
+        # scene seeds nothing and answers "ready" once the page has read its data
+        # (GalleryPageReadiness), or "not-ready" naming what was still loading.
+        if ($V2DataPages -contains $Route.key) {
+            $Shot["galleryScene"] = "page"
         }
         $Headroom = if ($Size.width -ge 3840) { 0.15 } else { 0.0 }
         $EdgeBound = if ($Advisory) { -1 } else { [double](Get-InteractionProperty -Object $Route -Name "edge" -Default (-1)) }
@@ -1957,7 +1965,7 @@ foreach ($Shot in $Shots) {
         $LaunchArguments = @($Shot.args)
         $GalleryScene = [string](Get-InteractionProperty -Object $Shot -Name "galleryScene" -Default "")
         if ($GalleryScene.Length -gt 0) {
-            if ($GalleryScene -ne "map") { Backup-SceneState }
+            if ($GalleryScene -notin @("map", "page")) { Backup-SceneState }
             $ChannelRoot = Join-Path $env:TEMP ("tc-gallery-channel-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
             $ChannelToken = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
             $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN = $ChannelToken
@@ -2262,7 +2270,7 @@ function Write-GallerySummary {
     $Families = $Launched | Group-Object -Property {
         if ($_.shellMode -eq "legacy") { "legacy pages" }
         elseif ($_.page -match '^v2-a-.+-(1280x720|1500x900|1120x720|1920-text\d+)$') { "V2 matrix $($Matches[1])" }
-        elseif ($null -ne $_.readySeconds) { "V2 map scenes" }
+        elseif ($null -ne $_.readySeconds -and $_.page -match '^v2-a-raid-') { "V2 map scenes" }
         elseif ($_.page -match '^v2-a-') { "V2 routes 1920" }
         else { "other V2 and map renderer" }
     }

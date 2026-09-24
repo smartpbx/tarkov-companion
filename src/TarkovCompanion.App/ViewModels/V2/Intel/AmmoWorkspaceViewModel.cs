@@ -162,6 +162,9 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
 
     public string Status => _page.Status;
 
+    /// <summary>[#279] The table has been read and no read is running; the gallery waits for it.</summary>
+    public bool HasLoaded => _page.HasLoaded;
+
     /// <summary>The caliber column's second line: how many rounds, or what to do next.</summary>
     public string Detail => _page.Detail;
 

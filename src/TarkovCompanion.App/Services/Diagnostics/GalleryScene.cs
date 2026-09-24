@@ -4,6 +4,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Planning;
@@ -41,6 +42,12 @@ public enum GallerySceneKind
 
     /// <summary>[#286] Draw mode on, two lines of the player's and one of a squadmate's.</summary>
     Draw,
+
+    /// <summary>
+    /// [#279] Nothing seeded and no map: ready once the page on screen has read its data
+    /// (<see cref="GalleryPageReadiness"/>), so Ammo is not photographed while it is still reading.
+    /// </summary>
+    Page,
 }
 
 public static class GallerySceneKinds
@@ -48,7 +55,7 @@ public static class GallerySceneKinds
     public static GallerySceneKind Parse(string value) =>
         Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
             ? kind
-            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid or draw, not '{value}'.");
+            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw or page, not '{value}'.");
 }
 
 /// <summary>
@@ -117,6 +124,12 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
 
     public async Task RunAsync(GalleryReadiness readiness, CancellationToken cancellationToken)
     {
+        if (scene == GallerySceneKind.Page)
+        {
+            await RunPageAsync(readiness, cancellationToken).ConfigureAwait(true);
+            return;
+        }
+
         try
         {
             var raid = services.GetRequiredService<RaidCockpitViewModel>();
@@ -154,6 +167,52 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         {
             readiness.Failed($"{scene.ToString().ToLowerInvariant()} on {mapId}: {exception.Message}");
         }
+    }
+
+    /// <summary>
+    /// [#279] The <see cref="GallerySceneKind.Page"/> scene: waits until the page has read its
+    /// data and stayed that way for a second (a catalog sync finishing just after the first read
+    /// starts a second one), then answers. "settled" after a gallery step asks the same again.
+    /// </summary>
+    private async Task RunPageAsync(GalleryReadiness readiness, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (main.PreviewShell is not { } shell)
+            {
+                throw new InvalidOperationException("no V2 shell");
+            }
+
+            var what = await PageLoadedAsync(shell, cancellationToken).ConfigureAwait(true);
+            readiness.AfterStep = (_, token) => Dispatcher.UIThread.InvokeAsync(() => PageLoadedAsync(shell, token));
+            readiness.Ready($"page {shell.CurrentAddress}: {what}");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            readiness.Failed($"page {main.PreviewShell?.CurrentAddress}: {exception.Message}");
+        }
+    }
+
+    private static async Task<string> PageLoadedAsync(V2ShellViewModel shell, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + MapTimeout;
+        var quiet = 0;
+        var what = string.Empty;
+        while (quiet < 10)
+        {
+            var (loaded, page) = GalleryPageReadiness.Of(shell);
+            what = page;
+            quiet = loaded ? quiet + 1 : 0;
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new InvalidOperationException($"{page} still loading after {MapTimeout.TotalSeconds:0} s");
+            }
+
+            await Task.Delay(100, cancellationToken).ConfigureAwait(true);
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+        return $"{what} loaded";
     }
 
     private int _placedMarks;
