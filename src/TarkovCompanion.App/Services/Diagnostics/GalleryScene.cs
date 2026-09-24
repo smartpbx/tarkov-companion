@@ -219,6 +219,10 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
             throw new InvalidOperationException($"{exception.Message} (Plan: '{plan.MapNote}' '{group.RouteHint}', origin {(raid.ObjectiveRouteOrigin() is null ? "none" : "set")})");
         }
 
+        // Counted before "Open in Raid": since #807 the button marks the quests active, Plan rebuilds
+        // its groups, and this group's route is gone by the time the Raid map draws it.
+        var steps = group.Route!.Steps.Count;
+
         // "Open in Raid", the button a player presses.
         if (group.OpenInRaidCommand is AsyncDelegateCommand open)
         {
@@ -234,7 +238,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
             StepTimeout,
             "the objective route on the Raid map",
             cancellationToken).ConfigureAwait(true);
-        return $"{tasks.Count} quests, spawn '{spawn.Label}', {group.Route!.Steps.Count} route steps";
+        return $"{tasks.Count} quests, spawn '{spawn.Label}', {steps} route steps";
     }
 
     private async Task<string> SquadAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
