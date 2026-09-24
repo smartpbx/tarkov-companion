@@ -1,0 +1,322 @@
+[
+ {
+  "step": "five-minute waypoint",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "upsertMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000101"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5b000000-0000-4000-8000-000000000001"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+     "kind": "Waypoint",
+     "scope": "PairedDevice",
+     "lifetime": "FiveMinutes",
+     "state": {
+      "mapId": "customs",
+      "floorId": "ground",
+      "x": 10.5,
+      "y": -20.25,
+      "label": "Dorms",
+      "expiresUtc": "2026-09-14T20:05:00.000Z"
+     },
+     "coordinateSpace": "World",
+     "projectionVersion": "tarkov-dev-1",
+     "height": null,
+     "color": "#22D3EE"
+    }
+   }
+  }
+ },
+ {
+  "step": "private ping",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "upsertMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000102"
+    },
+    "requestedRevision": {
+     "value": 2
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5b000000-0000-4000-8000-000000000002"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+     "kind": "Ping",
+     "scope": "Private",
+     "lifetime": "Ping",
+     "state": {
+      "mapId": "customs",
+      "floorId": "ground",
+      "x": 11.0,
+      "y": -21.0,
+      "label": null,
+      "expiresUtc": null
+     },
+     "coordinateSpace": "World",
+     "projectionVersion": "tarkov-dev-1",
+     "height": null,
+     "color": "#C7A66B"
+    }
+   }
+  }
+ },
+ {
+  "step": "route stop 1",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "upsertMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000103"
+    },
+    "requestedRevision": {
+     "value": 3
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5b000000-0000-4000-8000-000000000003"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+     "kind": "Waypoint",
+     "scope": "PairedDevice",
+     "lifetime": "UntilRemoved",
+     "routeId": "7a000000-0000-4000-8000-000000000001",
+     "routeStep": 1,
+     "state": {
+      "mapId": "customs",
+      "floorId": "ground",
+      "x": 40.0,
+      "y": 5.0,
+      "label": null,
+      "expiresUtc": null
+     },
+     "coordinateSpace": "World",
+     "projectionVersion": "tarkov-dev-1",
+     "height": null,
+     "color": "#22D3EE"
+    }
+   }
+  }
+ },
+ {
+  "step": "route stop 2",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "upsertMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000104"
+    },
+    "requestedRevision": {
+     "value": 4
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5b000000-0000-4000-8000-000000000004"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+     "kind": "Waypoint",
+     "scope": "PairedDevice",
+     "lifetime": "UntilRemoved",
+     "routeId": "7a000000-0000-4000-8000-000000000001",
+     "routeStep": 2,
+     "state": {
+      "mapId": "customs",
+      "floorId": "ground",
+      "x": 60.0,
+      "y": 9.0,
+      "label": null,
+      "expiresUtc": null
+     },
+     "coordinateSpace": "World",
+     "projectionVersion": "tarkov-dev-1",
+     "height": null,
+     "color": "#22D3EE"
+    }
+   }
+  }
+ },
+ {
+  "step": "request control",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "requestControl",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000105"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "requestedLease": "00:02:00"
+   }
+  }
+ },
+ {
+  "step": "arm loot capture",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "requestCaptureIntent",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000106"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "intentId": {
+     "value": "6a000000-0000-4000-8000-000000000001"
+    },
+    "correlationId": "6a000000-0000-4000-8000-000000000002",
+    "captureSessionId": {
+     "value": "7b000000-0000-4000-8000-000000000001"
+    },
+    "intent": "Loot",
+    "context": {
+     "mapId": "customs",
+     "floorId": "ground",
+     "profileId": null,
+     "previousResultId": null,
+     "objectiveIds": [],
+     "planIds": [],
+     "markIds": []
+    }
+   }
+  }
+ },
+ {
+  "step": "navigate",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "controlWorkspace",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000107"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "action": {
+     "type": "navigate",
+     "workspace": "Raid",
+     "mapId": "customs",
+     "floorId": "ground",
+     "viewport": {
+      "center": {
+       "mapId": "customs",
+       "floorId": "ground",
+       "coordinateSpace": "World",
+       "projectionVersion": "tarkov-dev-1",
+       "x": 120.5,
+       "y": null,
+       "z": -40.25
+      },
+      "zoom": 2.5
+     }
+    }
+   }
+  }
+ }
+]

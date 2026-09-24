@@ -1,0 +1,36 @@
+{
+  "room": "9f2c0000000000000000000000000000000000000000000000000000000000aa",
+  "members": [
+    {
+      "name": "OldGeo",
+      "mapId": "customs",
+      "raidState": "InRaid",
+      "side": "pmc",
+      "x": 12.5,
+      "z": 44.0,
+      "heading": 90.0,
+      "positionAge": 4.0,
+      "loadout": ["AK-74N"],
+      "quests": ["Debut"],
+      "questIds": ["quest-debut"],
+      "y": 1.0,
+      "observed": [],
+      "sinceSeconds": 2.0,
+      "extracts": ["ZB-1011"],
+      "transits": [],
+      "raidClockSeconds": 1400.0,
+      "raidClockAge": 20.0,
+      "trail": [{ "x": 10.0, "z": 40.0, "age": 30.0, "y": null }]
+    }
+  ],
+  "serverUtc": "2026-09-16T20:00:00+00:00",
+  "waypoints": [
+    { "id": 4, "by": "OldGeo", "mapId": "customs", "x": 56.1, "y": -2.9, "z": 110.5, "label": "Dorms",
+      "createdUtc": "2026-09-16T19:59:00+00:00", "completedUtc": null, "completedBy": null }
+  ],
+  "pings": [
+    { "id": 5, "by": "OldGeo", "mapId": "customs", "x": 12.0, "y": 1.0, "z": 44.0, "label": null,
+      "createdUtc": "2026-09-16T19:59:50+00:00" }
+  ],
+  "protocol": 1
+}
