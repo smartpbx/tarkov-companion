@@ -26,21 +26,21 @@ internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : IS
             Now,
             [
                 new(
-                    "Install",
+                    SelfTestFolderPurpose.Install,
                     @"E:\Battlestate Games\EFT",
                     "it is where the game itself says it is installed",
                     true,
                     Now.AddDays(-11),
                     24),
                 new(
-                    "Logs",
+                    SelfTestFolderPurpose.Logs,
                     @"E:\Battlestate Games\EFT\Logs",
                     "it is the first of the game's usual log folders that exists",
                     true,
                     Now.AddDays(-6),
                     38),
                 new(
-                    "Screenshots",
+                    SelfTestFolderPurpose.Screenshots,
                     @"C:\Users\Player\Documents\Escape from Tarkov\Screenshots",
                     "of the folders that exist, it holds the newest screenshot",
                     true,

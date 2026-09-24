@@ -156,7 +156,8 @@ public sealed class WindowsEftPathLocator(
                     ErrorDetail(
                         "Saved game-folder settings could not be read",
                         configurationError,
-                        "Re-save them in Settings, then retry discovery."));
+                        "Re-save them in Settings, then retry discovery."),
+                    FaultOf(configurationError, "Saved game-folder settings could not be read", "Re-save them in Settings, then retry discovery."));
             }
 
             if (install is not null)
@@ -197,7 +198,8 @@ public sealed class WindowsEftPathLocator(
                 ErrorDetail(
                     "Escape from Tarkov installation discovery failed",
                     exception,
-                    "Retry discovery or choose valid folders in Settings."));
+                    "Retry discovery or choose valid folders in Settings."),
+                FaultOf(exception, "Escape from Tarkov installation discovery failed", "Retry discovery or choose valid folders in Settings."));
         }
     }
 
@@ -228,7 +230,8 @@ public sealed class WindowsEftPathLocator(
         EftInstallDiscoveryStatus status,
         EftPaths paths,
         string code,
-        string detail)
+        string detail,
+        string? fault = null)
     {
         EftInstallDiscoveryChanged? change = null;
         EftInstallDiscoverySnapshot result;
@@ -245,7 +248,10 @@ public sealed class WindowsEftPathLocator(
                 paths,
                 UtcNow(),
                 code,
-                detail);
+                detail)
+            {
+                Fault = fault,
+            };
             _current = result;
             if (changed)
             {
@@ -305,7 +311,14 @@ public sealed class WindowsEftPathLocator(
 
     private DateTimeOffset UtcNow() => _timeProvider.GetUtcNow().ToUniversalTime();
 
-    private static string ErrorDetail(string prefix, Exception exception, string recovery)
+    private static string ErrorDetail(string prefix, Exception exception, string recovery) =>
+        $"{prefix} ({FaultOf(exception, prefix, recovery)}). {recovery}";
+
+    /// <summary>
+    /// The exception's own message, bounded and on one line, as <see cref="ErrorDetail"/> puts it
+    /// between its words. [#314] Kept apart so the App can say the words around it.
+    /// </summary>
+    private static string FaultOf(Exception exception, string prefix, string recovery)
     {
         const int maximumDetailLength = 2048;
         var fixedLength = prefix.Length + recovery.Length + 5;
@@ -324,7 +337,7 @@ public sealed class WindowsEftPathLocator(
             message = "no additional detail";
         }
 
-        return $"{prefix} ({message}). {recovery}";
+        return message;
     }
 
     /// <summary>

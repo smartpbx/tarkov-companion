@@ -4074,5 +4074,17 @@
   "Setup.ProfileValue.Differ": "{0} ({1} differ)",
   "Setup.ProfileTransfer.NoActiveProfile": "There is no active profile; import it as a new one.",
   "Setup.ProfileTransfer.OtherMode": "This file is {0} and {1} is {2}. Import it as a new profile.",
-  "Setup.ProfileTransfer.UnknownMode": "an unknown mode"
+  "Setup.ProfileTransfer.UnknownMode": "an unknown mode",
+  "Setup.Probe.Purpose.Install": "Install",
+  "Setup.Probe.Purpose.Logs": "Logs",
+  "Setup.Probe.Purpose.Screenshots": "Screenshots",
+  "Setup.Discovery.Uninitialized": "Escape from Tarkov installation discovery has not run yet.",
+  "Setup.Discovery.Ready": "Escape from Tarkov installation and file roots are available.",
+  "Setup.Discovery.Recovered": "Escape from Tarkov installation discovery recovered; file observation can resume.",
+  "Setup.Discovery.Missing": "Escape from Tarkov is not installed or could not be found.",
+  "Setup.Discovery.MissingFix": "Install it or choose valid folders in Settings, then retry discovery.",
+  "Setup.Discovery.Disappeared": "The selected Escape from Tarkov installation is no longer available.",
+  "Setup.Discovery.DisappearedFix": "Reconnect its drive, reinstall, or choose valid folders in Settings.",
+  "Setup.Discovery.ConfigurationInvalid": "Saved game-folder settings could not be read ({0}). Re-save them in Settings, then retry discovery.",
+  "Setup.Discovery.Unavailable": "Escape from Tarkov installation discovery failed ({0}). Retry discovery or choose valid folders in Settings."
 }

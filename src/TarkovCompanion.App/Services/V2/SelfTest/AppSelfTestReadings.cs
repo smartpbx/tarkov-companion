@@ -106,24 +106,24 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
 
         return new(
             true,
-            snapshot.Detail,
+            SetupText.DiscoveryDetail(snapshot),
             snapshot.CheckedUtc,
             [
-                Describe("Install", snapshot.Paths.InstallRoot, SetupText.ProbeWhyInstall),
+                Describe(SelfTestFolderPurpose.Install, snapshot.Paths.InstallRoot, SetupText.ProbeWhyInstall),
                 Describe(
-                    "Logs",
+                    SelfTestFolderPurpose.Logs,
                     snapshot.Paths.LogRoot,
                     Matches(named.LogRoot, snapshot.Paths.LogRoot)
                         ? SetupText.ProbeWhyTyped
                         : SetupText.ProbeWhyFirstLogFolder),
                 Describe(
-                    "Screenshots",
+                    SelfTestFolderPurpose.Screenshots,
                     snapshot.Paths.ScreenshotRoot,
                     Matches(named.ScreenshotRoot, snapshot.Paths.ScreenshotRoot)
                         ? SetupText.ProbeWhyTyped
                         : SetupText.ProbeWhyNewestScreenshot),
             ],
-            snapshot.Status == EftInstallDiscoveryStatus.Unavailable ? snapshot.Detail : null);
+            snapshot.Status == EftInstallDiscoveryStatus.Unavailable ? SetupText.DiscoveryDetail(snapshot) : null);
     }
 
     public Task<SelfTestLogs> ReadLogsAsync(CancellationToken cancellationToken) =>
@@ -292,7 +292,7 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
             ? new(latency.Delivered, latency.SampleCount, latency.Median, latency.Slowest95, latency.Last)
             : SelfTestPositionLatency.None;
 
-    private SelfTestFolderReading Describe(string purpose, string? path, string why)
+    private SelfTestFolderReading Describe(SelfTestFolderPurpose purpose, string? path, string why)
     {
         var state = _folders.Read(path);
         return new(purpose, path, why, state.Exists, state.NewestWriteUtc, state.Entries, state.Problem);

@@ -71,15 +71,15 @@ public static class SelfTestProbes
                 : SetupText.ProbeFolderNeverChanged;
             if (folder.Path is null || !folder.Exists)
             {
-                broken.Add(folder.Purpose);
+                broken.Add(SetupText.ProbePurpose(folder.Purpose));
                 facts.Add(new(
-                    SetupText.ProbeFolderBroken(culture, folder.Purpose, folder.Problem ?? SetupText.ProbeFolderNotFound, folder.Why),
+                    SetupText.ProbeFolderBroken(culture, SetupText.ProbePurpose(folder.Purpose), folder.Problem ?? SetupText.ProbeFolderNotFound, folder.Why),
                     source));
                 continue;
             }
 
             facts.Add(new(
-                SetupText.ProbeFolderChosen(culture, folder.Purpose, folder.Path, folder.Why, folder.Entries, changed),
+                SetupText.ProbeFolderChosen(culture, SetupText.ProbePurpose(folder.Purpose), folder.Path, folder.Why, folder.Entries, changed),
                 source));
         }
 
@@ -121,8 +121,8 @@ public static class SelfTestProbes
     {
         logChanged = default;
         screenshotChanged = default;
-        var logs = reading.Folders.FirstOrDefault(folder => folder.Purpose == "Logs");
-        var shots = reading.Folders.FirstOrDefault(folder => folder.Purpose == "Screenshots");
+        var logs = reading.Folders.FirstOrDefault(folder => folder.Purpose == SelfTestFolderPurpose.Logs);
+        var shots = reading.Folders.FirstOrDefault(folder => folder.Purpose == SelfTestFolderPurpose.Screenshots);
         if (logs is not { Exists: true, ChangedUtc: { } logAt } || shots is not { Exists: true, ChangedUtc: { } shotAt })
         {
             return false;

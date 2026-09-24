@@ -1,14 +1,24 @@
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
+/// <summary>[#314] What a folder the self-test reads is for; the App words it.</summary>
+[PhraseCodes("Setup.Probe.Purpose")]
+public enum SelfTestFolderPurpose
+{
+    Install,
+    Logs,
+    Screenshots,
+}
+
 /// <summary>One folder the companion chose, why it chose it, and when it last changed.</summary>
-/// <param name="Purpose">"Install", "Logs" or "Screenshots".</param>
+/// <param name="Purpose">The install, the logs or the screenshots.</param>
 /// <param name="Why">How this path was arrived at, in one clause.</param>
 /// <param name="ChangedUtc">The newest write anywhere inside it, or null when it holds nothing.</param>
 public sealed record SelfTestFolderReading(
-    string Purpose,
+    SelfTestFolderPurpose Purpose,
     string? Path,
     string Why,
     bool Exists,

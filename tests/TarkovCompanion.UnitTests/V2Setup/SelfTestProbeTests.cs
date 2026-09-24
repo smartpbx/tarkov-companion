@@ -50,9 +50,9 @@ public sealed class SelfTestProbeTests
         {
             Folders =
             [
-                new("Install", null, "nothing on this machine looks like an install", false, null, 0, "not found"),
-                new("Logs", @"D:\Games\EFT\Logs", "it is the first that exists", true, Now, 4),
-                new("Screenshots", @"D:\Shots", "it holds the newest screenshot", true, Now, 9),
+                new(SelfTestFolderPurpose.Install, null, "nothing on this machine looks like an install", false, null, 0, "not found"),
+                new(SelfTestFolderPurpose.Logs, @"D:\Games\EFT\Logs", "it is the first that exists", true, Now, 4),
+                new(SelfTestFolderPurpose.Screenshots, @"D:\Shots", "it holds the newest screenshot", true, Now, 9),
             ],
         };
 
@@ -382,9 +382,9 @@ public sealed class SelfTestProbeTests
         "Escape from Tarkov installation and file roots are available.",
         Now,
         [
-            new("Install", @"D:\Games\EFT", "it is where the game itself says it is installed", true, Now.AddDays(-9), 22),
-            new("Logs", @"D:\Games\EFT\Logs", "it is the first of the game's usual log folders that exists", true, logsChanged, 41),
-            new("Screenshots", @"D:\Shots", "of the folders that exist, it holds the newest screenshot", true, Now.AddMinutes(-1), 620),
+            new(SelfTestFolderPurpose.Install, @"D:\Games\EFT", "it is where the game itself says it is installed", true, Now.AddDays(-9), 22),
+            new(SelfTestFolderPurpose.Logs, @"D:\Games\EFT\Logs", "it is the first of the game's usual log folders that exists", true, logsChanged, 41),
+            new(SelfTestFolderPurpose.Screenshots, @"D:\Shots", "of the folders that exist, it holds the newest screenshot", true, Now.AddMinutes(-1), 620),
         ]);
 
     internal static SelfTestLogs Logs() => new(
