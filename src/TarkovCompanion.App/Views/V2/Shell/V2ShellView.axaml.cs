@@ -10,7 +10,6 @@ using Avalonia.VisualTree;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Shell;
-using TarkovCompanion.Application.Services.Shell;
 
 namespace TarkovCompanion.App.Views.V2.Shell;
 
@@ -111,11 +110,6 @@ public sealed partial class V2ShellView : UserControl
 
     private void UpdateWidth()
     {
-        // [#266] Decided on the shell's own width, which is the window's divided by the interface
-        // scale: the scale is a layout transform above this view.
-        this.FindControl<Grid>("ShellRoot")?.Classes.Set(
-            "v2-topbar-short",
-            !ShellLayout.TopBarFitsInFull(Bounds.Width));
         if (_wiredShell is { } shell)
         {
             var focusedAutomationId = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is StyledElement focused

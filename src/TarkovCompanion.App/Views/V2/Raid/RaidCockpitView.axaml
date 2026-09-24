@@ -241,7 +241,7 @@
          this caption all sitting on real terrain because Fit fills the card. The map card is now
          the map plus the zoom group only; everything that used to float over it reads from the
          caption row below the card or the control strip under that. -->
-    <Grid Grid.Column="0" x:Name="MapColumn" RowDefinitions="*,Auto,Auto" RowSpacing="6" Margin="16,4,16,16">
+    <Grid Grid.Column="0" RowDefinitions="*,Auto,Auto" RowSpacing="6" Margin="16,4,16,16">
       <Border Grid.Row="0" x:Name="MapCard" Classes="v2-raid-mapcard">
         <Grid>
           <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself: that element's
@@ -326,11 +326,7 @@
         <!-- Keep the strip's established single row, but cap the two verbose status cells so the
              starred presentation column cannot collapse at 200% text scale. Their full text wraps
              inside the cell; the clock's secondary provenance remains available as help text. -->
-        <!-- [#266] Below ShellLayout.ControlStripOneRowMinimumWidth (150% and up at 1920 wide)
-             RaidCockpitView.axaml.cs moves the traffic chip and the presentation switches into
-             StripSecondRow, rather than the star column squeezing the floor switches to nothing. -->
-        <StackPanel>
-        <Grid x:Name="ControlStrip" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto"
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto"
               ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                       AutomationProperties.HelpText="{Binding TimeLeftDetail}">
@@ -361,7 +357,7 @@
                inside this one, is what lets the Grid shrink the star column for it on a busy map
                like Customs (mode segment, floor ladder and an off-plan chip) rather than the chip
                overlapping the buttons after it. -->
-          <map:MapPresentationControls x:Name="PresentationControls" Grid.Column="1" DataContext="{Binding Renderer}"
+          <map:MapPresentationControls Grid.Column="1" DataContext="{Binding Renderer}"
                                        HorizontalAlignment="Left" VerticalAlignment="Center" />
           <!-- [Issue 286] #591: the one compact chip, always the same words the project rule
                requires ("a prediction is never presented as live"). The basis lines that used to
@@ -370,7 +366,7 @@
                The phase switch and the heat legend are a press away in the Layers menu, under
                "Modelled traffic" — the strip is one row and has no room for both. -->
           <!-- [#307] One line at 100% text, wrapping only at larger text: see TrafficChipWidthConverter. -->
-          <Border Grid.Column="2" x:Name="TrafficChip" Classes="v2-raid-chip" VerticalAlignment="Center"
+          <Border Grid.Column="2" Classes="v2-raid-chip" VerticalAlignment="Center"
                   IsVisible="{Binding ShowsTrafficBanner}"
                   BorderBrush="{DynamicResource V2.Brush.Warning}"
                   ToolTip.Tip="{Binding TrafficBannerTooltip}"
@@ -492,8 +488,7 @@
                        Renderer from here up, for the layer list) by name rather than by walking
                        back up through a Popup. Gone with the layer, like the switch's own detail
                        text is for every other layer. -->
-                  <!-- [#266] The right margin keeps the legend's values clear of the menu's scroll bar. -->
-                  <StackPanel Spacing="6" Margin="0,0,14,0" DataContext="{Binding #MapCard.DataContext}"
+                  <StackPanel Spacing="6" DataContext="{Binding #MapCard.DataContext}"
                               x:DataType="vm:RaidCockpitViewModel"
                               IsVisible="{Binding ShowsTrafficBanner}"
                               AutomationProperties.AccessibilityView="Control"
@@ -529,42 +524,6 @@
                       <TextBlock Classes="v2-label" Text="Lower modelled traffic" />
                       <TextBlock Grid.Column="1" Classes="v2-label" Text="Higher" />
                     </Grid>
-                    <!-- [#266] The same legend as ordered text, so colour is not the only channel:
-                         the bands low to high with where each starts, then the busiest places
-                         highest first. A list a screen reader reads in order, not a picture. -->
-                    <ItemsControl ItemsSource="{Binding TrafficLegendBands}"
-                                  AutomationProperties.AutomationId="v2-raid-traffic-legend-bands"
-                                  AutomationProperties.AccessibilityView="Control"
-                                  AutomationProperties.Name="Traffic bands, low to high">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:TrafficLegendRow">
-                          <Grid ColumnDefinitions="18,*,Auto" ColumnSpacing="6" Margin="0,1"
-                                AutomationProperties.Name="{Binding AccessibleName}">
-                            <TextBlock Classes="v2-label" Text="{Binding Rank}" />
-                            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Label}" />
-                            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Value}" />
-                          </Grid>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="Busiest, highest first"
-                               IsVisible="{Binding HasTrafficLegendPlaces}" />
-                    <ItemsControl ItemsSource="{Binding TrafficLegendPlaces}"
-                                  IsVisible="{Binding HasTrafficLegendPlaces}"
-                                  AutomationProperties.AutomationId="v2-raid-traffic-legend-places"
-                                  AutomationProperties.AccessibilityView="Control"
-                                  AutomationProperties.Name="Busiest places, highest first">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:TrafficLegendRow">
-                          <Grid ColumnDefinitions="18,*,Auto" ColumnSpacing="6" Margin="0,1"
-                                AutomationProperties.Name="{Binding AccessibleName}">
-                            <TextBlock Classes="v2-label" Text="{Binding Rank}" />
-                            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Label}" />
-                            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Value}" />
-                          </Grid>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
                   </StackPanel>
                   </StackPanel>
                 </ScrollViewer>
@@ -657,9 +616,6 @@
             </Button.Flyout>
           </Button>
         </Grid>
-        <Grid x:Name="StripSecondRow" ColumnDefinitions="Auto,*" IsVisible="False" Margin="0,6,0,0"
-              ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}" />
-        </StackPanel>
       </Border>
     </Grid>
 
@@ -692,7 +648,7 @@
       </Panel>
     </Border>
 
-    <Border Grid.Column="2" x:Name="ContextPanel" Classes="v2-raid-panel"
+    <Border Grid.Column="2" Classes="v2-raid-panel"
             Width="{Binding ContextPanelWidth}" IsVisible="{Binding ShowsContextPanel}">
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
       <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">

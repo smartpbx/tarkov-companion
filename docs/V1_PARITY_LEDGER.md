@@ -68,7 +68,7 @@ the other thirteen resolved (#294 added it).
 | --- | --- | --- | --- | --- |
 | Status bar: map, raid, time left, last position, observation/data/scan health | The V2 header: map picker, profile, raid elapsed, data age, and one health pill that opens the health dialog | Replaced | #267 | `V2ShellStateTests`; gallery `shell-v2-a` |
 | Window position, size and monitor memory | `V2ShellWindowPlacement` plus `MainWindow.RestoreLayout`'s preview branch | Carried | #267 | `V2ShellPreviewStoreTests` |
-| Interface scale (Ctrl +/-/0, and Settings' Smaller/Larger/Reset) | Setup › Appearance, and the same three chords | Carried, **fixed by #294**, to 200% since #266 | #266 | Steps 90–200% (`ShellLayout.Scales`). Rendered at 1920x1080 at 150/175/200% with `tools/V2RenderPreview --interface-scale N`: below a 1100-wide shell the rail shows icons, below 1200 the top bar drops the name and freshness words, the Raid plan gives way so the map keeps 600, and the map strip takes a second row (`ShellLayoutTests`). Until #294 the transform lived inside the V1 host: the buttons were on screen under V2 and moved a number nothing applied |
+| Interface scale (Ctrl +/-/0, and Settings' Smaller/Larger/Reset) | Setup › Appearance, and the same three chords | Carried, **fixed by #294** | #266 | Rendered at 130% under V2 with `tools/V2RenderPreview --interface-scale 130`. Until this change the transform lived inside the V1 host: the buttons were on screen under V2 and moved a number nothing applied |
 | Replay a recorded raid onto the map | Debrief raises `ReplayRequested`; the shell opens it on the raid map and navigates there | Carried | #291 | `DebriefWorkspaceViewModelTests`; `V2ShellViewModel.WatchRaidAsync` |
 | Ctrl+1..9 to reach a page | V2's own chord table (`V2ShellViewModel.HandleKey`), which is variant-aware | Replaced | #265 | `V2ShellCommandTests`; `V2ShellHostContractTests.Preview_lifecycle_keyboard_and_focus_stay_inside_the_preview_boundary` |
 | `/` to focus the page's search box | The header search, or the workspace search in variant A's Intel | Replaced | #265 | `V2ShellHostContractTests` |
@@ -120,9 +120,8 @@ Checked against `main` on 2026-09-24. Closed since the list was written (2026-09
 
 Still open:
 
-- ~~Interface scale tops out at 130%.~~ It reaches 200% (#266, `ShellLayoutTests`,
-  `InterfaceScaleTests`). The Raid heat legend has an ordered text list beside its colour ramp
-  (#266, `TrafficLegendTests`), and the strip under the map says the raid state in the top bar's
-  words ("Raid unknown", not "Not in raid", before any evidence; `RaidPhaseLabelTests`).
+- **Interface scale tops out at 130%.** `ShellLayout.Scales` is still `[0.9, 1.0, 1.15, 1.3]`.
+  Text alone reaches 200% from Setup › Accessibility › Text size (#485, `WorkspacePreferences.TextScales`),
+  and 150%/200% of the whole window only through the operating system's display scaling. Owner: #266.
 - **Variant B is still shipped.** Two V2 navigations exist behind `--ui-shell v2-a|v2-b`. #265
   closed on 2026-09-17 without retiring either, so this has no open owner.
