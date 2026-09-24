@@ -95,7 +95,11 @@ public sealed record RelayResumeRequest(Guid TicketId, string DeviceKeyId);
 /// <summary>What the relay hands a caller to sign: see <see cref="RelayPossessionChallenges"/>.</summary>
 public sealed record RelayPossessionChallengeResponse(Guid ChallengeId, string NonceBase64Url, DateTimeOffset ExpiresUtc);
 
-public sealed record RelayResumeTicketResponse(Guid TicketId, DateTimeOffset ExpiresUtc, string? PairingCode);
+/// <remarks>
+/// [#846] <c>Refused</c> is additive: a page from before it ignores the field and times out as it
+/// always did, and a ticket nobody refused carries it as null.
+/// </remarks>
+public sealed record RelayResumeTicketResponse(Guid TicketId, DateTimeOffset ExpiresUtc, string? PairingCode, string? Refused = null);
 
 /// <summary>
 /// <see cref="Frame"/> is embedded as the exact bytes <see cref="CompanionProtocolJson"/> writes for
@@ -868,7 +872,7 @@ public static class RelayCompanionRoutes
         // Read by the device that was given the ticket; its id is the only thing that names it.
         app.MapGet("/v2/companion/relay/resume/requests/{ticketId:guid}", IResult (Guid ticketId) =>
             directory?.Tenants.Select(tenant => tenant.Tickets.Find(ticketId)).FirstOrDefault(found => found is not null) is { } ticket
-                ? Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, ticket.PairingCode))
+                ? Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, ticket.PairingCode, ticket.Refusal))
                 : Results.NotFound());
 
         // The owner's answer: the code of the offer it has just opened in the pairing mailbox.
@@ -897,6 +901,33 @@ public static class RelayCompanionRoutes
             }
 
             return tenant.Tickets.Answer(ticketId, code) ? Results.Ok() : Results.NotFound();
+        });
+
+        // [#846] The owner's "no". Without it a refused tablet only learned by timing out, 30 s a
+        // step once answered and a minute before that. Owner-only, one word from a fixed set.
+        app.MapPost("/v2/companion/relay/resume/requests/{ticketId:guid}/refusal", async Task<IResult> (
+            Guid ticketId,
+            string? reason,
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (directory is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal) ||
+                principal.Role != DeviceAuthorizationRole.Owner)
+            {
+                return Results.Unauthorized();
+            }
+
+            if (!RelayResumeRefusals.IsKnown(reason))
+            {
+                return Results.BadRequest("reason-required");
+            }
+
+            return tenant.Tickets.Refuse(ticketId, reason!) ? Results.Ok() : Results.NotFound();
         });
     }
 

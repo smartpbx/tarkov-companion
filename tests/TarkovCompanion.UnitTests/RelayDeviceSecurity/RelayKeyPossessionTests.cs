@@ -71,4 +71,38 @@ public sealed class RelayKeyPossessionTests
         clock.Advance(TimeSpan.FromMinutes(5));
         Assert.Null(tickets.Find(ticket.TicketId));
     }
+
+    [Fact]
+    public void ARefusedTicketIsNoLongerOfferedAndCannotBeAnswered()
+    {
+        // [#846] The desktop's "no" is what the tablet reads instead of waiting out its timeouts.
+        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
+        var tickets = new RelayResumeTickets(clock);
+        var ticket = tickets.Open(RelaySecurityTestFactory.DeviceKey("refused-ticket").KeyId);
+
+        Assert.True(tickets.Refuse(ticket.TicketId, RelayResumeRefusals.NotRecognised));
+        Assert.Empty(tickets.Unanswered());
+        Assert.False(tickets.Answer(ticket.TicketId, "ABCDE12345"));
+        Assert.True(tickets.Refuse(ticket.TicketId, RelayResumeRefusals.Failed));
+        Assert.Equal(RelayResumeRefusals.NotRecognised, tickets.Find(ticket.TicketId)!.Refusal); // the first one stands
+        Assert.Throws<ArgumentException>(() => tickets.Refuse(ticket.TicketId, "anything else"));
+        Assert.False(tickets.Refuse(Guid.NewGuid(), RelayResumeRefusals.Failed));
+    }
+
+    [Fact]
+    public void AnAnsweredTicketCanStillBeRefusedWhenTheHandshakeFails()
+    {
+        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
+        var tickets = new RelayResumeTickets(clock);
+        var ticket = tickets.Open(RelaySecurityTestFactory.DeviceKey("failed-ticket").KeyId);
+
+        Assert.True(tickets.Answer(ticket.TicketId, "ABCDE12345"));
+        Assert.True(tickets.Refuse(ticket.TicketId, RelayResumeRefusals.Failed));
+        var found = tickets.Find(ticket.TicketId)!;
+        Assert.Equal("ABCDE12345", found.PairingCode);
+        Assert.Equal(RelayResumeRefusals.Failed, found.Refusal);
+
+        clock.Advance(TimeSpan.FromMinutes(5));
+        Assert.False(tickets.Refuse(ticket.TicketId, RelayResumeRefusals.Failed));
+    }
 }
