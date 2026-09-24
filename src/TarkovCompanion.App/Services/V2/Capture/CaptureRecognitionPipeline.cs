@@ -54,6 +54,9 @@ public sealed class CaptureRecognitionPipeline(
     private readonly CanonicalItemResolverCache? _resolverCache = resolverCache;
     private readonly OcrTextNormalizer _normalizer = normalizer ?? new OcrTextNormalizer();
 
+    /// <summary>The diagnostic a frame read as the character screen's HEALTH tab carries.</summary>
+    public const string HealthTabDiagnostic = "health_tab_read";
+
     public event EventHandler<LootScanRecognitionStarted>? LootRecognitionStarted;
 
     public event EventHandler<LootScanItemMatched>? LootItemMatched;
@@ -99,6 +102,29 @@ public sealed class CaptureRecognitionPipeline(
             var ocrStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var coordinated = await _ocr.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
             stageTimeline?.Mark(request.CorrelationId, "context_ocr", ocrStopwatch.Elapsed);
+            // #287: the HEALTH tab draws the stash beside the body, so its anchors say Container.
+            // It is placed first, and never measured as a grid nobody asked about.
+            if (HealthScreenClassifier.Classify(coordinated.FullFrame) is { IsHealthTab: true } health)
+            {
+                if (progressStarted)
+                {
+                    LootRecognitionStopped?.Invoke(this, new(
+                        request.SessionId,
+                        request.ArtifactId,
+                        request.CorrelationId,
+                        request.DecodeRevision,
+                        WasCancelled: false));
+                }
+
+                return new(
+                    contentHash,
+                    RecognizedContext.HealthAndCharacter,
+                    IsAmbiguous: false,
+                    IsAvailable: true,
+                    HealthTabDiagnostic,
+                    health.Confidence);
+            }
+
             var detection = coordinated.Detection;
             var isAmbiguous = detection.Context == ScanContext.Unknown;
             var detectedContext = isAmbiguous ? (RecognizedContext?)null : Map(detection.Context, request.RequestedIntent);

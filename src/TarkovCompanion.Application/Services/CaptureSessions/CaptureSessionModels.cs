@@ -221,8 +221,10 @@ public sealed record CaptureSubmission
         CaptureCorrelationId correlationId,
         CaptureSessionId? sessionId = null,
         bool endSessionAfterReview = true,
-        string? batchId = null)
+        string? batchId = null,
+        string? reanalysisOf = null)
     {
+        ReanalysisOf = string.IsNullOrWhiteSpace(reanalysisOf) ? null : reanalysisOf.Trim();
         DeliveryKind = Enum.IsDefined(deliveryKind)
             ? deliveryKind
             : throw new ArgumentOutOfRangeException(nameof(deliveryKind));
@@ -270,6 +272,12 @@ public sealed record CaptureSubmission
     public bool EndSessionAfterReview { get; }
 
     public string? BatchId { get; }
+
+    /// <summary>
+    /// The artifact this frame is a deliberate second reading of (#287 "Read as…"), or null. Only
+    /// such a submission may carry pixels intake has already seen.
+    /// </summary>
+    public string? ReanalysisOf { get; }
 }
 
 public sealed record CaptureQueueReceipt(

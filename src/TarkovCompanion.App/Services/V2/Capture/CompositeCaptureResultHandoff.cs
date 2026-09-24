@@ -12,14 +12,16 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// default that returned Accepted and produced nothing, so a player who pointed Capture at an item
 /// screen got a progress bar and then silence. Those intents now reach
 /// <see cref="IntelCaptureHandoff"/>, which publishes whichever catalog item the frame was read
-/// as. Extracts, map and health screens still fall through: nothing reads those yet, and
-/// acknowledging is more honest than inventing an answer.
+/// as. Extracts, map and health screens reach <see cref="UnsupportedScreenHandoff"/>, which says
+/// what the screen was and that nothing reads it yet (#287).
 /// </remarks>
 public sealed class CompositeCaptureResultHandoff(
     LootScanCaptureHandoff lootScan,
     StashScanCaptureHandoff stashScan,
     IntelCaptureHandoff intel,
-    FleaCaptureHandoff? flea = null) : ICaptureResultHandoff
+    FleaCaptureHandoff? flea = null,
+    // #287: extracts, map and character screens say "not supported yet" instead of nothing.
+    UnsupportedScreenHandoff? unsupported = null) : ICaptureResultHandoff
 {
     private readonly LootScanCaptureHandoff _lootScan = lootScan ?? throw new ArgumentNullException(nameof(lootScan));
     private readonly StashScanCaptureHandoff _stashScan = stashScan ?? throw new ArgumentNullException(nameof(stashScan));
@@ -58,6 +60,8 @@ public sealed class CompositeCaptureResultHandoff(
             // rows still names its item where it can, as it did before.
             ScanIntent.Flea when flea is not null && request.Analysis.FleaListings.Count > 0 =>
                 flea.AcceptAsync(request, cancellationToken),
+            var intent when unsupported is not null && UnsupportedScreenHandoff.Intents.Contains(intent) =>
+                unsupported.AcceptAsync(request, cancellationToken),
             var intent when IntelCaptureHandoff.Intents.Contains(intent) =>
                 _intel.AcceptAsync(request, cancellationToken),
             _ => ValueTask.FromResult(CaptureHandoffResult.Accepted),

@@ -7,6 +7,7 @@ This companion is external and read-only toward Escape from Tarkov. It never acc
 | Material | Current handling | Privacy fact |
 | --- | --- | --- |
 | `SanitizedDiagnosticEvent` | In-memory primitive only | Closed typed record with no string properties; not persisted or exported yet. |
+| Last captured frame (#287) | In-memory only | One frame, copied before analysis wipes its lease, held 10 minutes so a result can be read again with **Read as…**; zeroed when replaced or expired, never written to disk. Every scan result shows an "Image not kept" chip. |
 | Crash recovery primitive | In-memory only | At most 12 copied sanitized events and 12 run boundaries; #270 owns any durable recovery storage. |
 | Desktop support bundle | Created on demand by the desktop | Closed, bounded projection containing fixed categories, booleans, capped counts, numeric build/platform facts, and screenshot-name compatibility counts. It does not open the log or render names, paths, coordinates, credentials, OCR/pixels, exception bodies, or other free-form runtime text. |
 | Problem report | Relay reports directory | The ordinary desktop sends that exact closed bundle, but the endpoint accepts any caller-supplied body and retains it verbatim. A validated public issue is limited to reference, size, and received UTC. |

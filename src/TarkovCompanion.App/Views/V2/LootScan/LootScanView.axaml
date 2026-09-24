@@ -3,7 +3,8 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan"
-             xmlns:local="using:TarkovCompanion.App.Views.V2.LootScan">
+             xmlns:local="using:TarkovCompanion.App.Views.V2.LootScan"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a section row. -->
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
@@ -269,6 +270,10 @@
                          AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding ContextLabel}" TextTrimming="CharacterEllipsis" />
               <TextBlock Classes="v2-label" Text="{Binding TimingSummary}" />
+              <!-- #287: where the pixels are, and Read as… for the same frame. -->
+              <Panel Margin="0,4,0,0" IsVisible="{Binding HasSource}">
+                <shellViews:ScanSourceStrip DataContext="{Binding Source}" />
+              </Panel>
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <!-- #572: an unobtrusive "the app will move itself back to the map" indicator, on

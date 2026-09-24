@@ -338,6 +338,84 @@ public sealed partial class V2ShellViewModel
         }
     }
 
+    private ScanSourceViewModel? _captureReviewSource;
+
+    /// <summary>#287: the retention chip and Read as… for the reviewed capture, or null.</summary>
+    public ScanSourceViewModel? CaptureReviewSource
+    {
+        get => _captureReviewSource;
+        private set
+        {
+            if (SetProperty(ref _captureReviewSource, value))
+            {
+                OnPropertyChanged(nameof(HasCaptureReviewSource));
+            }
+        }
+    }
+
+    public bool HasCaptureReviewSource => CaptureReviewSource is not null;
+
+    /// <summary>Sets what the review says about its frame. The capture bridge owns it.</summary>
+    public void ShowCaptureReviewSource(ScanSourceViewModel? source)
+    {
+        void Apply() => CaptureReviewSource = source;
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
+    /// <summary>#287: a frame read again as the stash lands on the Stash page, so go there.</summary>
+    public void ShowStashScan()
+    {
+        void Apply()
+        {
+            if (HasOpenDialog)
+            {
+                CloseDialog(restoreInvoker: false);
+            }
+
+            GoTo(V2Routes.Stash);
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
+    /// <summary>
+    /// Opens the capture panel on its review when no other dialog is up: a result with no page of
+    /// its own (#287, a screen nothing reads yet) must still be seen.
+    /// </summary>
+    public void OpenCaptureForReview()
+    {
+        void Apply()
+        {
+            if (!HasOpenDialog)
+            {
+                CaptureCommand.Execute(null);
+            }
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
     /// <summary>Closes the capture panel once a reviewed result has been opened on its own page.</summary>
     public void CloseCaptureAfterReview()
     {
