@@ -102,7 +102,7 @@ public sealed class RaidDebriefExportTests
         await using var json = new MemoryStream();
         await harness.History.ExportJsonAsync(json, CancellationToken.None);
         using var document = JsonDocument.Parse(json.ToArray());
-        Assert.Equal(3, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, document.RootElement.GetProperty("schemaVersion").GetInt32());
         var scan = document.RootElement.GetProperty("raids")[0].GetProperty("scans")[0];
         Assert.Equal("Graphics card", scan.GetProperty("itemName").GetString());
         Assert.Equal("inferred", scan.GetProperty("itemSource").GetString());

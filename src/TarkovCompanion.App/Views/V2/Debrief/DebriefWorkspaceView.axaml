@@ -156,6 +156,10 @@
           <Button Classes="v2-target v2-debrief-plain" IsVisible="{Binding HasArchived}"
                   AutomationProperties.AutomationId="v2-debrief-archived-toggle"
                   Content="{Binding ArchiveToggleLabel}" Command="{Binding ToggleArchivedCommand}" />
+          <!-- #269: raids from other profiles, modes and wipes are out of the list and totals until this. -->
+          <Button Classes="v2-target v2-debrief-plain" IsVisible="{Binding HasOtherContexts}"
+                  AutomationProperties.AutomationId="v2-debrief-context-toggle"
+                  Content="{Binding ContextToggleLabel}" Command="{Binding ToggleContextCommand}" />
         </StackPanel>
       </WrapPanel>
 
@@ -384,7 +388,10 @@
                         <TextBlock Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
                         <TextBlock Classes="v2-label" Text="{Binding TagsLabel}" IsVisible="{Binding HasTags}" />
                       </StackPanel>
-                      <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding Mode}" />
+                      <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Classes="v2-debrief-muted" Text="{Binding Mode}" />
+                        <TextBlock Classes="v2-label" Text="{Binding WipeLabel}" IsVisible="{Binding HasWipe}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding StartedLabel}" />
                       <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
                       <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8">

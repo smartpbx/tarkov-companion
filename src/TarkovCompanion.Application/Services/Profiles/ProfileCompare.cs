@@ -130,7 +130,8 @@ public sealed class ProfileCompareService(
         }
 
         var id = record.Context.Identity.ProfileId;
-        var own = history.Where(raid => raid.ProfileId == id).ToArray();
+        // [#269] This profile's raids in its mode and current wipe: last wipe's survival rate is not this one's.
+        var own = history.Where(raid => RaidContextRules.InContext(raid, record)).ToArray();
         var outcomes = own.Select(raid => RaidCoverage.Classify(raid.Outcome)).ToArray();
         return new(
             id,

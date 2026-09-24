@@ -1,4 +1,4 @@
-# Debrief export, schema version 3
+# Debrief export, schema version 4
 
 Debrief exports raid history as CSV or JSON from the buttons above the raid list. Every fact
 carries the kind of evidence behind it, so a figure the companion worked out is never mistaken for
@@ -24,29 +24,30 @@ raid it never saw end (fixed text, an inferred end) and a player's correction, w
 ## CSV
 
 One row per raid, first row is the header. Read columns by name. Version 2 kept version 1's eight
-columns first and unchanged; version 3 does the same to version 2's seventeen.
+columns first and unchanged; version 3 does the same to version 2's seventeen, and version 4 appends `wipe`.
 
 | Column | Meaning |
 | --- | --- |
 | `id`, `profile_id`, `map_id`, `mode` | As version 1. |
 | `start_local`, `end_local` | The player's own clock, `yyyy-MM-dd HH:mm:ss` (`LocalTime.SortableSeconds`), read by a spreadsheet as a date-time. Empty while the raid is in progress. The database keeps UTC; only what leaves the machine is converted. |
 | `outcome`, `notes` | As version 1. |
-| `schema_version` | `3`. |
+| `schema_version` | `4`. |
 | `map_source`, `mode_source`, `start_source`, `end_source`, `outcome_source`, `notes_source` | One of the four kinds, or empty. |
 | `scans` | How many scans were recorded during the raid. |
 | `scans_recognised` | How many of them named an item. |
 | `pmc_kills`, `scav_kills`, `boss_kills`, `value_roubles` | Typed by hand on the raid in Debrief. Empty until entered; a raid where the player entered `0` PMC kills reads `0`, not empty — zero is an answer, not "not asked". |
 | `pmc_kills_source`, `scav_kills_source`, `boss_kills_source`, `value_roubles_source` | `manual` where the field is entered, empty where it is not. Always `manual` where present: nothing else writes these fields. |
+| `wipe` | The profile's wipe label when the raid started (#269), empty where it cannot be placed. With `mode` it names the game each raid belongs to. |
 
 ## JSON
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "exportedUtc": "2026-09-19T12:00:00+00:00",
   "raids": [
     {
-      "id": "…", "profileId": "…", "mapId": "customs", "mode": "Regular",
+      "id": "…", "profileId": "…", "mapId": "customs", "mode": "Regular", "wipe": "Current wipe",
       "started": "2026-09-19T08:03:39-04:00", "ended": "2026-09-19T08:27:40-04:00", "outcome": "Survived", "notes": null,
       "pmcKills": 2, "scavKills": 1, "bossKills": 0, "valueRoubles": 450000,
       "sources": { "map": "observed", "mode": "inferred", "started": "observed",
@@ -76,10 +77,14 @@ sources (always `manual` where present) on `sources`. A field nobody typed is `n
 zero is a real answer the player entered, absence is that nobody was asked yet. Every version 2
 field keeps its name and place.
 
+Version 4 adds `wipe` beside `mode` (null where it cannot be placed). A raid row stores no wipe, so
+it is the label its profile had when the raid started (`ProfileWipeHistory`). The export covers
+every profile, mode and wipe; Debrief's list and stats show only the active one's by default.
+
 A scan the player marks wrong keeps its original event plus the correction in local history, but
 is omitted from scan counts and the exported scan list.
 
-## Not in version 3
+## Not in version 4
 
 Offered extracts (the `extracts` events an extract-list screenshot writes), the extract used
 (`extract-used`, typed or picked in Debrief) and archive state (`archive`) are recorded as raid
