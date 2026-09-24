@@ -1648,7 +1648,8 @@ $Shots.Add([pscustomobject]@{
     name = "v2-a-raid-loot-layer-1920"
     args = @("--ui-shell", "v2-a", "--map", "customs")
     shellMode = "v2-a"; width = 1920; height = 1080
-    # [#279] The map scene's readiness, then "loot": the loot pins drawn and settled, where a fixed
+    # [#279] The map scene's readiness, then "loot": the layer's pins drawn (or its "no loot data"
+    # state, which is what a runner without a loot publication shows) and settled, where a fixed
     # four seconds after the button used to be.
     galleryScene = "map"
     seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
@@ -1658,7 +1659,7 @@ $Shots.Add([pscustomobject]@{
             targetAutomationId = "v2-map-loot-preset"; targetControlType = "Button"
             timeoutSeconds = 120
         },
-        [pscustomobject]@{ action = "ready"; condition = "loot"; description = "the loot pins drawn" }) }
+        [pscustomobject]@{ action = "ready"; condition = "loot"; description = "the loot layer drawn" }) }
 })
 $Shots.Add([pscustomobject]@{
     name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"

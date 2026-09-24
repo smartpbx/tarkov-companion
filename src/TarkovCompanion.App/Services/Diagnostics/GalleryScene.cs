@@ -149,8 +149,8 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
     /// <summary>
     /// [#279] What the gallery waits for after one of its own steps, on the UI thread.
     /// "settled": the scene stopped changing (an extract selected, the map zoomed). "loot": the
-    /// high-value loot pins are drawn and settled; the layer builds after the button, and a fixed
-    /// four seconds was a guess at how long that takes on a runner.
+    /// high-value loot layer has drawn its pins, or has none to draw, and settled; a fixed four
+    /// seconds after the button was a guess at how long that takes on a runner.
     /// </summary>
     private async Task<string> AfterStepAsync(RaidCockpitViewModel raid, string condition, CancellationToken cancellationToken)
     {
@@ -159,10 +159,14 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
             case "settled":
                 break;
             case "loot":
+                // A runner has no loot publication (the layer says "no loot data"), so the answer is
+                // either the pins of the rows it lists or that there are no rows to draw.
                 await WaitForAsync(
-                    () => raid.Renderer?.PointMarkers.Any(item => item.SceneObject?.Kind is MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer) == true,
+                    () => raid.Renderer is { HighValueLoot: { } loot } renderer &&
+                        (loot.IsUnavailable || !loot.HasEntries ||
+                         renderer.PointMarkers.Any(item => item.SceneObject?.Kind is MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer)),
                     StepTimeout,
-                    "loot pins on the map",
+                    "the loot layer's pins or its empty state",
                     cancellationToken).ConfigureAwait(true);
                 break;
             default:
