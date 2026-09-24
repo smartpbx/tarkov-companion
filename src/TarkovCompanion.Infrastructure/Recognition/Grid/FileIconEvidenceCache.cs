@@ -35,10 +35,11 @@ public sealed record FileIconEvidenceCacheOptions(string CacheDirectory)
 ///
 /// Skia's whole-image codec call cannot observe managed cancellation while native code is running.
 /// The encoded-byte, dimension, and decoded-pixel ceilings bound that window; cancellation is
-/// checked immediately before and after it, and the directory lease permits only one such decode
-/// for this cache at a time. The cache has no network client and no relay/export surface by design.
+/// checked immediately before and after it. Listing and batch reads decode on at most half the
+/// machine's cores under one lease (#572), so the window per decode is unchanged. The cache has
+/// no network client and no relay/export surface by design.
 /// </remarks>
-public sealed class FileIconEvidenceCache : IIconEvidenceCache
+public sealed class FileIconEvidenceCache : IIconEvidenceCache, IIconEvidenceBatchReader
 {
     private const int SchemaVersion = 1;
     private const string FileSuffix = ".icon-evidence-v1.json";
@@ -164,6 +165,72 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
             : await TryReadAsync(path, key, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Reads, validates and decodes many entries under one lease, handing each decoded picture to
+    /// <paramref name="project"/> and keeping only what it returns.
+    /// </summary>
+    /// <remarks>
+    /// #572: the reference index used to call <see cref="GetAsync"/> once per icon from every
+    /// grid cell at once. Each call took the exclusive lease (a busy lease is retried every
+    /// 20 ms), listed the directory for stray temporary files, validated by decoding, and then the
+    /// caller decoded the same bytes a second time. One lease, one directory sweep and one decode
+    /// per icon is what this is for. Decodes run on at most <paramref name="maximumParallelism"/>
+    /// threads; each is still bounded by the same byte and pixel ceilings, so cancellation is
+    /// observed as promptly as for a single decode.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<IconEvidenceKey, T>> ReadDecodedAsync<T>(
+        IReadOnlyList<IconEvidenceKey> keys,
+        Func<IconContentEvidence, CapturedImage, T?> project,
+        int maximumParallelism,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(project);
+        cancellationToken.ThrowIfCancellationRequested();
+        var results = new System.Collections.Concurrent.ConcurrentDictionary<IconEvidenceKey, T>();
+        if (keys.Count == 0 || !Directory.Exists(_cacheDirectory))
+        {
+            return results;
+        }
+
+        await using var lease = await AcquireDirectoryLeaseAsync(cancellationToken).ConfigureAwait(false);
+        CleanupTemporaryFiles(cancellationToken);
+        await Parallel.ForEachAsync(
+                keys,
+                new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = Math.Max(1, maximumParallelism),
+                },
+                async (key, token) =>
+                {
+                    var path = GetPath(key);
+                    if (!File.Exists(path))
+                    {
+                        return;
+                    }
+
+                    T? projected = null;
+                    try
+                    {
+                        await ReadAsync(path, key, token, (evidence, image) => projected = project(evidence, image)).ConfigureAwait(false);
+                    }
+                    catch (Exception exception) when (IsDamagedCacheEntry(exception, token))
+                    {
+                        TryDeleteCacheArtifact(path);
+                        return;
+                    }
+
+                    if (projected is not null)
+                    {
+                        results[key] = projected;
+                    }
+                })
+            .ConfigureAwait(false);
+        return results;
+    }
+
     public async Task<IReadOnlyList<IconContentEvidence>> ListEvidenceAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -175,16 +242,25 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         await using var lease = await AcquireDirectoryLeaseAsync(cancellationToken).ConfigureAwait(false);
         CleanupTemporaryFiles(cancellationToken);
         var entries = EnumerateBoundedEntries(excludedPath: null, cancellationToken);
-        var evidence = new List<IconContentEvidence>(entries.Count);
-        foreach (var entry in entries)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var asset = await TryReadAsync(entry.Path, expectedKey: null, cancellationToken).ConfigureAwait(false);
-            if (asset is not null)
-            {
-                evidence.Add(asset.Evidence);
-            }
-        }
+        // #572: every entry is validated by a decode, 2.2 s for 5,320 icons one after another on
+        // dev; each is independent, so they run on half the machine (the order is restored below).
+        var evidence = new System.Collections.Concurrent.ConcurrentBag<IconContentEvidence>();
+        await Parallel.ForEachAsync(
+                entries,
+                new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2),
+                },
+                async (entry, token) =>
+                {
+                    var asset = await TryReadAsync(entry.Path, expectedKey: null, token).ConfigureAwait(false);
+                    if (asset is not null)
+                    {
+                        evidence.Add(asset.Evidence);
+                    }
+                })
+            .ConfigureAwait(false);
 
         return evidence
             .OrderBy(item => item.CanonicalItemId, StringComparer.Ordinal)
@@ -238,7 +314,8 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
     private async Task<IconContentEvidenceAsset> ReadAsync(
         string path,
         IconEvidenceKey? expectedKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<IconContentEvidence, CapturedImage>? observeDecoded = null)
     {
         byte[] serialized;
         await using (var stream = new FileStream(
@@ -324,7 +401,18 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
             throw new InvalidDataException("The cached icon content failed its SHA-256 check.");
         }
 
-        var decoded = Decode(document.Content, _options.MaximumDecodedPixels, cancellationToken);
+        var decoded = Decode(
+            document.Content,
+            _options.MaximumDecodedPixels,
+            cancellationToken,
+            observeDecoded is null ? null : (dimensions, fingerprint, image) =>
+            {
+                // Only a picture that is what the document says it is reaches the observer.
+                if (dimensions == evidence.Dimensions && fingerprint == evidence.Fingerprint)
+                {
+                    observeDecoded(evidence, image);
+                }
+            });
         if (decoded.Dimensions != evidence.Dimensions || decoded.Fingerprint != evidence.Fingerprint)
         {
             throw new InvalidDataException("The cached icon dimensions or fingerprint do not match its content.");
@@ -519,7 +607,8 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
     private static DecodedIcon Decode(
         byte[] content,
         long maximumDecodedPixels,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<IconPixelDimensions, IconFingerprintEvidence, CapturedImage>? observeDecoded = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var data = SKData.CreateCopy(content);
@@ -563,13 +652,16 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
                 DateTimeOffset.UnixEpoch,
                 "local icon evidence");
             var hash = SkiaPerceptualIconMatcher.ComputeDifferenceHash(image);
-            return new DecodedIcon(
+            var decoded = new DecodedIcon(
                 new IconPixelDimensions(source.Width, source.Height),
                 new IconFingerprintEvidence(
                     IconFingerprintAlgorithms.DifferenceHashLuminance9X8,
                     IconFingerprintAlgorithms.DifferenceHashLuminance9X8Version,
                     IconFingerprintAlgorithms.DifferenceHashLuminance9X8Bits,
                     hash));
+            // The pixels are cleared below, so an observer has to take what it needs now.
+            observeDecoded?.Invoke(decoded.Dimensions, decoded.Fingerprint, image);
+            return decoded;
         }
         finally
         {

@@ -169,6 +169,14 @@ public sealed class IconEvidenceIndexer(
                         report.AlreadyIndexed,
                         report.Stored,
                         report.Failed);
+
+                    // #572: describe every reference now, while nobody is waiting, instead of
+                    // inside the first Loot Scan of the session.
+                    var started = _timeProvider.GetTimestamp();
+                    await index.WarmAsync(_lifetime.Token).ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "Icon index: reference pictures described in {ElapsedMilliseconds} ms.",
+                        (long)_timeProvider.GetElapsedTime(started).TotalMilliseconds);
                 }
                 catch (OperationCanceledException)
                 {
