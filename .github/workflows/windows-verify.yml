@@ -719,8 +719,8 @@ jobs:
               Sort-Object LastWriteTime -Descending | Select-Object -First 1 |
               ForEach-Object { Get-Content -LiteralPath $_.FullName -Tail 40 }
           }
-          Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent $Current) "packages") -ErrorAction SilentlyContinue | Select-Object Name, Length
-          Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA "TarkovCompanion/Updates") -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent $Current) "packages") -ErrorAction SilentlyContinue | ForEach-Object { "packages\$($_.Name) $($_.Length)" }
+          Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA "TarkovCompanion/Updates") -Recurse -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName) $($_.Length)" }
 
           function Get-InstalledVersion {
             $Path = Join-Path $Current "BUILD_INFO.txt"
@@ -731,16 +731,22 @@ jobs:
             return $null
           }
 
+          # The version first, then the reopened process: a process standing in current\ before the
+          # updater has swapped the folder is not the reopened build.
           $Deadline = (Get-Date).AddSeconds(90)
           $Reopened = $null
+          $Applied = $null
           while ((Get-Date) -lt $Deadline) {
-            $Reopened = Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
-              Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
-              Select-Object -First 1
-            if ($Reopened) { break }
+            $Applied = Get-InstalledVersion
+            if ($Applied -ceq $env:TARKOV_BUILD_VERSION) {
+              $Reopened = Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
+                Select-Object -First 1
+              if ($Reopened) { break }
+            }
             Start-Sleep -Seconds 2
           }
-          $Applied = Get-InstalledVersion
+          "After $([int]((Get-Date) - $Deadline.AddSeconds(-90)).TotalSeconds)s: current\ is '$Applied', reopened: $([bool]$Reopened)"
           Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
             Stop-Process -Force -ErrorAction SilentlyContinue
