@@ -18,6 +18,13 @@ public static class UnitText
         UiText.Format("Units.Roubles", value.ToString("N0", culture ?? CultureInfo.CurrentCulture));
 
     /// <summary>
+    /// "12,345 ₽": the older pages' order, kept so their English does not move. A language table
+    /// may give both the same order.
+    /// </summary>
+    public static string RoublesAfter(long value, CultureInfo? culture = null) =>
+        UiText.Format("Units.RoublesAfter", value.ToString("N0", culture ?? CultureInfo.CurrentCulture));
+
+    /// <summary>
     /// "₽1.2M", "₽45k", "₽1.5k", "₽950": whole thousands from ten thousand up, one decimal below
     /// that and for millions. Below <paramref name="shortFrom"/> the full number is written.
     /// </summary>
@@ -42,7 +49,7 @@ public static class UnitText
     public static string Thousands(long thousands, CultureInfo? culture = null) =>
         UiText.Format("Units.Thousands", thousands.ToString("N0", culture ?? CultureInfo.CurrentCulture));
 
-    /// <summary>"1.25 kg".</summary>
-    public static string Kilograms(double value, CultureInfo? culture = null) =>
-        UiText.Format("Units.Kilograms", value.ToString("0.##", culture ?? CultureInfo.CurrentCulture));
+    /// <summary>"1.25 kg"; <paramref name="digits"/> is the number's format ("N2" writes "1.20 kg").</summary>
+    public static string Kilograms(double value, CultureInfo? culture = null, string digits = "0.##") =>
+        UiText.Format("Units.Kilograms", value.ToString(digits, culture ?? CultureInfo.CurrentCulture));
 }

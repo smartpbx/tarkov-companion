@@ -178,7 +178,7 @@ public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
 
     internal void ApplyRouteStep(ObjectiveRouteStep? step)
     {
-        RouteReason = step?.Reason ?? string.Empty;
+        RouteReason = step is null ? string.Empty : PlanText.ObjectiveRouteReason(step.Reason);
         RouteDistanceLabel = step is null
             ? string.Empty
             : PlanText.Metres(step.LegDistanceMetres);
@@ -1266,7 +1266,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
                     .Run(() => _eventRuleService.ReadActiveAsync(cancellationToken), cancellationToken)
                     .ConfigureAwait(true);
                 _activeEventRules = eventRules.Active;
-                var summary = EventRuleText.ActiveSummary(_activeEventRules);
+                var summary = PlanText.EventRuleActiveSummary(_activeEventRules);
                 EventRuleSummary = eventRules.InvalidDefinitions.Count > 0
                     ? string.Join(" · ", new[] { summary, PlanText.EventRuleFilesNeedAttention(eventRules.InvalidDefinitions.Count) }.Where(value => value.Length > 0))
                     : summary;
@@ -2193,7 +2193,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
         var route = ObjectiveRoutePlanner.Plan(origin.At, origin.Label, stops, origin.UnitsPerMetre);
         group.ApplyRoute(route, string.Empty, group.Objectives.Count - stops.Count);
-        return ObjectiveRouteSceneBuilder.Build(route, origin.At, nowUtc);
+        return ObjectiveRouteSceneBuilder.Build(route, origin.At, nowUtc, PlanText.ObjectiveRouteWords());
     }
 
     private void MapPreviewViewChangeRequested(MapSceneViewChange change)

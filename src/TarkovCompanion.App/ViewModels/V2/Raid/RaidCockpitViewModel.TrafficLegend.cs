@@ -55,14 +55,16 @@ internal static class TrafficLegend
     public static IReadOnlyList<TrafficLegendRow> Places(IEnumerable<TrafficHotspot> hotspots) =>
     [
         .. hotspots
-            .Where(hotspot => double.IsFinite(hotspot.Intensity) && !string.IsNullOrWhiteSpace(hotspot.Name))
-            .OrderByDescending(hotspot => hotspot.Intensity)
-            .ThenBy(hotspot => hotspot.Name, StringComparer.CurrentCulture)
+            .Where(hotspot => double.IsFinite(hotspot.Intensity))
+            .Select(hotspot => (Hotspot: hotspot, Name: RaidText.HotspotName(hotspot)))
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Name))
+            .OrderByDescending(pair => pair.Hotspot.Intensity)
+            .ThenBy(pair => pair.Name, StringComparer.CurrentCulture)
             .Take(MaximumPlaces)
-            .Select((hotspot, index) => new TrafficLegendRow(
+            .Select((pair, index) => new TrafficLegendRow(
                 (index + 1).ToString(CultureInfo.CurrentCulture),
-                hotspot.Name,
-                $"{RaidCockpitViewModel.TrafficLevel(hotspot.Intensity)} · {Percent(hotspot.Intensity)}")),
+                pair.Name,
+                $"{RaidCockpitViewModel.TrafficLevel(pair.Hotspot.Intensity)} · {Percent(pair.Hotspot.Intensity)}")),
     ];
 
     /// <summary>Whole percent, rounded down.</summary>

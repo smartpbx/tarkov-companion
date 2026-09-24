@@ -16,6 +16,17 @@ public sealed record ObjectiveRouteScene(
 /// <summary>An objective's own pin already on the map, which a route stop can number instead of adding one.</summary>
 public sealed record ObjectiveRoutePin(string ObjectiveId, MapSceneObjectId PinId, MapScenePoint At);
 
+/// <summary>The words the route is drawn with, from the App's string table (#314).</summary>
+/// <param name="LayerName">The layer's name in the layer list.</param>
+/// <param name="LineTitle">The line's label.</param>
+/// <param name="LineDetail">What the line is not: it says walls, terrain, safety and live conditions are not modelled.</param>
+/// <param name="Reason">A step's reason, as a sentence.</param>
+public sealed record ObjectiveRouteSceneWords(
+    string LayerName,
+    string LineTitle,
+    string LineDetail,
+    Func<ObjectiveRouteReason, string> Reason);
+
 /// <summary>Draws a planned objective visit order as one line and numbered waypoint markers.</summary>
 public static class ObjectiveRouteSceneBuilder
 {
@@ -33,9 +44,11 @@ public static class ObjectiveRouteSceneBuilder
         ObjectiveRouteBundle route,
         MapScenePoint start,
         DateTimeOffset nowUtc,
+        ObjectiveRouteSceneWords words,
         IReadOnlyList<ObjectiveRoutePin>? pins = null)
     {
         ArgumentNullException.ThrowIfNull(route);
+        ArgumentNullException.ThrowIfNull(words);
         var provenance = new DataProvenance("objective-route-planner", nowUtc.ToUniversalTime());
         var objects = new List<MapSceneObject>(route.Steps.Count + 1);
         var badges = new Dictionary<MapSceneObjectId, string>();
@@ -46,8 +59,8 @@ public static class ObjectiveRouteSceneBuilder
                 LayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.PersonalPlan,
-                "Objective visit order",
-                "Straight-line plan; walls, terrain, safety and live conditions are not modelled.",
+                words.LineTitle,
+                words.LineDetail,
                 new(MapSceneGeometryKind.Line, [start, .. route.Steps.Select(step => step.At)]),
                 [],
                 provenance));
@@ -68,13 +81,13 @@ public static class ObjectiveRouteSceneBuilder
                 MapSceneObjectKind.Waypoint,
                 MapSceneTruthKind.PersonalPlan,
                 number,
-                $"{step.Label}\n{step.Reason}",
+                $"{step.Label}\n{words.Reason(step.Reason)}",
                 MapSceneGeometry.At(step.At),
                 step.FloorIds,
                 provenance));
         }
 
-        return new(new(LayerId, "Objective route", 62, true), objects, badges);
+        return new(new(LayerId, words.LayerName, 62, true), objects, badges);
     }
 
     private static MapSceneObjectId? PinFor(

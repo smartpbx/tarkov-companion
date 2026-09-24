@@ -300,7 +300,7 @@ public sealed class LoadoutIntelligenceTests
         Assert.Equal(227_000, result.ApproximateCostRoubles);
         Assert.Equal(13, result.ApproximateWeightKg);
         Assert.Equal("D", result.AmmoTier);
-        Assert.Contains(result.Warnings, x => x.Contains("weak relative", StringComparison.Ordinal));
+        Assert.Contains(result.Warnings, x => x.Kind == LoadoutFindingKind.WeakAmmunitionForKit);
     }
 
     [Fact]
@@ -317,7 +317,7 @@ public sealed class LoadoutIntelligenceTests
 
         var result = await service.EvaluateAsync(selection, null, CancellationToken.None);
 
-        Assert.DoesNotContain(result.CompatibilityIssues, x => x.Contains("does not match", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.CompatibilityIssues, x => x.Kind == LoadoutFindingKind.CaliberMismatch);
     }
 
     [Fact]
@@ -342,9 +342,9 @@ public sealed class LoadoutIntelligenceTests
         var result = await service.EvaluateAsync(selection, null, CancellationToken.None);
 
         Assert.False(result.IsCompatible);
-        Assert.Contains(result.CompatibilityIssues, x => x.Contains("does not match", StringComparison.Ordinal));
-        Assert.Contains(result.CompatibilityIssues, x => x.Contains("not compatible with the selected weapon", StringComparison.Ordinal));
-        Assert.Contains(result.CompatibilityIssues, x => x.Contains("not compatible with the selected armor", StringComparison.Ordinal));
+        Assert.Contains(result.CompatibilityIssues, x => x.Kind == LoadoutFindingKind.CaliberMismatch);
+        Assert.Contains(result.CompatibilityIssues, x => x.Kind == LoadoutFindingKind.MagazineDoesNotFitWeapon);
+        Assert.Contains(result.CompatibilityIssues, x => x.Kind == LoadoutFindingKind.PlateDoesNotFit);
     }
 
     private static IEnumerable<LoadoutItemFacts> Catalog()

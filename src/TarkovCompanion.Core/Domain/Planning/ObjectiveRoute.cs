@@ -15,10 +15,27 @@ public sealed record ObjectiveRouteStep(
     string Label,
     MapScenePoint At,
     double LegDistanceMetres,
-    string Reason)
+    ObjectiveRouteReason Reason)
 {
     public IReadOnlyList<string> FloorIds { get; init; } = [];
 }
+
+/// <summary>Why a stop has its place in the order; the App says it (#314).</summary>
+public enum ObjectiveRouteReasonKind
+{
+    /// <summary>The nearest unvisited objective from <see cref="ObjectiveRouteReason.Previous"/>.</summary>
+    NearestFrom,
+
+    /// <summary>2-opt moved it here from step <see cref="ObjectiveRouteReason.Step"/> to shorten the route.</summary>
+    MovedByTwoOpt,
+
+    /// <summary>Still step <see cref="ObjectiveRouteReason.Step"/>; 2-opt reordered the stops before it.</summary>
+    KeptByTwoOpt,
+}
+
+/// <param name="Previous">The stop or start it is nearest from, for <see cref="ObjectiveRouteReasonKind.NearestFrom"/>.</param>
+/// <param name="Step">The step number the reason names.</param>
+public sealed record ObjectiveRouteReason(ObjectiveRouteReasonKind Kind, string Previous = "", int Step = 0);
 
 /// <summary>
 /// A deterministic straight-line visiting order. It is a personal plan, not a safe or live route.

@@ -523,7 +523,7 @@ public sealed class EventRuleEditorViewModel : BindableViewModel
         else
         {
             Preview = effects > 0
-                ? PlanText.EventsWhileActive(EventRuleText.Preview(_result.Parsed.Rules))
+                ? PlanText.EventsWhileActive(PlanText.EventRulePreview(_result.Parsed.Rules))
                 : PlanText.EventsNoTypedEffects;
             Status = PlanText.EventsEffectsValidated(effects);
         }
