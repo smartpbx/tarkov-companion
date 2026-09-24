@@ -1,0 +1,51 @@
+{
+  "name": "TodayClay",
+  "mapId": "customs",
+  "raidState": "InRaid",
+  "side": "pmc",
+  "x": 56.16,
+  "z": 110.52,
+  "heading": 214.5,
+  "positionAge": 1.2,
+  "loadout": [],
+  "quests": [
+    "Debut"
+  ],
+  "sinceSeconds": null,
+  "questIds": [
+    "quest-debut"
+  ],
+  "gameMode": "pvp",
+  "ready": true,
+  "plannedExtract": "ZB-1011",
+  "note": "rotating north",
+  "y": null,
+  "objectives": [
+    {
+      "task": "quest-debut",
+      "id": "objective-shoot",
+      "count": 3
+    }
+  ],
+  "observed": [],
+  "trail": [],
+  "extracts": [],
+  "transits": [],
+  "raidClockSeconds": null,
+  "raidClockAge": null,
+  "drawings": [
+    {
+      "id": "line-1",
+      "mapId": "customs",
+      "points": [
+        10,
+        20,
+        15.5,
+        25.3,
+        30,
+        40
+      ],
+      "floor": "ground"
+    }
+  ]
+}

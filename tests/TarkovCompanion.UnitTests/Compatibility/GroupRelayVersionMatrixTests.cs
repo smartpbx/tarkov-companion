@@ -72,6 +72,7 @@ public sealed class GroupRelayVersionMatrixTests
 
         var reply = await relay.PublishAsync(CompatibilityFixtures.Read("group-publish-v2-rough-1.json"));
         var room = JsonSerializer.Deserialize<Rough1RoomStateDto>(reply.Json!, Web)!;
+        Assert.NotNull(JsonNode.Parse(reply.Json!)!["members"]![0]!["drawings"]);
 
         var geo = Assert.Single(room.Members);
         Assert.Equal("Geo", geo.Name);
@@ -111,6 +112,7 @@ public sealed class GroupRelayVersionMatrixTests
     [InlineData("group-reply-v2-rough-1.json", "OldGeo")]
     [InlineData("group-reply-53a3b743.json", "MidGeo")]
     [InlineData("group-reply-newer.json", "NewGeo")]
+    [InlineData("group-reply-today.json", "TodayGeo")]
     public async Task TheCurrentDesktopReadsEveryRelayGeneration(string fixture, string name)
     {
         var reply = CompatibilityFixtures.Node(fixture);
@@ -133,6 +135,10 @@ public sealed class GroupRelayVersionMatrixTests
         Assert.Equal(sent["note"]?.GetValue<string>(), member.Note);
         Assert.Equal(sent["gameMode"]?.GetValue<string>(), member.GameMode);
         Assert.Equal(sent["objectives"]?.AsArray().Count ?? 0, member.Objectives.Count);
+        // #286: a relay that predates lines passes none, which reads as "nothing drawn".
+        Assert.Equal(
+            sent["drawings"]?.AsArray().Select(line => line!["points"]!.AsArray().Count / 2) ?? [],
+            member.Drawings.Select(line => line.Points.Count));
         Assert.Equal(reply["waypoints"]!.AsArray().Count, group.Waypoints.Count);
         Assert.Equal(reply["pings"]!.AsArray().Count, group.Pings.Count);
         // #290: a relay that predates mark colours reads as "no colour", never as a default claim;
@@ -191,17 +197,21 @@ public sealed class GroupRelayVersionMatrixTests
     [Theory]
     [InlineData("group-publish-v2-rough-1.json")]
     [InlineData("group-publish-53a3b743.json")]
+    [InlineData("group-publish-today.json")]
     public async Task TheCurrentDesktopsPublishCarriesEverythingAnOlderRelayBinds(string fixture)
     {
         var handler = new FixedRelay(CompatibilityFixtures.Read("group-reply-53a3b743.json"));
         var status = new GroupSquadStatus();
         status.Set(new SquadStatus(true, "ZB-1011", "customs", "rotating north"));
         await using var session = Session(handler, status, out _);
+        session.Drawings.Set([TodaysLine]);
 
         session.Start();
         Assert.True(await WaitAsync(() => !handler.Published.IsEmpty));
 
         var current = JsonNode.Parse(handler.Published.First())!.AsObject();
+        // #286: the lines are one more field, which an older relay's binder drops.
+        Assert.Equal(TodaysLine.Points.Count * 2, current["drawings"]![0]!["points"]!.AsArray().Count);
         var old = CompatibilityFixtures.Node(fixture).AsObject();
         foreach (var (key, value) in old)
         {
@@ -218,6 +228,69 @@ public sealed class GroupRelayVersionMatrixTests
         Assert.True(current["ready"]!.GetValue<bool>());
     }
 
+    /// <summary>
+    /// #286/#290: today's desktop publish, as recorded, is accepted by the current relay and a
+    /// squadmate gets its lines back; nothing about it is refused for carrying them.
+    /// </summary>
+    [Fact]
+    public async Task TodaysPublishReachesACurrentSquadmateWithItsLines()
+    {
+        var relay = new InProcessRelay();
+        var today = CompatibilityFixtures.Node("group-publish-today.json");
+
+        var refused = await relay.PublishAsync(CompatibilityFixtures.Read("group-publish-today.json"));
+        var reply = await relay.PublishAsync(CurrentMember("Geo"));
+
+        Assert.Null(refused.Refusal);
+        var member = Assert.Single(reply.Room!.Members);
+        Assert.Equal("TodayClay", member.Name);
+        Assert.True(member.Ready);
+        Assert.Equal(today["drawings"]![0]!["points"]!.AsArray().Select(value => value!.GetValue<double>()), Assert.Single(member.Drawings!).Points);
+        Assert.Equal("ground", member.Drawings![0].Floor);
+    }
+
+    /// <summary>
+    /// The golden reply for today's relay is what the current relay really writes: every path in it,
+    /// coloured marks and a member's lines included, comes out of the relay's own exchange. When a
+    /// later build renames one of them, this is the test that says the recorded "today" went stale.
+    /// </summary>
+    [Fact]
+    public async Task TodaysGoldenReplyIsWhatTheCurrentRelayWrites()
+    {
+        var relay = new InProcessRelay();
+        var mark = JsonSerializer.Deserialize<MarkRequest>(CompatibilityFixtures.Read("group-mark-v2-rough-1.json"), Web)!;
+        await relay.PublishAsync(CurrentMember("TodayGeo"));
+        relay.AddWaypoint(mark with { By = "TodayGeo", Color = "#009e73" });
+        relay.AddPing(mark with { By = "TodayGeo", Label = null, Color = "#56B4E9" });
+
+        // A member's own reply leaves it out, so it is read as its squadmate.
+        var reply = await relay.PublishAsync(CurrentMember("TodayClay"));
+
+        var golden = CompatibilityFixtures.Node("group-reply-today.json");
+        Assert.Empty(CompatibilityFixtures.Missing(JsonNode.Parse(reply.Json!)!, CompatibilityFixtures.PathsOf(golden)));
+    }
+
+    /// <summary>
+    /// #290: a mark from a desktop that predates colours comes back from the current relay with no
+    /// colour field at all, the shape every reader before #290 was written against.
+    /// </summary>
+    [Fact]
+    public async Task AnOlderDesktopsUncolouredMarkComesBackWithoutAColourField()
+    {
+        var relay = new InProcessRelay();
+        var mark = JsonSerializer.Deserialize<MarkRequest>(CompatibilityFixtures.Read("group-mark-v2-rough-1.json"), Web)!;
+        Assert.Null(mark.PaletteColor);
+        relay.AddWaypoint(mark);
+        relay.AddPing(mark with { Label = null });
+
+        var reply = JsonNode.Parse((await relay.PublishAsync(CompatibilityFixtures.Read("group-publish-v2-rough-1.json"))).Json!)!;
+
+        Assert.False(reply["waypoints"]![0]!.AsObject().ContainsKey("color"));
+        Assert.False(reply["pings"]![0]!.AsObject().ContainsKey("color"));
+    }
+
+    private static readonly GroupDrawingView TodaysLine = new("line-1", "customs", "ground", [(10.0, 20.0), (15.5, 25.3), (30.0, 40.0)]);
+
     private static string CurrentMember(string name) => JsonSerializer.Serialize(
         new GroupMemberState(name, "customs", "InRaid", "pmc", 12.5, 44.0, 90, 4, [], ["Debut"])
         {
@@ -227,6 +300,8 @@ public sealed class GroupRelayVersionMatrixTests
             Ready = true,
             PlannedExtract = "ZB-1011",
             Note = "rotating north",
+            // #286: so every older reader below meets a member's lines and has to ignore them.
+            Drawings = [new GroupDrawingState("line-1", "customs", [10.0, 20.0, 15.5, 25.3, 30.0, 40.0]) { Floor = "ground" }],
         },
         Web);
 

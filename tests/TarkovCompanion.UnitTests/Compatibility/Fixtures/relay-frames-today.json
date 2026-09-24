@@ -1,0 +1,36 @@
+{
+  "protocolVersion": 2,
+  "requiresReconnect": false,
+  "serverUtc": "2026-09-15T12:00:00+00:00",
+  "frames": [
+    {
+      "deliveryId": 1,
+      "frame": {
+        "protocolVersion": {
+          "major": 2,
+          "minor": 0
+        },
+        "channelId": {
+          "value": "7b000000-0000-4000-8000-000000000001"
+        },
+        "sessionId": {
+          "value": "7f000000-0000-4000-8000-000000000001"
+        },
+        "keyEpoch": 1,
+        "senderSequence": 1,
+        "cipherSuite": "P256HkdfSha256Aes256Gcm",
+        "nonceBase64Url": "AAAAAQAAAAAAAAAB",
+        "ciphertextLength": 1288,
+        "ciphertextChunksBase64Url": [
+          "pGL1vKE6gfY4InmKqlZJbtCJDtE-cLD5R5BpSe0ZBCVC7E98U_edZRhnmSdidQYPbExtUMKknL4DAUwCFQg6aapi0WVE5oajcDQ_EIjAelmIxCnM4fKlNJmMzAQHSy77zrtqPi2X3sTTHGrJO2LU7k6_jcPmi4aBMhYteNzcFjVudFp5x2fDbEfy9hrqWcRsDL_Lq5RWXu4E7vjEgkzWZTNwfpn5XUbsOe9L8GQlLZZ6pcpGxShTohgv7pNRDj_OdOUWNiY44as0piHjkjxJ72k8LctMDwsC9CkRtWS7q5sfZBlxVzGB23k0y-TH1xIG-geOyEqUkUiiPUPmt_4Up9ZODMPXJtr8WBVVgRJl2g6r5DVrAxI7_IieP4kBEpRgrUgTmrPDoRkAPyYXlRl2-QtV0hCWL0cg2J3_CjEt_v4trDBmrFwtAdZ251i8Y95MPHCESh5U6sFjuRAQNTWlKPVaXHRMOrdWJNzw43iUYrRAtKv4DxHV1WdL586U3cNH-rBxPwG91UwEmFI2P8miZz-ddqoIeMiHaPUk6qBbDJ7iAHN2ag7OHhh5e62dyWPRL64l-rElIsAVt3iIQKcpuPY1wjuPzbA_q5SCpk9A2a4VZLhQh931UwCz5bCS8Lwtdu0Is1FDUzDy09lDidr9ey5RijuaOOcEio_Ihg_yztyEZ_fbOueAlbO2M6UUuRgsuA6Zv5YTTRNhTZFKp0wxhq72JPV0JrJmt_e-SZomyhTRfZZtERr65CSIrdAVnj1zPq1bZKAr940ToFic7D_NRHBOS-qutgNAB2MSx5a6oBMXEk-8pP7uteN5bMO1Y4Aa_zY7e8rFjY2h8Obt3zbeEBeMDjlF1IaGHJpXmlf-xVXAl5fHF_r8cPQ1--FWEClGXGEVL9gPoxywcf0D1UTydHo9LQk_d2vZ99Irc7JP6KujWavoNcF0SrOuS5INezenZyZxeMixcCFwQengCF66Bc8dKGQsffZcMnfjXqApHX6yOmvuBQmW1Yd76ORdPMtb",
+          "FeFCEWUYKEYTrSrG0rWfJYEB1ZgWc1Y8hWP0JIQNrBMW1wtGMwsoUOXkCIlT-Kn34Ct7_-Fiz0p316Qr1uAKUCOQS6vIW772ZwEZlUdfnHdXE6JNblxN5S9KxL0BHknYGmdyPcF5NWk6SnXhC1zE3wM43giIR2t-0mTDfnnu7FnZCU6KUdWLUCb0ARshKgba_r1Mnq7GLpxskYgduDhNhCnAC4DV_Ddj7ErFMLhKxaiSgAlChg6LGwZIQgrZfqjd62f0BBd9v2-DRL1kg6sQOmj05auM47x96z1DPhV3BtNXtLm7gwqHo-oJ0UotiSuUPweawdpZyGuCt_EJWUVi4XU-i5mxOk81B4syhnxcKZx_hvUuNrV3yWFkkQnC81lYRy4FhciV70XPXMBu5oRNiGxyC6Yd4SUHRueAhXvxe4Ht6HhkdncqY-VMAxodTtQ4Jt8ahd_bY9xL0sau5DKubBOBIGufQabNZB31VVYnoNRTQ0VCCuw7mt6U9fOMZs9hkzyIIgxPd45rXCY_CYFBzH00WbombIwafroi9VSdYBA12x-haYzAFbqOtWCM1ZWDB3wSk-5ug6R7gDDsqHLsr--HFbLEhZVoWn72kh2b6Bc-_A2Uzfc5E1QjcRa6LiBQQg7RmcS81U9O018grsCSEH2UwiZYwjjD7F6Lc9Av8roy7kfmmzv1Jg"
+        ],
+        "authenticationTagBase64Url": "H26sQlQPfPiIlnX2-vs-1w",
+        "issuedUtc": "2026-09-15T12:00:00+00:00",
+        "expiresUtc": "2026-09-15T12:00:30+00:00"
+      }
+    }
+  ],
+  "resumeRequests": null,
+  "map": null
+}

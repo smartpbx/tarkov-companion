@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using TarkovCompanion.Application.Services.Devices;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
 
@@ -28,6 +29,7 @@ public sealed class TabletVersionMatrixTests
     [Theory]
     [InlineData("tablet-commands-v2-rough-11.json")]
     [InlineData("tablet-commands-53a3b743.json")]
+    [InlineData("tablet-commands-today.json")]
     public void EveryCommandAnOlderTabletSendsIsParsedAndAppliedByTheCurrentDesktop(string fixture)
     {
         var played = Play(fixture);
@@ -67,6 +69,7 @@ public sealed class TabletVersionMatrixTests
     [Theory]
     [InlineData("v2-rough-11", "tablet-commands-v2-rough-11.json")]
     [InlineData("53a3b743", "tablet-commands-53a3b743.json")]
+    [InlineData("today", "tablet-commands-today.json")]
     public void TheCurrentDesktopsMessagesCarryWhatOlderPagesRead(string page, string fixture)
     {
         var reads = CompatibilityFixtures.Node("tablet-reads.json")[page]!;
@@ -89,12 +92,56 @@ public sealed class TabletVersionMatrixTests
     [Theory]
     [InlineData("v2-rough-11")]
     [InlineData("53a3b743")]
+    [InlineData("today")]
     public void TheCurrentMapSurfaceCarriesWhatOlderPagesRead(string page)
     {
         var reads = CompatibilityFixtures.Node("tablet-reads.json")[page]!;
         var surface = JsonNode.Parse(TabletMapSurfaceJson.Serialize(Surface()))!;
 
         Assert.Empty(CompatibilityFixtures.Missing(surface, Paths(reads, "surface")));
+    }
+
+    /// <summary>
+    /// #290: a colour chosen on today's tablet is kept, and the fixed colours an older page always
+    /// sent (it had no picker) read as "the kind's own", never as a colour somebody chose.
+    /// </summary>
+    [Fact]
+    public void ATodaysTabletsChosenColourIsKeptAndAnOlderTabletsFixedColourMeansNone()
+    {
+        var today = Play("tablet-commands-today.json").State.Marks.Marks;
+        var older = Play("tablet-commands-53a3b743.json").State.Marks.Marks;
+
+        // What RelayMarksBridge files a tablet's mark under on the desktop's own map.
+        Assert.Equal("#E69F00", MarkPalette.Normalize(today.Single(mark => mark.State.Label == "Dorms").Color));
+        Assert.Equal("#56B4E9", MarkPalette.Normalize(today.Single(mark => mark.Kind == MapMarkKind.Ping).Color));
+        Assert.All(older, mark => Assert.Null(MarkPalette.Normalize(mark.Color)));
+        Assert.Equal(2, today.Count(mark => MarkPalette.Normalize(mark.Color) is null));
+    }
+
+    /// <summary>
+    /// #290: a desktop from before the review cards and mark colours publishes a surface without
+    /// them. Today's page reads each one as "none" (<c>surface[kind] ?? null</c>, an optional
+    /// colour); here, the current desktop's own surface without them still carries every path the
+    /// older pages read, and says "none" as null rather than leaving a key out.
+    /// </summary>
+    [Theory]
+    [InlineData("v2-rough-11")]
+    [InlineData("53a3b743")]
+    public void ASurfaceWithNoReviewsOrColoursStillCarriesWhatOlderPagesRead(string page)
+    {
+        var reads = CompatibilityFixtures.Node("tablet-reads.json")[page]!;
+        var plain = Surface() with
+        {
+            Stash = null,
+            Flea = null,
+            Objects = [.. Surface().Objects.Select(item => item with { Color = null })],
+        };
+        var surface = JsonNode.Parse(TabletMapSurfaceJson.Serialize(plain))!;
+
+        Assert.Empty(CompatibilityFixtures.Missing(surface, Paths(reads, "surface")));
+        Assert.Null(surface["stash"]);
+        Assert.Null(surface["flea"]);
+        Assert.Null(surface["objects"]![0]!["color"]);
     }
 
     private static IEnumerable<string> Paths(JsonNode reads, string part) =>
