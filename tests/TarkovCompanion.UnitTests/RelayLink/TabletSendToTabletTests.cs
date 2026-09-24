@@ -103,14 +103,14 @@ public sealed class TabletSendToTabletTests : RealBrowserTestHarness
         try
         {
             await UntilAsync(() => desktop.Panel.IsAwaitingApproval || browserProcess.HasExited, "the tablet's pairing request");
-            AssertNotExited(browserProcess, stdoutLog);
+            AssertNotExited(browserProcess, stdoutLog, stdoutGate, stderrTask);
             await ((AsyncDelegateCommand)desktop.Panel.ApproveCommand).ExecuteAsync();
             Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(
                 TabletMapSurfaceJson.Serialize(MinimalSurface(clock.GetUtcNow())),
                 artwork: null));
 
             await UntilAsync(() => ContainsLine(stdoutLog, stdoutGate, "INDEPENDENT") || browserProcess.HasExited, "INDEPENDENT");
-            AssertNotExited(browserProcess, stdoutLog);
+            AssertNotExited(browserProcess, stdoutLog, stdoutGate, stderrTask);
             // The desk moves on its own, with no send.
             Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(
                 TabletMapSurfaceJson.Serialize(MinimalSurface(clock.GetUtcNow()) with
@@ -120,7 +120,7 @@ public sealed class TabletSendToTabletTests : RealBrowserTestHarness
                 artwork: null));
 
             await UntilAsync(() => ContainsLine(stdoutLog, stdoutGate, "UNSENT_CHECKED") || browserProcess.HasExited, "UNSENT_CHECKED");
-            AssertNotExited(browserProcess, stdoutLog);
+            AssertNotExited(browserProcess, stdoutLog, stdoutGate, stderrTask);
             // "Send to tablet", in the shape TabletMapSurfacePublisher.SendToTabletAsync publishes.
             var sent = clock.GetUtcNow();
             Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(
@@ -132,7 +132,7 @@ public sealed class TabletSendToTabletTests : RealBrowserTestHarness
                 artwork: null));
 
             await UntilAsync(() => ContainsLine(stdoutLog, stdoutGate, "SENT_CHECKED") || browserProcess.HasExited, "SENT_CHECKED");
-            AssertNotExited(browserProcess, stdoutLog);
+            AssertNotExited(browserProcess, stdoutLog, stdoutGate, stderrTask);
             // A later publish still carries the same send; it must not pull the tablet back.
             Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(
                 TabletMapSurfaceJson.Serialize(MinimalSurface(clock.GetUtcNow()) with
@@ -168,19 +168,34 @@ public sealed class TabletSendToTabletTests : RealBrowserTestHarness
         }
     }
 
+    /// <summary>A marker line, matched whole.</summary>
+    /// <remarks>
+    /// It used to be a substring match, and "UNSENT_CHECKED" contains "SENT_CHECKED". So the
+    /// republish went out straight after the send, and a tablet that polled after both saw only
+    /// the republish: it took that view (260, 690, zoom 4) and failed "a send moves the
+    /// Independent tablet to the desk's view" on a loaded host.
+    /// </remarks>
     private static bool ContainsLine(List<string> log, object gate, string marker)
     {
         lock (gate)
         {
-            return log.Any(line => line.Contains(marker, StringComparison.Ordinal));
+            return log.Any(line => string.Equals(line.Trim(), marker, StringComparison.Ordinal));
         }
     }
 
-    private static void AssertNotExited(Process process, List<string> stdoutLog)
+    /// <summary>The script prints its FAILURE and page console to stderr, so an early exit shows it.</summary>
+    private static void AssertNotExited(Process process, List<string> stdoutLog, object gate, Task<string> stderrTask)
     {
         if (process.HasExited)
         {
-            Assert.Fail($"The browser exited early (exit {process.ExitCode}):\n{string.Join('\n', stdoutLog)}");
+            var stderr = stderrTask.Wait(TimeSpan.FromSeconds(5)) ? stderrTask.Result : "<stderr read timed out>";
+            List<string> stdout;
+            lock (gate)
+            {
+                stdout = [.. stdoutLog];
+            }
+
+            Assert.Fail($"The browser exited early (exit {process.ExitCode}):\n{string.Join('\n', stdout)}\nstderr:\n{stderr}");
         }
     }
 
