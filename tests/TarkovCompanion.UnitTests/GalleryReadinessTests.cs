@@ -132,6 +132,7 @@ public sealed class GalleryReadinessTests
 
         Assert.Equal(GallerySceneKind.Marks, options.GalleryScene);
         Assert.Empty(options.UnknownOptions);
+        Assert.Equal(GallerySceneKind.InRaid, AppCommandLine.Parse(["--developer-mode", "--gallery-scene", "inraid"]).GalleryScene);
         Assert.Throws<ArgumentException>(() => AppCommandLine.Parse(["--gallery-scene", "everything"]));
         Assert.Throws<ArgumentException>(() => AppCommandLine.Parse(["--gallery-scene", "7"]));
     }

@@ -102,6 +102,20 @@ public sealed record ShellLayout(
     /// </remarks>
     public const double ControlStripOneRowMinimumWidth = 1250;
 
+    /// <summary>The narrowest map column whose control strip spells the map modes out in full.</summary>
+    /// <remarks>
+    /// [#838] In raid at 1920x1080 the column is about 1330 and the strip wrapped on Windows: the
+    /// clock, the traffic chip, the off-plan chip and "2D plan / Floor stack / 3D interior" left
+    /// it under 30 pixels to spare headless and less than none on Windows, and the map lost 32
+    /// pixels of height. "2D / Stack / 3D" gives back about 125. Above this width the full words
+    /// fit with the same margin, so a wider window, or the Raid plan put away, keeps them.
+    /// </remarks>
+    public const double ControlStripFullModeLabelsMinimumWidth = 1480;
+
+    /// <summary>Whether a map column this wide spells the map modes out in full.</summary>
+    public static bool ControlStripFitsFullModeLabels(double columnWidth) =>
+        !double.IsFinite(columnWidth) || columnWidth >= ControlStripFullModeLabelsMinimumWidth;
+
     /// <summary>Whether a shell this wide keeps the rail's words.</summary>
     public static bool RailFitsLabels(double layoutWidth) =>
         !double.IsFinite(layoutWidth) || layoutWidth >= RailLabelsMinimumWidth;
