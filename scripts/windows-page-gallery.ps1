@@ -212,6 +212,27 @@ function Set-WindowSize {
     }
 }
 
+<#
+    [#858] Where the window is, against where Set-WindowSize put it: null when it is there.
+    The app sizes its client to --window-size while this sizes the whole frame; before the app
+    matched the two, 2 of 41 captures a run came out 16 px wider and diffed at 15-17%.
+#>
+function Get-WindowSizeDrift {
+    param([IntPtr] $WindowHandle, [int] $Width, [int] $Height)
+
+    if ($Width -le 0 -or $Height -le 0) { return $null }
+    # Windows may clamp a window larger than the desktop (the 3840 shots on a 1920 runner), so
+    # only a size the desktop can hold is expected back exactly.
+    Initialize-GalleryBounds
+    $Desktop = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    if ($Width -gt $Desktop.Width -or $Height -gt $Desktop.Height) { return $null }
+    $Rect = New-Object TarkovCompanionGalleryBounds+RECT
+    if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $Rect)) { return $null }
+    $Actual = "$($Rect.Right - $Rect.Left)x$($Rect.Bottom - $Rect.Top)"
+    if ($Actual -eq "${Width}x${Height}") { return $null }
+    return $Actual
+}
+
 function Find-AutomationElement {
     param(
         [IntPtr] $WindowHandle,
@@ -1042,6 +1063,9 @@ function New-ShotResult {
         # [#279] Seconds from launch to the process gone, and the scene's "ready" wait inside it.
         shotSeconds = $null
         readySeconds = $null
+        # [#858] The window's bounds when they had moved off the requested size before the
+        # capture (and were put back); null when they had not.
+        windowDrift = $null
     }
 }
 
@@ -2020,6 +2044,21 @@ foreach ($Shot in $Shots) {
             }
         }
 
+        # [#858] The same state has to be photographed at the same size. Checked after readiness,
+        # when the app has stopped arranging itself; sized again and settled if it moved.
+        $Drift = Get-WindowSizeDrift -WindowHandle $Process.MainWindowHandle -Width $Shot.width -Height $Shot.height
+        if ($null -ne $Drift) {
+            $Result.windowDrift = $Drift
+            Write-Host "Window for '$($Shot.name)' was $Drift, not $($Shot.width)x$($Shot.height), before its capture; sized again."
+            Set-WindowSize -WindowHandle $Process.MainWindowHandle -Width $Shot.width -Height $Shot.height
+            if ($null -ne $ChannelRoot) {
+                $null = Wait-GalleryReady -ChannelRoot $ChannelRoot -Token $ChannelToken -Condition "settled"
+            }
+            else {
+                Start-Sleep -Milliseconds 500
+            }
+        }
+
         $CaptureBeforeInteraction = [bool](Get-InteractionProperty -Object $Shot -Name "captureBeforeInteraction" -Default $false)
         if ($CaptureBeforeInteraction) {
             Save-ScreenImage -Path $Screenshot -WindowHandle $Process.MainWindowHandle
@@ -2180,6 +2219,7 @@ foreach ($Result in $Results) {
     $Took = if ($null -ne $Result.shotSeconds) { ", shot $($Result.shotSeconds)s" } else { "" }
     Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Timing$Took$Dead"
     if ($null -ne $Result.readinessDetail) { Write-Host "     readiness: $($Result.readinessDetail)" }
+    if ($null -ne $Result.windowDrift) { Write-Host "     window was $($Result.windowDrift) before its capture and was sized again" }
     # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
     # here is what turns "no window: Loadout" in the job log into a sentence somebody can act on
     # without downloading anything.

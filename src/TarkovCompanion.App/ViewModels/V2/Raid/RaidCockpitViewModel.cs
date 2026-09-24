@@ -2280,8 +2280,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         Marks = mapId is null
             ? []
             : [
-                .. LabelMarksForMap(_marks.Marks, mapId)
-                    .OrderByDescending(item => item.Mark.CreatedUtc)
+                // Newest first: the labelled order reversed, so a tie is as stable as it is there.
+                .. Enumerable.Reverse(LabelMarksForMap(_marks.Marks, mapId))
                     .Select(item => new RaidMarkRowViewModel(item.Mark, item.Label, RenameMarkAsync, id => _marks.RemoveAsync(id))
                     {
                         // #289: scope and time left under the name, and the Options menu.
@@ -3784,8 +3784,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     {
         var ordered = marks
             .Where(mark => string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(mark => mark.CreatedUtc)
-            .ThenBy(mark => mark.Id)
+            .Select((mark, index) => (Mark: mark, Index: index))
+            .OrderBy(item => item.Mark.CreatedUtc)
+            // [#858] Ties in the store's own (placement) order, not by the random Id: marks placed
+            // within one clock tick, or under a frozen render clock, swapped numbers between runs.
+            .ThenBy(item => item.Index)
+            .Select(item => item.Mark)
             .ToArray();
         var result = new List<(RaidMark, string)>(ordered.Length);
         var waypointNumber = 0;

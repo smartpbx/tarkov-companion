@@ -30,4 +30,25 @@ public sealed record WindowSizeOverride(int Width, int Height)
 
         return new(width, height);
     }
+
+    /// <summary>
+    /// [#858] The client size that makes the whole window, frame included, this size.
+    /// </summary>
+    /// <remarks>
+    /// The gallery's MoveWindow sizes the outer window (GetWindowRect, invisible resize borders
+    /// included), while Window.Width sizes the client: 1920 asked of each gave a 1904 px and a
+    /// 1920 px client. Whichever landed last won, so 2 of 41 captures per Windows run came out
+    /// 16 px wider, the Raid plan 15 px further right and the map framed differently (15.7 to
+    /// 16.9% pixel diffs). Asking for the frame's size instead makes both agree, whatever the order.
+    /// A window without a frame (frame no larger than the client) keeps the requested size.
+    /// </remarks>
+    public (double Width, double Height) ClientSizeFor(double frameWidth, double frameHeight, double clientWidth, double clientHeight)
+    {
+        static double Fit(int requested, double frame, double client) =>
+            frame > client && double.IsFinite(frame) && double.IsFinite(client)
+                ? Math.Max(1, requested - (frame - client))
+                : requested;
+
+        return (Fit(Width, frameWidth, clientWidth), Fit(Height, frameHeight, clientHeight));
+    }
 }
