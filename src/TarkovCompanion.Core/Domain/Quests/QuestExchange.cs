@@ -103,6 +103,7 @@ public sealed record QuestImportValue(
     int? PinSortOrder = null,
     string? PinNote = null);
 
+/// <param name="Reason">Why, in fixed English: it is hashed into the preview and stored with the import.</param>
 public sealed record QuestImportProposal(
     string Key,
     QuestProgressEntityKind EntityKind,
@@ -111,7 +112,82 @@ public sealed record QuestImportProposal(
     QuestImportClassification Classification,
     QuestImportValue? LocalValue,
     QuestImportValue IncomingValue,
-    string Reason);
+    string Reason)
+{
+    /// <summary>
+    /// [#314] <see cref="Reason"/> as a code the App words. Null where the reason came from the
+    /// source file's adapter, which is said as written.
+    /// </summary>
+    public QuestImportReason? ReasonCode { get; init; }
+}
+
+/// <summary>[#314] Why an import proposal was classified as it was, as codes the App words.</summary>
+[PhraseCodes("Setup.QuestImportReason")]
+public enum QuestImportReason
+{
+    TaskUnreadable,
+    TaskUnknown,
+    TaskUnchanged,
+    TaskConflict,
+    TaskPromotion,
+    ObjectiveUnreadable,
+    ObjectiveUnknown,
+    ObjectiveUnchanged,
+    ObjectiveConflict,
+    ObjectivePromotion,
+    HoldingUnknown,
+    HoldingUnchanged,
+    HoldingLower,
+    HoldingNew,
+    PinUnknown,
+    PinUnchanged,
+    PinDiffers,
+    PinNew,
+}
+
+/// <summary>
+/// The fixed English each <see cref="QuestImportReason"/> is stored and hashed as. Never shown
+/// from here: the App words the code, and finds the code of a stored reason through <see cref="Find"/>.
+/// </summary>
+public static class QuestImportReasons
+{
+    public static string Stored(QuestImportReason reason) => reason switch
+    {
+        QuestImportReason.TaskUnreadable => "The source task record could not be mapped safely.",
+        QuestImportReason.TaskUnknown => "Task id is not present in the selected mode catalog.",
+        QuestImportReason.TaskUnchanged => "Incoming task state matches local state; absence elsewhere is not deletion.",
+        QuestImportReason.TaskConflict => "Incoming task state conflicts with or regresses stronger local progress.",
+        QuestImportReason.TaskPromotion => "Incoming task state is a monotonic promotion.",
+        QuestImportReason.ObjectiveUnreadable => "The source objective record could not be mapped safely.",
+        QuestImportReason.ObjectiveUnknown => "Objective id is not present in the selected mode catalog.",
+        QuestImportReason.ObjectiveUnchanged => "Incoming objective progress matches local progress; absence elsewhere is not deletion.",
+        QuestImportReason.ObjectiveConflict => "Incoming objective state or count regresses stronger local progress.",
+        QuestImportReason.ObjectivePromotion => "Incoming objective state or count is a monotonic promotion.",
+        QuestImportReason.HoldingUnknown => "Holding item id is not present in a quest objective in the selected mode catalog.",
+        QuestImportReason.HoldingUnchanged => "Incoming explicit holding matches the local FIR class count.",
+        QuestImportReason.HoldingLower => "Incoming explicit holding count is lower than local progress.",
+        QuestImportReason.HoldingNew => "Incoming explicit holding is new or increased for this exact FIR class.",
+        QuestImportReason.PinUnknown => "Pin target id is not present in the selected mode catalog.",
+        QuestImportReason.PinUnchanged => "Incoming pin matches the local pin.",
+        QuestImportReason.PinDiffers => "Incoming pin ordering or note differs from the local pin.",
+        QuestImportReason.PinNew => "Incoming pin adds a new owned pin.",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason)),
+    };
+
+    /// <summary>The code a stored reason was written from, or null for one an adapter wrote.</summary>
+    public static QuestImportReason? Find(string? stored)
+    {
+        foreach (var reason in Enum.GetValues<QuestImportReason>())
+        {
+            if (string.Equals(Stored(reason), stored, StringComparison.Ordinal))
+            {
+                return reason;
+            }
+        }
+
+        return null;
+    }
+}
 
 public sealed record QuestProgressImportPreview(
     QuestProfileScope Scope,

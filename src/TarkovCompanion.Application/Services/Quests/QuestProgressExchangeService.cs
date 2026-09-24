@@ -263,7 +263,7 @@ public sealed class QuestProgressExchangeService(
                 QuestImportClassification.UnresolvedSourceRecord,
                 localValue,
                 incomingValue,
-                incoming.UnresolvedReason ?? "The source task record could not be mapped safely.");
+                Reason(incoming.UnresolvedReason, QuestImportReason.TaskUnreadable));
         }
 
         var incomingState = incoming.State.Value;
@@ -277,7 +277,7 @@ public sealed class QuestProgressExchangeService(
                 QuestImportClassification.UnresolvedUnknownId,
                 localValue,
                 incomingValue,
-                "Task id is not present in the selected mode catalog.");
+                QuestImportReason.TaskUnknown);
         }
 
         var localState = local?.State ?? RecordedTaskState.Unknown;
@@ -286,7 +286,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "task", QuestProgressEntityKind.Task, incoming.TaskId, null,
                 QuestImportClassification.IgnoredUnchanged, localValue, incomingValue,
-                "Incoming task state matches local state; absence elsewhere is not deletion.");
+                QuestImportReason.TaskUnchanged);
         }
 
         var conflict = localState == RecordedTaskState.Failed || incomingState == RecordedTaskState.Failed ||
@@ -297,8 +297,8 @@ public sealed class QuestProgressExchangeService(
             localValue,
             incomingValue,
             conflict
-                ? "Incoming task state conflicts with or regresses stronger local progress."
-                : "Incoming task state is a monotonic promotion.");
+                ? QuestImportReason.TaskConflict
+                : QuestImportReason.TaskPromotion);
     }
 
     private static QuestImportProposal ObjectiveProposal(
@@ -322,7 +322,7 @@ public sealed class QuestProgressExchangeService(
                 QuestImportClassification.UnresolvedSourceRecord,
                 localValue,
                 incomingValue,
-                incoming.UnresolvedReason ?? "The source objective record could not be mapped safely.");
+                Reason(incoming.UnresolvedReason, QuestImportReason.ObjectiveUnreadable));
         }
 
         var incomingState = incoming.State.Value;
@@ -331,7 +331,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "objective", QuestProgressEntityKind.Objective, incoming.ObjectiveId, null,
                 QuestImportClassification.UnresolvedUnknownId, localValue, incomingValue,
-                "Objective id is not present in the selected mode catalog.");
+                QuestImportReason.ObjectiveUnknown);
         }
 
         var localState = local?.State ?? RecordedObjectiveState.Unknown;
@@ -341,7 +341,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "objective", QuestProgressEntityKind.Objective, incoming.ObjectiveId, null,
                 QuestImportClassification.IgnoredUnchanged, localValue, incomingValue,
-                "Incoming objective progress matches local progress; absence elsewhere is not deletion.");
+                QuestImportReason.ObjectiveUnchanged);
         }
 
         var countRegression = localCount is not null &&
@@ -354,8 +354,8 @@ public sealed class QuestProgressExchangeService(
             "objective", QuestProgressEntityKind.Objective, incoming.ObjectiveId, null,
             classification, localValue, incomingValue,
             classification == QuestImportClassification.Conflict
-                ? "Incoming objective state or count regresses stronger local progress."
-                : "Incoming objective state or count is a monotonic promotion.");
+                ? QuestImportReason.ObjectiveConflict
+                : QuestImportReason.ObjectivePromotion);
     }
 
     private static QuestImportProposal HoldingProposal(
@@ -375,7 +375,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "holding", QuestProgressEntityKind.ItemHolding, incoming.ItemId, subkey,
                 QuestImportClassification.UnresolvedUnknownId, localValue, incomingValue,
-                "Holding item id is not present in a quest objective in the selected mode catalog.");
+                QuestImportReason.HoldingUnknown);
         }
 
         if (local?.Count == incoming.Count)
@@ -383,7 +383,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "holding", QuestProgressEntityKind.ItemHolding, incoming.ItemId, subkey,
                 QuestImportClassification.IgnoredUnchanged, localValue, incomingValue,
-                "Incoming explicit holding matches the local FIR class count.");
+                QuestImportReason.HoldingUnchanged);
         }
 
         var classification = local is not null && incoming.Count < local.Count
@@ -393,8 +393,8 @@ public sealed class QuestProgressExchangeService(
             "holding", QuestProgressEntityKind.ItemHolding, incoming.ItemId, subkey,
             classification, localValue, incomingValue,
             classification == QuestImportClassification.Conflict
-                ? "Incoming explicit holding count is lower than local progress."
-                : "Incoming explicit holding is new or increased for this exact FIR class.");
+                ? QuestImportReason.HoldingLower
+                : QuestImportReason.HoldingNew);
     }
 
     private static QuestImportProposal PinProposal(
@@ -418,7 +418,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "pin", QuestProgressEntityKind.Pin, incoming.TargetId, subkey,
                 QuestImportClassification.UnresolvedUnknownId, localValue, incomingValue,
-                "Pin target id is not present in the selected mode catalog.");
+                QuestImportReason.PinUnknown);
         }
 
         if (local?.SortOrder == incoming.SortOrder && local?.Note == incoming.Note)
@@ -426,7 +426,7 @@ public sealed class QuestProgressExchangeService(
             return Proposal(
                 "pin", QuestProgressEntityKind.Pin, incoming.TargetId, subkey,
                 QuestImportClassification.IgnoredUnchanged, localValue, incomingValue,
-                "Incoming pin matches the local pin.");
+                QuestImportReason.PinUnchanged);
         }
 
         var classification = local is null
@@ -436,8 +436,8 @@ public sealed class QuestProgressExchangeService(
             "pin", QuestProgressEntityKind.Pin, incoming.TargetId, subkey,
             classification, localValue, incomingValue,
             classification == QuestImportClassification.Conflict
-                ? "Incoming pin ordering or note differs from the local pin."
-                : "Incoming pin adds a new owned pin.");
+                ? QuestImportReason.PinDiffers
+                : QuestImportReason.PinNew);
     }
 
     private static QuestImportProposal Proposal(
@@ -448,7 +448,7 @@ public sealed class QuestProgressExchangeService(
         QuestImportClassification classification,
         QuestImportValue? localValue,
         QuestImportValue incomingValue,
-        string reason) => new(
+        (string Stored, QuestImportReason? Code) reason) => new(
             $"{prefix}:{entityId}:{subkey ?? string.Empty}",
             entityKind,
             entityId,
@@ -456,7 +456,25 @@ public sealed class QuestProgressExchangeService(
             classification,
             localValue,
             incomingValue,
-            reason);
+            reason.Stored)
+        {
+            ReasonCode = reason.Code,
+        };
+
+    private static QuestImportProposal Proposal(
+        string prefix,
+        QuestProgressEntityKind entityKind,
+        string entityId,
+        string? subkey,
+        QuestImportClassification classification,
+        QuestImportValue? localValue,
+        QuestImportValue incomingValue,
+        QuestImportReason reason) =>
+        Proposal(prefix, entityKind, entityId, subkey, classification, localValue, incomingValue, (QuestImportReasons.Stored(reason), reason));
+
+    /// <summary>The adapter's own reason where it gave one, said as written; otherwise <paramref name="fallback"/>.</summary>
+    private static (string Stored, QuestImportReason? Code) Reason(string? unresolved, QuestImportReason fallback) =>
+        unresolved is null ? (QuestImportReasons.Stored(fallback), fallback) : (unresolved, null);
 
     private static int TaskStrength(RecordedTaskState state) => state switch
     {
