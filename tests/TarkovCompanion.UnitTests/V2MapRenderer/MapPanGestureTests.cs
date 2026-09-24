@@ -110,6 +110,84 @@ public sealed class MapPanGestureTests
         });
     }
 
+    /// <summary>
+    /// [#286] Draw mode: a left-drag draws a line where the pointer went and leaves the camera
+    /// alone; a middle-drag, or Space with a left-drag, still pans; Escape asks to leave.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    public void In_draw_mode_a_left_drag_draws_and_the_pan_gestures_still_pan(double bearing)
+    {
+        Run(bearing, (window, view, renderer) =>
+        {
+            var plan = view.FindControl<Border>("PlanViewport")!;
+            Point InWindow(double x, double y) => plan.TranslatePoint(new Point(x, y), window)!.Value;
+            for (var step = 0; step < 4; step++)
+            {
+                renderer.RequestZoom(1);
+            }
+
+            var strokes = new List<IReadOnlyList<MapScenePoint>>();
+            var escaped = 0;
+            view.StrokeDrawn += (_, points) => strokes.Add(points);
+            view.DrawEscaped += (_, _) => escaped++;
+            view.IsDrawing = true;
+
+            var camera = renderer.Scene.View.Camera;
+            var from = new Point(300, 300);
+            var to = new Point(520, 380);
+            Assert.True(renderer.TryScenePointAt(from.X, from.Y, out var start));
+            Assert.True(renderer.TryScenePointAt(to.X, to.Y, out var end));
+            window.MouseDown(InWindow(from.X, from.Y), MouseButton.Left);
+            window.MouseMove(InWindow(400, 250));
+            window.MouseMove(InWindow(to.X, to.Y));
+            window.MouseUp(InWindow(to.X, to.Y), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+
+            var stroke = Assert.Single(strokes);
+            Assert.Equal(start.X, stroke[0].X, 3);
+            Assert.Equal(start.Y, stroke[0].Y, 3);
+            Assert.Equal(end.X, stroke[^1].X, 3);
+            Assert.Equal(end.Y, stroke[^1].Y, 3);
+            Assert.Equal(camera, renderer.Scene.View.Camera);
+
+            // Middle-drag pans, and draws nothing.
+            window.MouseDown(InWindow(400, 300), MouseButton.Middle);
+            window.MouseMove(InWindow(340, 260));
+            window.MouseUp(InWindow(300, 240), MouseButton.Middle);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(strokes);
+            var afterMiddle = renderer.Scene.View.Camera;
+            Assert.NotEqual(camera, afterMiddle);
+
+            // Space held with a left-drag pans too.
+            window.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.Space, " ");
+            window.MouseDown(InWindow(400, 300), MouseButton.Left);
+            window.MouseMove(InWindow(460, 330));
+            window.MouseUp(InWindow(480, 340), MouseButton.Left);
+            window.KeyRelease(Key.Space, RawInputModifiers.None, PhysicalKey.Space, " ");
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(strokes);
+            Assert.NotEqual(afterMiddle, renderer.Scene.View.Camera);
+
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+            Assert.Equal(1, escaped);
+
+            // Off again (the default), a left-drag pans and draws nothing.
+            view.IsDrawing = false;
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+            Assert.Equal(1, escaped);
+            var beforeNavigate = renderer.Scene.View.Camera;
+            window.MouseDown(InWindow(400, 300), MouseButton.Left);
+            window.MouseMove(InWindow(340, 260));
+            window.MouseUp(InWindow(300, 240), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(strokes);
+            Assert.NotEqual(beforeNavigate, renderer.Scene.View.Camera);
+        });
+    }
+
     private static void Run(double bearing, Action<Window, MapSceneRendererView, MapSceneRendererViewModel> body)
     {
         using var session = HeadlessSessions.StartNew(typeof(MapMarkClipTests.MarkClipApp));

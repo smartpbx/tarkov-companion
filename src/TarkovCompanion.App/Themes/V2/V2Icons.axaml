@@ -48,6 +48,8 @@
   <StreamGeometry x:Key="V2.Icon.Objective">M12,3 L21,12 L12,21 L3,12 Z M12,8 L16,12 L12,16 L8,12 Z</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Hazard">M12,3 L22,20 L2,20 Z M12,9 L12,14 M12,16.5 L12,17.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Lock">M6,11 L18,11 L18,20 L6,20 Z M8.5,11 L8.5,7.5 A3.5,3.5 0 0 1 15.5,7.5 L15.5,11</StreamGeometry>
+  <!-- [#286] Draw mode on the Raid map's strip. -->
+  <StreamGeometry x:Key="V2.Icon.Pencil">M4.5,19.5 L5.5,15.5 L15.5,5.5 L18.5,8.5 L8.5,18.5 Z M13.5,7.5 L16.5,10.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Route">M6,20 C6,13 18,17 18,9 M6,20 A1.5,1.5 0 1 0 6,17 A1.5,1.5 0 1 0 6,20 Z M18,9 A2.5,2.5 0 1 0 18,4 A2.5,2.5 0 1 0 18,9 Z</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Ping">M12,12 A2.5,2.5 0 1 1 12,11.9 Z M12,7 A5,5 0 0 1 12,17 A5,5 0 0 1 12,7 M12,3 A9,9 0 0 1 12,21 A9,9 0 0 1 12,3</StreamGeometry>
   <!-- [Issue 508] Pins, not the boxed chip a waypoint and a quest objective used to share. Both

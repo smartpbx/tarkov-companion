@@ -207,6 +207,10 @@
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
+    <!-- [#286] The Draw switch's pencil lights the way Follow's word does when it is on. -->
+    <Style Selector="ToggleButton.v2-raid-draw-toggle:checked Path.v2-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
     <Style Selector="Button.v2-raid-follow-step">
       <Setter Property="MinWidth" Value="32" />
       <Setter Property="Padding" Value="4" />
@@ -250,9 +254,11 @@
           <ContentControl IsVisible="{Binding HasRenderer}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
             <!-- [#678] The map view joins a turn after the page (StagedHost). -->
             <prim:StagedHost>
-            <map:MapSceneRendererView DataContext="{Binding Renderer}" DocksPresentation="True"
+            <map:MapSceneRendererView x:Name="MapRenderer" DataContext="{Binding Renderer}" DocksPresentation="True"
                                        PlanRightClicked="RendererPlanRightClicked"
-                                       MarkerRightClicked="RendererMarkerRightClicked" />
+                                       MarkerRightClicked="RendererMarkerRightClicked"
+                                       StrokeDrawn="RendererStrokeDrawn"
+                                       DrawEscaped="RendererDrawEscaped" />
             </prim:StagedHost>
           </ContentControl>
           <!-- The only thing on the page when there is no map: the renderer, and its own
@@ -289,6 +295,31 @@
                       AutomationProperties.AutomationId="v2-raid-replay-forward" />
               <Button Classes="v2-target v2-raid-viewcontrol" Content="Close" Command="{Binding Replay.CloseCommand}"
                       AutomationProperties.AutomationId="v2-raid-replay-close" />
+            </StackPanel>
+          </Border>
+
+          <!-- [#286] Draw mode says so over the map's top edge, with what a line drawn now will be
+               and the two things a player drawing wants next: another lifetime, or a clean map. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
+                  Margin="12,12,12,12" IsVisible="{Binding IsDrawMode}"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.AutomationId="v2-raid-draw-bar"
+                  AutomationProperties.Name="Draw mode">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Pencil}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="Drawing" FontWeight="SemiBold" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding DrawSettingsLabel}"
+                      Click="DrawSettingsClicked"
+                      AutomationProperties.AutomationId="v2-raid-draw-settings"
+                      ToolTip.Tip="Who sees new lines, and for how long" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="Clear mine"
+                      Command="{Binding ClearMyDrawingsCommand}" IsEnabled="{Binding HasOwnDrawings}"
+                      AutomationProperties.AutomationId="v2-raid-draw-clear"
+                      ToolTip.Tip="Clear my drawings on this map" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="Done"
+                      Command="{Binding ToggleDrawCommand}"
+                      AutomationProperties.AutomationId="v2-raid-draw-done"
+                      ToolTip.Tip="Back to moving the map (Esc)" />
             </StackPanel>
           </Border>
 
@@ -391,6 +422,15 @@
                toggle at its original width and put the two step targets behind the adjacent,
                state-labelled selector. The commands and automation IDs stay directly reachable. -->
           <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <!-- [#286] Navigate / Draw: an icon, so the strip keeps its one row at 1920 (#838). -->
+            <ToggleButton Classes="v2-target v2-raid-strip-toggle v2-raid-draw-toggle"
+                          IsChecked="{Binding IsDrawMode, Mode=OneWay}"
+                          Command="{Binding ToggleDrawCommand}"
+                          AutomationProperties.AutomationId="v2-raid-draw"
+                          AutomationProperties.Name="{Binding DrawModeLabel}"
+                          ToolTip.Tip="{Binding DrawModeLabel}">
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pencil}" />
+            </ToggleButton>
             <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="Follow"
                           IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
                           Command="{Binding ToggleFollowCommand}"

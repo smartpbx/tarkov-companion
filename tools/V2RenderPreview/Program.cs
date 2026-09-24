@@ -1415,6 +1415,30 @@ internal static class Program
                     Console.WriteLine("Marks: " + string.Join(" | ", raid.Marks.Select(mark => $"{mark.KindLabel} {mark.Label}")));
                 }
 
+                // [#286] --draw-demo: Draw mode on, with two lines drawn the way a drag hands them
+                // over (scene points, many of them), so a render shows the lines, the strip's
+                // switch lit and the Draw bar over the map.
+                if (args.Contains("--draw-demo") && raid.Renderer is { } drawRenderer)
+                {
+                    var bounds = drawRenderer.Scene.Bounds;
+                    TarkovCompanion.Core.Domain.Maps.Scene.MapScenePoint At(double fx, double fy) =>
+                        new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy));
+                    if (raid.FollowsPlayer)
+                    {
+                        raid.ToggleFollowCommand.Execute(null);
+                    }
+
+                    drawRenderer.FitPlanCommand.Execute(null);
+                    Pump(20);
+                    raid.SetInteractionMode(TarkovCompanion.App.ViewModels.V2.Raid.MapInteractionMode.Draw);
+                    raid.AddDrawing([.. Enumerable.Range(0, 240).Select(step =>
+                        At(0.25 + (step / 240.0 * 0.4), 0.45 + (0.08 * Math.Sin(step / 18.0))))]);
+                    raid.AddDrawing([.. Enumerable.Range(0, 180).Select(step =>
+                        At(0.6 + (0.07 * Math.Cos(step / 180.0 * 2 * Math.PI)), 0.3 + (0.1 * Math.Sin(step / 180.0 * 2 * Math.PI))))]);
+                    Pump(80);
+                    Console.WriteLine($"Drawings: {raid.DrawingStore.Drawings.Count}, points {string.Join("/", raid.DrawingStore.Drawings.Select(drawing => drawing.Points.Count))}, mode {raid.InteractionMode}");
+                }
+
                 // [Issue 508] Zoom and rotate the plan the way the zoom buttons and the keyboard
                 // rotate gesture do, so a render can show a pin's tip staying on the spot at a
                 // closer zoom and with the map turned. --map-zoom N presses "zoom in" N times
@@ -1886,6 +1910,34 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            // [#286] --draw-demo with --raid-demo: the first placed squadmate has drawn an arrow-ish
+            // line from where they stand, as the relay would hand it over, in world metres.
+            if (shell is not null && args.Contains("--draw-demo") && args.Contains("--raid-demo"))
+            {
+                var drawStore = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                drawStore.Update(snapshot =>
+                {
+                    var members = snapshot.Group.Members.ToArray();
+                    var index = Array.FindIndex(members, member => member.Position is not null);
+                    if (index < 0)
+                    {
+                        return snapshot;
+                    }
+
+                    var at = members[index].Position!.Value;
+                    members[index] = members[index] with
+                    {
+                        Drawings =
+                        [
+                            new("demo", members[index].MapId ?? "customs", null,
+                                [.. Enumerable.Range(0, 12).Select(step => (at.X + (step * 12.0), at.Z + (25 * Math.Sin(step / 3.0))))]),
+                        ],
+                    };
+                    return snapshot with { Group = snapshot.Group with { Members = members } };
+                });
+                Pump(40);
             }
 
             // [#780] The demo squad shares real catalog quests on this map, by id.

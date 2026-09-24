@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Feedback;
+using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
@@ -195,6 +196,9 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private readonly GroupSquadStatus? _status;
 
+    /// <summary>[#286] The lines this player shares with the squad, set by the Raid map.</summary>
+    public GroupDrawingShare Drawings { get; } = new();
+
     private readonly GroupQuestShare? _quests;
     private readonly GroupKitShare? _kits;
 
@@ -220,6 +224,8 @@ public sealed class GroupSessionService : IAsyncDisposable
             _status.Changed += QuestsChanged;
         }
 
+        // [#286] A line drawn or removed is sent now, like a ready toggle.
+        Drawings.Changed += QuestsChanged;
         _worker = Task.Run(() => RunAsync(_stopping.Token));
     }
 
@@ -797,6 +803,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             Ready = status.Ready,
             PlannedExtract = status.ExtractFor(snapshot.Raid.MapId),
             Note = status.Note,
+            // [#286] Absent, not empty, when there is nothing drawn: the publish is byte for byte
+            // what it was before lines existed.
+            Drawings = GroupDrawingWire.Describe(Drawings.Current),
         };
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
@@ -1185,6 +1194,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 TimeSpan.FromSeconds(Math.Max(0, step.AgeSeconds)),
                 step.Y))
             .ToArray(),
+        Drawings = GroupDrawingWire.Read(member.Drawings),
     };
 
     /// <summary>
@@ -1489,6 +1499,8 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             _status.Changed -= QuestsChanged;
         }
+
+        Drawings.Changed -= QuestsChanged;
         // Said out loud rather than left to time out. DELETE /state/{name} has been served
         // since the relay was written and called by nothing, so a member who closed the
         // application stayed on everybody else's map for the full three-minute lifetime,
@@ -1624,6 +1636,11 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         [JsonPropertyName("raidClockAge")]
         public double? RaidClockAgeSeconds { get; init; }
+
+        /// <summary>[#286] The lines this member shares; left out of the JSON when there are none.</summary>
+        [JsonPropertyName("drawings")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public IReadOnlyList<GroupDrawingDto>? Drawings { get; init; }
     }
 
     private sealed record ObjectiveDto(

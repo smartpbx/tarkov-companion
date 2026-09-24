@@ -254,6 +254,18 @@ clamp the drag commits, so releasing the pointer never moves the plan somewhere 
 
 Follow on/off is remembered across restarts, map switches and raids; a manual pan still turns it off.
 
+### Draw mode (#286)
+
+The pencil on the strip switches the map between Navigate (a left-drag pans, the default) and Draw
+(a left-drag draws a freehand line; a middle-drag, or a left-drag with Space held, still pans;
+Escape or Done goes back). A line is simplified with Ramer–Douglas–Peucker to at most 200 points
+and kept in plan units on the floor it was drawn on, so pan, zoom, turns and floor changes leave it
+where it was (`RaidDrawingStore`, in memory for the session). It takes the Marks card's Just me /
+Squad switch and a mark lifetime ("This raid" by default); right-click one of your lines for
+Remove, Clear my drawings, scope and lifetime. Your lines are white, a squadmate's are in their
+colour; Squad lines reach the group as the `drawings` field of the member's state
+(`docs/GROUP_RELAY.md`).
+
 ### Stacked floors
 
 `MapSceneMode.FloorStack2D` is drawn, not reported unavailable. A scene that wants it declares one

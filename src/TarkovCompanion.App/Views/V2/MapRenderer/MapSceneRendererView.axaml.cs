@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -28,6 +30,38 @@ public sealed partial class MapSceneRendererView : UserControl
     private bool _viewportEventsAttached;
     private Point _pointerStart;
     private string? _appliedLayoutMode;
+    /// <summary>Whether the press that started this gesture was a plain left click, which may select.</summary>
+    private bool _pressSelects;
+    /// <summary>[#286] A line is being drawn: the pointer's path so far, in viewport pixels.</summary>
+    private List<Point>? _ink;
+    /// <summary>[#286] Space is held, so a left-drag pans even in Draw mode.</summary>
+    private bool _spaceHeld;
+    private TopLevel? _keyboardSource;
+
+    /// <summary>The least a pointer moves, in pixels, before a drawn line takes another point.</summary>
+    private const double InkStep = 2;
+
+    /// <summary>
+    /// [#286] Draw mode: a left-drag draws a line rather than panning.
+    /// </summary>
+    /// <remarks>
+    /// Set by the host (the Raid cockpit owns the mode). A middle-drag pans in either mode, and so
+    /// does a left-drag with Space held, so drawing never costs the player their pan.
+    /// </remarks>
+    public static readonly StyledProperty<bool> IsDrawingProperty =
+        AvaloniaProperty.Register<MapSceneRendererView, bool>(nameof(IsDrawing));
+
+    public bool IsDrawing
+    {
+        get => GetValue(IsDrawingProperty);
+        set => SetValue(IsDrawingProperty, value);
+    }
+
+    /// <summary>[#286] A line was drawn in Draw mode, as scene points in the order drawn.</summary>
+    public event EventHandler<IReadOnlyList<MapScenePoint>>? StrokeDrawn;
+
+    /// <summary>[#286] Escape was pressed in Draw mode: the host goes back to Navigate.</summary>
+    public event EventHandler? DrawEscaped;
 
     /// <summary>
     /// The host places the presentation and floor controls itself, so nothing is floated over the plan for them.
@@ -53,6 +87,16 @@ public sealed partial class MapSceneRendererView : UserControl
         if (change.Property == DocksPresentationProperty && PresentationPill is not null)
         {
             PresentationPill.IsVisible = !DocksPresentation;
+        }
+
+        if (change.Property == IsDrawingProperty)
+        {
+            if (!IsDrawing)
+            {
+                EndInk();
+            }
+
+            Cursor = IsDrawing ? new Cursor(StandardCursorType.Cross) : null;
         }
     }
 
@@ -116,10 +160,26 @@ public sealed partial class MapSceneRendererView : UserControl
 
         UpdateResponsiveLayout();
         UpdateViewport();
+
+        // [#286] Space and Escape are read from the whole window, tunnelling and whatever
+        // handled them: the plan is a Border and never has focus, so its own KeyDown would only
+        // ever hear them after something inside it had been clicked with the keyboard.
+        _keyboardSource = TopLevel.GetTopLevel(this);
+        _keyboardSource?.AddHandler(KeyDownEvent, WindowKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        _keyboardSource?.AddHandler(KeyUpEvent, WindowKeyUp, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
     {
+        if (_keyboardSource is { } source)
+        {
+            source.RemoveHandler(KeyDownEvent, WindowKeyDown);
+            source.RemoveHandler(KeyUpEvent, WindowKeyUp);
+            _keyboardSource = null;
+        }
+
+        _spaceHeld = false;
+        EndInk();
         if (_viewportEventsAttached)
         {
             SizeChanged -= RendererSizeChanged;
@@ -240,12 +300,31 @@ public sealed partial class MapSceneRendererView : UserControl
             return;
         }
 
-        if (!current.Properties.IsLeftButtonPressed ||
-            (eventArgs.Source as StyledElement)?.DataContext is MapSceneRendererObjectViewModel)
+        // [#286] Draw mode: a plain left-drag draws, whatever it starts on. Space held, or the
+        // middle button, pans as always.
+        if (current.Properties.IsLeftButtonPressed && IsDrawing && !_spaceHeld)
+        {
+            _ink = [eventArgs.GetPosition(PlanViewport)];
+            if (DrawingInk is not null)
+            {
+                DrawingInk.Points = [.. _ink];
+                DrawingInk.IsVisible = true;
+            }
+
+            eventArgs.Pointer.Capture(PlanViewport);
+            eventArgs.Handled = true;
+            return;
+        }
+
+        var middle = current.Properties.IsMiddleButtonPressed;
+        if (!middle && (!current.Properties.IsLeftButtonPressed ||
+            (eventArgs.Source as StyledElement)?.DataContext is MapSceneRendererObjectViewModel))
         {
             return;
         }
 
+        // A middle press, or a left press in Draw mode with Space held, only ever pans.
+        _pressSelects = !middle && !IsDrawing;
         _pointerDown = true;
         _dragging = false;
         _pointerStart = eventArgs.GetPosition(PlanViewport);
@@ -258,6 +337,23 @@ public sealed partial class MapSceneRendererView : UserControl
 
     private void PlanPointerMoved(object? sender, PointerEventArgs eventArgs)
     {
+        if (_ink is { } ink)
+        {
+            var at = eventArgs.GetPosition(PlanViewport);
+            var last = ink[^1];
+            if (Math.Abs(at.X - last.X) >= InkStep || Math.Abs(at.Y - last.Y) >= InkStep)
+            {
+                ink.Add(at);
+                if (DrawingInk is not null)
+                {
+                    DrawingInk.Points = [.. ink];
+                }
+            }
+
+            eventArgs.Handled = true;
+            return;
+        }
+
         if (!_pointerDown)
         {
             return;
@@ -305,6 +401,8 @@ public sealed partial class MapSceneRendererView : UserControl
     /// </remarks>
     private void PlanPointerCaptureLost(object? sender, PointerCaptureLostEventArgs eventArgs)
     {
+        // [#286] A line whose capture went elsewhere mid-stroke is dropped, not half-kept.
+        EndInk();
         if (!_pointerDown)
         {
             return;
@@ -317,6 +415,19 @@ public sealed partial class MapSceneRendererView : UserControl
 
     private void PlanPointerReleased(object? sender, PointerReleasedEventArgs eventArgs)
     {
+        if (_ink is { } ink)
+        {
+            // Cleared before the capture is released: giving it back raises CaptureLost, which
+            // would otherwise drop the line that is being finished here.
+            _ink = null;
+            ink.Add(eventArgs.GetPosition(PlanViewport));
+            eventArgs.Pointer.Capture(null);
+            EndInk();
+            FinishStroke(ink);
+            eventArgs.Handled = true;
+            return;
+        }
+
         if (!_pointerDown)
         {
             return;
@@ -331,6 +442,10 @@ public sealed partial class MapSceneRendererView : UserControl
             {
                 renderer.UpdatePan(current.X - _pointerStart.X, current.Y - _pointerStart.Y);
                 renderer.CommitPan();
+            }
+            else if (!_pressSelects)
+            {
+                renderer.CancelPan();
             }
             else
             {
@@ -404,5 +519,62 @@ public sealed partial class MapSceneRendererView : UserControl
         }
 
         eventArgs.Handled = true;
+    }
+
+    /// <summary>[#286] Turns the drawn pixels into scene points and hands them to the host.</summary>
+    private void FinishStroke(IReadOnlyList<Point> ink)
+    {
+        if (ink.Count < 2 || DataContext is not MapSceneRendererViewModel renderer)
+        {
+            return;
+        }
+
+        var points = new List<MapScenePoint>(ink.Count);
+        foreach (var pixel in ink)
+        {
+            if (renderer.TryScenePointAt(pixel.X, pixel.Y, out var point))
+            {
+                points.Add(point);
+            }
+        }
+
+        if (points.Count >= 2)
+        {
+            StrokeDrawn?.Invoke(this, points);
+        }
+    }
+
+    private void EndInk()
+    {
+        _ink = null;
+        if (DrawingInk is not null)
+        {
+            DrawingInk.IsVisible = false;
+            DrawingInk.Points = [];
+        }
+    }
+
+    private void WindowKeyDown(object? sender, KeyEventArgs eventArgs)
+    {
+        if (eventArgs.Key == Key.Space)
+        {
+            _spaceHeld = true;
+            return;
+        }
+
+        if (eventArgs.Key == Key.Escape && IsDrawing && !eventArgs.Handled)
+        {
+            EndInk();
+            DrawEscaped?.Invoke(this, EventArgs.Empty);
+            eventArgs.Handled = true;
+        }
+    }
+
+    private void WindowKeyUp(object? sender, KeyEventArgs eventArgs)
+    {
+        if (eventArgs.Key == Key.Space)
+        {
+            _spaceHeld = false;
+        }
     }
 }
