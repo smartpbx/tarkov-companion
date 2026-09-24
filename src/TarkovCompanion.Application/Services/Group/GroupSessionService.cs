@@ -137,6 +137,9 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private bool _waitOutTheTick;
 
+    /// <summary>1 when the next exchange should come straight back with the room (a mark was just sent).</summary>
+    private int _roomWanted;
+
     /// <summary>When the last exchange started, for the rate bound, on the monotonic clock.</summary>
     /// <remarks>
     /// [#799] This was a wall time. The PC's clock was set back four hours while the companion
@@ -252,6 +255,27 @@ public sealed class GroupSessionService : IAsyncDisposable
         Interrupt();
     }
 
+    /// <summary>
+    /// This companion just added or removed a mark: the next exchange brings the room back now.
+    /// </summary>
+    /// <remarks>
+    /// Counted as a local change, like a position, rather than a bare interrupt. The loop reads an
+    /// exchange cut short with no local change as a relay that did not answer, so every ping
+    /// placed or removed during a hold logged "Group publish failed: Server did not answer in
+    /// time", marked the squad stale and waited out a whole tick before looking again. Found
+    /// following one ping end to end (PingLifetimeEndToEndTests); the same failure line sits
+    /// beside the pings in the #799 log.
+    ///
+    /// The exchange after it is not held either: the room has a mark this companion has not been
+    /// shown yet, and a relay that does not end holds on marks would keep it back a whole hold.
+    /// </remarks>
+    private void MarksChangedHere()
+    {
+        Volatile.Write(ref _roomWanted, 1);
+        Interlocked.Increment(ref _localChanges);
+        Interrupt();
+    }
+
     /// <summary>Cuts short whatever exchange is being held open, if one is.</summary>
     private void Interrupt()
     {
@@ -296,7 +320,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             {
                 // Read after the interrupt is armed, so a change landing in between is still
                 // caught: either it cancels this source, or it is seen here.
-                var hold = Interlocked.Read(ref _localChanges) == generation ? HoldFor : TimeSpan.Zero;
+                var hold = Interlocked.Read(ref _localChanges) == generation && Interlocked.Exchange(ref _roomWanted, 0) == 0
+                    ? HoldFor
+                    : TimeSpan.Zero;
                 using (var exchange = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token))
                 {
                     exchange.CancelAfter(ExchangeTimeout + hold);
@@ -505,7 +531,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 _clock.GetElapsedTime(started).TotalMilliseconds);
             // The mark is drawn from the next exchange like everybody else's, so that exchange
             // happens now rather than at the end of whatever hold was already running.
-            Interrupt();
+            MarksChangedHere();
             return id;
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -642,7 +668,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 // the mark first. Either way it is gone, which is what was asked for; a warning
                 // here only ever reported the relay agreeing.
                 _logger.LogInformation("{Done} It was already gone from the relay.", done);
-                Interrupt();
+                MarksChangedHere();
                 return true;
             }
 
@@ -661,7 +687,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             }
 
             _logger.LogInformation("{Done}", done);
-            Interrupt();
+            MarksChangedHere();
             return true;
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
