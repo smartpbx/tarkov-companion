@@ -89,7 +89,7 @@ public sealed class V2SetupSectionTabViewModel : BindableViewModel
 /// section; they bind the same <see cref="SettingsPageViewModel.Quests"/> view model V1 does,
 /// because the import has to keep its preview, confirm and undo together (ADR 0004).
 /// </remarks>
-public sealed class V2SetupWorkspaceViewModel : BindableViewModel
+public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
 {
     private static readonly IReadOnlyDictionary<string, V2SetupSection> ReadinessSectionMap = new Dictionary<string, V2SetupSection>(StringComparer.Ordinal)
     {

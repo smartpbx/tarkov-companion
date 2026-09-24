@@ -1,0 +1,47 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupFeatureFlagsView"
+             x:DataType="vm:SetupFeatureFlagsViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- #314: reversible feature flags. The switch is the player's choice; a flag read at startup
+       says "Restart to apply" beside it until the next start picks it up. -->
+  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-feature-flags">
+    <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+    <TextBlock Classes="v2-body" Text="{Binding RingLine}" TextWrapping="Wrap"
+               AutomationProperties.AutomationId="v2-setup-feature-flags-ring" />
+    <ItemsControl ItemsSource="{Binding Rows}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SetupFeatureFlagRowViewModel">
+          <Border Classes="v2-card" Padding="12,10">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
+                <TextBlock Classes="v2-label" Text="{Binding Description}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding DetailLine}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Classes="v2-label" HorizontalAlignment="Right" Text="{Binding SourceLabel}" />
+                <TextBlock Classes="v2-label" HorizontalAlignment="Right" FontWeight="SemiBold"
+                           Foreground="{DynamicResource V2.Brush.Warning}"
+                           IsVisible="{Binding WaitsForRestart}" Text="{Binding RestartNote}" />
+              </StackPanel>
+              <Button Grid.Column="2" Classes="v2-target" VerticalAlignment="Center"
+                      IsVisible="{Binding IsOverridden}"
+                      AutomationProperties.AutomationId="{Binding ResetAutomationId}"
+                      Content="Reset" Command="{Binding ResetCommand}" />
+              <ToggleSwitch Grid.Column="3" VerticalAlignment="Center"
+                            IsChecked="{Binding IsOn, Mode=OneWay}"
+                            OnContent="On" OffContent="Off"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Title}"
+                            Command="{Binding ToggleCommand}" />
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>

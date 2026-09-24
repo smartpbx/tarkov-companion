@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
+using TarkovCompanion.Core.Features;
 
 namespace TarkovCompanion.App.Services.V2;
 
@@ -20,6 +21,12 @@ internal static class TabletCaptureReviewWiring
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(captureBridge);
         ArgumentNullException.ThrowIfNull(publisher);
+        // [#314] Off: the tablet is not sent either review, and keeps whatever it last had.
+        if (services.GetService<IFeatureFlags>() is { } flags && !flags.IsOn(Flag.TabletReviewCards))
+        {
+            return;
+        }
+
         captureBridge.FleaScanShown += scan => publisher.ShowFleaReview(TabletCaptureReviewBuilder.FromFlea(scan));
         if (services.GetService<StashScanWorkspaceViewModel>() is not { } stash)
         {
