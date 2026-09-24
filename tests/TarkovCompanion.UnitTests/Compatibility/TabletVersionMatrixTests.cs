@@ -220,7 +220,7 @@ public sealed class TabletVersionMatrixTests
         [new TabletMapAttribution("Map by the-hideout", "https://example.test/map.svg", "https://example.test/licence", new string('b', 64), "Reviewed")],
         ["ground", "second"],
         [new TabletMapLayer("extracts", "Extracts", 10, true)],
-        [new TabletMapObject("ping-1", "extracts", "Ping", "UserAuthored", "Here", null, [10, 20], ["ground"], 90, false, false, Now.AddSeconds(45))],
+        [new TabletMapObject("ping-1", "extracts", "Ping", "UserAuthored", "Here", null, [10, 20], ["ground"], 90, false, false, Now.AddSeconds(45), "#E69F00")],
         new TabletMapView("ground", 150, -25, 2, "Landmark", "extract-zb-1011"),
         new TabletSearch("salewa", [new TabletSearchResult("item-salewa", "Salewa first aid kit", "Salewa", 31_747, 15_090, false, "Medical", "1x2", 15_873, "Therapist", "https://example.test/wiki/Salewa")]),
         null,
@@ -228,5 +228,7 @@ public sealed class TabletVersionMatrixTests
         Now,
         new TabletLootResult("scan-1", Now, "Loot Scan", "2 items", [new TabletLootRow("Salewa", "Take", "Take", "31,747 ₽", "Worth the slot")], 0),
         new TabletMapLootFilter(20_000, "PerSlot"),
-        [new TabletMapChoice("customs", "Customs")]);
+        [new TabletMapChoice("customs", "Customs")],
+        TabletCaptureReview.Bounded("stash", "snapshot-1", Now, "Stash scan", "2 named", "Keep 1", [new TabletReviewRow("Salewa", "Keep", "Good", "x1", "Screenshot · 93%", "Quest")]),
+        TabletCaptureReview.Bounded("flea", "artifact-1", Now, "Offers for Salewa", "1 row read", null, [new TabletReviewRow("#1 best buy · ₽20,000 each", "Good buy", "Good", "1 unit", "read 97% sure", "Under the average")]));
 }

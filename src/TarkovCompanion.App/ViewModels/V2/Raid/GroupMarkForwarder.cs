@@ -43,6 +43,12 @@ internal sealed class GroupMarkForwarder : IDisposable
     /// <summary>Sends one mark, answering with the relay's id, or null when it was not sent.</summary>
     public delegate Task<long?> SendMark(string mapId, WorldPosition position, bool isPing, CancellationToken cancellationToken);
 
+    /// <summary>#290: <see cref="SendMark"/> with the mark's chosen colour, when the host can carry it.</summary>
+    public delegate Task<long?> SendColouredMark(string mapId, WorldPosition position, bool isPing, string? colour, CancellationToken cancellationToken);
+
+    /// <summary>Used instead of the constructor's sender when set, so a mark's colour reaches the squad.</summary>
+    public SendColouredMark? SendColoured { get; init; }
+
     /// <summary>How old a mark may be when first seen and still count as just placed.</summary>
     private static readonly TimeSpan JustPlaced = TimeSpan.FromSeconds(30);
 
@@ -345,7 +351,9 @@ internal sealed class GroupMarkForwarder : IDisposable
         long? groupId;
         try
         {
-            groupId = await _send(mark.State.MapId, position, mark.Kind == RaidMarkKind.Ping, CancellationToken.None)
+            groupId = await (SendColoured is { } coloured
+                    ? coloured(mark.State.MapId, position, mark.Kind == RaidMarkKind.Ping, mark.Colour, CancellationToken.None)
+                    : _send(mark.State.MapId, position, mark.Kind == RaidMarkKind.Ping, CancellationToken.None))
                 .ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

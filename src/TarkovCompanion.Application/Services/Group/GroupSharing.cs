@@ -338,6 +338,9 @@ public sealed record GroupWaypointView(
     /// simply omits it, which reads as "unknown age" rather than a deserialization failure.
     /// </remarks>
     public DateTimeOffset CreatedUtc { get; init; } = DateTimeOffset.UnixEpoch;
+
+    /// <summary>#290: the palette colour the marker chose, or null for the kind's own.</summary>
+    public string? Colour { get; init; }
 }
 
 /// <summary>A place somebody is pointing at right now, which fades.</summary>
@@ -349,7 +352,11 @@ public sealed record GroupPingView(
     double Y,
     double Z,
     string? Label,
-    DateTimeOffset CreatedUtc);
+    DateTimeOffset CreatedUtc)
+{
+    /// <summary>#290: see <see cref="GroupWaypointView.Colour"/>.</summary>
+    public string? Colour { get; init; }
+}
 
 public sealed record GroupSnapshot(
     bool IsSharing,

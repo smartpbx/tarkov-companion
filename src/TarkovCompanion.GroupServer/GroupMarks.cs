@@ -19,7 +19,10 @@ public sealed record GroupWaypoint(
     [property: JsonPropertyName("label")] string? Label,
     [property: JsonPropertyName("createdUtc")] DateTimeOffset CreatedUtc,
     [property: JsonPropertyName("completedUtc")] DateTimeOffset? CompletedUtc,
-    [property: JsonPropertyName("completedBy")] string? CompletedBy);
+    [property: JsonPropertyName("completedBy")] string? CompletedBy,
+    // #290: a palette colour the marker chose; left out of the JSON when there is none, so the
+    // shape older clients and older marks.json files know is unchanged.
+    [property: JsonPropertyName("color"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null);
 
 /// <summary>A place somebody is pointing at right now, which fades.</summary>
 /// <remarks>
@@ -35,7 +38,8 @@ public sealed record GroupPing(
     [property: JsonPropertyName("y")] double Y,
     [property: JsonPropertyName("z")] double Z,
     [property: JsonPropertyName("label")] string? Label,
-    [property: JsonPropertyName("createdUtc")] DateTimeOffset CreatedUtc);
+    [property: JsonPropertyName("createdUtc")] DateTimeOffset CreatedUtc,
+    [property: JsonPropertyName("color"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null);
 
 /// <summary>
 /// The marks a group has put on its maps.
@@ -105,12 +109,12 @@ public sealed class GroupMarks
         public List<GroupPing> Pings { get; } = [];
     }
 
-    public GroupWaypoint AddWaypoint(string room, string by, string mapId, double x, double y, double z, string? label)
+    public GroupWaypoint AddWaypoint(string room, string by, string mapId, double x, double y, double z, string? label, string? color = null)
     {
         var entry = _rooms.GetOrAdd(room, _ => new());
         var waypoint = new GroupWaypoint(
             Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label),
-            _timeProvider.GetUtcNow(), null, null);
+            _timeProvider.GetUtcNow(), null, null, MarkPalette.Normalize(color));
         lock (entry)
         {
             // Oldest first, so a group that keeps marking loses its stalest plan rather than
@@ -127,11 +131,11 @@ public sealed class GroupMarks
         return waypoint;
     }
 
-    public GroupPing AddPing(string room, string by, string mapId, double x, double y, double z, string? label)
+    public GroupPing AddPing(string room, string by, string mapId, double x, double y, double z, string? label, string? color = null)
     {
         var entry = _rooms.GetOrAdd(room, _ => new());
         var ping = new GroupPing(
-            Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label), _timeProvider.GetUtcNow());
+            Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label), _timeProvider.GetUtcNow(), MarkPalette.Normalize(color));
         lock (entry)
         {
             entry.Pings.RemoveAll(Expired);
@@ -319,6 +323,8 @@ public sealed class GroupMarks
                 var kept = waypoints
                     .Where(waypoint => waypoint.CreatedUtc > cutoff)
                     .TakeLast(MaximumWaypointsPerRoom)
+                    // #290: a colour edited into the file by hand is held to the palette too.
+                    .Select(waypoint => waypoint with { Color = MarkPalette.Normalize(waypoint.Color) })
                     .ToArray();
                 if (kept.Length == 0)
                 {

@@ -80,6 +80,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private DesktopViewportEase? _ease;
     private DateTimeOffset? _sentToTabletUtc;
     private TabletLootResult? _loot;
+    private TabletCaptureReview? _stashReview;
+    private TabletCaptureReview? _fleaReview;
     private TabletWorkspaceNavigation? _workspaceNavigation;
 
     public TabletMapSurfacePublisher(
@@ -161,9 +163,12 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                     ? new(
                         highValueLoot.FilterState.Filter.EffectiveMinimumValueRoubles,
                         highValueLoot.FilterState.Filter.ValueBasis.ToString())
-                    : null) with
+                    : null,
+                _cockpit.MarkColours) with
             {
                 Maps = [.. _cockpit.MapPicker.Select(item => new TabletMapChoice(item.MapId, item.Name))],
+                Stash = Volatile.Read(ref _stashReview),
+                Flea = Volatile.Read(ref _fleaReview),
             };
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
 
@@ -216,11 +221,32 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         return LastSurface?.SentToTabletUtc == stamp;
     }
 
+    /// <summary>#290: puts the last Stash scan on the paired tablets for review, now.</summary>
+    public void ShowStashReview(TabletCaptureReview review)
+    {
+        ArgumentNullException.ThrowIfNull(review);
+        Volatile.Write(ref _stashReview, review);
+        PublishSoon();
+    }
+
+    /// <summary>#290: puts the last photographed flea screen on the paired tablets for review, now.</summary>
+    public void ShowFleaReview(TabletCaptureReview review)
+    {
+        ArgumentNullException.ThrowIfNull(review);
+        Volatile.Write(ref _fleaReview, review);
+        PublishSoon();
+    }
+
     /// <summary>#572: puts a Loot Scan result on the paired tablets with the next publish, now.</summary>
     public void ShowLootResult(TabletLootResult loot)
     {
         ArgumentNullException.ThrowIfNull(loot);
         Volatile.Write(ref _loot, loot);
+        PublishSoon();
+    }
+
+    private void PublishSoon()
+    {
         _ = Task.Run(async () =>
         {
             try
@@ -229,7 +255,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                // A tablet that misses a loot result still has the desktop's Loot page.
+                // A tablet that misses a result still has the desktop's own page for it.
             }
         });
     }

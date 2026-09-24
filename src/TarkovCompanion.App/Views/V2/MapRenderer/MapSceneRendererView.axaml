@@ -149,11 +149,11 @@
                  red (the ping over the traffic heat's own red end) still shows a ring. -->
             <Ellipse Classes="v2-map-ping-halo" Width="30" Height="30" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Ellipse Classes="v2-map-ping-ring-outer" Width="28" Height="28" IsHitTestVisible="False"
+            <Ellipse Classes="v2-map-ping-ring-outer" Classes.hinted="{Binding HasColorHint}" Width="28" Height="28" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Ellipse Classes="v2-map-ping-ring-inner" Width="16" Height="16" IsHitTestVisible="False"
+            <Ellipse Classes="v2-map-ping-ring-inner" Classes.hinted="{Binding HasColorHint}" Width="16" Height="16" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Ellipse Classes="v2-map-ping-dot" Width="8" Height="8" IsHitTestVisible="False"
+            <Ellipse Classes="v2-map-ping-dot" Classes.hinted="{Binding HasColorHint}" Width="8" Height="8" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Panel>
         </DataTemplate>
@@ -604,6 +604,16 @@
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
       <Setter Property="StrokeThickness" Value="1.5" />
       <Setter Property="Opacity" Value="0.35" />
+    </Style>
+    <!-- #290: a ping the player gave a colour keeps its rings and takes that colour. -->
+    <Style Selector="Ellipse.v2-map-ping-dot.hinted">
+      <Setter Property="Fill" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
+    </Style>
+    <Style Selector="Ellipse.v2-map-ping-ring-inner.hinted">
+      <Setter Property="Stroke" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
+    </Style>
+    <Style Selector="Ellipse.v2-map-ping-ring-outer.hinted">
+      <Setter Property="Stroke" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
     </Style>
     <!-- [Issue 551] Hover and selection for a person and a ping, on their own shapes. After the
          base styles above: the later style wins. -->

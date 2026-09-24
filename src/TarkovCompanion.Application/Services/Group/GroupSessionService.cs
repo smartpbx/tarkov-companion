@@ -511,7 +511,8 @@ public sealed class GroupSessionService : IAsyncDisposable
         WorldPosition position,
         string? label,
         bool isPing,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? colour = null)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsUsable || string.IsNullOrWhiteSpace(mapId))
@@ -526,7 +527,10 @@ public sealed class GroupSessionService : IAsyncDisposable
                 new Uri(new Uri(settings.ServerUri!), isPing ? "pings" : "waypoints"))
             {
                 Content = JsonContent.Create(new MarkDto(
-                    settings.DisplayName!.Trim(), mapId, position.X, position.Y, position.Z, label)),
+                    settings.DisplayName!.Trim(), mapId, position.X, position.Y, position.Z, label)
+                {
+                    Color = TarkovCompanion.Core.Common.MarkPalette.Normalize(colour),
+                }),
             };
             request.Headers.Add("X-Group-Key", settings.Key!.Trim());
             var started = _clock.GetTimestamp();
@@ -903,9 +907,13 @@ public sealed class GroupSessionService : IAsyncDisposable
                 new GroupWaypointView(w.Id, w.By, w.MapId, w.X, w.Y, w.Z, w.Label, w.CompletedBy)
                 {
                     CreatedUtc = w.CreatedUtc,
+                    Colour = TarkovCompanion.Core.Common.MarkPalette.Normalize(w.Color),
                 }).ToArray(),
             Pings = (room?.Pings ?? []).Select(p =>
-                new GroupPingView(p.Id, p.By, p.MapId, p.X, p.Y, p.Z, p.Label, p.CreatedUtc)).ToArray(),
+                new GroupPingView(p.Id, p.By, p.MapId, p.X, p.Y, p.Z, p.Label, p.CreatedUtc)
+                {
+                    Colour = TarkovCompanion.Core.Common.MarkPalette.Normalize(p.Color),
+                }).ToArray(),
             PositionLatency = _latency.Current,
         };
         // Kept so the next failed exchange has something true to keep showing. StaleSince is
@@ -1697,7 +1705,13 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("x")] double X,
         [property: JsonPropertyName("y")] double Y,
         [property: JsonPropertyName("z")] double Z,
-        [property: JsonPropertyName("label")] string? Label);
+        [property: JsonPropertyName("label")] string? Label)
+    {
+        /// <summary>#290: a palette colour; not written when there is none, so the body older relays bound is unchanged.</summary>
+        [JsonPropertyName("color")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Color { get; init; }
+    }
 
     private sealed record WaypointDto(
         [property: JsonPropertyName("id")] long Id,
@@ -1712,6 +1726,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         /// <summary>When the relay says this was marked, for the Team workspace's mark list.</summary>
         [JsonPropertyName("createdUtc")]
         public DateTimeOffset CreatedUtc { get; init; }
+
+        /// <summary>#290: the colour the marker chose, from a relay that carries it.</summary>
+        [JsonPropertyName("color")]
+        public string? Color { get; init; }
     }
 
     private sealed record PingDto(
@@ -1722,5 +1740,9 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("y")] double Y,
         [property: JsonPropertyName("z")] double Z,
         [property: JsonPropertyName("label")] string? Label,
-        [property: JsonPropertyName("createdUtc")] DateTimeOffset CreatedUtc);
+        [property: JsonPropertyName("createdUtc")] DateTimeOffset CreatedUtc)
+    {
+        [JsonPropertyName("color")]
+        public string? Color { get; init; }
+    }
 }

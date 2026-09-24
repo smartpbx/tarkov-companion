@@ -28,6 +28,9 @@ public sealed record RaidMark(Guid Id, RaidMarkKind Kind, MapMarkState State, Da
 
     /// <summary>The short route this waypoint is a stop on, from a tablet (#290); null for a lone mark.</summary>
     public RaidMarkRoute? Route { get; init; }
+
+    /// <summary>The colour the player chose (#290), one of <see cref="MarkPalette"/>'s; null keeps the kind's own.</summary>
+    public string? Colour { get; init; }
 }
 
 /// <summary>One stop on a short route: which route, and its place in it from 1.</summary>
@@ -160,7 +163,8 @@ public interface IRaidMarkStore
         RaidMarkScope scope,
         RaidMarkLifetime lifetime,
         CancellationToken cancellationToken = default,
-        RaidMarkRoute? route = null);
+        RaidMarkRoute? route = null,
+        string? colour = null);
 
     /// <summary>Changes who sees a mark and how long it lasts; a new lifetime counts from now.</summary>
     Task SetOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default);

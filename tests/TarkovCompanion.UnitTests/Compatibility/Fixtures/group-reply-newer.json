@@ -34,7 +34,7 @@
   "waypoints": [
     { "id": 9, "by": "NewGeo", "mapId": "customs", "x": 56.1, "y": -2.9, "z": 110.5, "label": "Dorms",
       "createdUtc": "2026-10-10T04:59:00+00:00", "completedUtc": null, "completedBy": null,
-      "futureScope": "Squad", "futureExpiresUtc": "2026-10-10T05:14:00+00:00" }
+      "futureScope": "Squad", "color": "#009e73", "futureExpiresUtc": "2026-10-10T05:14:00+00:00" }
   ],
   "pings": [
     { "id": 10, "by": "NewGeo", "mapId": "customs", "x": 12.0, "y": 1.0, "z": 44.0, "label": null,
