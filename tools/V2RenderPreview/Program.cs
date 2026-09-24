@@ -336,6 +336,13 @@ internal static class Program
                 LoadFaultInjection.Inject(injected.Split(','));
             }
 
+            // [#279] --hold-load plan,debrief,stash: hold those loads at their first line, so the
+            // page's loading state can be looked at (the gallery's "loading" scene).
+            if (StringOption(args, "--hold-load") is { } held)
+            {
+                LoadHold.Hold(held.Split(','));
+            }
+
             // [#453] --ui-stalls <ms>: how long each dispatcher turn held the interface thread.
             if (IntOption(args, "--ui-stalls", 0) is var stallMs and > 0)
             {

@@ -838,6 +838,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         try
         {
             LoadFaultInjection.ThrowIfInjected("debrief");
+            await LoadHold.WaitIfHeldAsync("debrief", cancellationToken).ConfigureAwait(true);
             // A raid stays soft-deleted, and so undoable, for exactly as long as the one-press undo
             // that covers it could still be pressed: this purges anything soft-deleted that is not
             // in the batch the undo banner currently names — a previous batch a new delete just
