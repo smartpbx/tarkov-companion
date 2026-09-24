@@ -424,6 +424,7 @@
           <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
             <!-- [#286] Navigate / Draw: an icon, so the strip keeps its one row at 1920 (#838). -->
             <ToggleButton Classes="v2-target v2-raid-strip-toggle v2-raid-draw-toggle"
+                          IsVisible="{Binding IsDrawAvailable}"
                           IsChecked="{Binding IsDrawMode, Mode=OneWay}"
                           Command="{Binding ToggleDrawCommand}"
                           AutomationProperties.AutomationId="v2-raid-draw"

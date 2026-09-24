@@ -568,6 +568,9 @@
         <Panel IsVisible="{Binding HasSelfTest}">
           <setup:V2SelfTestView DataContext="{Binding SelfTest}" />
         </Panel>
+        <Panel IsVisible="{Binding HasFeatureFlags}">
+          <setup:V2SetupFeatureFlagsView DataContext="{Binding FeatureFlags}" />
+        </Panel>
         <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
           <setup:V2SetupLootTimingView DataContext="{Binding Admin.LootScan}" />
         </Panel>

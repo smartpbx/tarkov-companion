@@ -80,7 +80,7 @@ public sealed partial class RaidCockpitViewModel
 
     public void SetInteractionMode(MapInteractionMode mode)
     {
-        if (_interactionMode == mode)
+        if (_interactionMode == mode || mode == MapInteractionMode.Draw && !IsDrawAvailable)
         {
             return;
         }

@@ -97,6 +97,14 @@ internal static class Program
             File.Copy(seedLoadouts, Path.Combine(configDirectory, "loadouts.json"));
         }
 
+        // [#314] --seed-feature-flags <file> copies a feature-flags.json (overrides) into Config.
+        if (StringOption(args, "--seed-feature-flags") is { } seedFlags)
+        {
+            var configDirectory = AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config;
+            Directory.CreateDirectory(configDirectory);
+            File.Copy(seedFlags, Path.Combine(configDirectory, "feature-flags.json"));
+        }
+
         // [#283] --seed-icon-cache <dir> copies an icon evidence cache (the local icon corpus's
         // icon-evidence-cache) into the throwaway data root, so a real screenshot handed to
         // --capture-image is named the way it would be on a machine whose cache has filled.
@@ -2539,6 +2547,15 @@ internal static class Program
             if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)
             {
                 StallTour.RunMemory(viewModel, shell, memorySwitches);
+            }
+
+            // [#314] --scroll-to <automation id>: brings one control into view before the frame is taken.
+            if (StringOption(args, "--scroll-to") is { } scrollTarget)
+            {
+                (Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Avalonia.Controls.Control>()
+                    .FirstOrDefault(control => Avalonia.Automation.AutomationProperties.GetAutomationId(control) == scrollTarget)
+                    ?? throw new InvalidOperationException($"Nothing is named '{scrollTarget}'.")).BringIntoView();
+                Pump(20);
             }
 
             SaveFrame(window, outputPath, width, height);
