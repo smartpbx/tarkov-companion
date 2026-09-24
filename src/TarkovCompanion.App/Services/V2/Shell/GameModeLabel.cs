@@ -18,7 +18,7 @@ public static class GameModeLabel
         ProfileGameMode.Pvp => UiText.Get("Common.Mode.Pvp"),
         ProfileGameMode.Pve => UiText.Get("Common.Mode.Pve"),
         ProfileGameMode.Seasonal => UiText.Get("Common.Mode.Seasonal"),
-        _ => V2ShellText.Get("V2.Setup.Profiles.ModeUnset"),
+        _ => SetupText.ProfilesModeUnset,
     };
 
     public static string Of(GameMode mode) => mode switch

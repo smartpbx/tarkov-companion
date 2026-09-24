@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Feedback;
 using TarkovCompanion.Core.Common;
 
@@ -15,7 +16,6 @@ public static class ProblemReportPendingText
         }
 
         var next = queued.Min(report => report.NextAttemptUtc);
-        var noun = queued.Count == 1 ? "report" : "reports";
-        return $"{queued.Count} {noun} queued · next try {LocalTime.ShortTime(next, culture)}";
+        return SetupText.DiagnosticsReportsQueued(queued.Count, LocalTime.ShortTime(next, culture));
     }
 }

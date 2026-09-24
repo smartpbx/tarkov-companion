@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Notifications;
 using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Application.Services.Personalization;
@@ -114,7 +115,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         var section = _currentSection;
         if (!IsResettable(section))
         {
-            StatusMessage = "Nothing on this section can be reset.";
+            StatusMessage = SetupText.AdminNothingResettable;
             ClearPending();
             return;
         }
@@ -128,7 +129,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             _ => current,
         };
 
-        SetOrClearPending(SetupSettingsPendingKind.ResetSection, target, current, "Reset this section?", "This section is already at its defaults.");
+        SetOrClearPending(SetupSettingsPendingKind.ResetSection, target, current, SetupText.AdminResetSectionQuestion, SetupText.AdminSectionAlreadyDefault);
     }
 
     private async Task PrepareResetAllAsync()
@@ -138,15 +139,15 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             SetupSettingsPendingKind.ResetAll,
             SetupSettingsSnapshot.Default,
             current,
-            "Reset everything?",
-            "Everything is already at its defaults.");
+            SetupText.AdminResetAllQuestion,
+            SetupText.AdminAllAlreadyDefault);
     }
 
     private async Task ExportAsync()
     {
         if (string.IsNullOrWhiteSpace(ExchangePath))
         {
-            StatusMessage = "Enter a file path first.";
+            StatusMessage = SetupText.AdminNeedsPath;
             return;
         }
 
@@ -154,11 +155,11 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         {
             var current = await CaptureCurrentAsync().ConfigureAwait(true);
             await File.WriteAllTextAsync(ExchangePath, SetupSettingsExport.ToJson(current)).ConfigureAwait(true);
-            StatusMessage = $"Exported to {ExchangePath}";
+            StatusMessage = SetupText.AdminExported(ExchangePath);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            StatusMessage = $"Not exported · {exception.Message}";
+            StatusMessage = SetupText.AdminNotExported(exception.Message);
         }
     }
 
@@ -166,7 +167,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
     {
         if (string.IsNullOrWhiteSpace(ExchangePath))
         {
-            StatusMessage = "Enter a file path first.";
+            StatusMessage = SetupText.AdminNeedsPath;
             return;
         }
 
@@ -177,7 +178,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            StatusMessage = $"Not imported · {exception.Message}";
+            StatusMessage = SetupText.AdminNotImported(exception.Message);
             ClearPending();
             return;
         }
@@ -185,7 +186,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         var result = SetupSettingsExport.Validate(text);
         if (!result.IsValid)
         {
-            StatusMessage = $"Not imported · {result.Error}";
+            StatusMessage = SetupText.AdminNotImported(result.Error);
             ClearPending();
             return;
         }
@@ -195,8 +196,8 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             SetupSettingsPendingKind.Import,
             result.Snapshot!,
             current,
-            $"Import from {ExchangePath}?",
-            "Already matches what is in force. Nothing to import.");
+            SetupText.AdminImportQuestion(ExchangePath),
+            SetupText.AdminImportNothing);
     }
 
     private async Task ConfirmAsync()
@@ -222,9 +223,9 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
 
         StatusMessage = applied switch
         {
-            SetupSettingsPendingKind.ResetSection => "This section's settings were reset.",
-            SetupSettingsPendingKind.ResetAll => "Everything was reset to its defaults.",
-            SetupSettingsPendingKind.Import => "Imported.",
+            SetupSettingsPendingKind.ResetSection => SetupText.AdminSectionReset,
+            SetupSettingsPendingKind.ResetAll => SetupText.AdminAllReset,
+            SetupSettingsPendingKind.Import => SetupText.AdminImported,
             _ => StatusMessage,
         };
         ClearPending();

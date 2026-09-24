@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Setup;
@@ -38,10 +39,10 @@ public sealed class SetupPathDisclosureViewModel : BindableViewModel
         }
     }
 
-    public string ToggleLabel => IsRevealed ? V2ShellText.Get("V2.Setup.Paths.Hide") : V2ShellText.Get("V2.Setup.Paths.Show");
+    public string ToggleLabel => IsRevealed ? SetupText.PathsHide : SetupText.PathsShow;
 
     /// <summary>One line, and only while paths are showing: that is the moment it is useful.</summary>
-    public string Note => IsRevealed ? V2ShellText.Get("V2.Setup.Paths.RevealedNote") : V2ShellText.Get("V2.Setup.Paths.HiddenNote");
+    public string Note => IsRevealed ? SetupText.PathsRevealedNote : SetupText.PathsHiddenNote;
 
     public ICommand ToggleCommand { get; }
 

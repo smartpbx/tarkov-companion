@@ -2,36 +2,37 @@
              x:DataType="vm:QuestScreenshotSyncViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
   <Border Classes="v2-card" Padding="14"
           AutomationProperties.AutomationId="v2-quest-sync">
     <StackPanel Classes="v2-stack">
       <Grid ColumnDefinitions="*,Auto">
         <StackPanel Spacing="3">
-          <TextBlock Classes="v2-heading-3" Text="Sync quests from screenshots"
+          <TextBlock Classes="v2-heading-3" Text="{x:Static l:SetupText.WorkspaceQuestSyncHeading}"
                      AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-label"
-                     Text="SIDE and OPERATIONAL: scroll and capture. STORY: one image per chapter." />
+                     Text="{x:Static l:SetupText.WorkspaceQuestSyncHint}" />
         </StackPanel>
         <Border Grid.Column="1" Classes="v2-plan-chip" IsVisible="{Binding ShowEmptyOffer}">
-          <TextBlock Classes="v2-label" Text="Recommended for an empty profile" />
+          <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceQuestSyncRecommended}" />
         </Border>
       </Grid>
 
       <WrapPanel Classes="v2-toolbar">
-        <Button Classes="v2-target primary" Content="Choose screenshots"
+        <Button Classes="v2-target primary" Content="{x:Static l:SetupText.WorkspaceQuestSyncChoose}"
                 Command="{Binding PickCommand}"
                 AutomationProperties.AutomationId="v2-quest-sync-pick" />
-        <TextBlock Classes="v2-label" Text="or the last" VerticalAlignment="Center" />
+        <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceQuestSyncOrTheLast}" VerticalAlignment="Center" />
         <ComboBox Width="84" ItemsSource="{Binding RecentMinuteChoices}"
                   SelectedItem="{Binding RecentMinutes}"
                   AutomationProperties.AutomationId="v2-quest-sync-minutes"
-                  AutomationProperties.Name="Recent screenshot minutes" />
-        <TextBlock Classes="v2-label" Text="minutes" VerticalAlignment="Center" />
-        <Button Classes="v2-target" Content="Use recent"
+                  AutomationProperties.Name="{x:Static l:SetupText.WorkspaceQuestSyncMinutesName}" />
+        <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceQuestSyncMinutes}" VerticalAlignment="Center" />
+        <Button Classes="v2-target" Content="{x:Static l:SetupText.WorkspaceQuestSyncUseRecent}"
                 Command="{Binding RecentCommand}"
                 AutomationProperties.AutomationId="v2-quest-sync-recent" />
-        <Button Classes="v2-target" Content="Not now" IsVisible="{Binding ShowEmptyOffer}"
+        <Button Classes="v2-target" Content="{x:Static l:SetupText.WorkspaceQuestSyncNotNow}" IsVisible="{Binding ShowEmptyOffer}"
                 Command="{Binding DismissOfferCommand}" />
       </WrapPanel>
 
@@ -102,14 +103,14 @@
       <Border Classes="v2-card" Padding="10" IsVisible="{Binding HasPreview}">
         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
           <StackPanel Spacing="2">
-            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="Progress changes" />
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{x:Static l:SetupText.WorkspaceQuestSyncChangesHeading}" />
             <TextBlock Classes="v2-label" Text="{Binding HistorySummary}"
                        AutomationProperties.AutomationId="v2-quest-sync-history" />
           </StackPanel>
-          <Button Grid.Column="1" Classes="v2-target" Content="Cancel"
+          <Button Grid.Column="1" Classes="v2-target" Content="{x:Static l:SetupText.WorkspaceQuestSyncCancel}"
                   Command="{Binding CancelCommand}"
                   AutomationProperties.AutomationId="v2-quest-sync-cancel" />
-          <Button Grid.Column="2" Classes="v2-target primary" Content="Confirm sync"
+          <Button Grid.Column="2" Classes="v2-target primary" Content="{x:Static l:SetupText.WorkspaceQuestSyncConfirm}"
                   Command="{Binding ApplyCommand}"
                   AutomationProperties.AutomationId="v2-quest-sync-confirm" />
         </Grid>

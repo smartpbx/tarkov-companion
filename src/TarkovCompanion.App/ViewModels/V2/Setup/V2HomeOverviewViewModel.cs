@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -90,18 +91,18 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
         PrimaryCommand = new DelegateCommand(Primary);
     }
 
-    public string HeroTitle => V2ShellText.Get("V2.Home.Hero.Title");
+    public string HeroTitle => SetupText.HomeHeroTitle;
     public string HeroSubtitle => V2ShellText.Get(IsSetUp ? "V2.Home.Hero.SubtitleReady" : "V2.Home.Hero.Subtitle");
 
-    public string MapEyebrow => V2ShellText.Get("V2.Home.Map.Eyebrow");
-    public string MapTitle => _mapName ?? V2ShellText.Get("V2.Home.Map.None");
-    public string MapDetail => V2ShellText.Get("V2.Home.Map.Detail");
+    public string MapEyebrow => SetupText.HomeMapEyebrow;
+    public string MapTitle => _mapName ?? SetupText.HomeMapNone;
+    public string MapDetail => SetupText.HomeMapDetail;
     public string ExploreMapLabel => _mapName is { } map
-        ? V2ShellText.Format("V2.Home.Map.Explore", CultureInfo.CurrentCulture, map)
-        : V2ShellText.Get("V2.Home.Map.OpenRaid");
+        ? SetupText.HomeMapExplore(map)
+        : SetupText.HomeMapOpenRaid;
     public ICommand ExploreMapCommand { get; }
 
-    public string StepsHeading => V2ShellText.Get("V2.Home.Steps.Heading");
+    public string StepsHeading => SetupText.HomeStepsHeading;
     /// <summary>The shell's own "1 of 5 checks ready · …" sentence; the page gallery matches it.</summary>
     public string StepsSummary => _readinessSummary;
     public IReadOnlyList<V2HomeStepViewModel> Steps { get; private set; } = [];
@@ -110,52 +111,52 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
     public bool IsSetUp => _readiness.Checks.Count > 0 && _readiness.ReadyCount == _readiness.RequiredCount;
     public string PrimaryLabel => V2ShellText.Get(IsSetUp ? "V2.Home.Primary.Raid" : "V2.Home.Primary.Finish");
     public ICommand PrimaryCommand { get; }
-    public string AllSettingsLabel => V2ShellText.Get("V2.Home.AllSettings");
+    public string AllSettingsLabel => SetupText.HomeAllSettings;
     public ICommand AllSettingsCommand { get; }
 
-    public string PlanHeading => V2ShellText.Get("V2.Home.Plan.Heading");
+    public string PlanHeading => SetupText.HomePlanHeading;
     public bool HasPlan => _plan.Count > 0;
     public bool HasNoPlan => !HasPlan;
     public string PlanTitle => CurrentPlan is { } plan
-        ? V2ShellText.Format("V2.Home.Plan.Title", CultureInfo.CurrentCulture, plan.Map, plan.Objectives.Count)
+        ? SetupText.HomePlanTitle(plan.Map, plan.Objectives.Count)
         : string.Empty;
     public string PlanScope => _planScope;
     public IReadOnlyList<V2HomeLineViewModel> PlanObjectives => CurrentPlan?.Objectives.Take(PlanLines).ToArray() ?? [];
     /// <summary>The Plan page's own status line, except a failure, which it words for itself.</summary>
     public string PlanEmpty => string.IsNullOrWhiteSpace(_planStatus)
-        ? V2ShellText.Get("V2.Home.Plan.Empty")
-        : _planStatus.StartsWith("Unavailable", StringComparison.Ordinal) ? V2ShellText.Get("V2.Home.Plan.Unavailable") : _planStatus;
-    public string OpenPlanLabel => V2ShellText.Get("V2.Home.Plan.Open");
+        ? SetupText.HomePlanEmpty
+        : _planStatus.StartsWith("Unavailable", StringComparison.Ordinal) ? SetupText.HomePlanUnavailable : _planStatus;
+    public string OpenPlanLabel => SetupText.HomePlanOpen;
     public ICommand OpenPlanCommand { get; }
 
-    public string HealthHeading => V2ShellText.Get("V2.Home.Health.Heading");
-    public string HealthReadyLabel => V2ShellText.Format("V2.Home.Health.Ready", CultureInfo.CurrentCulture, _readiness.ReadyCount);
+    public string HealthHeading => SetupText.HomeHealthHeading;
+    public string HealthReadyLabel => SetupText.HomeHealthReady(_readiness.ReadyCount);
     public string HealthAttentionLabel => _readiness.NeedsActionCount > 0
-        ? V2ShellText.Format("V2.Home.Health.NeedsAction", CultureInfo.CurrentCulture, _readiness.NeedsActionCount)
+        ? SetupText.HomeHealthNeedsAction(_readiness.NeedsActionCount)
         : _readiness.UnconfirmedCount > 0
-            ? V2ShellText.Format("V2.Home.Health.Unconfirmed", CultureInfo.CurrentCulture, _readiness.UnconfirmedCount)
-            : V2ShellText.Get("V2.Home.Health.Clear");
+            ? SetupText.HomeHealthUnconfirmed(_readiness.UnconfirmedCount)
+            : SetupText.HomeHealthClear;
     public bool HealthNeedsAttention => _readiness.NeedsActionCount > 0;
     public IReadOnlyList<V2HomeHealthRowViewModel> HealthRows { get; private set; } = [];
 
-    public string RecentHeading => V2ShellText.Get("V2.Home.Recent.Heading");
+    public string RecentHeading => SetupText.HomeRecentHeading;
     public string DataFreshness => _dataFreshness;
     public IReadOnlyList<V2HomeLineViewModel> RecentRaids => _raids;
     public bool HasRecentRaids => _raids.Count > 0;
     public bool HasNoRecentRaids => !HasRecentRaids;
-    public string RecentEmpty => V2ShellText.Get("V2.Home.Recent.Empty");
-    public string RecentRaidsLabel => string.IsNullOrWhiteSpace(_raidStatus) ? V2ShellText.Get("V2.Home.Recent.Raids") : _raidStatus;
-    public string OpenDebriefLabel => V2ShellText.Get("V2.Home.Recent.Open");
+    public string RecentEmpty => SetupText.HomeRecentEmpty;
+    public string RecentRaidsLabel => string.IsNullOrWhiteSpace(_raidStatus) ? SetupText.HomeRecentRaids : _raidStatus;
+    public string OpenDebriefLabel => SetupText.HomeRecentOpen;
     public ICommand OpenDebriefCommand { get; }
 
-    public string PrivacyHeading => V2ShellText.Get("V2.Home.Privacy.Heading");
+    public string PrivacyHeading => SetupText.HomePrivacyHeading;
     public string CleanupTitle => V2ShellText.Get(_tidiesScreenshots ? "V2.Home.Privacy.CleanupOn" : "V2.Home.Privacy.CleanupOff");
     public string CleanupDetail => _tidiesScreenshots
-        ? V2ShellText.Format("V2.Home.Privacy.CleanupOnDetail", CultureInfo.CurrentCulture, _retention)
-        : V2ShellText.Get("V2.Home.Privacy.CleanupOffDetail");
-    public string TelemetryTitle => V2ShellText.Get("V2.Home.Privacy.Telemetry");
-    public string TelemetryDetail => V2ShellText.Get("V2.Home.Privacy.TelemetryDetail");
-    public string ReviewPrivacyLabel => V2ShellText.Get("V2.Home.Privacy.Review");
+        ? SetupText.HomePrivacyCleanupOnDetail(_retention)
+        : SetupText.HomePrivacyCleanupOffDetail;
+    public string TelemetryTitle => SetupText.HomePrivacyTelemetry;
+    public string TelemetryDetail => SetupText.HomePrivacyTelemetryDetail;
+    public string ReviewPrivacyLabel => SetupText.HomePrivacyReview;
     public ICommand ReviewPrivacyCommand { get; }
 
     private (string Map, IReadOnlyList<V2HomeLineViewModel> Objectives)? CurrentPlan =>
@@ -281,7 +282,7 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
             void PushRaids() => ApplyRaids(
                 debrief.Raids
                     .Select(raid => new V2HomeLineViewModel(
-                        V2ShellText.Format("V2.Home.Recent.Raid", CultureInfo.CurrentCulture, raid.MapLabel, raid.DurationLabel),
+                        SetupText.HomeRecentRaid(raid.MapLabel, raid.DurationLabel),
                         raid.StartedLabel))
                     .ToArray(),
                 string.Empty);

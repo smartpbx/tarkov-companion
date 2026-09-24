@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using TarkovCompanion.Application.Services.Profiles;
@@ -39,7 +40,7 @@ public sealed class SetupProfileCompareViewModel : BindableViewModel
         _compare = compare ?? throw new ArgumentNullException(nameof(compare));
     }
 
-    public string Heading => "Compare profiles";
+    public string Heading => SetupText.CompareProfilesHeading;
 
     public ObservableCollection<SetupProfileCompareChoice> Choices { get; } = [];
 
@@ -121,7 +122,7 @@ public sealed class SetupProfileCompareViewModel : BindableViewModel
             .ThenBy(record => record.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(record => new SetupProfileCompareChoice(
                 record.Context.Identity.ProfileId,
-                record.Lifecycle == ProfileLifecycle.Archived ? $"{record.Name} (archived)" : record.Name))
+                record.Lifecycle == ProfileLifecycle.Archived ? SetupText.CompareArchivedChoice(record.Name) : record.Name))
             .ToArray();
 
         var keepLeft = _chosen ? _left?.Id : null;
@@ -172,14 +173,14 @@ public sealed class SetupProfileCompareViewModel : BindableViewModel
             }
 
             Rows = BuildRows(a, b);
-            Status = a.Mode != b.Mode ? "Different game modes: their progress is kept apart." : string.Empty;
+            Status = a.Mode != b.Mode ? SetupText.CompareDifferentModes : string.Empty;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             if (generation == _generation)
             {
                 Rows = [];
-                Status = $"Could not compare · {exception.Message}";
+                Status = SetupText.CompareProfilesFailed(exception.Message);
             }
         }
     }
@@ -192,17 +193,17 @@ public sealed class SetupProfileCompareViewModel : BindableViewModel
             : (side.Survived / (double)(side.Survived + side.Died)).ToString("P0", CultureInfo.CurrentCulture);
         return
         [
-            new("Game mode", SetupProfilesViewModel.ModeLabel(a.Mode), SetupProfilesViewModel.ModeLabel(b.Mode)),
-            new("Wipe", a.Wipe, b.Wipe),
-            new("Level", N(a.Level), N(b.Level)),
-            new("Quests completed", N(a.QuestsCompleted), N(b.QuestsCompleted)),
-            new("Hideout levels", N(a.HideoutLevels), N(b.HideoutLevels)),
-            new("Keys owned", N(a.KeysOwned), N(b.KeysOwned)),
-            new("Ammo owned (rounds)", N(a.AmmoRounds), N(b.AmmoRounds)),
-            new("Raids", N(a.Raids), N(b.Raids)),
-            new("Survived", N(a.Survived), N(b.Survived)),
-            new("Died", N(a.Died), N(b.Died)),
-            new("Survival rate", Rate(a), Rate(b)),
+            new(SetupText.CompareRowMode, SetupProfilesViewModel.ModeLabel(a.Mode), SetupProfilesViewModel.ModeLabel(b.Mode)),
+            new(SetupText.CompareRowWipe, a.Wipe, b.Wipe),
+            new(SetupText.CompareRowLevel, N(a.Level), N(b.Level)),
+            new(SetupText.CompareRowQuests, N(a.QuestsCompleted), N(b.QuestsCompleted)),
+            new(SetupText.CompareRowHideout, N(a.HideoutLevels), N(b.HideoutLevels)),
+            new(SetupText.CompareRowKeys, N(a.KeysOwned), N(b.KeysOwned)),
+            new(SetupText.CompareRowAmmo, N(a.AmmoRounds), N(b.AmmoRounds)),
+            new(SetupText.CompareRowRaids, N(a.Raids), N(b.Raids)),
+            new(SetupText.CompareRowSurvived, N(a.Survived), N(b.Survived)),
+            new(SetupText.CompareRowDied, N(a.Died), N(b.Died)),
+            new(SetupText.CompareRowSurvivalRate, Rate(a), Rate(b)),
         ];
     }
 }

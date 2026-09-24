@@ -1,5 +1,6 @@
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -80,7 +81,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return Task.FromResult(Nothing(root, TimeSpan.Zero, $"The screenshot folder could not be listed: {exception.Message}"));
+            return Task.FromResult(Nothing(root, TimeSpan.Zero, SetupText.ProbeShotsListFailed(exception.Message)));
         }
 
         return Task.FromResult(fallback ?? Nothing(root, TimeSpan.Zero, null));
@@ -104,7 +105,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return Nothing(root, TimeSpan.Zero, $"The screenshot folder could not be listed: {exception.Message}");
+            return Nothing(root, TimeSpan.Zero, SetupText.ProbeShotsListFailed(exception.Message));
         }
 
         var startedAt = _clock.GetTimestamp();
@@ -122,7 +123,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                return Nothing(root, _clock.GetElapsedTime(startedAt), $"The screenshot folder could not be listed: {exception.Message}");
+                return Nothing(root, _clock.GetElapsedTime(startedAt), SetupText.ProbeShotsListFailed(exception.Message));
             }
 
             foreach (var name in arrived)
@@ -155,8 +156,8 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
     private static SelfTestScreenshot? Unusable(string? root) =>
         string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)
             ? Nothing(root, TimeSpan.Zero, root is null
-                ? "No screenshot folder has been chosen, so nothing could be watched."
-                : $"The screenshot folder {root} does not exist.")
+                ? SetupText.ProbeShotsNoFolderChosen
+                : SetupText.ProbeShotsFolderMissing(root))
             : null;
 
     private SelfTestScreenshot Describe(string root, string name, TimeSpan localUtcOffset, TimeSpan waited)
@@ -189,7 +190,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
                 null,
                 null,
                 null,
-                "the file's own write time",
+                SetupText.ProbeShotsClockFile,
                 waited,
                 writtenUtc is { } unparsedAt ? noticedUtc - unparsedAt : null)
             {
@@ -209,7 +210,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
             position.Position.X,
             position.Position.Y,
             position.Position.Z,
-            "the clock in the name",
+            SetupText.ProbeShotsClockName,
             waited,
             noticedUtc - position.Timestamp)
         {
@@ -218,7 +219,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
     }
 
     private static SelfTestScreenshot Nothing(string? root, TimeSpan waited, string? problem) =>
-        new(root, null, null, null, false, null, null, null, "no clock", waited, null, problem);
+        new(root, null, null, null, false, null, null, null, SetupText.ProbeShotsNoClock, waited, null, problem);
 
     private static bool IsImage(string path) =>
         ImageExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -39,18 +40,18 @@ public sealed partial class SelfTestLogReader(TimeProvider? timeProvider = null)
         var nowUtc = _clock.GetUtcNow();
         if (string.IsNullOrWhiteSpace(logRoot))
         {
-            return Nothing(nowUtc, "no log folder has been chosen, so there was no session to read");
+            return Nothing(nowUtc, SetupText.ProbeLogsNoFolderChosen);
         }
 
         if (!Directory.Exists(logRoot))
         {
-            return Nothing(nowUtc, $"the log folder {logRoot} does not exist");
+            return Nothing(nowUtc, SetupText.ProbeLogsFolderMissing(logRoot));
         }
 
         var session = NewestSession(logRoot);
         if (session is null)
         {
-            return Nothing(nowUtc, $"{logRoot} holds no session folder the game would have written");
+            return Nothing(nowUtc, SetupText.ProbeLogsNoSession(logRoot));
         }
 
         var files = ReadableFiles(session.Value.Path);
@@ -58,7 +59,7 @@ public sealed partial class SelfTestLogReader(TimeProvider? timeProvider = null)
         {
             return Nothing(
                 nowUtc,
-                $"session {Path.GetFileName(session.Value.Path)} holds no log file this companion reads yet");
+                SetupText.ProbeLogsNoReadableFile(Path.GetFileName(session.Value.Path)));
         }
 
         return await ReplayAsync(session.Value, files, nowUtc, cancellationToken).ConfigureAwait(false);
@@ -205,7 +206,7 @@ public sealed partial class SelfTestLogReader(TimeProvider? timeProvider = null)
             totalLines,
             raidsSeen,
             lastMap,
-            lastState ?? "no raid",
+            lastState ?? SetupText.ProbeLogsNoRaidState,
             lastRaidAt,
             queue,
             quests,
@@ -221,7 +222,7 @@ public sealed partial class SelfTestLogReader(TimeProvider? timeProvider = null)
     private static string Describe(IReadOnlyList<SelfTestLogFile> files) =>
         files.Count switch
         {
-            0 => "no file",
+            0 => SetupText.ProbeLogsNoFile,
             1 => files[0].Name,
             _ => string.Join(", ", files.Select(file => file.Name)),
         };

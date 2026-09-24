@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -72,17 +73,17 @@ public sealed class SetupCleanupViewModel : BindableViewModel
 
     public ICommand CancelCommand { get; }
 
-    public string PreviewLabel => V2ShellText.Get("V2.Setup.Cleanup.Preview");
-    public string ConfirmLabel => V2ShellText.Get("V2.Setup.Cleanup.Confirm");
-    public string CancelLabel => V2ShellText.Get("V2.Setup.Cleanup.Cancel");
-    public string FolderLabel => V2ShellText.Get("V2.Setup.Cleanup.Folder");
-    public string LedgerHeading => V2ShellText.Get("V2.Setup.Cleanup.LedgerHeading");
-    public string LedgerEmpty => V2ShellText.Get("V2.Setup.Cleanup.LedgerEmpty");
+    public string PreviewLabel => SetupText.CleanupPreview;
+    public string ConfirmLabel => SetupText.CleanupConfirm;
+    public string CancelLabel => SetupText.CleanupCancel;
+    public string FolderLabel => SetupText.CleanupFolder;
+    public string LedgerHeading => SetupText.CleanupLedgerHeading;
+    public string LedgerEmpty => SetupText.CleanupLedgerEmpty;
 
     public bool CanTidy => _canTidy();
 
     /// <summary>What the toggle button says: it starts tidying from a preview, or stops it at once.</summary>
-    public string ToggleLabel => _isEnabled ? V2ShellText.Get("V2.Setup.Cleanup.Stop") : V2ShellText.Get("V2.Setup.Cleanup.Start");
+    public string ToggleLabel => _isEnabled ? SetupText.CleanupStop : SetupText.CleanupStart;
 
     public bool IsConfirming
     {
@@ -156,7 +157,7 @@ public sealed class SetupCleanupViewModel : BindableViewModel
             LastRuns.Add(DescribeEntry(entry));
             foreach (var (reason, count) in entry.FailureReasons.OrderByDescending(pair => pair.Value))
             {
-                LastRuns.Add(string.Create(CultureInfo.CurrentCulture, $"   {count} × {reason}"));
+                LastRuns.Add(SetupText.CleanupFailureLine(count, reason));
             }
         }
 
@@ -215,7 +216,7 @@ public sealed class SetupCleanupViewModel : BindableViewModel
         PreviewFiles.Clear();
         PreviewFolder = plan.Root;
         PreviewRefusal = plan.Refusal ?? string.Empty;
-        PreviewPolicy = V2ShellText.Format("V2.Setup.Cleanup.Policy", CultureInfo.CurrentCulture, plan.RetentionHours);
+        PreviewPolicy = SetupText.CleanupPolicy(plan.RetentionHours);
         if (plan.IsRefused)
         {
             PreviewSummary = string.Empty;
@@ -225,9 +226,9 @@ public sealed class SetupCleanupViewModel : BindableViewModel
         {
             PreviewSummary = plan.Count switch
             {
-                0 => V2ShellText.Get("V2.Setup.Cleanup.SummaryNone"),
-                1 => V2ShellText.Format("V2.Setup.Cleanup.SummaryOne", CultureInfo.CurrentCulture, FormatBytes(plan.TotalBytes)),
-                _ => V2ShellText.Format("V2.Setup.Cleanup.Summary", CultureInfo.CurrentCulture, plan.Count, FormatBytes(plan.TotalBytes)),
+                0 => SetupText.CleanupSummaryNone,
+                1 => SetupText.CleanupSummaryOne(FormatBytes(plan.TotalBytes)),
+                _ => SetupText.CleanupSummary(plan.Count, FormatBytes(plan.TotalBytes)),
             };
             foreach (var file in plan.Eligible.Take(FilesShown))
             {
@@ -236,7 +237,7 @@ public sealed class SetupCleanupViewModel : BindableViewModel
 
             if (plan.Count > FilesShown)
             {
-                PreviewFiles.Add(V2ShellText.Format("V2.Setup.Cleanup.MoreFiles", CultureInfo.CurrentCulture, plan.Count - FilesShown));
+                PreviewFiles.Add(SetupText.CleanupMoreFiles(plan.Count - FilesShown));
             }
 
             PreviewExcluded = DescribeExcluded(plan);
@@ -269,10 +270,10 @@ public sealed class SetupCleanupViewModel : BindableViewModel
         Add(TidySkipReason.LinkOrReparsePoint, "V2.Setup.Cleanup.ExLink");
         if (plan.NotGameFiles > 0)
         {
-            parts.Add(V2ShellText.Format("V2.Setup.Cleanup.ExOther", CultureInfo.CurrentCulture, plan.NotGameFiles));
+            parts.Add(SetupText.CleanupExOther(plan.NotGameFiles));
         }
 
-        return parts.Count == 0 ? string.Empty : V2ShellText.Format("V2.Setup.Cleanup.Excluded", CultureInfo.CurrentCulture, string.Join(", ", parts));
+        return parts.Count == 0 ? string.Empty : SetupText.CleanupExcluded(string.Join(", ", parts));
 
         void Add(TidySkipReason reason, string key)
         {
@@ -283,20 +284,14 @@ public sealed class SetupCleanupViewModel : BindableViewModel
         }
     }
 
-    private string DescribeEntry(TidyLedgerEntry entry) => V2ShellText.Format(
-        "V2.Setup.Cleanup.LedgerEntry",
-        CultureInfo.CurrentCulture,
-        V2ShellText.Age(entry.AtUtc, _clock.GetUtcNow(), CultureInfo.CurrentCulture),
-        entry.Moved,
-        FormatBytes(entry.MovedBytes),
-        entry.Failed);
+    private string DescribeEntry(TidyLedgerEntry entry) => SetupText.CleanupLedgerEntry(V2ShellText.Age(entry.AtUtc, _clock.GetUtcNow(), CultureInfo.CurrentCulture), entry.Moved, FormatBytes(entry.MovedBytes), entry.Failed);
 
     /// <summary>Bytes as a person reads them: 38.2 MB, not 40054812.</summary>
     public static string FormatBytes(long bytes) => bytes switch
     {
-        < 1_024 => string.Create(CultureInfo.CurrentCulture, $"{bytes} B"),
-        < 1_048_576 => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1_024.0:0.#} KB"),
-        < 1_073_741_824 => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1_048_576.0:0.#} MB"),
-        _ => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1_073_741_824.0:0.##} GB"),
+        < 1_024 => SetupText.CleanupBytes(bytes),
+        < 1_048_576 => SetupText.CleanupKilobytes(bytes / 1_024.0),
+        < 1_073_741_824 => SetupText.CleanupMegabytes(bytes / 1_048_576.0),
+        _ => SetupText.CleanupGigabytes(bytes / 1_073_741_824.0),
     };
 }

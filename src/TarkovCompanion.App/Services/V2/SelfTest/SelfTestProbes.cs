@@ -4,6 +4,7 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Core.Common;
 
 using TarkovCompanion.Application.Services;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -48,14 +49,14 @@ public static class SelfTestProbes
     {
         ArgumentNullException.ThrowIfNull(reading);
         ArgumentNullException.ThrowIfNull(culture);
-        var source = ReadAt(reading.CheckedUtc, "discovery", culture);
+        var source = ReadAt(reading.CheckedUtc, SetupText.ProbeFromDiscovery, culture);
         if (!reading.Supported || reading.Problem is { Length: > 0 })
         {
             // The detail is discovery's own sentence about why; the problem is the shorter
             // fact under it. Using the problem as the headline printed a fragment.
             return Unknown(
                 FoldersId,
-                "Game folders",
+                SetupText.ProbeTitleGameFolders,
                 reading.Detail,
                 [new(reading.Problem ?? reading.Detail, source)],
                 took);
@@ -66,28 +67,26 @@ public static class SelfTestProbes
         foreach (var folder in reading.Folders)
         {
             var changed = folder.ChangedUtc is { } at
-                ? string.Create(culture, $"last changed {V2ShellText.Age(at, nowUtc, culture)} ({LocalTime.Sortable(at)})")
-                : "nothing in it has ever changed";
+                ? SetupText.ProbeFolderLastChanged(culture, V2ShellText.Age(at, nowUtc, culture), LocalTime.Sortable(at))
+                : SetupText.ProbeFolderNeverChanged;
             if (folder.Path is null || !folder.Exists)
             {
                 broken.Add(folder.Purpose);
                 facts.Add(new(
-                    string.Create(culture, $"{folder.Purpose}: {folder.Problem ?? "not found"} — looked because {folder.Why}"),
+                    SetupText.ProbeFolderBroken(culture, folder.Purpose, folder.Problem ?? SetupText.ProbeFolderNotFound, folder.Why),
                     source));
                 continue;
             }
 
             facts.Add(new(
-                string.Create(culture, $"{folder.Purpose}: {folder.Path} — chosen because {folder.Why}; {folder.Entries:N0} entries, {changed}"),
+                SetupText.ProbeFolderChosen(culture, folder.Purpose, folder.Path, folder.Why, folder.Entries, changed),
                 source));
         }
 
         string? stale = null;
         if (StaleLogFolder(reading, out var logChanged, out var screenshotChanged))
         {
-            stale = string.Create(
-                culture,
-                $"The log folder has stood still since {LocalTime.Sortable(logChanged)} while screenshots kept arriving until {LocalTime.Sortable(screenshotChanged)} — the game is writing its logs somewhere else.");
+            stale = SetupText.ProbeFolderStaleFact(culture, LocalTime.Sortable(logChanged), LocalTime.Sortable(screenshotChanged));
             facts.Add(new(stale, source));
         }
 
@@ -95,9 +94,9 @@ public static class SelfTestProbes
         {
             return new(
                 FoldersId,
-                "Game folders",
+                SetupText.ProbeTitleGameFolders,
                 SelfTestOutcome.Pass,
-                string.Create(culture, $"{reading.Folders.Count} folder(s) found, and each one is being written to."),
+                SetupText.ProbeFoldersPass(culture, reading.Folders.Count),
                 facts,
                 took);
         }
@@ -106,11 +105,11 @@ public static class SelfTestProbes
         // still has to go and find out in what way.
         return new(
             FoldersId,
-            "Game folders",
+            SetupText.ProbeTitleGameFolders,
             SelfTestOutcome.Fail,
             broken.Count > 0
-                ? string.Create(culture, $"The {string.Join(" and ", broken.Distinct(StringComparer.Ordinal)).ToLowerInvariant()} folder could not be used.")
-                : "The log folder has stopped changing while screenshots keep arriving.",
+                ? SetupText.ProbeFoldersBroken(culture, string.Join(SetupText.ProbeFoldersJoin, broken.Distinct(StringComparer.Ordinal)).ToLowerInvariant())
+                : SetupText.ProbeFoldersStale,
             facts,
             took);
     }
@@ -142,18 +141,16 @@ public static class SelfTestProbes
     {
         ArgumentNullException.ThrowIfNull(reading);
         ArgumentNullException.ThrowIfNull(culture);
-        var source = ReadAt(reading.ReadUtc, "the game's own log files", culture);
+        var source = ReadAt(reading.ReadUtc, SetupText.ProbeFromLogFiles, culture);
         if (reading.Problem is { Length: > 0 } problem)
         {
-            return Unknown(LogsId, "Logs", $"Nothing was read: {problem}", [], took);
+            return Unknown(LogsId, SetupText.ProbeTitleLogs, SetupText.ProbeLogsNothingRead(problem), [], took);
         }
 
         var facts = new List<SelfTestFact>(8)
         {
             new(
-                string.Create(
-                    culture,
-                    $"Read {reading.LinesRead:N0} line(s), {Bytes(reading.Bytes, culture)}, from {reading.Files.Count} file(s) in session {reading.SessionFolder}"),
+                SetupText.ProbeLogsRead(culture, reading.LinesRead, Bytes(reading.Bytes, culture), reading.Files.Count, reading.SessionFolder),
                 source),
         };
 
@@ -163,48 +160,44 @@ public static class SelfTestProbes
         {
             facts.Add(new(
                 file.Problem is { Length: > 0 } unreadable
-                    ? string.Create(culture, $"{file.Name} could not be read: {unreadable}")
-                    : string.Create(
-                        culture,
-                        $"{file.Name}: {file.LinesRead:N0} line(s){(file.Mode == LogReadMode.ChatOnly ? " (quest and flea notifications only)" : string.Empty)}, {file.QuestEvents} quest, {file.FleaSales} flea"),
+                    ? SetupText.ProbeLogsFileUnreadable(culture, file.Name, unreadable)
+                    : SetupText.ProbeLogsFile(culture, file.Name, file.LinesRead, file.Mode == LogReadMode.ChatOnly ? SetupText.ProbeLogsChatOnly : string.Empty, file.QuestEvents, file.FleaSales),
                 source));
         }
 
         if (reading.SkippedFiles.Count > 0)
         {
             facts.Add(new(
-                string.Create(culture, $"Not opened: {string.Join(", ", reading.SkippedFiles)}"),
-                "this companion reads only the log files it has a use for"));
+                SetupText.ProbeLogsNotOpened(culture, string.Join(", ", reading.SkippedFiles)),
+                SetupText.ProbeSourceReadsOnlyUsed));
         }
 
         if (reading.SessionStartedUtc is { } started)
         {
             facts.Add(new(
-                string.Create(culture, $"That session started {V2ShellText.Age(started, nowUtc, culture)} ({LocalTime.Sortable(started)})"),
-                "the session folder's own name"));
+                SetupText.ProbeLogsSessionStarted(culture, V2ShellText.Age(started, nowUtc, culture), LocalTime.Sortable(started)),
+                SetupText.ProbeSourceSessionFolderName));
         }
 
         facts.Add(new(
             reading.RaidsSeen == 0
-                ? "No raid was recognised in this session"
-                : string.Create(culture, $"{reading.RaidsSeen} raid(s) recognised; the last was {reading.LastRaidMap ?? "on an unnamed map"} ({reading.LastRaidState})"),
+                ? SetupText.ProbeLogsNoRaid
+                : SetupText.ProbeLogsRaids(culture, reading.RaidsSeen, reading.LastRaidMap ?? SetupText.ProbeLogsUnnamedMap, reading.LastRaidState),
             source));
         if (reading.LastRaidAtUtc is { } lastRaid)
         {
             facts.Add(new(
-                string.Create(culture, $"That raid's last line was {V2ShellText.Age(lastRaid, nowUtc, culture)} ({LocalTime.Sortable(lastRaid)})"),
+                SetupText.ProbeLogsLastRaidLine(culture, V2ShellText.Age(lastRaid, nowUtc, culture), LocalTime.Sortable(lastRaid)),
                 source));
         }
 
         facts.Add(new(
             reading.QueueTime is { } queue
-                ? string.Create(culture, $"Queue time {queue.TotalSeconds:0.0} s, from the game's MatchingCompleted line")
-                : "No queue time in this session — the game writes one only when matchmaking finishes",
+                ? SetupText.ProbeLogsQueueTime(culture, queue.TotalSeconds)
+                : SetupText.ProbeLogsNoQueueTime,
             source));
         facts.Add(new(
-            string.Create(
-                culture,
-                $"{reading.QuestEvents} quest notification(s) and {reading.FleaSales} flea sale(s) across every file read"),
+            SetupText.ProbeLogsEvents(culture, reading.QuestEvents, reading.FleaSales),
             source));
 
         var understood = reading.RaidsSeen + reading.QuestEvents + reading.FleaSales;
@@ -212,9 +205,9 @@ public static class SelfTestProbes
         {
             return new(
                 LogsId,
-                "Logs",
+                SetupText.ProbeTitleLogs,
                 SelfTestOutcome.Fail,
-                string.Create(culture, $"{reading.FileName} is {Bytes(reading.Bytes, culture)} and not one line came back."),
+                SetupText.ProbeLogsEmpty(culture, reading.FileName, Bytes(reading.Bytes, culture)),
                 facts,
                 took);
         }
@@ -223,8 +216,8 @@ public static class SelfTestProbes
         {
             return Unknown(
                 LogsId,
-                "Logs",
-                string.Create(culture, $"Read {reading.LinesRead:N0} lines and recognised nothing in them."),
+                SetupText.ProbeTitleLogs,
+                SetupText.ProbeLogsNothingRecognised(culture, reading.LinesRead),
                 facts,
                 took);
         }
@@ -236,17 +229,15 @@ public static class SelfTestProbes
         return reading.QuestEvents == 0 && reading.RaidsSeen > 0
             ? Unknown(
                 LogsId,
-                "Logs",
-                string.Create(
-                    culture,
-                    $"Recognised {reading.RaidsSeen} raid(s) but not one quest notification in {reading.Files.Count} file(s). If you handed a quest in during this session, the companion did not see it."),
+                SetupText.ProbeTitleLogs,
+                SetupText.ProbeLogsNoQuests(culture, reading.RaidsSeen, reading.Files.Count),
                 facts,
                 took)
             : new(
                 LogsId,
-                "Logs",
+                SetupText.ProbeTitleLogs,
                 SelfTestOutcome.Pass,
-                string.Create(culture, $"Understood {understood} event(s) from this session."),
+                SetupText.ProbeLogsPass(culture, understood),
                 facts,
                 took);
     }
@@ -271,7 +262,7 @@ public static class SelfTestProbes
         ArgumentNullException.ThrowIfNull(culture);
         if (reading.Problem is { Length: > 0 } problem)
         {
-            return Unknown(ScreenshotsId, "Screenshots", problem, [], took);
+            return Unknown(ScreenshotsId, SetupText.ProbeTitleScreenshots, problem, [], took);
         }
 
         if (reading.FileName is null)
@@ -280,35 +271,35 @@ public static class SelfTestProbes
             // than about this installation, and the difference is what this page is for.
             return Unknown(
                 ScreenshotsId,
-                "Screenshots",
-                string.Create(culture, $"No screenshot was taken while this waited {reading.Waited.TotalMinutes:0.#} min. Nothing is wrong; take one in a raid and press Run again."),
+                SetupText.ProbeTitleScreenshots,
+                SetupText.ProbeShotsNoneTaken(culture, reading.Waited.TotalMinutes),
                 [new(
-                    string.Create(culture, $"Watched {reading.Root} for {reading.Waited.TotalMinutes:0.#} min and nothing new appeared"),
-                    "the screenshot folder, listed repeatedly")],
+                    SetupText.ProbeShotsWatched(culture, reading.Root, reading.Waited.TotalMinutes),
+                    SetupText.ProbeSourceScreenshotFolderListed)],
                 took);
         }
 
         var noticed = reading.NoticedUtc ?? default;
-        var source = ReadAt(noticed, "the screenshot's own file", culture);
+        var source = ReadAt(noticed, SetupText.ProbeFromScreenshotFile, culture);
         var facts = new List<SelfTestFact>(5)
         {
             new(
                 reading.WasAlreadyThere
-                    ? string.Create(culture, $"Used {reading.FileName}, which was already in the folder")
-                    : string.Create(culture, $"{reading.FileName} appeared after {reading.Waited.TotalSeconds:0.0} s of watching"),
+                    ? SetupText.ProbeShotsUsedExisting(culture, reading.FileName)
+                    : SetupText.ProbeShotsAppeared(culture, reading.FileName, reading.Waited.TotalSeconds),
                 source),
         };
         if (reading.WasAlreadyThere && reading.Age is { } age)
         {
             facts.Add(new(
-                string.Create(culture, $"It was taken {age.TotalMinutes:0.#} min before this ran"),
+                SetupText.ProbeShotsTakenBefore(culture, age.TotalMinutes),
                 source));
         }
 
         if (reading.WrittenUtc is { } written)
         {
             facts.Add(new(
-                string.Create(culture, $"The game wrote it at {LocalTime.SortableSeconds(written)}, taken from {reading.Clock}"),
+                SetupText.ProbeShotsWritten(culture, LocalTime.SortableSeconds(written), reading.Clock),
                 source));
         }
 
@@ -316,8 +307,8 @@ public static class SelfTestProbes
         {
             facts.Add(new(
                 reading.WasAlreadyThere
-                    ? string.Create(culture, $"{endToEnd.TotalMilliseconds:N0} ms from the game writing the file to this position being parsed, most of which is how long it sat there")
-                    : string.Create(culture, $"{endToEnd.TotalMilliseconds:N0} ms end to end, from the game writing the file to this position being parsed"),
+                    ? SetupText.ProbeShotsEndToEndExisting(culture, endToEnd.TotalMilliseconds)
+                    : SetupText.ProbeShotsEndToEnd(culture, endToEnd.TotalMilliseconds),
                 source));
         }
 
@@ -329,38 +320,38 @@ public static class SelfTestProbes
             if (reading.NameKind != ScreenshotNameKind.InRaid)
             {
                 facts.Add(new(
-                    "The name carries no coordinates, which is what the game writes outside a raid",
+                    SetupText.ProbeShotsNoCoordinates,
                     source));
                 return Unknown(
                     ScreenshotsId,
-                    "Screenshots",
-                    "That screenshot was taken outside a raid, so it carries no position. Take one during a raid to test this end to end.",
+                    SetupText.ProbeTitleScreenshots,
+                    SetupText.ProbeShotsOutsideRaid,
                     facts,
                     took);
             }
 
             facts.Add(new(
-                "The name is shaped like an in-raid shot and still gave no position, so this screenshot would put nobody on the map",
+                SetupText.ProbeShotsInRaidNoPosition,
                 source));
             return new(
                 ScreenshotsId,
-                "Screenshots",
+                SetupText.ProbeTitleScreenshots,
                 SelfTestOutcome.Fail,
-                "A screenshot taken in a raid arrived and no position could be read from its name.",
+                SetupText.ProbeShotsFail,
                 facts,
                 took);
         }
 
         facts.Add(new(
-            string.Create(culture, $"Position {reading.X:0.0}, {reading.Y:0.0}, {reading.Z:0.0}, read from the name"),
+            SetupText.ProbeShotsPosition(culture, reading.X, reading.Y, reading.Z),
             source));
         return new(
             ScreenshotsId,
-            "Screenshots",
+            SetupText.ProbeTitleScreenshots,
             SelfTestOutcome.Pass,
             reading.WasAlreadyThere
-                ? string.Create(culture, $"A screenshot you already had gave a position in {reading.EndToEnd?.TotalMilliseconds ?? 0:N0} ms.")
-                : string.Create(culture, $"A screenshot arrived and gave a position in {reading.EndToEnd?.TotalMilliseconds ?? 0:N0} ms."),
+                ? SetupText.ProbeShotsPassExisting(culture, reading.EndToEnd?.TotalMilliseconds ?? 0)
+                : SetupText.ProbeShotsPass(culture, reading.EndToEnd?.TotalMilliseconds ?? 0),
             facts,
             took);
     }
@@ -373,19 +364,19 @@ public static class SelfTestProbes
     {
         ArgumentNullException.ThrowIfNull(reading);
         ArgumentNullException.ThrowIfNull(culture);
-        var source = ReadAt(reading.ReadUtc, "the local database's own sync record", culture);
+        var source = ReadAt(reading.ReadUtc, SetupText.ProbeFromSyncRecord, culture);
         if (reading.Problem is { Length: > 0 } problem)
         {
-            return Unknown(GameDataId, "Game data", problem, [], took);
+            return Unknown(GameDataId, SetupText.ProbeTitleGameData, problem, [], took);
         }
 
         if (reading.Endpoints.Count == 0)
         {
             return Unknown(
                 GameDataId,
-                "Game data",
-                "No endpoint has ever been recorded, so there was nothing to check.",
-                [new($"No rows in the sync record for {reading.GameMode}/{reading.Language}", source)],
+                SetupText.ProbeTitleGameData,
+                SetupText.ProbeDataNoEndpoint,
+                [new(SetupText.ProbeDataNoRows(reading.GameMode, reading.Language), source)],
                 took);
         }
 
@@ -395,12 +386,12 @@ public static class SelfTestProbes
         {
             var age = endpoint.RefreshedUtc is { } at
                 ? V2ShellText.Age(at, nowUtc, culture)
-                : "never refreshed";
+                : SetupText.ProbeDataNeverRefreshed;
             if (endpoint.Error is { Length: > 0 } error)
             {
                 broken.Add(endpoint.Name);
                 facts.Add(new(
-                    string.Create(culture, $"{endpoint.Name}: did not refresh — {error} (last good copy {age})"),
+                    SetupText.ProbeDataDidNotRefresh(culture, endpoint.Name, error, age),
                     source));
                 continue;
             }
@@ -409,29 +400,29 @@ public static class SelfTestProbes
             {
                 broken.Add(endpoint.Name);
                 facts.Add(new(
-                    string.Create(culture, $"{endpoint.Name}: {Bytes(endpoint.Bytes, culture)} cached, {age}, and no rows landed"),
+                    SetupText.ProbeDataNoRowsLanded(culture, endpoint.Name, Bytes(endpoint.Bytes, culture), age),
                     source));
                 continue;
             }
 
             facts.Add(new(
-                string.Create(culture, $"{endpoint.Name}: {endpoint.Rows:N0} row(s), {Bytes(endpoint.Bytes, culture)}, {age}"),
+                SetupText.ProbeDataRows(culture, endpoint.Name, endpoint.Rows, Bytes(endpoint.Bytes, culture), age),
                 source));
         }
 
         return broken.Count > 0
             ? new(
                 GameDataId,
-                "Game data",
+                SetupText.ProbeTitleGameData,
                 SelfTestOutcome.Fail,
-                string.Create(culture, $"{string.Join(", ", broken)} did not land."),
+                SetupText.ProbeDataFail(culture, string.Join(", ", broken)),
                 facts,
                 took)
             : new(
                 GameDataId,
-                "Game data",
+                SetupText.ProbeTitleGameData,
                 SelfTestOutcome.Pass,
-                string.Create(culture, $"All {reading.Endpoints.Count} endpoints have rows."),
+                SetupText.ProbeDataPass(culture, reading.Endpoints.Count),
                 facts,
                 took);
     }
@@ -445,42 +436,42 @@ public static class SelfTestProbes
         ArgumentNullException.ThrowIfNull(culture);
         if (reading.Problem is { Length: > 0 } problem || reading.Path is null)
         {
-            return Unknown(DatabaseId, "Database", reading.Problem ?? "There is no database to read.", [], took);
+            return Unknown(DatabaseId, SetupText.ProbeTitleDatabase, reading.Problem ?? SetupText.ProbeDbNone, [], took);
         }
 
-        var source = ReadAt(reading.ReadUtc, "the database itself", culture);
+        var source = ReadAt(reading.ReadUtc, SetupText.ProbeFromDatabase, culture);
         var missing = reading.Expected.Except(reading.Applied, StringComparer.Ordinal).ToArray();
         var facts = new List<SelfTestFact>(reading.Tables.Count + 2)
         {
             new(string.Create(culture, $"{reading.Path} — {Bytes(reading.Bytes, culture)}"), source),
             new(
                 missing.Length == 0
-                    ? string.Create(culture, $"All {reading.Expected.Count} migrations applied, the newest being {reading.Applied.LastOrDefault() ?? "none"}")
-                    : string.Create(culture, $"{missing.Length} migration(s) not applied: {string.Join(", ", missing)}"),
-                "the schema_migrations table"),
+                    ? SetupText.ProbeDbMigrationsApplied(culture, reading.Expected.Count, reading.Applied.LastOrDefault() ?? SetupText.ProbeDbNoMigration)
+                    : SetupText.ProbeDbMigrationsMissing(culture, missing.Length, string.Join(", ", missing)),
+                SetupText.ProbeSourceMigrationsTable),
         };
         facts.AddRange(reading.Tables.Select(table => new SelfTestFact(
-            string.Create(culture, $"{table.Name}: {table.Rows:N0} row(s)"),
+            SetupText.ProbeDbTableRows(culture, table.Name, table.Rows),
             source)));
 
         if (missing.Length > 0)
         {
             return new(
                 DatabaseId,
-                "Database",
+                SetupText.ProbeTitleDatabase,
                 SelfTestOutcome.Fail,
-                string.Create(culture, $"The schema is {missing.Length} migration(s) behind this build."),
+                SetupText.ProbeDbBehind(culture, missing.Length),
                 facts,
                 took);
         }
 
         return reading.Bytes == 0
-            ? new(DatabaseId, "Database", SelfTestOutcome.Fail, "The database file is empty.", facts, took)
+            ? new(DatabaseId, SetupText.ProbeTitleDatabase, SelfTestOutcome.Fail, SetupText.ProbeDbEmpty, facts, took)
             : new(
                 DatabaseId,
-                "Database",
+                SetupText.ProbeTitleDatabase,
                 SelfTestOutcome.Pass,
-                string.Create(culture, $"Schema current, {Bytes(reading.Bytes, culture)}, {reading.Tables.Count} table(s) counted."),
+                SetupText.ProbeDbPass(culture, Bytes(reading.Bytes, culture), reading.Tables.Count),
                 facts,
                 took);
     }
@@ -497,40 +488,40 @@ public static class SelfTestProbes
         {
             return Unknown(
                 RelayId,
-                "Relay",
-                "No relay is configured, so there was nothing to reach.",
-                [new("Sharing is off and no server address is saved", "the group settings file")],
+                SetupText.ProbeTitleRelay,
+                SetupText.ProbeRelayNotConfigured,
+                [new(SetupText.ProbeRelaySharingOffNoServer, SetupText.ProbeSourceGroupSettings)],
                 took);
         }
 
-        var source = ReadAt(reading.ReadUtc, "one health read of the relay", culture);
+        var source = ReadAt(reading.ReadUtc, SetupText.ProbeFromRelayHealth, culture);
         if (!reading.Reachable)
         {
             return new(
                 RelayId,
-                "Relay",
+                SetupText.ProbeTitleRelay,
                 SelfTestOutcome.Fail,
-                string.Create(culture, $"{reading.Origin} did not answer."),
-                [new(reading.Problem ?? "The health read did not come back", source)],
+                SetupText.ProbeRelayNoAnswer(culture, reading.Origin),
+                [new(reading.Problem ?? SetupText.ProbeRelayHealthMissing, source)],
                 took);
         }
 
         var facts = new List<SelfTestFact>(6)
         {
             new(
-                string.Create(culture, $"{reading.Origin} answered in {reading.RoundTrip?.TotalMilliseconds ?? 0:N0} ms"),
+                SetupText.ProbeRelayAnswered(culture, reading.Origin, reading.RoundTrip?.TotalMilliseconds ?? 0),
                 source),
             new(
-                string.Create(culture, $"Running {reading.Version ?? "an unnamed build"}{(reading.Commit is null ? string.Empty : $" ({reading.Commit})")}, protocol {reading.Protocol?.ToString(culture) ?? "unknown"}"),
+                SetupText.ProbeRelayRunning(culture, reading.Version ?? SetupText.ProbeRelayUnnamedBuild, reading.Commit is null ? string.Empty : $" ({reading.Commit})", reading.Protocol?.ToString(culture) ?? SetupText.ProbeRelayProtocolUnknown),
                 source),
             new(
-                string.Create(culture, $"{reading.Rooms ?? 0} room(s) and {reading.Members ?? 0} member(s) on the relay"),
+                SetupText.ProbeRelayRooms(culture, reading.Rooms ?? 0, reading.Members ?? 0),
                 source),
             new(
                 reading.Sharing
-                    ? string.Create(culture, $"Sharing is on as {reading.MyName ?? "an unnamed player"}, with {reading.Others.Count} other(s) in the room")
-                    : "Sharing is off, so nobody is being published to",
-                "the group settings file and the last exchange"),
+                    ? SetupText.ProbeRelaySharingOn(culture, reading.MyName ?? SetupText.ProbeRelayUnnamedPlayer, reading.Others.Count)
+                    : SetupText.ProbeRelaySharingOff,
+                SetupText.ProbeSourceGroupSettingsAndExchange),
         };
 
         // Package 31's measurement where there is one: what the last few screenshots took to
@@ -544,37 +535,35 @@ public static class SelfTestProbes
             .FirstOrDefault();
         facts.Add(latency.HasSamples
             ? new(
-                string.Create(
-                    culture,
-                    $"Squadmate positions arrive in {latency.Median.TotalSeconds:0.00} s, {latency.Slowest95.TotalSeconds:0.00} s at the slow end, over {latency.SampleCount} of {latency.Delivered} delivered"),
-                "timed on each delivery, from the sender's own age plus the relay's own wait")
+                SetupText.ProbeRelayLatency(culture, latency.Median.TotalSeconds, latency.Slowest95.TotalSeconds, latency.SampleCount, latency.Delivered),
+                SetupText.ProbeSourceLatencyTiming)
             : new(
                 freshest is { PositionAge: { } age }
-                    ? string.Create(culture, $"Nothing has been delivered yet this session; the freshest marker is {age.TotalSeconds:0.0} s old ({freshest.Name})")
+                    ? SetupText.ProbeRelayFreshest(culture, age.TotalSeconds, freshest.Name)
                     : reading.Others.Count == 0
-                        ? "No squadmate is in the room, so position latency could not be measured"
-                        : "No squadmate has published a position, so position latency could not be measured",
-                "the last exchange with the relay"));
+                        ? SetupText.ProbeRelayNoSquadmate
+                        : SetupText.ProbeRelayNoPosition,
+                SetupText.ProbeSourceLastExchange));
 
         if (reading.StaleSinceUtc is { } stale)
         {
             facts.Add(new(
-                string.Create(culture, $"The group picture is stale; the last good exchange was {V2ShellText.Age(stale, nowUtc, culture)}"),
+                SetupText.ProbeRelayStale(culture, V2ShellText.Age(stale, nowUtc, culture)),
                 source));
             return new(
                 RelayId,
-                "Relay",
+                SetupText.ProbeTitleRelay,
                 SelfTestOutcome.Fail,
-                "The relay answers, but the group exchange has stopped working.",
+                SetupText.ProbeRelayExchangeStopped,
                 facts,
                 took);
         }
 
         return new(
             RelayId,
-            "Relay",
+            SetupText.ProbeTitleRelay,
             SelfTestOutcome.Pass,
-            string.Create(culture, $"Reachable in {reading.RoundTrip?.TotalMilliseconds ?? 0:N0} ms."),
+            SetupText.ProbeRelayPass(culture, reading.RoundTrip?.TotalMilliseconds ?? 0),
             facts,
             took);
     }
@@ -591,18 +580,18 @@ public static class SelfTestProbes
         {
             return Unknown(
                 TabletId,
-                "Tablet",
-                reading.Problem ?? "Pairing a tablet needs Windows and a relay with an HTTPS address.",
+                SetupText.ProbeTitleTablet,
+                reading.Problem ?? SetupText.ProbeTabletUnsupported,
                 [],
                 took);
         }
 
-        var source = ReadAt(reading.ReadUtc, "this desktop's own paired-device record", culture);
+        var source = ReadAt(reading.ReadUtc, SetupText.ProbeFromPairedDevices, culture);
         var facts = new List<SelfTestFact>(reading.Devices.Count + 2);
         foreach (var device in reading.Devices)
         {
             facts.Add(new(
-                string.Create(culture, $"{device.Name} ({device.Role}, {device.Status}) last seen {V2ShellText.Age(device.LastSeenUtc, nowUtc, culture)}"),
+                SetupText.ProbeTabletDevice(culture, device.Name, device.Role, device.Status, V2ShellText.Age(device.LastSeenUtc, nowUtc, culture)),
                 source));
         }
 
@@ -610,31 +599,31 @@ public static class SelfTestProbes
         {
             return Unknown(
                 TabletId,
-                "Tablet",
-                "No device is paired, so there was nothing to publish to.",
-                [new($"No paired devices at {reading.Origin ?? "this relay"}", source)],
+                SetupText.ProbeTitleTablet,
+                SetupText.ProbeTabletNoDevice,
+                [new(SetupText.ProbeTabletNoDevicesAt(reading.Origin ?? SetupText.ProbeTabletThisRelay), source)],
                 took);
         }
 
         facts.Add(new(
             reading.PublishedUtc is { } published
-                ? string.Create(culture, $"The desktop published {reading.MapName ?? "a map"} with {reading.Objects:N0} object(s) {V2ShellText.Age(published, nowUtc, culture)}")
-                : "The desktop has published no scene this session",
-            "the tablet map publisher"));
+                ? SetupText.ProbeTabletPublished(culture, reading.MapName ?? SetupText.ProbeTabletAMap, reading.Objects, V2ShellText.Age(published, nowUtc, culture))
+                : SetupText.ProbeTabletNoScene,
+            SetupText.ProbeSourceTabletPublisher));
 
         return reading.Publishing
             ? new(
                 TabletId,
-                "Tablet",
+                SetupText.ProbeTitleTablet,
                 SelfTestOutcome.Pass,
-                string.Create(culture, $"{reading.Devices.Count} paired device(s), and the desktop is publishing a scene."),
+                SetupText.ProbeTabletPass(culture, reading.Devices.Count),
                 facts,
                 took)
             : new(
                 TabletId,
-                "Tablet",
+                SetupText.ProbeTitleTablet,
                 SelfTestOutcome.Fail,
-                string.Create(culture, $"{reading.Devices.Count} paired device(s), and the desktop has published nothing."),
+                SetupText.ProbeTabletFail(culture, reading.Devices.Count),
                 facts,
                 took);
     }
@@ -648,14 +637,14 @@ public static class SelfTestProbes
         new(id, title, SelfTestOutcome.Unknown, headline, facts, took);
 
     private static string ReadAt(DateTimeOffset at, string what, CultureInfo culture) =>
-        string.Create(culture, $"read from {what} at {LocalTime.Time(at, culture)}");
+        SetupText.ProbeReadAt(culture, what, LocalTime.Time(at, culture));
 
     private static string Bytes(long bytes, CultureInfo culture) => bytes switch
     {
-        < 0 => "unknown size",
-        < 1024 => string.Create(culture, $"{bytes} B"),
-        < 1024 * 1024 => string.Create(culture, $"{bytes / 1024.0:0.0} KB"),
-        < 1024L * 1024 * 1024 => string.Create(culture, $"{bytes / (1024.0 * 1024):0.0} MB"),
-        _ => string.Create(culture, $"{bytes / (1024.0 * 1024 * 1024):0.00} GB"),
+        < 0 => SetupText.ProbeBytesUnknown,
+        < 1024 => SetupText.ProbeBytesB(culture, bytes),
+        < 1024 * 1024 => SetupText.ProbeBytesKB(culture, bytes / 1024.0),
+        < 1024L * 1024 * 1024 => SetupText.ProbeBytesMB(culture, bytes / (1024.0 * 1024)),
+        _ => SetupText.ProbeBytesGB(culture, bytes / (1024.0 * 1024 * 1024)),
     };
 }

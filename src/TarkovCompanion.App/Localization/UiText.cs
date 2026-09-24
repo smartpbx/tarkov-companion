@@ -119,13 +119,23 @@ public static class UiCulturePreference
 {
     public const string FileName = "interface-language.json";
 
+    /// <summary>The Config folder composition read the language from, for Setup's picker to write back to.</summary>
+    public static string? ConfigDirectory { get; private set; }
+
     public static string? Read(string configDirectory)
     {
+        ConfigDirectory = configDirectory;
         if (Environment.GetEnvironmentVariable(UiText.CultureEnvironmentVariable) is { Length: > 0 } fromEnvironment)
         {
             return fromEnvironment;
         }
 
+        return ReadFile(configDirectory);
+    }
+
+    /// <summary>The culture the file names, ignoring the environment override: what Setup's picker shows as chosen.</summary>
+    public static string? ReadFile(string configDirectory)
+    {
         try
         {
             var path = Path.Combine(configDirectory, FileName);
@@ -147,5 +157,17 @@ public static class UiCulturePreference
             CrashLog.Write("warning/UiText", $"The interface language preference could not be read: {exception.Message}");
             return null;
         }
+    }
+
+    /// <summary>Writes { "culture": … } whole, through a temporary file, so a crash never leaves half a file.</summary>
+    public static void Write(string configDirectory, string cultureName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cultureName);
+        Directory.CreateDirectory(configDirectory);
+        var path = Path.Combine(configDirectory, FileName);
+        var temporary = path + ".tmp";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(new Dictionary<string, string> { ["culture"] = cultureName }));
+        File.Move(temporary, path, overwrite: true);
     }
 }

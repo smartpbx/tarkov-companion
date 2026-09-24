@@ -9,6 +9,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Infrastructure.Diagnostics;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -92,10 +93,10 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
         {
             return new(
                 false,
-                "Finding the game's folders needs Windows; this build cannot look.",
+                SetupText.ProbeFoldersNeedWindows,
                 nowUtc,
                 [],
-                "This build is not running on Windows.");
+                SetupText.ProbeFoldersNotWindows);
         }
 
         var snapshot = await _discovery.RefreshAsync(cancellationToken).ConfigureAwait(false);
@@ -108,19 +109,19 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
             snapshot.Detail,
             snapshot.CheckedUtc,
             [
-                Describe("Install", snapshot.Paths.InstallRoot, "it is where the game itself says it is installed"),
+                Describe("Install", snapshot.Paths.InstallRoot, SetupText.ProbeWhyInstall),
                 Describe(
                     "Logs",
                     snapshot.Paths.LogRoot,
                     Matches(named.LogRoot, snapshot.Paths.LogRoot)
-                        ? "you typed this path in Setup, and a typed path wins"
-                        : "it is the first of the game's usual log folders that exists"),
+                        ? SetupText.ProbeWhyTyped
+                        : SetupText.ProbeWhyFirstLogFolder),
                 Describe(
                     "Screenshots",
                     snapshot.Paths.ScreenshotRoot,
                     Matches(named.ScreenshotRoot, snapshot.Paths.ScreenshotRoot)
-                        ? "you typed this path in Setup, and a typed path wins"
-                        : "of the folders that exist, it holds the newest screenshot"),
+                        ? SetupText.ProbeWhyTyped
+                        : SetupText.ProbeWhyNewestScreenshot),
             ],
             snapshot.Status == EftInstallDiscoveryStatus.Unavailable ? snapshot.Detail : null);
     }
@@ -208,7 +209,7 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
                     settings,
                     group,
                     others,
-                    $"the relay answered {(int)response.StatusCode} {response.ReasonPhrase}");
+                    SetupText.ProbeRelayStatusCode((int)response.StatusCode, response.ReasonPhrase));
             }
 
             var health = await response.Content
@@ -239,7 +240,7 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return Unreachable(settings, group, others, $"it did not answer within {RelayTimeout.TotalSeconds:0} s");
+            return Unreachable(settings, group, others, SetupText.ProbeRelayTimeout(RelayTimeout.TotalSeconds));
         }
     }
 
@@ -251,7 +252,7 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
         {
             return Task.FromResult(new SelfTestTablet(
                 false, null, [], false, null, null, 0, nowUtc,
-                "this build has no paired-device authority, so no tablet can be paired"));
+                SetupText.ProbeTabletNoAuthority));
         }
 
         var devices = _authority.Snapshot.Devices
@@ -315,7 +316,7 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
     private static string? Failure(SelfTestEndpointRow row) => row.ErrorSummary is { Length: > 0 } summary
         ? summary
         : row.Status is "refused" or "failed" or "error"
-            ? $"the last refresh was {row.Status} and recorded no reason"
+            ? SetupText.ProbeDataLastRefresh(row.Status)
             : null;
 
     private static IEnumerable<string> SqliteMigrationNames() =>

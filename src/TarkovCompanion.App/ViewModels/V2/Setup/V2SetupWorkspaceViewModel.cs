@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Setup;
@@ -411,78 +412,78 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
 
     public ICommand ResetScaleCommand { get; }
 
-    public string ReasonHeading => V2ShellText.Get("V2.Setup.Data.ReasonLabel");
-    public string UpdateNotesHeading => V2ShellText.Get("V2.Setup.Updates.NotesHeading");
-    public string GoingBackHeading => V2ShellText.Get("V2.Setup.Updates.GoingBackHeading");
-    public string GoingBackNote => V2ShellText.Get("V2.Setup.Updates.GoingBack");
-    public string OpenPrivacyDetailLabel => V2ShellText.Get("V2.Setup.Info.OpenPrivacy");
-    public string OpenSharingDetailLabel => V2ShellText.Get("V2.Setup.Info.OpenSharing");
+    public string ReasonHeading => SetupText.DataReasonLabel;
+    public string UpdateNotesHeading => SetupText.UpdatesNotesHeading;
+    public string GoingBackHeading => SetupText.UpdatesGoingBackHeading;
+    public string GoingBackNote => SetupText.UpdatesGoingBack;
+    public string OpenPrivacyDetailLabel => SetupText.InfoOpenPrivacy;
+    public string OpenSharingDetailLabel => SetupText.InfoOpenSharing;
 
     /// <summary>The check button says "Try again" once a check has failed, so a failure has an obvious next step.</summary>
     public string CheckUpdateButtonLabel => Settings?.LastUpdateCheckFailed == true
-        ? V2ShellText.Get("V2.Setup.Updates.RetryLabel")
+        ? SetupText.UpdatesRetryLabel
         : CheckUpdateLabel;
 
-    public string SectionsRegionName => V2ShellText.Get("V2.Setup.Sections.Region");
-    public string ScreenshotFolderLabel => V2ShellText.Get("V2.Setup.GameProfile.ScreenshotFolderLabel");
-    public string LogFolderLabel => V2ShellText.Get("V2.Setup.GameProfile.LogFolderLabel");
-    public string SaveFoldersLabel => V2ShellText.Get("V2.Setup.GameProfile.SaveLabel");
-    public string RecognitionRuntimeWarning => V2ShellText.Get("V2.Setup.Recognition.RuntimeWarning");
-    public string SyncLabel => V2ShellText.Get("V2.Setup.Data.SyncLabel");
-    public string OpenTeamLabel => V2ShellText.Get("V2.Setup.TeamDevices.OpenLabel");
-    public string CheckUpdateLabel => V2ShellText.Get("V2.Setup.Updates.CheckLabel");
-    public string UpdateNowLabel => V2ShellText.Get("V2.Setup.Updates.UpdateNowLabel");
-    public string GetInstallerLabel => V2ShellText.Get("V2.Setup.Updates.InstallerLabel");
-    public string UpdateChannelLabel => V2ShellText.Get("V2.Setup.Updates.ChannelLabel");
-    public string InstalledBuildLabel => V2ShellText.Get("V2.Setup.Updates.InstalledLabel");
-    public string AvailableBuildLabel => V2ShellText.Get("V2.Setup.Updates.AvailableLabel");
-    public string ScreenshotIntro => V2ShellText.Get("V2.Setup.Privacy.ScreenshotIntro");
-    public string RetentionLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionLabel");
-    public string RetentionValueLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionValueLabel");
-    public string RecycleNote => V2ShellText.Get("V2.Setup.Privacy.RecycleNote");
-    public string FolderPlaceholder => V2ShellText.Get("V2.Setup.GameProfile.FolderPlaceholder");
-    public string ScanHint => V2ShellText.Get("V2.Setup.Recognition.ScanHint");
-    public string OfflineNote => V2ShellText.Get("V2.Setup.Data.OfflineNote");
-    public string ScaleHint => V2ShellText.Get("V2.Setup.Appearance.ScaleHint");
-    public string ScaleScope => V2ShellText.Get("V2.Setup.Appearance.ScaleScope");
+    public string SectionsRegionName => SetupText.SectionsRegion;
+    public string ScreenshotFolderLabel => SetupText.GameProfileScreenshotFolderLabel;
+    public string LogFolderLabel => SetupText.GameProfileLogFolderLabel;
+    public string SaveFoldersLabel => SetupText.GameProfileSaveLabel;
+    public string RecognitionRuntimeWarning => SetupText.RecognitionRuntimeWarning;
+    public string SyncLabel => SetupText.DataSyncLabel;
+    public string OpenTeamLabel => SetupText.TeamDevicesOpenLabel;
+    public string CheckUpdateLabel => SetupText.UpdatesCheckLabel;
+    public string UpdateNowLabel => SetupText.UpdatesUpdateNowLabel;
+    public string GetInstallerLabel => SetupText.UpdatesInstallerLabel;
+    public string UpdateChannelLabel => SetupText.UpdatesChannelLabel;
+    public string InstalledBuildLabel => SetupText.UpdatesInstalledLabel;
+    public string AvailableBuildLabel => SetupText.UpdatesAvailableLabel;
+    public string ScreenshotIntro => SetupText.PrivacyScreenshotIntro;
+    public string RetentionLabel => SetupText.PrivacyRetentionLabel;
+    public string RetentionValueLabel => SetupText.PrivacyRetentionValueLabel;
+    public string RecycleNote => SetupText.PrivacyRecycleNote;
+    public string FolderPlaceholder => SetupText.GameProfileFolderPlaceholder;
+    public string ScanHint => SetupText.RecognitionScanHint;
+    public string OfflineNote => SetupText.DataOfflineNote;
+    public string ScaleHint => SetupText.AppearanceScaleHint;
+    public string ScaleScope => SetupText.AppearanceScaleScope;
     /// <summary>[#454] Said once, on the launch after a run that died without shutting down.</summary>
     public string PreviousRunNotice { get; } = CrashBreadcrumbs.DescribePreviousRun();
 
     public bool HasPreviousRunNotice => PreviousRunNotice.Length > 0;
 
-    public string LogLabel => V2ShellText.Get("V2.Setup.Diagnostics.LogLabel");
-    public string RelayNote => V2ShellText.Get("V2.Setup.Diagnostics.RelayNote");
-    public string ExchangeTitle => V2ShellText.Get("V2.Setup.Progress.ExchangeTitle");
-    public string ExchangeNote => V2ShellText.Get("V2.Setup.Progress.ExchangeNote");
-    public string ExchangePathPlaceholder => V2ShellText.Get("V2.Setup.Progress.ExchangePath");
-    public string ExportLabel => V2ShellText.Get("V2.Setup.Progress.Export");
-    public string PreviewImportLabel => V2ShellText.Get("V2.Setup.Progress.Preview");
-    public string KeepLocalLabel => V2ShellText.Get("V2.Setup.Progress.KeepLocal");
-    public string UseIncomingLabel => V2ShellText.Get("V2.Setup.Progress.UseIncoming");
-    public string ApplyImportLabel => V2ShellText.Get("V2.Setup.Progress.Apply");
-    public string UndoImportLabel => V2ShellText.Get("V2.Setup.Progress.Undo");
-    public string ImportHistoryTitle => V2ShellText.Get("V2.Setup.Progress.HistoryTitle");
-    public string TrackerTitle => V2ShellText.Get("V2.Setup.Progress.TrackerTitle");
-    public string TrackerNote => V2ShellText.Get("V2.Setup.Progress.TrackerNote");
-    public string TrackerTokenPlaceholder => V2ShellText.Get("V2.Setup.Progress.TrackerToken");
-    public string TrackerConnectLabel => V2ShellText.Get("V2.Setup.Progress.TrackerConnect");
-    public string TrackerRefreshLabel => V2ShellText.Get("V2.Setup.Progress.TrackerRefresh");
-    public string TrackerDisconnectLabel => V2ShellText.Get("V2.Setup.Progress.TrackerDisconnect");
-    public string ScaleLabel => V2ShellText.Get("V2.Setup.Appearance.ScaleLabel");
-    public string SmallerLabel => V2ShellText.Get("V2.Setup.Appearance.SmallerLabel");
-    public string LargerLabel => V2ShellText.Get("V2.Setup.Appearance.LargerLabel");
-    public string ResetLabel => V2ShellText.Get("V2.Setup.Appearance.ResetLabel");
-    public string DisplaysInfo => V2ShellText.Get("V2.Setup.Displays.Info");
-    public string NotificationsIntro => V2ShellText.Get("V2.Setup.Notifications.Intro");
-    public string NotificationsRaidNote => V2ShellText.Get("V2.Setup.Notifications.RaidNote");
-    public string NotificationsTestLabel => V2ShellText.Get("V2.Setup.Notifications.TestLabel");
-    public string SelfTestHeading => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestHeading");
-    public string SelfTestIntro => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestIntro");
-    public string SelfTestRunLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestRun");
-    public string SelfTestStopLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestStop");
-    public string SelfTestCopyLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestCopy");
-    public string CopyDiagnosticsLabel => V2ShellText.Get("V2.Setup.Diagnostics.CopyLabel");
-    public string ReportProblemLabel => V2ShellText.Get("V2.Setup.Diagnostics.ReportLabel");
+    public string LogLabel => SetupText.DiagnosticsLogLabel;
+    public string RelayNote => SetupText.DiagnosticsRelayNote;
+    public string ExchangeTitle => SetupText.ProgressExchangeTitle;
+    public string ExchangeNote => SetupText.ProgressExchangeNote;
+    public string ExchangePathPlaceholder => SetupText.ProgressExchangePath;
+    public string ExportLabel => SetupText.ProgressExport;
+    public string PreviewImportLabel => SetupText.ProgressPreview;
+    public string KeepLocalLabel => SetupText.ProgressKeepLocal;
+    public string UseIncomingLabel => SetupText.ProgressUseIncoming;
+    public string ApplyImportLabel => SetupText.ProgressApply;
+    public string UndoImportLabel => SetupText.ProgressUndo;
+    public string ImportHistoryTitle => SetupText.ProgressHistoryTitle;
+    public string TrackerTitle => SetupText.ProgressTrackerTitle;
+    public string TrackerNote => SetupText.ProgressTrackerNote;
+    public string TrackerTokenPlaceholder => SetupText.ProgressTrackerToken;
+    public string TrackerConnectLabel => SetupText.ProgressTrackerConnect;
+    public string TrackerRefreshLabel => SetupText.ProgressTrackerRefresh;
+    public string TrackerDisconnectLabel => SetupText.ProgressTrackerDisconnect;
+    public string ScaleLabel => SetupText.AppearanceScaleLabel;
+    public string SmallerLabel => SetupText.AppearanceSmallerLabel;
+    public string LargerLabel => SetupText.AppearanceLargerLabel;
+    public string ResetLabel => SetupText.AppearanceResetLabel;
+    public string DisplaysInfo => SetupText.DisplaysInfo;
+    public string NotificationsIntro => SetupText.NotificationsIntro;
+    public string NotificationsRaidNote => SetupText.NotificationsRaidNote;
+    public string NotificationsTestLabel => SetupText.NotificationsTestLabel;
+    public string SelfTestHeading => SetupText.DiagnosticsSelfTestHeading;
+    public string SelfTestIntro => SetupText.DiagnosticsSelfTestIntro;
+    public string SelfTestRunLabel => SetupText.DiagnosticsSelfTestRun;
+    public string SelfTestStopLabel => SetupText.DiagnosticsSelfTestStop;
+    public string SelfTestCopyLabel => SetupText.DiagnosticsSelfTestCopy;
+    public string CopyDiagnosticsLabel => SetupText.DiagnosticsCopyLabel;
+    public string ReportProblemLabel => SetupText.DiagnosticsReportLabel;
 
     public V2SetupSection Selected
     {

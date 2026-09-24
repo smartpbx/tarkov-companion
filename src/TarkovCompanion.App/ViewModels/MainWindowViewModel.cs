@@ -28,6 +28,7 @@ using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Common;
 
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -1816,21 +1817,21 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     private readonly IScreenshotRetentionStore _retentionSettings;
     private readonly IRecycleBin _recycleBin;
     private ScreenshotRetentionSettings _retention = ScreenshotRetentionSettings.Default;
-    private string _retentionStatus = "Reading how long screenshots are kept…";
+    private string _retentionStatus = SetupText.SettingsRetentionReading;
     private readonly VelopackUpdateGateway? _updates;
-    private string _updateStatus = "Updates have not been checked this session.";
-    private string _installedBuild = "Build unknown";
+    private string _updateStatus = SetupText.SettingsUpdatesNotChecked;
+    private string _installedBuild = SetupText.SettingsBuildUnknown;
     private bool _isBusyWithUpdate;
     private bool _canDownloadUpdate;
     private bool _canRestartForUpdate;
-    private string _availableBuild = "Not checked yet";
+    private string _availableBuild = SetupText.SettingsAvailableNotChecked;
     private int _updatePercent;
     private bool _isDownloadingUpdate;
-    private string _dataStatus = "Runtime state not loaded";
-    private string _profileContext = "Profile unavailable";
-    private string _scanProvider = "Unavailable";
+    private string _dataStatus = SetupText.SettingsDataNotLoaded;
+    private string _profileContext = SetupText.SettingsProfileUnavailable;
+    private string _scanProvider = SetupText.SettingsScanUnavailable;
     private ApplicationRuntimeSnapshot? _snapshot;
-    private string _diagnosticsStatus = "Nothing copied yet.";
+    private string _diagnosticsStatus = SetupText.SettingsDiagnosticsNothingCopied;
     private readonly SelfTestJournal? _selfTest;
     private readonly SynchronizationContext? _profileChangeContext;
     private readonly IProfileRuntimeContextService? _profileRuntimeContext;
@@ -1882,7 +1883,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         ArgumentNullException.ThrowIfNull(toClipboard);
         if (_snapshot is not { } snapshot)
         {
-            DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
+            DiagnosticsStatus = SetupText.SettingsDiagnosticsStarting;
             return;
         }
 
@@ -1905,13 +1906,11 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             }
 
             await toClipboard(report).ConfigureAwait(true);
-            DiagnosticsStatus = string.Create(
-                CultureInfo.CurrentCulture,
-                $"Copied · {report.Length:N0} characters · paste it wherever you are being helped.");
+            DiagnosticsStatus = SetupText.SettingsDiagnosticsCopied(report.Length);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            DiagnosticsStatus = $"Could not copy: {exception.Message}";
+            DiagnosticsStatus = SetupText.SettingsDiagnosticsCopyFailed(exception.Message);
         }
     }
 
@@ -1989,8 +1988,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
                 // Not the same sentence as InstalledBuild directly above it, which already
                 // says "Running from a folder, not installed". Said twice it was a fact
                 // repeated; said once with what to do about it, it is an answer.
-                _updateStatus = "Only an installed build updates itself. Run the installer once and this keeps itself current.";
-                _availableBuild = "Not checked · a folder build does not update";
+                _updateStatus = SetupText.SettingsUpdateFolderOnly;
+                _availableBuild = SetupText.SettingsAvailableFolderBuild;
             }
             else if (_updates.PendingFromLastAttempt() is { } didNotApply)
             {
@@ -2005,8 +2004,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         // reads very differently from an unsupported architecture - but until now only the
         // headless self-test ever read that reason, so the user saw a bare "Unavailable".
         RecognitionProvider = ocrStatus.Availability.IsAvailable
-            ? $"Available · {ocrStatus.Availability.Provider}"
-            : $"Unavailable · {ocrStatus.Availability.Provider} · {ocrStatus.Availability.Reason ?? "No reason was reported."}";
+            ? SetupText.SettingsRecognitionAvailable(ocrStatus.Availability.Provider)
+            : SetupText.SettingsRecognitionUnavailable(ocrStatus.Availability.Provider, ocrStatus.Availability.Reason ?? SetupText.SettingsRecognitionNoReason);
         // The runtime warning belongs to one engine and not the other. Windows has its own OCR
         // and needs no redistributable, so telling somebody running on it to go and install
         // one sends them after a problem they do not have.
@@ -2014,8 +2013,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         IsOffline = options.IsOffline;
         DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
         DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
-            ? "Requested"
-            : "Off · needs developer mode and a path";
+            ? SetupText.SettingsDiagnosticChannelRequested
+            : SetupText.SettingsDiagnosticChannelOff;
         SyncCommand = new AsyncDelegateCommand(SyncAsync);
         ToggleScreenshotTidyingCommand = new AsyncDelegateCommand(ToggleScreenshotTidyingAsync);
         ChooseRetentionCommand = new AsyncDelegateCommand(ChooseRetentionAsync);
@@ -2028,7 +2027,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     private readonly RaidObservationService? _observation;
     private string _screenshotFolder = string.Empty;
     private string _logFolder = string.Empty;
-    private string _gameFolderStatus = "Found on their own";
+    private string _gameFolderStatus = SetupText.SettingsGameFoldersAuto;
     private string _watchedFolders = "Looking for the game…";
 
     /// <summary>
@@ -2082,11 +2081,11 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             var stored = await _gameFolders.GetAsync(CancellationToken.None).ConfigureAwait(true);
             ScreenshotFolder = stored.ScreenshotRoot ?? string.Empty;
             LogFolder = stored.LogRoot ?? string.Empty;
-            GameFolderStatus = stored.IsEmpty ? "Found on their own" : "Set by you";
+            GameFolderStatus = stored.IsEmpty ? SetupText.SettingsGameFoldersAuto : SetupText.SettingsGameFoldersSetByYou;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            GameFolderStatus = $"Unreadable · {exception.Message}";
+            GameFolderStatus = SetupText.SettingsUnreadable(exception.Message);
         }
     }
 
@@ -2109,7 +2108,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            GameFolderStatus = $"Not saved · {exception.Message}";
+            GameFolderStatus = SetupText.SettingsNotSaved(exception.Message);
         }
     }
 
@@ -2125,15 +2124,15 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     {
         if (chosen.IsEmpty)
         {
-            return "Cleared · found on their own again";
+            return SetupText.SettingsGameFoldersCleared;
         }
 
         var missing = new[] { chosen.ScreenshotRoot, chosen.LogRoot }
             .Where(path => path is { Length: > 0 } && !Directory.Exists(path))
             .ToArray();
         return missing.Length == 0
-            ? "Saved · watching starts within a minute"
-            : $"Saved, but not there: {string.Join(", ", missing)}";
+            ? SetupText.SettingsGameFoldersSaved
+            : SetupText.SettingsGameFoldersMissing(string.Join(", ", missing));
     }
 
     public bool IsOffline { get; }
@@ -2177,18 +2176,18 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         var report = BuildReport();
         if (report is null)
         {
-            DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
+            DiagnosticsStatus = SetupText.SettingsDiagnosticsStarting;
             return;
         }
 
-        DiagnosticsStatus = "Sending…";
+        DiagnosticsStatus = SetupText.SettingsDiagnosticsSending;
         try
         {
             DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
+            DiagnosticsStatus = SetupText.SettingsDiagnosticsSendFailed(exception.Message);
         }
     }
 
@@ -2220,7 +2219,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
+            DiagnosticsStatus = SetupText.SettingsDiagnosticsSendFailed(exception.Message);
         }
 
         return DiagnosticsStatus;
@@ -2249,7 +2248,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     }
 
     /// <summary>Which feed this build follows.</summary>
-    public string UpdateChannelName { get; } = "None";
+    public string UpdateChannelName { get; } = SetupText.SettingsUpdateChannelNone;
 
     /// <summary>Where the installer is, for a build that was run from a folder.</summary>
     public Uri? InstallerLocation { get; }
@@ -2455,7 +2454,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 
         IsBusyWithUpdate = true;
         CanDownloadUpdate = false;
-        UpdateStatus = "Checking for a newer build…";
+        UpdateStatus = SetupText.SettingsUpdateChecking;
         try
         {
             Apply(await _updates.CheckAsync(CancellationToken.None).ConfigureAwait(true));
@@ -2475,7 +2474,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 
         IsBusyWithUpdate = true;
         CanDownloadUpdate = false;
-        UpdateStatus = "Downloading…";
+        UpdateStatus = SetupText.SettingsUpdateDownloading;
         UpdatePercent = 0;
         IsDownloadingUpdate = true;
         try
@@ -2530,7 +2529,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         UpdateStatus = progress.Status;
         CanDownloadUpdate = progress.CanDownload;
         CanRestartForUpdate = progress.CanApply;
-        AvailableBuild = progress.Available ?? (progress.Failed ? "Unknown · the check failed" : "Nothing newer");
+        AvailableBuild = progress.Available ?? (progress.Failed ? SetupText.SettingsAvailableCheckFailed : SetupText.SettingsAvailableNothingNewer);
         Rollback.Refresh();
     }
 
@@ -2553,12 +2552,12 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         try
         {
             CanRestartForUpdate = false;
-            UpdateStatus = "Installing · it will close and reopen";
+            UpdateStatus = SetupText.SettingsUpdateInstalling;
             _updates.ApplyAndRestart();
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
-            UpdateStatus = $"The update could not be started: {exception.Message}";
+            UpdateStatus = SetupText.SettingsUpdateStartFailed(exception.Message);
             CanRestartForUpdate = true;
         }
     }
@@ -2582,16 +2581,16 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     /// <summary>Whether the folder is swept at all.</summary>
     public bool TidiesScreenshots => _retention.IsEnabled;
 
-    public string ScreenshotTidyingLabel => TidiesScreenshots ? "Stop tidying" : "Start tidying";
+    public string ScreenshotTidyingLabel => TidiesScreenshots ? SetupText.SettingsTidyingStop : SetupText.SettingsTidyingStart;
 
     /// <summary>How long screenshots are kept, in the player's words rather than in hours.</summary>
     public string RetentionDisplay => _retention.SafeRetentionHours switch
     {
-        24 => "24 hours",
-        72 => "3 days",
-        168 => "7 days",
-        var hours when hours % 24 == 0 => $"{hours / 24} days",
-        var hours => $"{hours} hours",
+        24 => SetupText.SettingsRetention24Hours,
+        72 => SetupText.SettingsRetention3Days,
+        168 => SetupText.SettingsRetention7Days,
+        var hours when hours % 24 == 0 => SetupText.SettingsRetentionDays(hours / 24),
+        var hours => SetupText.SettingsRetentionHours(hours),
     };
 
     public string RetentionStatus
@@ -2619,7 +2618,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         }
         catch (Exception exception)
         {
-            RetentionStatus = $"Unreadable · {exception.Message}";
+            RetentionStatus = SetupText.SettingsUnreadable(exception.Message);
         }
     }
 
@@ -2648,7 +2647,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            RetentionStatus = $"Not saved · {exception.Message}";
+            RetentionStatus = SetupText.SettingsNotSaved(exception.Message);
         }
     }
 
@@ -2664,12 +2663,12 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     {
         if (!_recycleBin.IsAvailable)
         {
-            return "No recycle bin here, so nothing is tidied";
+            return SetupText.SettingsRetentionNoRecycleBin;
         }
 
         return _retention.IsEnabled
-            ? $"Older than {RetentionDisplay} go to the recycle bin · the newest is always kept"
-            : "Left alone";
+            ? SetupText.SettingsRetentionOn(RetentionDisplay)
+            : SetupText.SettingsRetentionLeftAlone;
     }
 
     public string RecognitionProvider { get; }
@@ -2704,7 +2703,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
         _snapshot = snapshot;
-        DataStatus = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} items · {snapshot.Data.Detail}";
+        DataStatus = SetupText.SettingsDataStatus(snapshot.Data.Availability, snapshot.Data.ItemCount, snapshot.Data.Detail);
         WatchedFolders = snapshot.Observation switch
         {
             { ScreenshotRoot: { Length: > 0 } shots, LogRoot: { Length: > 0 } logs } =>
@@ -2729,9 +2728,9 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             }
         }
 
-        ProfileContext = profile is null ? "Profile unavailable" : DescribeProfile(profile);
+        ProfileContext = profile is null ? SetupText.SettingsProfileUnavailable : DescribeProfile(profile);
         ScanProvider = snapshot.Scan.IsAvailable
-            ? snapshot.Scan.Succeeded ? $"Last result: {snapshot.Scan.Source}" : snapshot.Scan.Detail
+            ? snapshot.Scan.Succeeded ? SetupText.SettingsScanLastResult(snapshot.Scan.Source) : snapshot.Scan.Detail
             : snapshot.Scan.Detail;
         Evidence = snapshot.DatabaseReady ? "Persistent database initialized" : "Database not initialized";
     }
@@ -2753,7 +2752,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     }
 
     private static string DescribeProfile(PlayerProfile profile) =>
-        $"{profile.Name} · level {profile.Level} · {profile.GameMode}";
+        SetupText.SettingsProfile(profile.Name, profile.Level, profile.GameMode);
 
     public async Task SyncAsync()
     {
@@ -2763,7 +2762,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            DataStatus = $"Refresh failed: {exception.Message}";
+            DataStatus = SetupText.SettingsDataRefreshFailed(exception.Message);
         }
     }
 }

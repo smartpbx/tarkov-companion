@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.CaptureSessions;
@@ -73,9 +74,9 @@ public sealed class SetupLootScanViewModel : BindableViewModel
     /// <summary>The remembered countdown; null means the timed return is off.</summary>
     public TimeSpan? Timeout => _timeout;
 
-    public string ReturnHeading => "Return to the map after a loot scan";
+    public string ReturnHeading => SetupText.LootScanReturnHeading;
 
-    public string ReturnHint => "Only for a result the app opened itself, mid-raid. Stay on the page keeps it.";
+    public string ReturnHint => SetupText.LootScanReturnHint;
 
     public IReadOnlyList<LootAutoReturnChoiceViewModel> Choices
     {
@@ -101,17 +102,17 @@ public sealed class SetupLootScanViewModel : BindableViewModel
 
     public ICommand ToggleTabletOnlyCommand { get; }
 
-    public string TabletOnlyLabel => "Show loot results on the tablet only";
+    public string TabletOnlyLabel => SetupText.LootScanTabletOnlyLabel;
 
-    public string TabletOnlyHint => "The desktop stays on the map. Needs a paired tablet.";
+    public string TabletOnlyHint => SetupText.LootScanTabletOnlyHint;
 
-    public string LastScanHeading => "Last loot scan";
+    public string LastScanHeading => SetupText.LootScanLastHeading;
 
     public bool HasLastScan => _lastScan is not null;
 
     public string LastScanSummary => _lastScan is { } scan
-        ? $"{LootScanStageText.Seconds(scan.TotalMilliseconds)} from file to result · {LocalTime.Time(scan.FileSeenUtc)}"
-        : "No loot scan yet this session.";
+        ? SetupText.LootScanLastSummary(LootScanStageText.Seconds(scan.TotalMilliseconds), LocalTime.Time(scan.FileSeenUtc))
+        : SetupText.LootScanNoneYet;
 
     public IReadOnlyList<string> LastScanStages => _lastScan is { } scan ? LootScanStageText.Rows(scan) : [];
 
@@ -147,7 +148,7 @@ public sealed class SetupLootScanViewModel : BindableViewModel
 
     private void RebuildChoices() =>
         Choices = [.. Options.Select(seconds => new LootAutoReturnChoiceViewModel(
-            seconds is { } value ? $"{value} s" : "Off",
+            seconds is { } value ? SetupText.LootScanReturnSeconds(value) : SetupText.LootScanReturnOff,
             seconds,
             seconds is { } current ? _timeout == TimeSpan.FromSeconds(current) : _timeout is null,
             () => Choose(seconds)))];

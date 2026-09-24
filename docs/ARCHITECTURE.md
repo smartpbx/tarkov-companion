@@ -124,7 +124,9 @@ to migrate the next workspace, add its keys to `en.json` under its own prefix, a
 (a property per label, a method per format or count), bind the view with `{x:Static l:<Workspace>Text.Name}`, replace
 the view model's literals, and render it in both cultures. `scripts/sweep-prose.sh` scans the tables. The shell's
 registry keys (`V2.Shell.Route.*` and the rest of the top bar) still pass through `V2ShellText.Get`, which reads a moved
-key from the table as `Shell.*`; the map renderer's `Map.*` words are in the table too.
+key from the table as `Shell.*`; the map renderer's `Map.*` words are in the table too. Setup's words are `Setup.*` (`SetupText`; a run-time key such as a section tab still reads
+`V2.Setup.*`/`V2.Home.*` through `V2ShellText.Get`), and Setup › Game & Profile › Language writes the preference file
+(shipped tables only; the pseudo-locale in developer mode), taking effect at the next start.
 
 ## Feature flags
 

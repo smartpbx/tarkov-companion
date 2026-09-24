@@ -2,6 +2,7 @@
              x:DataType="vm:SetupFeatureFlagsViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
   <!-- #314: reversible feature flags. The switch is the player's choice; a flag read at startup
        says "Restart to apply" beside it until the next start picks it up. -->
@@ -31,10 +32,10 @@
               <Button Grid.Column="2" Classes="v2-target" VerticalAlignment="Center"
                       IsVisible="{Binding IsOverridden}"
                       AutomationProperties.AutomationId="{Binding ResetAutomationId}"
-                      Content="Reset" Command="{Binding ResetCommand}" />
+                      Content="{x:Static l:SetupText.FlagsReset}" Command="{Binding ResetCommand}" />
               <ToggleSwitch Grid.Column="3" VerticalAlignment="Center"
                             IsChecked="{Binding IsOn, Mode=OneWay}"
-                            OnContent="On" OffContent="Off"
+                            OnContent="{x:Static l:SetupText.FlagsOn}" OffContent="{x:Static l:SetupText.FlagsOff}"
                             AutomationProperties.AutomationId="{Binding AutomationId}"
                             AutomationProperties.Name="{Binding Title}"
                             Command="{Binding ToggleCommand}" />

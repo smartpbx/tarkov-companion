@@ -1,0 +1,28 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupLanguageView"
+             x:DataType="vm:SetupLanguageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- #314: the interface language. Toggles like the Accessibility rows, so the choice in force
+       is readable without opening anything; the words change at the next start. -->
+  <StackPanel Classes="v2-field" AutomationProperties.AutomationId="v2-setup-language">
+    <TextBlock Classes="v2-label" Text="{Binding Heading}" />
+    <ItemsControl ItemsSource="{Binding Choices}" AutomationProperties.AutomationId="v2-setup-language-choices">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+          <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                  AutomationProperties.Name="{Binding Label}"
+                  AutomationProperties.HelpText="{Binding AutomationState}"
+                  Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding Hint}" />
+    <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Status}" IsVisible="{Binding HasStatus}"
+               AutomationProperties.AutomationId="v2-setup-language-status" AutomationProperties.LiveSetting="Polite" />
+  </StackPanel>
+</UserControl>

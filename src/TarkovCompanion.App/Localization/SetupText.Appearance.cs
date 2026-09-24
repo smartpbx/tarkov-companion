@@ -1,0 +1,56 @@
+namespace TarkovCompanion.App.Localization;
+
+public static partial class SetupText
+{
+    public static string AppearanceScaleHint => UiText.Get("Setup.Appearance.ScaleHint");
+    public static string AppearanceScaleScope => UiText.Get("Setup.Appearance.ScaleScope");
+    public static string AppearanceScaleLabel => UiText.Get("Setup.Appearance.ScaleLabel");
+    public static string AppearanceSmallerLabel => UiText.Get("Setup.Appearance.SmallerLabel");
+    public static string AppearanceLargerLabel => UiText.Get("Setup.Appearance.LargerLabel");
+    public static string AppearanceResetLabel => UiText.Get("Setup.Appearance.ResetLabel");
+    public static string AppearanceThemeLabel => UiText.Get("Setup.Appearance.ThemeLabel");
+    public static string AppearanceThemeHint => UiText.Get("Setup.Appearance.ThemeHint");
+    public static string AppearanceVisionLabel => UiText.Get("Setup.Appearance.VisionLabel");
+    public static string AppearanceVisionHint => UiText.Get("Setup.Appearance.VisionHint");
+    public static string AppearanceTextScaleLabel => UiText.Get("Setup.Appearance.TextScaleLabel");
+    public static string AppearanceTextScaleHint => UiText.Get("Setup.Appearance.TextScaleHint");
+    public static string AppearanceTextScaleOption(object? arg0) => UiText.Format("Setup.Appearance.TextScaleOption", arg0);
+    public static string AppearanceDensityLabel => UiText.Get("Setup.Appearance.DensityLabel");
+    public static string AppearanceMotionLabel => UiText.Get("Setup.Appearance.MotionLabel");
+    public static string AppearanceMotionHint => UiText.Get("Setup.Appearance.MotionHint");
+    public static string AppearanceMotionFull => UiText.Get("Setup.Appearance.Motion.Full");
+    public static string AppearanceMotionReduced => UiText.Get("Setup.Appearance.Motion.Reduced");
+    public static string AppearanceStateOn => UiText.Get("Setup.Appearance.StateOn");
+    public static string AppearanceStateOff => UiText.Get("Setup.Appearance.StateOff");
+    public static string AppearanceResetAllLabel => UiText.Get("Setup.Appearance.ResetAllLabel");
+    public static string AppearanceSummary(object? arg0, object? arg1, object? arg2) => UiText.Format("Setup.Appearance.Summary", arg0, arg1, arg2);
+    public static string AppearanceFocusLabel => UiText.Get("Setup.Appearance.FocusLabel");
+    public static string AppearanceFocusHint => UiText.Get("Setup.Appearance.FocusHint");
+    public static string AppearanceFocusAlways => UiText.Get("Setup.Appearance.Focus.Always");
+    public static string AppearanceFocusKeyboardOnly => UiText.Get("Setup.Appearance.Focus.KeyboardOnly");
+    public static string AccessibilityPreviewHeading => UiText.Get("Setup.Accessibility.PreviewHeading");
+    public static string AccessibilityPreviewHint => UiText.Get("Setup.Accessibility.PreviewHint");
+    public static string AccessibilityPreviewSampleHeading => UiText.Get("Setup.Accessibility.PreviewSampleHeading");
+    public static string AccessibilityPreviewSampleBody => UiText.Get("Setup.Accessibility.PreviewSampleBody");
+    public static string AccessibilityPreviewSampleButton => UiText.Get("Setup.Accessibility.PreviewSampleButton");
+    public static string AccessibilityPreviewSampleField => UiText.Get("Setup.Accessibility.PreviewSampleField");
+    public static string AccessibilityPreviewSampleReady => UiText.Get("Setup.Accessibility.PreviewSampleReady");
+    public static string AccessibilityPreviewSampleFailed => UiText.Get("Setup.Accessibility.PreviewSampleFailed");
+    public static string AccessibilityShortcutsHeading => UiText.Get("Setup.Accessibility.ShortcutsHeading");
+    public static string AccessibilityShortcutsHint => UiText.Get("Setup.Accessibility.ShortcutsHint");
+    public static string DisplaysInfo => UiText.Get("Setup.Displays.Info");
+    public static string DisplaysHeading => UiText.Get("Setup.Displays.Heading");
+    public static string DisplaysRefresh => UiText.Get("Setup.Displays.Refresh");
+    public static string DisplaysPrimary => UiText.Get("Setup.Displays.Primary");
+    public static string DisplaysCompanionHere => UiText.Get("Setup.Displays.CompanionHere");
+    public static string DisplaysGameHere => UiText.Get("Setup.Displays.GameHere");
+    public static string DisplaysMoveHere(object? arg0) => UiText.Format("Setup.Displays.MoveHere", arg0);
+    public static string DisplaysNoInfo => UiText.Get("Setup.Displays.NoInfo");
+    public static string DisplaysCaptureHeading => UiText.Get("Setup.Displays.CaptureHeading");
+    public static string DisplaysCaptureFound(object? arg0, object? arg1, object? arg2) => UiText.Format("Setup.Displays.CaptureFound", arg0, arg1, arg2);
+    public static string DisplaysCaptureMissing => UiText.Get("Setup.Displays.CaptureMissing");
+    public static string DisplaysCaptureMinimized => UiText.Get("Setup.Displays.CaptureMinimized");
+    public static string DisplaysCaptureNote => UiText.Get("Setup.Displays.CaptureNote");
+    public static string DisplaysUnknownDisplay => UiText.Get("Setup.Displays.UnknownDisplay");
+    public static string DisplaysDetail(int width, int height, double scale, string id) => UiText.Format("Setup.Displays.Detail", width, height, scale, id);
+}

@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.ReleaseExperience;
 using TarkovCompanion.Core.Features;
 
@@ -23,17 +24,24 @@ public sealed class SetupFeatureFlagsViewModel : BindableViewModel
         _flags.Changed += (_, _) => Refresh();
     }
 
-    public string Heading => "Feature flags";
+    public string Heading => SetupText.FlagsHeading;
 
-    public string RingLine => $"Defaults for the {RingName(_flags.Ring)} ring. Your changes are kept on this PC.";
+    public string RingLine => SetupText.FlagsRingLine(RingName(_flags.Ring));
 
     public IReadOnlyList<SetupFeatureFlagRowViewModel> Rows { get; }
 
     internal static string RingName(ReleaseRing ring) => ring switch
     {
-        ReleaseRing.Dev => "dev",
-        ReleaseRing.Stable => "stable",
-        _ => "rough",
+        ReleaseRing.Dev => SetupText.FlagsRingDev,
+        ReleaseRing.Stable => SetupText.FlagsRingStable,
+        _ => SetupText.FlagsRingRough,
+    };
+
+    internal static string RingDefault(ReleaseRing ring) => ring switch
+    {
+        ReleaseRing.Dev => SetupText.FlagsRingDefaultDev,
+        ReleaseRing.Stable => SetupText.FlagsRingDefaultStable,
+        _ => SetupText.FlagsRingDefaultRough,
     };
 
     private void Refresh()
@@ -93,7 +101,7 @@ public sealed class SetupFeatureFlagRowViewModel : BindableViewModel
         private set => SetProperty(ref _waitsForRestart, value);
     }
 
-    public string RestartNote => "Restart to apply";
+    public string RestartNote => SetupText.FlagsRestartNote;
 
     /// <summary>"Rough default" or "Your choice (rough default: on)".</summary>
     public string SourceLabel
@@ -113,7 +121,7 @@ public sealed class SetupFeatureFlagRowViewModel : BindableViewModel
         WaitsForRestart = state.WaitsForRestart;
         var ringName = SetupFeatureFlagsViewModel.RingName(ring);
         SourceLabel = IsOverridden
-            ? $"Your choice · {ringName} default is {(_flag.DefaultFor(ring) ? "on" : "off")}"
-            : $"{char.ToUpperInvariant(ringName[0])}{ringName[1..]} default";
+            ? SetupText.FlagsOverride(ringName, _flag.DefaultFor(ring) ? SetupText.FlagsDefaultOn : SetupText.FlagsDefaultOff)
+            : SetupFeatureFlagsViewModel.RingDefault(ring);
     }
 }

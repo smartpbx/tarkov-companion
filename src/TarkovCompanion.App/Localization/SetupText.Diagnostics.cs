@@ -1,0 +1,55 @@
+namespace TarkovCompanion.App.Localization;
+
+public static partial class SetupText
+{
+    public static string DiagnosticsReportsQueued(int count, string nextTry) => UiText.Plural("Setup.Diagnostics.ReportsQueued", count, nextTry);
+    public static string FlagsHeading => UiText.Get("Setup.Flags.Heading");
+    public static string FlagsRingLine(string ringName) => UiText.Format("Setup.Flags.RingLine", ringName);
+    public static string FlagsRingDev => UiText.Get("Setup.Flags.Ring.Dev");
+    public static string FlagsRingStable => UiText.Get("Setup.Flags.Ring.Stable");
+    public static string FlagsRingRough => UiText.Get("Setup.Flags.Ring.Rough");
+    public static string FlagsRingDefaultDev => UiText.Get("Setup.Flags.RingDefault.Dev");
+    public static string FlagsRingDefaultStable => UiText.Get("Setup.Flags.RingDefault.Stable");
+    public static string FlagsRingDefaultRough => UiText.Get("Setup.Flags.RingDefault.Rough");
+    public static string FlagsOverride(string ringName, string defaultState) => UiText.Format("Setup.Flags.Override", ringName, defaultState);
+    public static string FlagsDefaultOn => UiText.Get("Setup.Flags.DefaultOn");
+    public static string FlagsDefaultOff => UiText.Get("Setup.Flags.DefaultOff");
+    public static string FlagsRestartNote => UiText.Get("Setup.Flags.RestartNote");
+    public static string FlagsReset => UiText.Get("Setup.Flags.Reset");
+    public static string FlagsOn => UiText.Get("Setup.Flags.On");
+    public static string FlagsOff => UiText.Get("Setup.Flags.Off");
+    public static string AdminResetSection => UiText.Get("Setup.Admin.ResetSection");
+    public static string AdminResetAll => UiText.Get("Setup.Admin.ResetAll");
+    public static string AdminFileLabel => UiText.Get("Setup.Admin.FileLabel");
+    public static string AdminFilePlaceholder => UiText.Get("Setup.Admin.FilePlaceholder");
+    public static string AdminExport => UiText.Get("Setup.Admin.Export");
+    public static string AdminPreviewImport => UiText.Get("Setup.Admin.PreviewImport");
+    public static string AdminConfirm => UiText.Get("Setup.Admin.Confirm");
+    public static string AdminCancel => UiText.Get("Setup.Admin.Cancel");
+    public static string AdminNothingResettable => UiText.Get("Setup.Admin.NothingResettable");
+    public static string AdminResetSectionQuestion => UiText.Get("Setup.Admin.ResetSectionQuestion");
+    public static string AdminSectionAlreadyDefault => UiText.Get("Setup.Admin.SectionAlreadyDefault");
+    public static string AdminResetAllQuestion => UiText.Get("Setup.Admin.ResetAllQuestion");
+    public static string AdminAllAlreadyDefault => UiText.Get("Setup.Admin.AllAlreadyDefault");
+    public static string AdminNeedsPath => UiText.Get("Setup.Admin.NeedsPath");
+    public static string AdminExported(string path) => UiText.Format("Setup.Admin.Exported", path);
+    public static string AdminNotExported(string? reason) => UiText.Format("Setup.Admin.NotExported", reason);
+    public static string AdminNotImported(string? reason) => UiText.Format("Setup.Admin.NotImported", reason);
+    public static string AdminImportQuestion(string path) => UiText.Format("Setup.Admin.ImportQuestion", path);
+    public static string AdminImportNothing => UiText.Get("Setup.Admin.ImportNothing");
+    public static string AdminSectionReset => UiText.Get("Setup.Admin.SectionReset");
+    public static string AdminAllReset => UiText.Get("Setup.Admin.AllReset");
+    public static string AdminImported => UiText.Get("Setup.Admin.Imported");
+    public static string SelfTestNotTested => UiText.Get("Setup.SelfTest.NotTested");
+    public static string SelfTestTook(double seconds) => UiText.Format("Setup.SelfTest.Took", seconds);
+    public static string SelfTestPrompt => UiText.Get("Setup.SelfTest.Prompt");
+    public static string SelfTestScreenshotPrompt => UiText.Get("Setup.SelfTest.ScreenshotPrompt");
+    public static string SelfTestTesting => UiText.Get("Setup.SelfTest.Testing");
+    public static string SelfTestRowTesting => UiText.Get("Setup.SelfTest.RowTesting");
+    public static string SelfTestFailed(string reason) => UiText.Format("Setup.SelfTest.Failed", reason);
+    public static string SelfTestScreenshotFailed(string reason) => UiText.Format("Setup.SelfTest.ScreenshotFailed", reason);
+    public static string SelfTestStopped => UiText.Get("Setup.SelfTest.Stopped");
+    public static string SelfTestNothingToCopy => UiText.Get("Setup.SelfTest.NothingToCopy");
+    public static string SelfTestCopied(int characters) => UiText.Format("Setup.SelfTest.Copied", characters);
+    public static string SelfTestCopyFailed(string reason) => UiText.Format("Setup.SelfTest.CopyFailed", reason);
+}

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Recommendations;
@@ -50,13 +51,13 @@ public sealed class RecommendationHorizonSettingsViewModel : BindableViewModel
         Refresh();
     }
 
-    public string Heading => "Recommendations";
+    public string Heading => SetupText.HorizonHeading;
 
-    public string Hint => "Choose how far ahead future needs affect keep, sell, and use-soon advice.";
+    public string Hint => SetupText.HorizonHint;
 
-    public string QuestLabel => "Quest needs";
+    public string QuestLabel => SetupText.HorizonQuestLabel;
 
-    public string HideoutLabel => "Hideout needs";
+    public string HideoutLabel => SetupText.HorizonHideoutLabel;
 
     public RecommendationHorizonSettings Current => _policies.CurrentSettings;
 
@@ -68,10 +69,10 @@ public sealed class RecommendationHorizonSettingsViewModel : BindableViewModel
         string scope,
         Action<RecommendationHorizon> choose) =>
     [
-        new(RecommendationHorizon.NextOnly, "Next only", scope, () => choose(RecommendationHorizon.NextOnly)),
-        new(RecommendationHorizon.NextThree, "Next 3", scope, () => choose(RecommendationHorizon.NextThree)),
-        new(RecommendationHorizon.NextFive, "Next 5", scope, () => choose(RecommendationHorizon.NextFive)),
-        new(RecommendationHorizon.All, "All", scope, () => choose(RecommendationHorizon.All)),
+        new(RecommendationHorizon.NextOnly, SetupText.HorizonNextOnly, scope, () => choose(RecommendationHorizon.NextOnly)),
+        new(RecommendationHorizon.NextThree, SetupText.HorizonNextThree, scope, () => choose(RecommendationHorizon.NextThree)),
+        new(RecommendationHorizon.NextFive, SetupText.HorizonNextFive, scope, () => choose(RecommendationHorizon.NextFive)),
+        new(RecommendationHorizon.All, SetupText.HorizonAll, scope, () => choose(RecommendationHorizon.All)),
     ];
 
     private void ApplyAsync(RecommendationHorizonSettings settings) =>

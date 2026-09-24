@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using TarkovCompanion.App.Services.V2.Setup;
@@ -45,9 +46,9 @@ public sealed class SetupDataDetailViewModel : BindableViewModel, IDisposable
     /// <summary>Runs the same forced refresh as Sync now; shown only when the last one left nothing fresh.</summary>
     public System.Windows.Input.ICommand RetryCommand { get; }
 
-    public string RetryLabel => V2ShellText.Get("V2.Setup.Data.RetryLabel");
+    public string RetryLabel => SetupText.DataRetryLabel;
 
-    public string ReasonLabel => V2ShellText.Get("V2.Setup.Data.ReasonLabel");
+    public string ReasonLabel => SetupText.DataReasonLabel;
 
     public string? Reason
     {
@@ -76,7 +77,7 @@ public sealed class SetupDataDetailViewModel : BindableViewModel, IDisposable
         }
     }
 
-    public string SyncButtonLabel => NeedsRetry ? V2ShellText.Get("V2.Setup.Data.RetryLabel") : V2ShellText.Get("V2.Setup.Data.SyncLabel");
+    public string SyncButtonLabel => NeedsRetry ? SetupText.DataRetryLabel : SetupText.DataSyncLabel;
 
     /// <summary>Recomputes every line; also called when the page is opened, so ages are not stale.</summary>
     public void Refresh()
@@ -96,9 +97,9 @@ public sealed class SetupDataDetailViewModel : BindableViewModel, IDisposable
 
     private static string ModeText(ProfileGameMode mode) => mode switch
     {
-        ProfileGameMode.Pve => "PvE",
-        ProfileGameMode.Seasonal => "Seasonal",
-        _ => "PvP",
+        ProfileGameMode.Pve => GameModeLabel.Of(ProfileGameMode.Pve),
+        ProfileGameMode.Seasonal => GameModeLabel.Of(ProfileGameMode.Seasonal),
+        _ => GameModeLabel.Of(ProfileGameMode.Pvp),
     };
 
     private string ScopeText()
@@ -109,12 +110,7 @@ public sealed class SetupDataDetailViewModel : BindableViewModel, IDisposable
             return $"{ModeText(current.ActiveProfile!.Context.Mode)} · {scope.Language}";
         }
 
-        var mode = _options.GameMode switch
-        {
-            GameMode.Pve => "PvE",
-            GameMode.PvpSeason => "Seasonal",
-            _ => "PvP",
-        };
+        var mode = GameModeLabel.Of(_options.GameMode);
         return $"{mode} · {_options.Language}";
     }
 }

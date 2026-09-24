@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Notifications;
 using TarkovCompanion.Application.Services.Notifications;
 
@@ -41,7 +42,7 @@ public sealed class SetupNotificationRowViewModel : BindableViewModel
     /// </remarks>
     public bool FiresDuringRaid => NotificationSamples.FiresDuringRaid(Kind);
 
-    public string WhenLabel => FiresDuringRaid ? "During a raid too" : "After the raid";
+    public string WhenLabel => FiresDuringRaid ? SetupText.NotificationsDuringRaid : SetupText.NotificationsAfterRaid;
 
     public bool IsEnabled
     {
@@ -113,8 +114,8 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
     public bool TrayIsAvailable => _trayIsAvailable();
 
     public string TrayStatusLine => TrayIsAvailable
-        ? "The tray icon shows the raid state and counts anything you have not looked at."
-        : "This system has no tray, so notifications are shown in the window only.";
+        ? SetupText.NotificationsTrayAvailable
+        : SetupText.NotificationsTrayMissing;
 
     /// <summary>
     /// Whether a notification may draw a window, which is off until asked for.
@@ -125,16 +126,16 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
         private set => SetProperty(ref _showsPopup, value);
     }
 
-    public string PopupTitle => "Show a pop-up as well";
+    public string PopupTitle => SetupText.NotificationsPopupTitle;
 
     public string PopupDescription =>
-        "Off by default. Windows notifications wait until the raid is over.";
+        SetupText.NotificationsPopupDescription;
 
     public ICommand TogglePopupCommand { get; }
 
-    public string QuietHoursTitle => "Quiet hours";
+    public string QuietHoursTitle => SetupText.NotificationsQuietHoursTitle;
 
-    public string QuietHoursDescription => "No pop-up between these hours. The tray still counts.";
+    public string QuietHoursDescription => SetupText.NotificationsQuietHoursDescription;
 
     /// <summary>Whether the pop-up keeps quiet between the two hours below.</summary>
     public bool QuietHours

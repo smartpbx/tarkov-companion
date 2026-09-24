@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 
@@ -7,7 +8,7 @@ namespace TarkovCompanion.App.Services.V2.Setup;
 public static class SetupPageFacts
 {
     public static IReadOnlyList<string> ForAbout(string anchor) => anchor == SetupAnchors.WhatItIs
-        ? [$"Version {AppBuildIdentity.Current.Version}"]
+        ? [SetupText.AboutVersion(AppBuildIdentity.Current.Version)]
         : [];
 
     /// <param name="anchor">The item asking.</param>
@@ -17,11 +18,11 @@ public static class SetupPageFacts
     public static IReadOnlyList<string> ForDataPrivacy(string anchor, bool offline, string? source, GroupPageViewModel? group) => anchor switch
     {
         SetupAnchors.LeavesComputer => offline
-            ? ["Offline mode is on: nothing is being fetched."]
-            : source is null ? [] : [$"Game data now: {source}"],
+            ? [SetupText.InfoOffline]
+            : source is null ? [] : [SetupText.InfoGameDataNow(source)],
         SetupAnchors.SharingScope => group is null
             ? []
-            : [group.HasMembers ? $"In a room with {group.Members.Count} people right now." : "Not in a room, so nothing is being shared."],
+            : [group.HasMembers ? SetupText.InfoInRoom(group.Members.Count) : SetupText.InfoNotInRoom],
         _ => [],
     };
 }
