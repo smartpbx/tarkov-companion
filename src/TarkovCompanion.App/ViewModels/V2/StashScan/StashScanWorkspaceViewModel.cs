@@ -698,6 +698,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public bool HasSelection => _selected is not null;
 
+    /// <summary>#290: the snapshot shown, for the paired tablet's review card.</summary>
+    public StashSnapshotRecord? SelectedSnapshot => _selected;
+
     public bool HasAmmoSummary => AmmoSummary.Count > 0;
 
     public bool HasNoAmmoSummary => !HasAmmoSummary;

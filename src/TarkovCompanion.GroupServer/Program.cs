@@ -544,7 +544,7 @@ app.MapPost("/waypoints", Results<Ok<GroupWaypoint>, UnauthorizedHttpResult, Bad
     }
 
     var room = GroupKey.RoomFor(key);
-    var added = marks.AddWaypoint(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label);
+    var added = marks.AddWaypoint(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label, request.PaletteColor);
     // v2r-fast-positions (package 31): a mark is a change to the room, so a held exchange ends.
     roomChanges.Record(room, null);
     return TypedResults.Ok(added);
@@ -565,7 +565,7 @@ app.MapPost("/pings", Results<Ok<GroupPing>, UnauthorizedHttpResult, BadRequest<
     }
 
     var room = GroupKey.RoomFor(key);
-    var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label);
+    var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label, request.PaletteColor);
     // v2r-fast-positions (package 31).
     roomChanges.Record(room, null);
     return TypedResults.Ok(added);
@@ -951,8 +951,15 @@ static bool Accepts(HttpRequest request, string encoding) => request.Headers.Acc
 static bool TryReadKey(HttpRequest request, out string key) => GroupKey.TryRead(request, out key);
 
 /// <summary>A place somebody is marking, from whoever is marking it.</summary>
-public sealed record MarkRequest(string By, string MapId, double X, double Y, double Z, string? Label)
+/// <remarks>
+/// #290: <c>Color</c> is optional and additive. Anything but one of <see cref="TarkovCompanion.Core.Common.MarkPalette"/>'s six
+/// is dropped (<see cref="PaletteColor"/>) rather than refused, so a newer desktop's mark still lands.
+/// </remarks>
+public sealed record MarkRequest(string By, string MapId, double X, double Y, double Z, string? Label, string? Color = null)
 {
+    /// <summary>The palette colour this mark asked for, or null.</summary>
+    public string? PaletteColor => TarkovCompanion.Core.Common.MarkPalette.Normalize(Color);
+
     public string? Validate() =>
         string.IsNullOrWhiteSpace(By) || By.Length > 48
             ? "A display name is required and must be 48 characters or fewer."

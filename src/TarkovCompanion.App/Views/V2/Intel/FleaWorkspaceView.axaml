@@ -67,13 +67,12 @@
                         <TextBlock Classes="v2-label" Text="{Binding StackLabel}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="v2-label" Text="{Binding ConditionLabel}" TextTrimming="CharacterEllipsis" />
                       </StackPanel>
-                      <StackPanel Grid.Column="2" Spacing="1">
-                        <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" TextWrapping="Wrap" />
+                      <!-- #842: the engine's sentence, rules version and raw read are details, on hover. -->
+                      <StackPanel Grid.Column="2" Spacing="1" Background="Transparent" ToolTip.Tip="{Binding DetailsLabel}">
+                        <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="v2-label" Text="{Binding ConfidenceLabel}" />
                         <TextBlock Classes="v2-label" Text="{Binding AlternativesLabel}" TextTrimming="CharacterEllipsis"
                                    IsVisible="{Binding HasAlternatives}" />
-                        <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" TextTrimming="CharacterEllipsis"
-                                   IsVisible="{Binding HasEvidence}" />
                       </StackPanel>
                       <Border Grid.Column="3" Classes="v2-flea-verdict" Classes.good="{Binding IsGoodBuy}"
                               VerticalAlignment="Center" Padding="8,3" CornerRadius="4">

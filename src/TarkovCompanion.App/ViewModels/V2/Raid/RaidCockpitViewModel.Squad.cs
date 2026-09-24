@@ -40,7 +40,12 @@ public sealed partial class RaidCockpitViewModel
             (mapId, position, isPing, cancellationToken) =>
                 session.SendMarkAsync(mapId, position, label: null, isPing, cancellationToken),
             (id, why) => session.RemoveMarkAsync(id, CancellationToken.None, why),
-            _timeProvider);
+            _timeProvider)
+        {
+            // #290: the colour the player chose goes to the squad with the mark.
+            SendColoured = (mapId, position, isPing, colour, cancellationToken) =>
+                session.SendMarkAsync(mapId, position, label: null, isPing, cancellationToken, colour),
+        };
         _groupForwarder.Changed += MarksChanged;
     }
 

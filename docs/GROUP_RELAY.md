@@ -182,7 +182,9 @@ learns about them without polling anything:
 { "by": "MaxGooner", "mapId": "customs", "x": 56.16, "y": -2.95, "z": 110.52, "label": "Dorms" }
 ```
 
-`by` and `mapId` are required; `label` is optional and is cut at 64 characters. `y` is the
+`by` and `mapId` are required; `label` is optional and is cut at 64 characters. `color` is
+optional (#290): one of the six `MarkPalette` colours, or it is dropped; it comes back on the mark
+only when set, so older clients see the shape above. `y` is the
 height, which matters for a map with floors. The reply is the created mark, including the `id`
 the server assigned, so two members marking at once cannot collide.
 
@@ -457,6 +459,11 @@ the six-digit comparison left out, both long-term keys being already pinned. A r
 marks a device that had merely expired, so going quiet is not a way around being revoked.
 The tablet keeps a confirmed **Pair again** escape visible throughout this wait, and a fresh QR
 link always starts its new pairing attempt instead of restoring the remembered desktop (#708).
+The code form stays on screen while it reconnects, each pairing request gives up after 10 s, a
+failed or unanswered mailbox poll is asked again, and a returning tablet stops waiting on a step
+after 30 s (#840). A desktop that will not have a returning tablet back says so (#846): the owner posts
+`POST …/resume/requests/{ticket}/refusal?reason=not-recognised|failed`, the ticket read carries
+`refused`, and the page shows the code form at once. An older page ignores the field and times out.
 `POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
 reaches the relay, and an owner registering a tablet whose device key is already known replaces
 that tablet's old record.
@@ -582,6 +589,9 @@ reconnect it previews each against current canonical state and submits it with a
 A tablet mark carries the player's scope (`Private` for Just me, `PairedDevice` for Squad; Team
 needs a capability no tablet holds) and an optional `lifetime`; a route is up to twelve waypoints
 sharing a `routeId`, each with its `routeStep`, drawn on the desktop as one dashed line (#289, #290).
+Its `color` is a palette colour when the player chose one (anything else means the kind's own), and
+the map surface carries it back on each object; the surface also carries the last Stash scan and
+flea screen (`stash`, `flea`: at most 30 rows of 140 characters) for read-only review (#290).
 
 ## Which version everything speaks
 

@@ -1250,6 +1250,30 @@
                                 Command="{Binding NewMarksSquadCommand}"
                                 AutomationProperties.AutomationId="v2-raid-new-marks-squad" />
                 </StackPanel>
+                <!-- #290: the colour new marks get, drawn here, on the tablet and on the squad's maps. -->
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Classes="v2-label" Text="Colour" VerticalAlignment="Center" />
+                  <ItemsControl ItemsSource="{Binding MarkColourChoices}"
+                                AutomationProperties.AutomationId="v2-raid-new-marks-colour">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:MarkColourChoiceViewModel">
+                        <ToggleButton Width="26" Height="26" MinWidth="26" MinHeight="26" Padding="0"
+                                      CornerRadius="13" Background="{Binding Brush}"
+                                      BorderThickness="2" BorderBrush="{DynamicResource V2.Brush.Border}"
+                                      IsChecked="{Binding IsChosen, Mode=OneWay}"
+                                      Command="{Binding ChooseCommand}"
+                                      ToolTip.Tip="{Binding Name}"
+                                      AutomationProperties.Name="{Binding Name}">
+                          <TextBlock Classes="v2-label" Text="A" IsVisible="{Binding IsAuto}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </ToggleButton>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
                 <TextBlock Classes="v2-label" IsVisible="{Binding HasMarkNote}" Text="{Binding MarkNote}"
                            Foreground="{DynamicResource V2.Brush.Warning}"
                            AutomationProperties.AutomationId="v2-raid-mark-note" />

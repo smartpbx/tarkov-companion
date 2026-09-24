@@ -33,5 +33,6 @@
     <!-- Three QR symbols this encoder produced and zbar read back, pinned so a change that
          breaks the encoder fails even where no decoder is installed. -->
     <None Include="V2Team/qr-golden.txt" Link="V2Team/qr-golden.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Compatibility/Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

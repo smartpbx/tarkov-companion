@@ -37,6 +37,26 @@ public sealed class RelayMarksBridgeTests
         Assert.Equal("Loot", mark.State.Label);
     }
 
+    /// <summary>
+    /// #290: a palette colour chosen on the tablet is the local mark's colour; the fixed colours
+    /// every older page sends (and anything else) mean "the kind's own".
+    /// </summary>
+    [Theory]
+    [InlineData("#e69f00", "#E69F00")]
+    [InlineData("#CC79A7", "#CC79A7")]
+    [InlineData("#22D3EE", null)]
+    [InlineData("#C7A66B", null)]
+    [InlineData("#00AACC", null)]
+    public async Task ATabletsChosenColourIsTheLocalMarksColour(string sent, string? expected)
+    {
+        var store = new FakeRaidMarkStore();
+        var bridge = await CreateBridgeAsync(store);
+
+        await bridge.ReconcileAsync(Upsert(markId: 1, expectedRevision: 0, x: 10, y: 20, color: sent), CommandDisposition.Applied, CancellationToken.None);
+
+        Assert.Equal(expected, Assert.Single(store.Marks).Colour);
+    }
+
     [Fact]
     public async Task AppliedEditMovesTheSameLocalMarkInsteadOfDuplicatingIt()
     {
@@ -181,7 +201,8 @@ public sealed class RelayMarksBridgeTests
         string? label = null,
         MapMarkKind kind = MapMarkKind.Waypoint,
         DateTimeOffset? issuedUtc = null,
-        DateTimeOffset? expiresUtc = null) => new(
+        DateTimeOffset? expiresUtc = null,
+        string color = "#00AACC") => new(
         Command(markId * 10),
         new AggregateRevision(expectedRevision + 1),
         issuedUtc ?? Now,
@@ -195,7 +216,7 @@ public sealed class RelayMarksBridgeTests
             CoordinateSpaceKind.World,
             "v1",
             null,
-            "#00AACC"));
+            color));
 
     private static DeleteMarkCommand Delete(int markId, long expectedRevision) => new(
         Command(markId * 10 + 1),
@@ -267,9 +288,9 @@ public sealed class RelayMarksBridgeTests
             return Task.CompletedTask;
         }
 
-        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default, RaidMarkRoute? route = null)
+        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default, RaidMarkRoute? route = null, string? colour = null)
         {
-            var mark = new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, DateTimeOffset.UtcNow)), DateTimeOffset.UtcNow) { Scope = scope, Lifetime = lifetime, Route = route };
+            var mark = new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, DateTimeOffset.UtcNow)), DateTimeOffset.UtcNow) { Scope = scope, Lifetime = lifetime, Route = route, Colour = colour };
             _marks.Add(mark);
             Changed?.Invoke();
             return Task.FromResult(mark);

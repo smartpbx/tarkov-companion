@@ -1789,7 +1789,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         // Its own name, so the marks list says which spawn it was. A waypoint is a note to the
         // player, not a claim that anything is there.
-        _ = _marks.PlaceAsync(model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label, NewMarkScope, RaidMarkLifetime.UntilRemoved);
+        _ = _marks.PlaceAsync(model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label, NewMarkScope, RaidMarkLifetime.UntilRemoved, colour: NewMarkColour);
     }
 
     private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
@@ -2633,6 +2633,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             _objectStyles = new Dictionary<MapSceneObjectId, MapSceneObjectStyle>(_objectStyles.Concat(drawings.Styles));
         }
 
+        ApplyMarkColours();
         UiActivity.Step("raid:live");
         _questScene = UserQuestMarkerScene.Apply(
             BuildQuestScene(_map.QuestSceneProjection, model, nowUtc, _questLetters),

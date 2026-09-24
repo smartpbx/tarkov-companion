@@ -1,0 +1,47 @@
+{
+  "room": "9f2c0000000000000000000000000000000000000000000000000000000000aa",
+  "members": [
+    {
+      "name": "NewGeo",
+      "mapId": "customs",
+      "raidState": "InRaid",
+      "side": "pmc",
+      "x": 12.5,
+      "z": 44.0,
+      "heading": 90.0,
+      "positionAge": 4.0,
+      "loadout": [],
+      "quests": ["Debut"],
+      "questIds": ["quest-debut"],
+      "gameMode": "pvp",
+      "ready": true,
+      "plannedExtract": "ZB-1011",
+      "note": "rotating north",
+      "objectives": [{ "task": "quest-debut", "id": "objective-shoot", "count": 2, "futureProgress": { "seen": 1 } }],
+      "y": null,
+      "observed": [],
+      "sinceSeconds": 1.0,
+      "extracts": [],
+      "transits": [],
+      "raidClockSeconds": null,
+      "raidClockAge": null,
+      "trail": [{ "x": 10.0, "z": 40.0, "age": 30.0, "futureFloor": "basement" }],
+      "futureVoice": { "channel": 3, "muted": false },
+      "futureRole": "pointman"
+    }
+  ],
+  "serverUtc": "2026-10-10T05:00:00+00:00",
+  "waypoints": [
+    { "id": 9, "by": "NewGeo", "mapId": "customs", "x": 56.1, "y": -2.9, "z": 110.5, "label": "Dorms",
+      "createdUtc": "2026-10-10T04:59:00+00:00", "completedUtc": null, "completedBy": null,
+      "futureScope": "Squad", "color": "#009e73", "futureExpiresUtc": "2026-10-10T05:14:00+00:00" }
+  ],
+  "pings": [
+    { "id": 10, "by": "NewGeo", "mapId": "customs", "x": 12.0, "y": 1.0, "z": 44.0, "label": null,
+      "createdUtc": "2026-10-10T04:59:50+00:00", "futureColour": "#FF8800" }
+  ],
+  "protocol": 1,
+  "revision": 12,
+  "futureRoomNotice": "relay moving hosts",
+  "futureMarkLimits": [60, 30]
+}

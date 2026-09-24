@@ -1,0 +1,338 @@
+[
+ {
+  "step": "ping",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "upsertMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000001"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5a000000-0000-4000-8000-000000000001"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+     "kind": "Ping",
+     "scope": "PairedDevice",
+     "state": {
+      "mapId": "customs",
+      "floorId": "ground",
+      "x": 10.5,
+      "y": -20.25,
+      "label": null,
+      "expiresUtc": null
+     },
+     "coordinateSpace": "World",
+     "projectionVersion": "tarkov-dev-1",
+     "height": null,
+     "color": "#C7A66B"
+    }
+   }
+  }
+ },
+ {
+  "step": "waypoint",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "upsertMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000002"
+    },
+    "requestedRevision": {
+     "value": 2
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5a000000-0000-4000-8000-000000000002"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+     "kind": "Waypoint",
+     "scope": "PairedDevice",
+     "state": {
+      "mapId": "customs",
+      "floorId": "ground",
+      "x": 30.0,
+      "y": 15.0,
+      "label": "Dorms",
+      "expiresUtc": null
+     },
+     "coordinateSpace": "World",
+     "projectionVersion": "tarkov-dev-1",
+     "height": null,
+     "color": "#22D3EE"
+    }
+   }
+  }
+ },
+ {
+  "step": "remove ping",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "deleteMark",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000003"
+    },
+    "requestedRevision": {
+     "value": 3
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "markId": {
+     "value": "5a000000-0000-4000-8000-000000000001"
+    },
+    "expectedMarkRevision": 1
+   }
+  }
+ },
+ {
+  "step": "independent",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "setInteractionMode",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000004"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "mode": "Independent"
+   }
+  }
+ },
+ {
+  "step": "request control",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "requestControl",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000005"
+    },
+    "requestedRevision": {
+     "value": 2
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "requestedLease": "00:02:00"
+   }
+  }
+ },
+ {
+  "step": "navigate",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "controlWorkspace",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000006"
+    },
+    "requestedRevision": {
+     "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "action": {
+     "type": "navigate",
+     "workspace": "Raid",
+     "mapId": "customs",
+     "floorId": "ground",
+     "viewport": {
+      "center": {
+       "mapId": "customs",
+       "floorId": "ground",
+       "coordinateSpace": "World",
+       "projectionVersion": "tarkov-dev-1",
+       "x": 120.5,
+       "y": null,
+       "z": -40.25
+      },
+      "zoom": 2.5
+     }
+    }
+   }
+  }
+ },
+ {
+  "step": "filter",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "controlWorkspace",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000007"
+    },
+    "requestedRevision": {
+     "value": 2
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "action": {
+     "type": "filter",
+     "activeLayers": [
+      "extracts"
+     ],
+     "activeFilters": []
+    }
+   }
+  }
+ },
+ {
+  "step": "select",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "controlWorkspace",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000008"
+    },
+    "requestedRevision": {
+     "value": 3
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "action": {
+     "type": "select",
+     "selection": {
+      "kind": "Landmark",
+      "referenceId": "extract-zb-1011",
+      "originDeepLink": null,
+      "focusToken": null
+     }
+    }
+   }
+  }
+ },
+ {
+  "step": "search",
+  "envelope": {
+   "protocolVersion": {
+    "major": 2,
+    "minor": 0
+   },
+   "sessionId": {
+    "value": "20000000-0000-0000-0000-000000000002"
+   },
+   "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+   },
+   "clientSentUtc": "2026-09-14T20:00:00.000Z",
+   "command": {
+    "type": "controlWorkspace",
+    "commandId": {
+     "value": "4a000000-0000-4000-8000-000000000009"
+    },
+    "requestedRevision": {
+     "value": 4
+    },
+    "issuedUtc": "2026-09-14T20:00:00.000Z",
+    "expiresUtc": "2026-09-14T20:01:00.000Z",
+    "offlineQueuePreview": null,
+    "action": {
+     "type": "search",
+     "query": "salewa"
+    }
+   }
+  }
+ }
+]

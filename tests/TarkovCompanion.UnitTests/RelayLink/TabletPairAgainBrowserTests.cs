@@ -111,6 +111,13 @@ public sealed class TabletPairAgainBrowserTests : RealBrowserTestHarness
             Assert.Contains("RECONNECTING_HAS_PAIR_AGAIN", output, StringComparison.Ordinal);
             Assert.Contains("PAIR_AGAIN_SHOWS_CODE_ENTRY", output, StringComparison.Ordinal);
         }
+        catch (TimeoutException)
+        {
+            // A step the script never reached: what it said on the way out says why.
+            browser.Kill(entireProcessTree: true);
+            var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Fail(Output($"The script stopped short.\nstderr:\n{stderr}\nstdout:", stdout));
+        }
         finally
         {
             if (!browser.HasExited)

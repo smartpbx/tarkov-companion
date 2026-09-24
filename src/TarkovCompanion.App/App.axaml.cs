@@ -90,6 +90,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     // #572: and every Loot Scan result goes to the paired tablet as well.
                     captureBridge.LootScanShown += result =>
                         tabletPublisher.ShowLootResult(TabletLootResultBuilder.From(result));
+                    // #290: and the last flea screen and Stash scan, for review on the tablet.
+                    TabletCaptureReviewWiring.Attach(services, captureBridge, tabletPublisher);
                     // One-time, best-effort: gives #269's profile context something real to
                     // report without a v1/v2 profile migration UI. See the bootstrap's own remarks.
                     _ = services.GetRequiredService<LegacyProfileContextBootstrap>()

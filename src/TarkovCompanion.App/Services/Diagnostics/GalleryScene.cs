@@ -563,17 +563,18 @@ internal static class GalleryMarks
     public static async Task<int> PlaceAsync(IRaidMarkStore store, string mapId, MapSceneBounds bounds)
     {
         MapScenePoint At(double fx, double fy) => new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy));
-        (string? Label, RaidMarkScope Scope, RaidMarkLifetime Lifetime, MapScenePoint Point)[] marks =
+        // #290: two of them in a chosen colour, so the pictures show a coloured pin and ping too.
+        (string? Label, RaidMarkScope Scope, RaidMarkLifetime Lifetime, MapScenePoint Point, string? Colour)[] marks =
         [
-            ("Stash", RaidMarkScope.Private, RaidMarkLifetime.UntilRemoved, At(0.36, 0.36)),
-            ("Dorms", RaidMarkScope.Squad, RaidMarkLifetime.FiveMinutes, At(0.50, 0.34)),
-            (null, RaidMarkScope.Squad, RaidMarkLifetime.ThisRaid, At(0.62, 0.44)),
-            (null, RaidMarkScope.Private, RaidMarkLifetime.Ping, At(0.44, 0.42)),
-            (null, RaidMarkScope.Squad, RaidMarkLifetime.Ping, At(0.56, 0.40)),
+            ("Stash", RaidMarkScope.Private, RaidMarkLifetime.UntilRemoved, At(0.36, 0.36), null),
+            ("Dorms", RaidMarkScope.Squad, RaidMarkLifetime.FiveMinutes, At(0.50, 0.34), "#E69F00"),
+            (null, RaidMarkScope.Squad, RaidMarkLifetime.ThisRaid, At(0.62, 0.44), null),
+            (null, RaidMarkScope.Private, RaidMarkLifetime.Ping, At(0.44, 0.42), null),
+            (null, RaidMarkScope.Squad, RaidMarkLifetime.Ping, At(0.56, 0.40), "#CC79A7"),
         ];
-        foreach (var (label, scope, lifetime, point) in marks)
+        foreach (var (label, scope, lifetime, point, colour) in marks)
         {
-            await store.PlaceAsync(mapId, null, point.X, point.Y, label, scope, lifetime).ConfigureAwait(true);
+            await store.PlaceAsync(mapId, null, point.X, point.Y, label, scope, lifetime, colour: colour).ConfigureAwait(true);
         }
 
         var routeId = Guid.NewGuid();
