@@ -60,7 +60,7 @@ public sealed class AtomicLootSpawnPublicationStore :
             cancellationToken.ThrowIfCancellationRequested();
             if (_lastKnownGood is { } current)
             {
-                ValidateReplacement(bundle, current, cancellationToken);
+                ValidateReplacement(bundle, current, cancellationToken, nowUtc: UtcNow());
             }
 
             _lastKnownGood = bundle;
@@ -175,11 +175,19 @@ public sealed class AtomicLootSpawnPublicationStore :
     /// <summary>
     /// Applies the same monotonic-head policy to process and restart-durable publication stores.
     /// </summary>
+    /// <remarks>
+    /// [#799] <paramref name="nowUtc"/> is the store's clock. A head imported after it was stamped
+    /// by a clock that was ahead (Clayton's Windows clock ran 4 h fast while the cache was
+    /// written). Its times are no floor for the monotonic checks: without this, every correctly
+    /// dated refresh was refused as "older" until real time caught up, and the future-dated head
+    /// could not be replaced. Source authority and coverage are still checked.
+    /// </remarks>
     internal static void ValidateReplacement(
         LootSpawnSourceBundle bundle,
         LootSpawnSourceBundle current,
         CancellationToken cancellationToken,
-        bool allowReviewedEvidenceRemoval = false)
+        bool allowReviewedEvidenceRemoval = false,
+        DateTimeOffset? nowUtc = null)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(current);
@@ -195,21 +203,22 @@ public sealed class AtomicLootSpawnPublicationStore :
                 "A publication store cannot change reviewed loot-spawn source authority.");
         }
 
-        if (bundle.Identity.ImportedUtc < current.Identity.ImportedUtc)
+        var headIsFutureDated = nowUtc is { } now && current.Identity.ImportedUtc > now;
+        if (!headIsFutureDated && bundle.Identity.ImportedUtc < current.Identity.ImportedUtc)
         {
             throw new LootSpawnSourceImportException(
                 "publication.import-regression",
                 "An older import observation cannot replace the last-known-good publication.");
         }
 
-        if (bundle.Identity.GeneratedUtc < current.Identity.GeneratedUtc)
+        if (!headIsFutureDated && bundle.Identity.GeneratedUtc < current.Identity.GeneratedUtc)
         {
             throw new LootSpawnSourceImportException(
                 "publication.superseded",
                 "An older loot-spawn bundle cannot replace the last-known-good publication.");
         }
 
-        if (bundle.Identity.DataThroughUtc < current.Identity.DataThroughUtc)
+        if (!headIsFutureDated && bundle.Identity.DataThroughUtc < current.Identity.DataThroughUtc)
         {
             throw new LootSpawnSourceImportException(
                 "publication.evidence-regression",
@@ -223,7 +232,8 @@ public sealed class AtomicLootSpawnPublicationStore :
                 "A loot-spawn bundle cannot silently shrink the last-known-good map or record coverage.");
         }
 
-        if (!allowReviewedEvidenceRemoval && ItemEvidenceRegresses(bundle, current, cancellationToken))
+        if (!allowReviewedEvidenceRemoval && !headIsFutureDated &&
+            ItemEvidenceRegresses(bundle, current, cancellationToken))
         {
             throw new LootSpawnSourceImportException(
                 "publication.item-evidence-regression",

@@ -942,18 +942,19 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
-    public void Future_generated_snapshot_is_unavailable_at_an_earlier_evaluation_time()
+    public void Future_generated_snapshot_is_drawn_as_fresh_at_an_earlier_evaluation_time()
     {
+        // [#799] The generation time is this PC's clock at import; a clock that was ahead then
+        // must not hide a verified publication ("0 spawns, Unavailable" on every map).
         var snapshot = Snapshot(
             [Spawn("customs-future-snapshot", [Candidate("gpu", "Graphics card", 900_000)])],
             generatedUtc: Now.AddMinutes(5));
 
         var result = Build(snapshot);
 
-        Assert.Empty(result.Entries);
-        Assert.Empty(result.Objects);
-        Assert.Equal(ResultCompleteness.Unavailable, result.Status.Completeness);
-        Assert.Equal("snapshot.generated-in-future", Assert.Single(result.Diagnostics).Code);
+        Assert.Single(result.Entries);
+        Assert.NotEqual(ResultCompleteness.Unavailable, result.Status.Completeness);
+        Assert.DoesNotContain(result.Diagnostics, item => item.Code == "snapshot.generated-in-future");
     }
 
     [Fact]

@@ -230,6 +230,39 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
     public Task RemoveAsync(Guid id, CancellationToken cancellationToken = default) =>
         MutateAsync(marks => marks.RemoveAll(mark => mark.Id == id), cancellationToken);
 
+    /// <summary>
+    /// [#799] The PC's clock was set: moves every mark's creation and expiry by the same jump.
+    /// </summary>
+    /// <remarks>
+    /// A ping stamped "expires at 04:20:35" by a clock four hours fast would otherwise live four
+    /// more hours once the clock came back, and one stamped before a jump forward would expire
+    /// on the spot. Moved, each keeps exactly the time it had left. The timer is re-pointed by
+    /// the mutation, and the moved times are what the file keeps.
+    /// </remarks>
+    public Task RebaseClockAsync(TimeSpan jump, CancellationToken cancellationToken = default) =>
+        jump == TimeSpan.Zero
+            ? Task.CompletedTask
+            : MutateAsync(
+                marks =>
+                {
+                    for (var index = 0; index < marks.Count; index++)
+                    {
+                        var current = marks[index];
+                        marks[index] = current with
+                        {
+                            CreatedUtc = current.CreatedUtc + jump,
+                            State = new MapMarkState(
+                                current.State.MapId,
+                                current.State.FloorId,
+                                current.State.X,
+                                current.State.Y,
+                                current.State.Label,
+                                current.State.ExpiresUtc + jump),
+                        };
+                    }
+                },
+                cancellationToken);
+
     private async Task MutateAsync(Action<List<RaidMark>> mutate, CancellationToken cancellationToken)
     {
         await LoadAsync(cancellationToken).ConfigureAwait(false);

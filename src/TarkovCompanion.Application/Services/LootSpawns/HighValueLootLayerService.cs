@@ -1032,15 +1032,12 @@ public sealed class HighValueLootLayerService
         HighValueLootLayerRequest request,
         out HighValueLootDiagnostic? diagnostic)
     {
-        if (snapshot.GeneratedUtc > request.EvaluatedUtc)
-        {
-            diagnostic = new(
-                HighValueLootDiagnosticKind.SnapshotUnavailable,
-                "snapshot.generated-in-future",
-                "The loot-spawn snapshot has a future generation time and was not drawn.");
-            return false;
-        }
-
+        // [#799] A snapshot "generated in the future" is not refused. Its generation time is
+        // this PC's own clock at import, so a Windows clock that ran 4 h fast while the cache
+        // was written, then was corrected, left a verified publication stamped ahead of now and
+        // every map showed "0 spawns, Unavailable" until real time caught up. A future stamp
+        // is read as age zero (see ProvenanceTimePasses); the import already refuses sources
+        // that claim future evidence at the moment they are fetched.
         if (!ProvenanceTimePasses(
                 snapshot.Provenance,
                 request.EvaluatedUtc,
@@ -1103,11 +1100,14 @@ public sealed class HighValueLootLayerService
         (provenance.Confidence.Score is { } score ? score >= minimum : minimum == 0) &&
         provenance.Inputs.All(input => ProvenanceConfidencePasses(input, minimum));
 
+    // [#799] Evidence stamped after the evaluation time passes as age zero rather than failing:
+    // every stamp in a loot publication comes from this PC's clock at import or fetch, so a clock
+    // that jumped back (or was fast when the cache was written) made every price and spawn
+    // "future" and the whole layer went dark. Age still counts once real time passes the stamp.
     private static bool ProvenanceTimePasses(
         EvidenceProvenance provenance,
         DateTimeOffset evaluatedUtc,
         TimeSpan? maximumAge) =>
-        provenance.EvidenceThroughUtc <= evaluatedUtc &&
         (maximumAge is null || evaluatedUtc - provenance.EvidenceThroughUtc <= maximumAge) &&
         provenance.Inputs.All(input => ProvenanceTimePasses(input, evaluatedUtc, maximumAge));
 

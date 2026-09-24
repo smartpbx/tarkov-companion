@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.Application.Services.LootSpawns;
 
 namespace TarkovCompanion.Infrastructure.GameData.LootSpawns;
@@ -37,11 +39,15 @@ public sealed class DurableLootSpawnPublicationStore :
     private readonly string _corruptBackupPath;
     private readonly string _replacementAuditPath;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger _logger;
+    private string _lastReadSource = "none";
+    private long _lastReadBytes;
+    private DateTime? _lastReadWrittenUtc;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<LootSpawnQuarantineEntry> _quarantine = [];
     private bool _disposed;
 
-    public DurableLootSpawnPublicationStore(string path, TimeProvider? timeProvider = null)
+    public DurableLootSpawnPublicationStore(string path, TimeProvider? timeProvider = null, ILogger? logger = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = Path.GetFullPath(path);
@@ -51,6 +57,7 @@ public sealed class DurableLootSpawnPublicationStore :
         _corruptBackupPath = _backupPath + ".corrupt";
         _replacementAuditPath = _path + ".replacement-audit.json";
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _logger = logger ?? NullLogger.Instance;
     }
 
     public async ValueTask<LootSpawnSourceBundle?> ReadLastKnownGoodAsync(CancellationToken cancellationToken)
@@ -60,7 +67,18 @@ public sealed class DurableLootSpawnPublicationStore :
         try
         {
             await using var lease = await AcquireLeaseAsync(cancellationToken).ConfigureAwait(false);
-            return await ReadAndRecoverAsync(cancellationToken).ConfigureAwait(false);
+            var head = await ReadAndRecoverAsync(cancellationToken).ConfigureAwait(false);
+            // [#799] Which file the head came from, its size and its file date against this clock:
+            // a publication written while the clock was 4 h fast looked, in the old log, exactly
+            // like one that had never been read.
+            _logger.LogInformation(
+                "Loot publication read from {Source}: {Bytes} bytes, file written {WrittenUtc:O}, generated {GeneratedUtc:O}; clock {NowUtc:O}.",
+                _lastReadSource,
+                _lastReadBytes,
+                _lastReadWrittenUtc,
+                head?.Identity.GeneratedUtc,
+                UtcNow());
+            return head;
         }
         finally
         {
@@ -79,7 +97,11 @@ public sealed class DurableLootSpawnPublicationStore :
             var current = await ReadAndRecoverAsync(cancellationToken).ConfigureAwait(false);
             if (current is not null)
             {
-                AtomicLootSpawnPublicationStore.ValidateReplacement(bundle, current, cancellationToken);
+                AtomicLootSpawnPublicationStore.ValidateReplacement(
+                    bundle,
+                    current,
+                    cancellationToken,
+                    nowUtc: UtcNow());
             }
 
             await WritePublicationAsync(bundle, cancellationToken).ConfigureAwait(false);
@@ -204,12 +226,14 @@ public sealed class DurableLootSpawnPublicationStore :
         var primary = await TryReadPublicationAsync(_path, cancellationToken).ConfigureAwait(false);
         if (primary.Bundle is not null)
         {
+            NoteRead("current", primary);
             return primary.Bundle;
         }
 
         var backup = await TryReadPublicationAsync(_backupPath, cancellationToken).ConfigureAwait(false);
         if (backup.Bundle is not null)
         {
+            NoteRead("previous", backup);
             var canRestore = primary.State == PublicationFileState.Missing ||
                              TrySetAside(_path, _corruptPath);
             if (canRestore)
@@ -244,6 +268,7 @@ public sealed class DurableLootSpawnPublicationStore :
             TrySetAside(_backupPath, _corruptBackupPath);
         }
 
+        NoteRead(corrupt ? "none (corrupt)" : "none (missing)", primary);
         if (corrupt)
         {
             AddQuarantine(
@@ -309,7 +334,7 @@ public sealed class DurableLootSpawnPublicationStore :
                 throw new InvalidDataException("The publication payload was not consumed exactly.");
             }
 
-            return new(PublicationFileState.Valid, bundle);
+            return new(PublicationFileState.Valid, bundle, initialLength, File.GetLastWriteTimeUtc(path));
         }
         catch (FileNotFoundException)
         {
@@ -706,7 +731,18 @@ public sealed class DurableLootSpawnPublicationStore :
         Corrupt,
     }
 
-    private sealed record PublicationReadResult(PublicationFileState State, LootSpawnSourceBundle? Bundle);
+    private sealed record PublicationReadResult(
+        PublicationFileState State,
+        LootSpawnSourceBundle? Bundle,
+        long Bytes = 0,
+        DateTime? WrittenUtc = null);
+
+    private void NoteRead(string source, PublicationReadResult result)
+    {
+        _lastReadSource = source;
+        _lastReadBytes = result.Bytes;
+        _lastReadWrittenUtc = result.WrittenUtc;
+    }
 
     private sealed record PublicationHeader(long PayloadLength, string PayloadSha256);
 

@@ -413,7 +413,9 @@ protected secret store (DPAPI, beside the TarkovTracker token) and picked back u
 panel reads claimed after a restart with nothing typed; "Forget this relay" drops it.
 
 The desktop measures the relay's HTTP `Date` header, names clock skew in Team and Diagnostics, and
-retries a refused registration after 30 s, 1 m, 2 m, 4 m, then every 5 m (#704).
+retries a refused registration after 30 s, 1 m, 2 m, 4 m, then every 5 m (#704). A clock set while
+the app runs (#799) is noticed within 2 s by comparing wall and monotonic time; the raid's held
+times and the marks' creation and expiry move by the jump, and the group publishes at once.
 
 The admin key is typed once per machine, not once per day (2026-09-20, #289). A session still lives
 twelve hours and an owner two idle, and the owner-recovery rule is unchanged for anybody holding

@@ -167,4 +167,11 @@ public interface IRaidMarkStore
 
     /// <summary>Removes every "this raid" mark: the raid they belonged to is over.</summary>
     Task EndRaidAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// [#799] The PC's clock was set by <paramref name="jump"/>: moves every held creation and
+    /// expiry time by it, so each mark keeps the time it had left. A store with no clock of its
+    /// own has nothing to move.
+    /// </summary>
+    Task RebaseClockAsync(TimeSpan jump, CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

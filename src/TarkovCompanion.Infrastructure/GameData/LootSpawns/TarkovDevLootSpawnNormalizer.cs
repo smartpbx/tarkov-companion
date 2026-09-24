@@ -187,9 +187,13 @@ public sealed class TarkovDevLootSpawnNormalizer
             ? FreshnessState.Stale
             : FreshnessState.Current;
         var itemFreshness = request.Items.IsStale ? FreshnessState.Stale : FreshnessState.Current;
+        // [#799] Clamped to the import time: a response cached while the clock was ahead carries
+        // a "future" stamp, and the source identity requires data-through <= import.
         var dataThroughUtc = Earlier(
-            DataThrough(request.Maps),
-            request.MapCatalog.Provenance.RetrievedUtc.ToUniversalTime());
+            Earlier(
+                DataThrough(request.Maps),
+                request.MapCatalog.Provenance.RetrievedUtc.ToUniversalTime()),
+            request.ImportedUtc);
         var contentHash = CompositeContentHash(request, mode, cancellationToken);
         var datasetVersion = $"json-tarkov-dev-v1-{contentHash[..24]}";
         var confidence = EvidenceConfidence.Unscored;
@@ -899,9 +903,11 @@ public sealed class TarkovDevLootSpawnNormalizer
                 "Maps and items must carry exact source keys for the requested json.tarkov.dev game mode.");
         }
 
+        // [#799] A cached-at or retrieved-at stamp later than the import time is not refused: all
+        // three are this PC's clock, and one that jumped back after the responses were cached
+        // refused every refresh for as long as the clock had been ahead.
         if (request.Maps.CachedUtc == default || request.Items.CachedUtc == default ||
             request.Maps.CachedUtc.Offset != TimeSpan.Zero || request.Items.CachedUtc.Offset != TimeSpan.Zero ||
-            request.Maps.CachedUtc > request.ImportedUtc || request.Items.CachedUtc > request.ImportedUtc ||
             string.IsNullOrWhiteSpace(request.Maps.Json) || string.IsNullOrWhiteSpace(request.Items.Json) ||
             string.IsNullOrWhiteSpace(request.Maps.RawSourceJson) ||
             string.IsNullOrWhiteSpace(request.Items.RawSourceJson) ||
@@ -913,7 +919,6 @@ public sealed class TarkovDevLootSpawnNormalizer
         var provenance = request.MapCatalog.Provenance;
         if (provenance is null || provenance.SourceUri is null ||
             provenance.RetrievedUtc == default || provenance.RetrievedUtc.Offset != TimeSpan.Zero ||
-            provenance.RetrievedUtc > request.ImportedUtc ||
             provenance.SourceUri.Scheme != Uri.UriSchemeHttps ||
             !string.Equals(provenance.SourceUri.Host, "raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
             !provenance.SourceUri.AbsolutePath.StartsWith("/the-hideout/tarkov-dev/", StringComparison.Ordinal) ||

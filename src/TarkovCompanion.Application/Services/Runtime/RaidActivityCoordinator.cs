@@ -299,6 +299,20 @@ public sealed class RaidActivityCoordinator(
         return RaidTimer.LengthFor(side, map?.PmcRaidDuration, map?.ScavRaidDuration);
     }
 
+    /// <summary>
+    /// [#799] The PC's clock was set: moves the raid's held wall times by the same jump.
+    /// </summary>
+    /// <remarks>
+    /// Through the same gate and publication as any other transition, so the map, the group and
+    /// the raid card all see the moved times at once. Nothing is recorded: the raid's stored
+    /// start stays what the PC said when it happened.
+    /// </remarks>
+    public Task<RaidSnapshot> RebaseClockAsync(TimeSpan jump, CancellationToken cancellationToken) =>
+        TransitionAsync(
+            state => Task.FromResult(state is RaidStateService raid ? raid.RebaseClock(jump) : state.Current),
+            (_, _, _) => Task.CompletedTask,
+            cancellationToken);
+
     public Task<RaidSnapshot> ApplyPositionAsync(ScreenshotPosition position, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(position);

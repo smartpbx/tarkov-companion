@@ -41,7 +41,8 @@ internal sealed class GroupMarkForwarder : IDisposable
     private readonly IRaidMarkStore _marks;
     private readonly Func<RaidMark, WorldPosition?> _locate;
     private readonly SendMark _send;
-    private readonly Func<long, Task> _remove;
+    /// <summary>Takes a mark off the relay, with why, so the log can say what removed it.</summary>
+    private readonly Func<long, string, Task> _remove;
     private readonly TimeProvider _clock;
     private readonly object _gate = new();
     private readonly HashSet<Guid> _seen = [];
@@ -54,6 +55,17 @@ internal sealed class GroupMarkForwarder : IDisposable
         Func<RaidMark, WorldPosition?> locate,
         SendMark send,
         Func<long, Task> remove,
+        TimeProvider? clock = null)
+        : this(marks, locate, send, remove is null ? null! : (id, _) => remove(id), clock)
+    {
+    }
+
+    /// <param name="remove">Takes a mark off the relay; the second argument says why.</param>
+    public GroupMarkForwarder(
+        IRaidMarkStore marks,
+        Func<RaidMark, WorldPosition?> locate,
+        SendMark send,
+        Func<long, string, Task> remove,
         TimeProvider? clock = null)
     {
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
@@ -109,7 +121,7 @@ internal sealed class GroupMarkForwarder : IDisposable
         var current = _marks.Marks;
         var now = _clock.GetUtcNow();
         var toSend = new List<RaidMark>();
-        var toRemove = new List<long>();
+        var toRemove = new List<(long Id, string Why)>();
         lock (_gate)
         {
             if (_disposed)
@@ -149,7 +161,7 @@ internal sealed class GroupMarkForwarder : IDisposable
                     _sent.Remove(mark.Id);
                     if (sent.GroupId is { } narrowedId)
                     {
-                        toRemove.Add(narrowedId);
+                        toRemove.Add((narrowedId, "narrowed to Just me"));
                     }
 
                     continue;
@@ -162,7 +174,7 @@ internal sealed class GroupMarkForwarder : IDisposable
                     sent.GroupId is { } movedId)
                 {
                     _sent.Remove(mark.Id);
-                    toRemove.Add(movedId);
+                    toRemove.Add((movedId, "moved or changed kind; sent again"));
                     toSend.Add(mark);
                 }
             }
@@ -176,7 +188,12 @@ internal sealed class GroupMarkForwarder : IDisposable
                     _sent.Remove(id);
                     if (sent.GroupId is { } goneId)
                     {
-                        toRemove.Add(goneId);
+                        // Said with the mark's age and whether its own expiry had passed, so a
+                        // ping leaving early (#799: a steady 16 s against 45) names its cause.
+                        var expired = sent.ExpiresUtc is { } expires && now >= expires;
+                        toRemove.Add((goneId, string.Create(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"left the local store {(now - sent.PlacedUtc).TotalSeconds:0.0} s after it was placed, {(expired ? "expired" : "removed before its expiry")}")));
                     }
                 }
             }
@@ -185,13 +202,17 @@ internal sealed class GroupMarkForwarder : IDisposable
             {
                 // Recorded before the send, with no id yet, so a removal that lands while the
                 // send is in flight is noticed when the id comes back.
-                _sent[mark.Id] = new(null, mark.State.X, mark.State.Y, mark.Kind);
+                _sent[mark.Id] = new(null, mark.State.X, mark.State.Y, mark.Kind)
+                {
+                    PlacedUtc = mark.CreatedUtc,
+                    ExpiresUtc = mark.State.ExpiresUtc,
+                };
             }
         }
 
-        foreach (var id in toRemove.Where(id => id > 0))
+        foreach (var (id, why) in toRemove.Where(item => item.Id > 0))
         {
-            _ = RemoveQuietlyAsync(id);
+            _ = RemoveQuietlyAsync(id, why);
         }
 
         foreach (var mark in toSend)
@@ -241,7 +262,7 @@ internal sealed class GroupMarkForwarder : IDisposable
         if (!stillWanted && groupId is > 0)
         {
             // Removed or moved while it was on its way: take the one that arrived back off.
-            await RemoveQuietlyAsync(groupId.Value).ConfigureAwait(true);
+            await RemoveQuietlyAsync(groupId.Value, "removed or moved while it was being sent").ConfigureAwait(true);
             return;
         }
 
@@ -251,11 +272,11 @@ internal sealed class GroupMarkForwarder : IDisposable
         }
     }
 
-    private async Task RemoveQuietlyAsync(long groupId)
+    private async Task RemoveQuietlyAsync(long groupId, string why)
     {
         try
         {
-            await _remove(groupId).ConfigureAwait(true);
+            await _remove(groupId, why).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -328,5 +349,10 @@ internal sealed class GroupMarkForwarder : IDisposable
         return lost;
     }
 
-    private sealed record Sent(long? GroupId, double X, double Y, RaidMarkKind Kind, bool SeenOnRelay = false);
+    private sealed record Sent(long? GroupId, double X, double Y, RaidMarkKind Kind, bool SeenOnRelay = false)
+    {
+        public DateTimeOffset PlacedUtc { get; init; }
+
+        public DateTimeOffset? ExpiresUtc { get; init; }
+    }
 }
