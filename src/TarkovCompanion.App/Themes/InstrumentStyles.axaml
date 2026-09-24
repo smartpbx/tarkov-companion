@@ -14,6 +14,7 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://TarkovCompanion/Themes/InstrumentPalette.axaml" />
+        <ResourceInclude Source="avares://TarkovCompanion/Themes/ControlChrome.axaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Styles.Resources>
@@ -197,20 +198,20 @@
   </Style>
   <Style Selector="Button:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource ControlHoverBrush}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource InkFaintBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource InkMutedBrush}" />
     <Setter Property="TextElement.Foreground" Value="{DynamicResource InkBrightBrush}" />
   </Style>
   <Style Selector="Button.primary">
     <Setter Property="Background" Value="{DynamicResource CyanDeepBrush}" />
-    <Setter Property="Foreground" Value="#E7FBFC" />
+    <Setter Property="Foreground" Value="{DynamicResource PrimaryInkBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource CyanBrush}" />
     <Setter Property="Padding" Value="14,8" />
     <Setter Property="MinHeight" Value="38" />
   </Style>
   <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
-    <Setter Property="Background" Value="#2F626D" />
-    <Setter Property="BorderBrush" Value="#7FD3DF" />
-    <Setter Property="TextElement.Foreground" Value="#FFFFFF" />
+    <Setter Property="Background" Value="{DynamicResource PrimaryHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource PrimaryHoverLineBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource PrimaryHoverInkBrush}" />
   </Style>
   <!-- A quiet button is for the actions that should not compete with content: dismiss,
        attribution, licence. -->
@@ -358,7 +359,7 @@
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
   <Style Selector="Button:focus-visible, ToggleButton:focus-visible, TextBox:focus-visible, ComboBox:focus-visible">
-    <Setter Property="BorderBrush" Value="#D8F5F7" />
+    <Setter Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
 

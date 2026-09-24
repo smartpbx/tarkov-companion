@@ -83,7 +83,7 @@ view; `V2Icons.axaml` holds the outline icon geometry those pages draw.
 
 | Group | Roles |
 | --- | --- |
-| Colour | canvas, surface, surfaceRaised, textPrimary, textSecondary, border, action, focus, success, warning, danger, info, unknown |
+| Colour | canvas, surface, surfaceRaised, divider, textPrimary, textSecondary, border, action, focus, success, warning, danger, info, unknown |
 | Chart | series1–series4, each also identified by an outline pattern (solid, dashed, dotted, dash-dot) |
 | Map | historical, modelled, manual, unavailable, each with a wording key and a pattern |
 | Type | display 32/40, heading1 24/32, heading2 20/26, heading3 16/22, body 14/20, label 12/18 DIP; nothing below 12 at 100% (#574 took the ramp one step down for a 1080p second screen) |
@@ -352,10 +352,13 @@ Still open, and not claimed by anything in this directory:
 Those belong to #279. Participant-sensitive navigation labels and placement remain provisional
 under #265.
 
+Button, TextBox and Expander chrome (resting, hover, pressed, focused, disabled and placeholder)
+comes from `Themes/InstrumentPalette.axaml` and `Themes/ControlChrome.axaml` per theme variant,
+high contrast included; `ControlChromeContrastTests` holds its ink to 4.5:1 and its edges to 3:1.
+A pane's edge is `divider`: the raised surface's colour in dark and light, white in high contrast.
+
 Also still open, as #266 work this change does not deliver:
 
-- V2 brushes for Button, TextBox, and Expander chrome beyond the focus and error borders, with
-  measured contrast;
 - a width classifier and adaptive gallery layout (stacked cards, single-column reflow, a table
   overflow affordance);
 - an ordered data alternative for the map and chart legends.

@@ -15,7 +15,7 @@
     <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
     <Style Selector="Button.v2-plan-bundle">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="10" />
@@ -46,14 +46,14 @@
     <!-- The map card, like the Raid workspace's: canvas behind the artwork, clipped corners. -->
     <Style Selector="Border.v2-plan-mapcard">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="ClipToBounds" Value="True" />
     </Style>
     <Style Selector="Border.v2-plan-section">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="3,1,1,1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
@@ -63,7 +63,7 @@
     </Style>
     <Style Selector="Border.v2-plan-panel">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
     </Style>
     <Style Selector="Border.v2-plan-step-row">
@@ -142,7 +142,7 @@
   <Grid x:Name="PlanBody" ColumnDefinitions="340,*,Auto" RowDefinitions="*,Auto">
     <!-- Left column -->
     <Border Grid.Column="0" Grid.Row="0" Grid.RowSpan="2"
-            BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,1,0">
+            BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,0,1,0">
       <Grid>
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
@@ -275,7 +275,7 @@
             </Expander>
             </Border>
 
-            <Rectangle Height="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" Margin="0,4" />
+            <Rectangle Height="1" Fill="{DynamicResource V2.Brush.Divider}" Margin="0,4" />
             <TextBlock Classes="v2-heading-3" Text="By map" AutomationProperties.HeadingLevel="2"
                        IsVisible="{Binding HasGroups}" />
             <ItemsControl ItemsSource="{Binding VisibleGroups}" IsVisible="{Binding HasGroups}">

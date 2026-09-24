@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v2="using:TarkovCompanion.App.Themes.V2">
   <!-- [V2 rough package 60 — appearance] #266/#315. The instrument palette, lifted out of
        InstrumentStyles.axaml so it can be loaded and measured on its own: that file also sets a
        Cursor, which needs a windowing platform, and a test that cannot load the palette cannot
@@ -17,7 +18,9 @@
       <SolidColorBrush x:Key="ControlHoverBrush" Color="#28323D" />
       <!-- Lines: a hairline groups, a strong line marks something pressable. -->
       <SolidColorBrush x:Key="LineBrush" Color="#2A3541" />
-      <SolidColorBrush x:Key="LineStrongBrush" Color="#3B4855" />
+      <!-- [#266] Was #3B4855, 1.7:1 on the surface: a button's and a text box's edge is a
+           component boundary and needs 3:1 (ControlChromeContrastTests). -->
+      <SolidColorBrush x:Key="LineStrongBrush" Color="#707D89" />
       <!-- Ink: bright for headings and values, plain for prose, muted for captions, faint for
            provenance. -->
       <SolidColorBrush x:Key="InkBrightBrush" Color="#E6EDF2" />
@@ -34,7 +37,7 @@
       <SolidColorBrush x:Key="SageBrush" Color="#77B895" />
       <!-- The map's floating chrome is translucent so the artwork stays readable through it. -->
       <SolidColorBrush x:Key="FloatingBrush" Color="#E014191F" />
-      <SolidColorBrush x:Key="FloatingLineBrush" Color="#4A5865" />
+      <SolidColorBrush x:Key="FloatingLineBrush" Color="#707D89" />
       <SolidColorBrush x:Key="MapGroundBrush" Color="#171E26" />
       <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DD11151B" />
       <!-- Markers: a dark ring keeps every disc visible on pale and dark artwork alike; the
@@ -47,6 +50,13 @@
            haloed in it. -->
       <SolidColorBrush x:Key="MapNameTagBrush" Color="#BF11151B" />
       <SolidColorBrush x:Key="MapHaloBrush" Color="#E011151B" />
+      <!-- [#266] The focus ring and the primary button's ink were literals in InstrumentStyles,
+           which is why light drew a pale focus ring on white and pale ink on a pale button. -->
+      <SolidColorBrush x:Key="FocusRingBrush" Color="#D8F5F7" />
+      <SolidColorBrush x:Key="PrimaryInkBrush" Color="#E7FBFC" />
+      <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#2F626D" />
+      <SolidColorBrush x:Key="PrimaryHoverLineBrush" Color="#7FD3DF" />
+      <SolidColorBrush x:Key="PrimaryHoverInkBrush" Color="#FFFFFF" />
     </ResourceDictionary>
     <ResourceDictionary x:Key="Light">
       <!-- The same four heights inverted, matching V2ThemeVariants' Light canvas and surface so
@@ -58,7 +68,7 @@
       <SolidColorBrush x:Key="ControlBrush" Color="#E2E8EC" />
       <SolidColorBrush x:Key="ControlHoverBrush" Color="#D2DBE1" />
       <SolidColorBrush x:Key="LineBrush" Color="#CBD5DB" />
-      <SolidColorBrush x:Key="LineStrongBrush" Color="#8496A1" />
+      <SolidColorBrush x:Key="LineStrongBrush" Color="#6F818C" />
       <!-- Ink darkens rather than lightens, keeping the four steps and their contrast order. -->
       <SolidColorBrush x:Key="InkBrightBrush" Color="#0E1A21" />
       <SolidColorBrush x:Key="InkBrush" Color="#15232C" />
@@ -72,7 +82,7 @@
       <SolidColorBrush x:Key="CoralBrush" Color="#B3261E" />
       <SolidColorBrush x:Key="SageBrush" Color="#167348" />
       <SolidColorBrush x:Key="FloatingBrush" Color="#E6FFFFFF" />
-      <SolidColorBrush x:Key="FloatingLineBrush" Color="#9AACB6" />
+      <SolidColorBrush x:Key="FloatingLineBrush" Color="#6F818C" />
       <SolidColorBrush x:Key="MapGroundBrush" Color="#E9EEF1" />
       <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DDF6F8F9" />
       <!-- The marker ring stays dark in both: it exists to keep a disc visible against the
@@ -83,6 +93,49 @@
       <SolidColorBrush x:Key="MarkerHaloBrush" Color="#55167348" />
       <SolidColorBrush x:Key="MapNameTagBrush" Color="#BFF6F8F9" />
       <SolidColorBrush x:Key="MapHaloBrush" Color="#E0F6F8F9" />
+      <SolidColorBrush x:Key="FocusRingBrush" Color="#005FCC" />
+      <SolidColorBrush x:Key="PrimaryInkBrush" Color="#0E1A21" />
+      <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#9BD0D8" />
+      <SolidColorBrush x:Key="PrimaryHoverLineBrush" Color="#00525C" />
+      <SolidColorBrush x:Key="PrimaryHoverInkBrush" Color="#0E1A21" />
+    </ResourceDictionary>
+    <!-- [#266] High contrast used to fall through to Dark here, so every button, text box and
+         map control kept the dark palette's low-contrast greys inside a black V2 shell. Black
+         grounds, white ink and lines, and the V2 high-contrast accents. -->
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.HighContrast}">
+      <SolidColorBrush x:Key="CanvasBrush" Color="#000000" />
+      <SolidColorBrush x:Key="ChromeBrush" Color="#000000" />
+      <SolidColorBrush x:Key="SurfaceBrush" Color="#000000" />
+      <SolidColorBrush x:Key="InsetBrush" Color="#000000" />
+      <SolidColorBrush x:Key="ControlBrush" Color="#000000" />
+      <SolidColorBrush x:Key="ControlHoverBrush" Color="#1F1F1F" />
+      <SolidColorBrush x:Key="LineBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="LineStrongBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="InkBrightBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="InkBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="InkMutedBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="InkFaintBrush" Color="#BFBFBF" />
+      <SolidColorBrush x:Key="CyanBrush" Color="#00FFFF" />
+      <SolidColorBrush x:Key="CyanDimBrush" Color="#000000" />
+      <SolidColorBrush x:Key="CyanDeepBrush" Color="#000000" />
+      <SolidColorBrush x:Key="OchreBrush" Color="#FFE500" />
+      <SolidColorBrush x:Key="CoralBrush" Color="#FF6675" />
+      <SolidColorBrush x:Key="SageBrush" Color="#0099FF" />
+      <SolidColorBrush x:Key="FloatingBrush" Color="#F0000000" />
+      <SolidColorBrush x:Key="FloatingLineBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="MapGroundBrush" Color="#000000" />
+      <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DD000000" />
+      <SolidColorBrush x:Key="MarkerRingBrush" Color="#000000" />
+      <SolidColorBrush x:Key="MarkerHollowBrush" Color="#B3000000" />
+      <SolidColorBrush x:Key="MarkerOfferedBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="MarkerHaloBrush" Color="#550099FF" />
+      <SolidColorBrush x:Key="MapNameTagBrush" Color="#BF000000" />
+      <SolidColorBrush x:Key="MapHaloBrush" Color="#E0000000" />
+      <SolidColorBrush x:Key="FocusRingBrush" Color="#FFFF00" />
+      <SolidColorBrush x:Key="PrimaryInkBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#1F1F1F" />
+      <SolidColorBrush x:Key="PrimaryHoverLineBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="PrimaryHoverInkBrush" Color="#FFFFFF" />
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
   <!-- [V2 rough package 60 — appearance] The seven sizes below, as resources rather than as

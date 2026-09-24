@@ -14,7 +14,7 @@
     </Style>
     <Style Selector="Border.v2-intel-compare-row">
       <Setter Property="Padding" Value="12,9" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
     </Style>
     <Style Selector="Border.v2-intel-compare-row.alternate">

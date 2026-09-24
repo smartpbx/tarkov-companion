@@ -25,19 +25,19 @@
   </Style>
   <Style Selector="Border.v2-pane">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
     <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
   </Style>
   <Style Selector="Border.v2-context-panel">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
     <Setter Property="BorderThickness" Value="1,0,0,0" />
   </Style>
   <Style Selector="Border.v2-section">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
     <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
@@ -85,9 +85,11 @@
     <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
+  <!-- [#266] A chip is a button, so its edge is a component boundary: the border role (3:1 on
+       every surface) rather than the pane divider, which is decoration in dark and light. -->
   <Style Selector="Button.v2-chip">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />

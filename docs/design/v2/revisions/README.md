@@ -70,11 +70,11 @@ none shows a player name, profile or path.
 | [setup-light](captures/appearance-1920x1080/setup-light.png) | `setup` › Accessibility | Light theme selected: white panels, dark text, the theme, status-colour, text-size and spacing choices, the live preview strip and the keyboard-shortcut list. |
 | [setup-high-contrast](captures/appearance-1920x1080/setup-high-contrast.png) | `setup` › Accessibility | High contrast selected: black background, white text, white-outlined buttons, cyan selection underline, blue Ready and red Failed chips. |
 | [setup-200](captures/appearance-1920x1080/setup-200.png) | `setup` › Accessibility | Dark theme, text at 200%: the Setup tabs wrap to two rows; every heading and choice is twice the size and still inside the panel. |
-| [raid-light](captures/appearance-1920x1080/raid-light.png) | `raid` (demo raid, Customs) | Light chrome around the Customs map with the modelled-traffic heat overlay, the route line, three squad members and the extract list. |
-| [raid-high-contrast](captures/appearance-1920x1080/raid-high-contrast.png) | `raid` (demo raid, Customs) | Black chrome with white-outlined cards around the same map; place labels read white over the heat overlay. |
+| [raid-light](captures/appearance-1920x1080/raid-light.png) | `raid` (demo raid, Customs) | Light chrome around the Customs map with the modelled-traffic heat overlay, the route line, three squad members and the extract list; Crackhouse, Repair Shop and Warehouse 17 are dark text on a light halo. |
+| [raid-high-contrast](captures/appearance-1920x1080/raid-high-contrast.png) | `raid` (demo raid, Customs) | Black chrome with white-outlined cards around the same map; place labels read white on a black halo over the heat overlay. |
 | [raid-200](captures/appearance-1920x1080/raid-200.png) | `raid` (demo raid, Customs) | Text at 200%: the Raid plan panel wraps each fact to two or three lines and the bottom map toolbar wraps its chips; the map keeps its size. |
-| [intel-light](captures/appearance-1920x1080/intel-light.png) | `intel` (demo results) | Light Intel: two results, Graphics card ₽322,222 and Graphics Card ₽1,200,000, with an empty detail pane. |
-| [intel-high-contrast](captures/appearance-1920x1080/intel-high-contrast.png) | `intel` (demo results) | The same two results in high contrast: white text on black, outlined filter and sort buttons. |
+| [intel-light](captures/appearance-1920x1080/intel-light.png) | `intel --search graphics` (demo results) | Light Intel: two results, Graphics Card ₽1,200,000 selected and Graphics card ₽322,222, with the Graphics Card detail, key info and prices. |
+| [intel-high-contrast](captures/appearance-1920x1080/intel-high-contrast.png) | `intel --search graphics` (demo results) | The same in high contrast: white text on black; the result list, the detail pane, each row and each side card have a white edge. |
 | [intel-200](captures/appearance-1920x1080/intel-200.png) | `intel` (demo results) | The same results with text at 200%; the header, tabs, filters and rows all grow and nothing is clipped. |
 
 ### What the appearance captures found
@@ -83,6 +83,9 @@ none shows a player name, profile or path.
    light heat overlay and are close to unreadable. The dark and high-contrast labels read.
 2. **High contrast, Intel:** the result list and the detail pane lose their panel edges, so the list
    floats on black with nothing marking where it ends.
+   Both fixed for #266 (2026-09-24): place names are drawn over a halo of the ground colour, and a
+   pane's edge is the `divider` role, white in high contrast. The light and high-contrast captures
+   above were re-rendered after the fix.
 3. **200% text:** nothing is clipped on these three routes, but the Raid plan panel's facts wrap to
    three lines each, so only half as many fit above the fold.
 

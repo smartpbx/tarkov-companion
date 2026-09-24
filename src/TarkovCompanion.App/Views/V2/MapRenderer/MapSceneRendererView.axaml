@@ -442,20 +442,21 @@
     <Style Selector="ToggleButton.v2-map-marker.team-observed Path.v2-map-person-cone">
       <Setter Property="Fill" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
     </Style>
-    <!-- V2 rough package 22: a place name written on the plan, not a label on a control. A
-         halo-free single line at a size that stays readable when the camera zooms, quieter than
-         anything a player is meant to act on. -->
-    <Style Selector="TextBlock.v2-map-place-name">
-      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    <!-- V2 rough package 22: a place name written on the plan, not a label on a control: a single
+         line at a size that stays readable when the camera zooms.
+         [#266] Primary ink over a halo of the ground colour (MapHaloText). The secondary ink at
+         85% it used to be was dark grey on the game's dark artwork in the light theme; the
+         artwork does not change with the theme, so the label has to bring its own background. -->
+    <Style Selector="map|MapHaloText.v2-map-place-name">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="Halo" Value="{DynamicResource MapHaloBrush}" />
       <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Opacity" Value="0.85" />
     </Style>
     <!-- [Issue 581] A squadmate's name label, in their own colour; a plain place name is
          unaffected (it never carries this class — see the label's ColorHintBrush/HasColorHint). -->
-    <Style Selector="TextBlock.v2-map-place-name.teammate">
+    <Style Selector="map|MapHaloText.v2-map-place-name.teammate">
       <Setter Property="Foreground" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererLabelViewModel}" />
-      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Path.v2-map-marker-icon">
       <Setter Property="Width" Value="18" />
@@ -654,7 +655,7 @@
     </Style>
     <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
     <!-- [#591] Zoom, fit and the loot preset already float at the standard 32 DIP target
@@ -675,7 +676,7 @@
          behind it. -->
     <Style Selector="Button.v2-map-floor-summary">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Padding" Value="10,0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
@@ -878,7 +879,7 @@
             <Border x:Name="PlanArtwork" Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
                     Width="{Binding MapWidth}" Height="{Binding MapHeight}"
                     Background="{DynamicResource V2.Brush.SurfaceRaised}"
-                    BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1"
+                    BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="1"
                     IsVisible="{Binding !HasFloorStack}">
               <Image Source="{Binding BackgroundImage}" IsVisible="{Binding ShowsFlatBackground}" Stretch="Fill" />
             </Border>
@@ -1019,18 +1020,17 @@
                   <!-- [Issue 581] A squadmate's own name (see MapSceneRendererViewModel.LabelObjects)
                        is written in their colour; an ordinary place name has no host opinion and
                        keeps the themed foreground below. -->
-                  <TextBlock Classes="v2-map-place-name" Classes.teammate="{Binding HasColorHint}"
-                             Width="{Binding Width}"
-                             TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                             RenderTransformOrigin="50%,50%" Text="{Binding Text}">
-                    <TextBlock.RenderTransform>
+                  <map:MapHaloText Classes="v2-map-place-name" Classes.teammate="{Binding HasColorHint}"
+                                  Width="{Binding Width}"
+                                  RenderTransformOrigin="50%,50%" Text="{Binding Text}">
+                    <map:MapHaloText.RenderTransform>
                       <TransformGroup>
                         <ScaleTransform ScaleX="{Binding InverseZoom}" ScaleY="{Binding InverseZoom}" />
                         <RotateTransform Angle="{Binding UprightDegrees}" />
                         <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
                       </TransformGroup>
-                    </TextBlock.RenderTransform>
-                  </TextBlock>
+                    </map:MapHaloText.RenderTransform>
+                  </map:MapHaloText>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>

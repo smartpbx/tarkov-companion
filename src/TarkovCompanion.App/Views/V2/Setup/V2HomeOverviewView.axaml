@@ -7,7 +7,7 @@
     <!-- A dashboard card, flat like the Raid and Team panes rather than the outlined v2-card. -->
     <Style Selector="Border.v2-home-card">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
@@ -325,7 +325,7 @@
           <ItemsControl ItemsSource="{Binding RecentRaids}" IsVisible="{Binding HasRecentRaids}">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:V2HomeLineViewModel">
-                <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,9">
+                <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,9">
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                     <Path Classes="v2-icon v2-home-muted" Data="{DynamicResource V2.Icon.Chart}" />
                     <TextBlock Grid.Column="1" Text="{Binding Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"

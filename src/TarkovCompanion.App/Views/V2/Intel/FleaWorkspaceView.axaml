@@ -18,7 +18,7 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
     <Style Selector="Border.v2-flea-scan-row">
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
     </Style>
   </UserControl.Styles>

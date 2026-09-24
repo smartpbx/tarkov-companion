@@ -11,7 +11,7 @@
     <Style Selector="Border.v2-card.v2-setup-section">
       <Setter Property="MaxWidth" Value="960" />
       <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="ProgressBar.v2-setup-progress">

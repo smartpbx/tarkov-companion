@@ -24,7 +24,7 @@
     <!-- A context-panel section: a card with the concept's cyan leading edge. -->
     <Style Selector="Border.v2-raid-section">
       <Setter Property="BorderThickness" Value="3,1,1,1" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
     </Style>
     <Style Selector="Border.v2-raid-section.v2-raid-accent">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -89,14 +89,14 @@
     </Style>
     <Style Selector="Border.v2-raid-strip">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="16,8" />
     </Style>
     <Style Selector="Border.v2-raid-mapcard">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="ClipToBounds" Value="True" />
@@ -119,7 +119,7 @@
          would be a guessing game. -->
     <Style Selector="Border.v2-raid-viewgroup">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="8,6" />
@@ -159,7 +159,7 @@
     </Style>
     <Style Selector="Border.v2-raid-panel">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
     </Style>
     <!-- [V2 rough package 46] The panel's own edge, and the only chrome left when it is away:

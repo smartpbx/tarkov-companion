@@ -1,0 +1,167 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v2="using:TarkovCompanion.App.Themes.V2">
+  <!-- [#266] Button, text box and expander chrome, per theme variant. Fluent draws a control's
+       hover, pressed, focused and disabled states, and a text box's placeholder, from these keys
+       on its own template parts, so a style on the control alone never reaches them: light and
+       high contrast kept Fluent's own greys, and high contrast (which inherits Dark) kept the dark
+       ones. Each value is one of the instrument palette's colours for the same variant, named in
+       the comment beside it. ControlChromeContrastTests loads this file and measures every
+       ink-on-fill pair against 4.5:1 and every edge against 3:1; change a value and it says
+       whether the chrome still holds. -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <!-- Button: the resting look is set on the control by InstrumentStyles; these are the states Fluent sets on its template part. -->
+      <SolidColorBrush x:Key="ButtonForeground" Color="#C6D0D8" /> <!-- InkBrush -->
+      <SolidColorBrush x:Key="ButtonBackground" Color="#202933" /> <!-- ControlBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrush" Color="#707D89" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#28323D" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#8F9BA6" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#28323D" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#56B8C6" /> <!-- CyanBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#6B7884" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#161C24" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#2A3541" /> <!-- LineBrush -->
+      <!-- Text box. The placeholder is text a player reads, so it takes the muted ink, not a faint one. -->
+      <SolidColorBrush x:Key="TextControlForeground" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#6B7884" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="TextControlBackground" Color="#151B22" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#151B22" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#151B22" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#161C24" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrush" Color="#707D89" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#8F9BA6" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#D8F5F7" /> <!-- FocusRingBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#2A3541" /> <!-- LineBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#8F9BA6" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#8F9BA6" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#8F9BA6" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundDisabled" Color="#6B7884" /> <!-- InkFaintBrush -->
+      <!-- Expander. Raid and Team clear the header and content fills locally; ink and chevron still come from here. -->
+      <SolidColorBrush x:Key="ExpanderHeaderForeground" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundPointerOver" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundPressed" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundDisabled" Color="#6B7884" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#1A212A" /> <!-- SurfaceBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#28323D" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#28323D" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundDisabled" Color="#161C24" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#707D89" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="#8F9BA6" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="#56B8C6" /> <!-- CyanBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushDisabled" Color="#2A3541" /> <!-- LineBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForeground" Color="#C6D0D8" /> <!-- InkBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundPointerOver" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundPressed" Color="#E6EDF2" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundDisabled" Color="#6B7884" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ExpanderContentBackground" Color="#1A212A" /> <!-- SurfaceBrush -->
+      <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="#2A3541" /> <!-- LineBrush -->
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <!-- Button: the resting look is set on the control by InstrumentStyles; these are the states Fluent sets on its template part. -->
+      <SolidColorBrush x:Key="ButtonForeground" Color="#15232C" /> <!-- InkBrush -->
+      <SolidColorBrush x:Key="ButtonBackground" Color="#E2E8EC" /> <!-- ControlBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrush" Color="#6F818C" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#D2DBE1" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#40545F" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#D2DBE1" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#006D7A" /> <!-- CyanBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#566C78" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#E8EDF0" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#CBD5DB" /> <!-- LineBrush -->
+      <!-- Text box. The placeholder is text a player reads, so it takes the muted ink, not a faint one. -->
+      <SolidColorBrush x:Key="TextControlForeground" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#566C78" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="TextControlBackground" Color="#EDF1F3" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#EDF1F3" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#EDF1F3" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#E8EDF0" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrush" Color="#6F818C" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#40545F" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#005FCC" /> <!-- FocusRingBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#CBD5DB" /> <!-- LineBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#40545F" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#40545F" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#40545F" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundDisabled" Color="#566C78" /> <!-- InkFaintBrush -->
+      <!-- Expander. Raid and Team clear the header and content fills locally; ink and chevron still come from here. -->
+      <SolidColorBrush x:Key="ExpanderHeaderForeground" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundPointerOver" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundPressed" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundDisabled" Color="#566C78" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#FFFFFF" /> <!-- SurfaceBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#D2DBE1" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#D2DBE1" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundDisabled" Color="#E8EDF0" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#6F818C" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="#40545F" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="#006D7A" /> <!-- CyanBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushDisabled" Color="#CBD5DB" /> <!-- LineBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForeground" Color="#15232C" /> <!-- InkBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundPointerOver" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundPressed" Color="#0E1A21" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundDisabled" Color="#566C78" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ExpanderContentBackground" Color="#FFFFFF" /> <!-- SurfaceBrush -->
+      <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="#CBD5DB" /> <!-- LineBrush -->
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.HighContrast}">
+      <!-- Button: the resting look is set on the control by InstrumentStyles; these are the states Fluent sets on its template part. -->
+      <SolidColorBrush x:Key="ButtonForeground" Color="#FFFFFF" /> <!-- InkBrush -->
+      <SolidColorBrush x:Key="ButtonBackground" Color="#000000" /> <!-- ControlBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrush" Color="#FFFFFF" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#1F1F1F" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#FFFFFF" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#1F1F1F" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#00FFFF" /> <!-- CyanBrush -->
+      <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#BFBFBF" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#000000" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#FFFFFF" /> <!-- LineBrush -->
+      <!-- Text box. The placeholder is text a player reads, so it takes the muted ink, not a faint one. -->
+      <SolidColorBrush x:Key="TextControlForeground" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#BFBFBF" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="TextControlBackground" Color="#000000" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#000000" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#000000" /> <!-- ChromeBrush -->
+      <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#000000" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrush" Color="#FFFFFF" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#FFFFFF" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#FFFF00" /> <!-- FocusRingBrush -->
+      <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#FFFFFF" /> <!-- LineBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#FFFFFF" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#FFFFFF" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#FFFFFF" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="TextControlPlaceholderForegroundDisabled" Color="#BFBFBF" /> <!-- InkFaintBrush -->
+      <!-- Expander. Raid and Team clear the header and content fills locally; ink and chevron still come from here. -->
+      <SolidColorBrush x:Key="ExpanderHeaderForeground" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundPointerOver" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundPressed" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderForegroundDisabled" Color="#BFBFBF" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="#000000" /> <!-- SurfaceBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="#1F1F1F" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="#1F1F1F" /> <!-- ControlHoverBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBackgroundDisabled" Color="#000000" /> <!-- InsetBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="#FFFFFF" /> <!-- LineStrongBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="#FFFFFF" /> <!-- InkMutedBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="#00FFFF" /> <!-- CyanBrush -->
+      <SolidColorBrush x:Key="ExpanderHeaderBorderBrushDisabled" Color="#FFFFFF" /> <!-- LineBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForeground" Color="#FFFFFF" /> <!-- InkBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundPointerOver" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundPressed" Color="#FFFFFF" /> <!-- InkBrightBrush -->
+      <SolidColorBrush x:Key="ExpanderChevronForegroundDisabled" Color="#BFBFBF" /> <!-- InkFaintBrush -->
+      <SolidColorBrush x:Key="ExpanderContentBackground" Color="#000000" /> <!-- SurfaceBrush -->
+      <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="#FFFFFF" /> <!-- LineBrush -->
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

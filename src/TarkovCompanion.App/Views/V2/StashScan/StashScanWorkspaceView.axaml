@@ -14,7 +14,7 @@
         <Viewbox Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Top"
                  MaxWidth="{Binding MaxPixelWidth}">
           <Border Width="{Binding PixelWidth}" Height="{Binding PixelHeight}" CornerRadius="2"
-                  BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1" ClipToBounds="True">
+                  BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="1" ClipToBounds="True">
             <Border.Background>
               <DrawingBrush TileMode="Tile" Stretch="None" SourceRect="0,0,56,56" DestinationRect="0,0,56,56">
                 <DrawingBrush.Drawing>
@@ -69,14 +69,14 @@
     </Style>
     <Style Selector="Border.stash-row">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="14,9" />
     </Style>
     <Style Selector="Button.stash-row">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="14,8" />
@@ -91,7 +91,7 @@
     <!-- Sort-plan tiles: the group's own colour, quiet until the grouping is actually wired. -->
     <Style Selector="Border.stash-plan-tile">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="14,10" />

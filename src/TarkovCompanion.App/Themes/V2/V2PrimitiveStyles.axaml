@@ -6,8 +6,8 @@
        stroke widths, the badge and button inner insets, the legend swatch size, and dash lengths.
 
        Only the V2 focus and error borders are drawn over Fluent's control templates. The rest of the
-       Button, TextBox, and Expander chrome (fill, hover, pressed, and disabled brushes) is still
-       Fluent's, so the V2 theme variants do not recolour it and CI does not measure its contrast.
+       Button, TextBox, and Expander chrome (fill, hover, pressed, and disabled brushes) comes from
+       Themes/ControlChrome.axaml, per variant, and ControlChromeContrastTests measures it (#266).
        Rendering at each text scale, the focus visuals, and the high-contrast result still need the
        packaged Windows evidence #279 owns. -->
   <Styles.Resources>
