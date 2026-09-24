@@ -38,6 +38,13 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
+    <!-- A Raid plan fact chip. In dark and light the divider is the chip's own fill, so nothing
+         changes there; high contrast paints every surface black, and without an edge the chips
+         were loose words. -->
+    <Style Selector="Border.v2-raid-row.v2-raid-fact">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
     <Style Selector="Border.v2-raid-row.v2-raid-not-offered">
       <Setter Property="Opacity" Value="0.7" />
     </Style>
@@ -677,7 +684,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="x:String">
-                    <Border Classes="v2-raid-row" Padding="8,3">
+                    <Border Classes="v2-raid-row v2-raid-fact" Padding="8,3">
                       <TextBlock Classes="v2-label" Text="{Binding}" />
                     </Border>
                   </DataTemplate>
