@@ -74,7 +74,7 @@ async function main() {
     await page.fill("#pairingCode", pairingCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
 
     let current = await until(page, (s) => s.hasSurface && s.hasLive, 15000);
