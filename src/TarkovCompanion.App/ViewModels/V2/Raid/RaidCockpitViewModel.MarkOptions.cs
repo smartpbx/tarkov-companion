@@ -61,6 +61,7 @@ public sealed partial class RaidCockpitViewModel
         // [#286] New lines take the same switch.
         OnPropertyChanged(nameof(DrawSettingsLabel));
         OnPropertyChanged(nameof(DrawModeLabel));
+        RouteScopeChanged();
     }
 
     /// <summary>Places a mark with a chosen lifetime where a Ctrl+right-click landed.</summary>

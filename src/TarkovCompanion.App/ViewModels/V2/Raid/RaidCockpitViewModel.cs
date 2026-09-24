@@ -1895,6 +1895,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         if (e.PropertyName is nameof(MapViewModel.RenderModel))
         {
             OnPropertyChanged(nameof(SelectedMap));
+            // [#286] An Inspect popover is about one map.
+            RenderModelChangedForModes();
             _rebuildRequest.Request();
         }
         else if (e.PropertyName is nameof(MapViewModel.Variants)
@@ -2270,6 +2272,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     private void MarksChanged()
     {
+        // [#286] A route stop removed from the Marks card leaves the planned route too.
+        PlannedRouteMarksChanged();
         RefreshMarkRows();
         _rebuildRequest.Request();
     }
@@ -3793,11 +3797,24 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             .ToArray();
         var result = new List<(RaidMark, string)>(ordered.Length);
         var waypointNumber = 0;
+        // [#286] A route's stops are numbered along the route, not among the lone waypoints: the
+        // numbers on the dashed line then read 1, 2, 3 in the order it is walked.
+        var routeNumbers = ordered
+            .Where(mark => mark.Route is not null)
+            .GroupBy(mark => mark.Route!.RouteId)
+            .SelectMany(route => route.OrderBy(mark => mark.Route!.Step).Select((mark, index) => (mark.Id, Number: index + 1)))
+            .ToDictionary(entry => entry.Id, entry => entry.Number);
         foreach (var mark in ordered)
         {
             if (mark.Kind == RaidMarkKind.Ping)
             {
                 result.Add((mark, RaidText.Ping));
+                continue;
+            }
+
+            if (routeNumbers.TryGetValue(mark.Id, out var stop) && string.IsNullOrWhiteSpace(mark.State.Label))
+            {
+                result.Add((mark, stop.ToString(CultureInfo.InvariantCulture)));
                 continue;
             }
 

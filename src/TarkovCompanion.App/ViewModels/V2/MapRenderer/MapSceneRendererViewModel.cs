@@ -931,6 +931,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool TryScenePointAt(double viewportX, double viewportY, out MapScenePoint point) =>
         _projection.TryUnproject(viewportX, viewportY, _scene.View.Camera, out point, out _);
 
+    /// <summary>[#286] Where a scene point is in the viewport now, for a popover pinned to it.</summary>
+    public bool TryViewportPointAt(MapScenePoint point, out double viewportX, out double viewportY) =>
+        _projection.TryProjectToViewport(point, _scene.View.Camera, out viewportX, out viewportY);
+
     public void ClearSelection()
     {
         if (_selectedObjectId is null && _selectedLootSpawnId is null)
@@ -4426,6 +4430,27 @@ public sealed class MapSceneProjection
         // The more forgiving axis, so a hit tolerance stays at least the requested pixels wide on
         // a plan whose two axes no longer share a scale.
         worldUnitsPerPixel = 1 / (Math.Min(ScaleX, ScaleY) * camera.Zoom);
+        return true;
+    }
+
+    /// <summary>[#286] The inverse of <see cref="TryUnproject"/>: where a scene point is in the viewport.</summary>
+    public bool TryProjectToViewport(MapScenePoint point, MapSceneCamera camera, out double viewportX, out double viewportY)
+    {
+        viewportX = viewportY = 0;
+        if (!IsUsable || !double.IsFinite(point.X) || !double.IsFinite(point.Y) || camera.Zoom <= 0)
+        {
+            return false;
+        }
+
+        var projected = Project(point);
+        var cameraPoint = Project(camera.CenterX, camera.CenterY);
+        var baseX = projected.X - cameraPoint.X;
+        var baseY = projected.Y - cameraPoint.Y;
+        var radians = camera.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        viewportX = (((cosine * baseX) + (sine * baseY)) * camera.Zoom) + (_canvasWidth / 2);
+        viewportY = (((-sine * baseX) + (cosine * baseY)) * camera.Zoom) + (_canvasHeight / 2);
         return true;
     }
 }

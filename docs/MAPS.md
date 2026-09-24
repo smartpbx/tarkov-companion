@@ -266,6 +266,20 @@ Remove, Clear my drawings, scope and lifetime. Your lines are white, a squadmate
 colour; Squad lines reach the group as the `drawings` field of the member's state
 (`docs/GROUP_RELAY.md`).
 
+### Inspect and Route modes (#286)
+
+The pencil is one of four icons on the strip: Navigate, Inspect, Route, Draw (the `draw-mode` flag
+still hides the pencil). In Inspect and Route a left-drag still pans, a plain click belongs to the
+mode and selects nothing, and Escape goes back to Navigate. Inspect pins a popover beside the
+clicked spot, read from the scene the map is drawing (`MapPointInspector`): the catalog's named
+area or the nearest place label, the three nearest extracts with straight-line metres and the
+suggested routes' walking pace (`TrafficRoute.MinutesFor`), modelled spawn areas within 90 m, and
+objectives and loot within 60 m on the layers that are on. It places nothing. Route builds a
+planned route click by click (`PlannedRoute`, at most 12 stops, Undo, Clear): each stop is a
+waypoint carrying one route id and its step, the same marks a tablet's Draw route makes, so they
+take the Just me / Squad switch, a lifetime ("This raid" by default), the dashed route line, and
+numbers along the route. The bar shows the stop count and the total estimated minutes.
+
 ### Stacked floors
 
 `MapSceneMode.FloorStack2D` is drawn, not reported unavailable. A scene that wants it declares one

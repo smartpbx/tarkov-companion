@@ -212,6 +212,23 @@
     <Style Selector="ToggleButton.v2-raid-draw-toggle:checked Path.v2-icon">
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
+    <!-- [#286] The map's mode group: four icons in one outlined group, narrower than the strip's
+         word buttons so Navigate / Inspect / Route / Draw still leave the strip one row at 1920. -->
+    <Style Selector="Border.v2-raid-mode-group">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="1" />
+    </Style>
+    <Style Selector="ToggleButton.v2-raid-mode">
+      <Setter Property="Padding" Value="6,4" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="ToggleButton.v2-raid-mode:checked Path.v2-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
     <Style Selector="Button.v2-raid-follow-step">
       <Setter Property="MinWidth" Value="32" />
       <Setter Property="Padding" Value="4" />
@@ -259,7 +276,8 @@
                                        PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked"
                                        StrokeDrawn="RendererStrokeDrawn"
-                                       DrawEscaped="RendererDrawEscaped" />
+                                       ModeEscaped="RendererModeEscaped"
+                                       ModeClicked="RendererModeClicked" />
             </prim:StagedHost>
           </ContentControl>
           <!-- The only thing on the page when there is no map: the renderer, and its own
@@ -323,6 +341,90 @@
                       ToolTip.Tip="{x:Static l:RaidText.DoneDrawingTip}" />
             </StackPanel>
           </Border>
+
+          <!-- [#286] Route mode: what the route is so far, who sees its stops, Undo, Clear, Done. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
+                  Margin="12,12,12,12" IsVisible="{Binding IsRouteMode}"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.AutomationId="v2-raid-route-bar"
+                  AutomationProperties.Name="{x:Static l:RaidText.ModeRoute}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Route}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:RaidText.PlannedRoute}" FontWeight="SemiBold" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding PlannedRouteSummary}"
+                         AutomationProperties.AutomationId="v2-raid-route-summary" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding RouteSettingsLabel}"
+                      Click="RouteSettingsClicked"
+                      AutomationProperties.AutomationId="v2-raid-route-settings"
+                      ToolTip.Tip="{x:Static l:RaidText.PlannedRouteSettingsTip}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.PlannedRouteUndo}"
+                      Command="{Binding UndoRouteStopCommand}" IsEnabled="{Binding HasPlannedRouteStops}"
+                      AutomationProperties.AutomationId="v2-raid-route-undo"
+                      ToolTip.Tip="{x:Static l:RaidText.PlannedRouteUndoTip}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.PlannedRouteClear}"
+                      Command="{Binding ClearRouteCommand}" IsEnabled="{Binding HasPlannedRouteStops}"
+                      AutomationProperties.AutomationId="v2-raid-route-clear"
+                      ToolTip.Tip="{x:Static l:RaidText.PlannedRouteClearTip}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Done}"
+                      Command="{Binding NavigateModeCommand}"
+                      AutomationProperties.AutomationId="v2-raid-route-done"
+                      ToolTip.Tip="{x:Static l:RaidText.PlannedRouteDoneTip}" />
+            </StackPanel>
+          </Border>
+
+          <!-- [#286] Inspect mode before anything is clicked: one line saying what a click does. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
+                  Margin="12,12,12,12" IsVisible="{Binding ShowsInspectHint}"
+                  AutomationProperties.AutomationId="v2-raid-inspect-hint">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Search}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:RaidText.InspectHint}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Done}"
+                      Command="{Binding NavigateModeCommand}"
+                      ToolTip.Tip="{x:Static l:RaidText.PlannedRouteDoneTip}" />
+            </StackPanel>
+          </Border>
+
+          <!-- [#286] Inspect: what is at the clicked spot, pinned beside it (RaidCockpitView.axaml.cs
+               moves it with the map). Nothing is placed; closing it or Escape leaves no trace. -->
+          <Canvas x:Name="InspectLayer" IsVisible="{Binding HasInspection}" ClipToBounds="True">
+            <Border x:Name="InspectPopover" Classes="v2-raid-viewgroup v2-raid-float" MaxWidth="380" MinWidth="220"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.AutomationId="v2-raid-inspect"
+                    AutomationProperties.Name="{Binding InspectTitle}">
+              <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                  <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Search}" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
+                             TextTrimming="CharacterEllipsis" Text="{Binding InspectTitle}" />
+                  <Button Grid.Column="2" Classes="v2-target v2-raid-follow-step"
+                          Command="{Binding CloseInspectCommand}"
+                          AutomationProperties.AutomationId="v2-raid-inspect-close"
+                          AutomationProperties.Name="{x:Static l:RaidText.InspectClose}"
+                          ToolTip.Tip="{x:Static l:RaidText.InspectClose}">
+                    <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Close}" />
+                  </Button>
+                </Grid>
+                <ItemsControl ItemsSource="{Binding InspectSections}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RaidInspectSection">
+                      <StackPanel Spacing="1" Margin="0,2,0,2">
+                        <TextBlock Classes="v2-label" Text="{Binding Title}" />
+                        <ItemsControl ItemsSource="{Binding Lines}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                              <TextBlock Classes="v2-body" Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="v2-label" FontStyle="Italic" Text="{Binding Caveat}" IsVisible="{Binding HasCaveat}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+          </Canvas>
 
           <!-- [Issue 286] #591: the traffic chip, the phase switch and the gradient legend used to
                float here and sat on real terrain once Fit filled the card. They are in the control
@@ -423,16 +525,48 @@
                toggle at its original width and put the two step targets behind the adjacent,
                state-labelled selector. The commands and automation IDs stay directly reachable. -->
           <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-            <!-- [#286] Navigate / Draw: an icon, so the strip keeps its one row at 1920 (#838). -->
-            <ToggleButton Classes="v2-target v2-raid-strip-toggle v2-raid-draw-toggle"
-                          IsVisible="{Binding IsDrawAvailable}"
-                          IsChecked="{Binding IsDrawMode, Mode=OneWay}"
-                          Command="{Binding ToggleDrawCommand}"
-                          AutomationProperties.AutomationId="v2-raid-draw"
-                          AutomationProperties.Name="{Binding DrawModeLabel}"
-                          ToolTip.Tip="{Binding DrawModeLabel}">
-              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pencil}" />
-            </ToggleButton>
+            <!-- [#286] Navigate / Inspect / Route / Draw: icons with tooltips, so the strip keeps its
+                 one row at 1920 (#838). The draw-mode flag (#855) still hides the pencil. -->
+            <Border Classes="v2-raid-mode-group" VerticalAlignment="Center"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.AutomationId="v2-raid-modes"
+                    AutomationProperties.Name="{x:Static l:RaidText.ModeGroup}">
+              <StackPanel Orientation="Horizontal" Spacing="1">
+                <ToggleButton Classes="v2-target v2-raid-mode"
+                              IsChecked="{Binding IsNavigateMode, Mode=OneWay}"
+                              Command="{Binding NavigateModeCommand}"
+                              AutomationProperties.AutomationId="v2-raid-mode-navigate"
+                              AutomationProperties.Name="{x:Static l:RaidText.ModeNavigate}"
+                              ToolTip.Tip="{x:Static l:RaidText.ModeNavigate}">
+                  <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Move}" />
+                </ToggleButton>
+                <ToggleButton Classes="v2-target v2-raid-mode"
+                              IsChecked="{Binding IsInspectMode, Mode=OneWay}"
+                              Command="{Binding InspectModeCommand}"
+                              AutomationProperties.AutomationId="v2-raid-mode-inspect"
+                              AutomationProperties.Name="{x:Static l:RaidText.ModeInspect}"
+                              ToolTip.Tip="{x:Static l:RaidText.ModeInspect}">
+                  <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Search}" />
+                </ToggleButton>
+                <ToggleButton Classes="v2-target v2-raid-mode"
+                              IsChecked="{Binding IsRouteMode, Mode=OneWay}"
+                              Command="{Binding RouteModeCommand}"
+                              AutomationProperties.AutomationId="v2-raid-mode-route"
+                              AutomationProperties.Name="{x:Static l:RaidText.ModeRoute}"
+                              ToolTip.Tip="{x:Static l:RaidText.ModeRoute}">
+                  <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Route}" />
+                </ToggleButton>
+                <ToggleButton Classes="v2-target v2-raid-mode v2-raid-draw-toggle"
+                              IsVisible="{Binding IsDrawAvailable}"
+                              IsChecked="{Binding IsDrawMode, Mode=OneWay}"
+                              Command="{Binding ToggleDrawCommand}"
+                              AutomationProperties.AutomationId="v2-raid-draw"
+                              AutomationProperties.Name="{Binding DrawModeLabel}"
+                              ToolTip.Tip="{Binding DrawModeLabel}">
+                  <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pencil}" />
+                </ToggleButton>
+              </StackPanel>
+            </Border>
             <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="{x:Static l:RaidText.Follow}"
                           IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
                           Command="{Binding ToggleFollowCommand}"

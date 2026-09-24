@@ -18,6 +18,12 @@ public enum MapInteractionMode
 
     /// <summary>A left-drag draws a line; a middle-drag, or Space held with a left-drag, still pans.</summary>
     Draw,
+
+    /// <summary>A click shows what is at that spot, in a popover; a drag still pans.</summary>
+    Inspect,
+
+    /// <summary>A click adds a stop to the player's planned route; a drag still pans.</summary>
+    Route,
 }
 
 /// <summary>
@@ -86,10 +92,13 @@ public sealed partial class RaidCockpitViewModel
             return;
         }
 
+        var previous = _interactionMode;
         _interactionMode = mode;
         OnPropertyChanged(nameof(InteractionMode));
         OnPropertyChanged(nameof(IsDrawMode));
         OnPropertyChanged(nameof(DrawModeLabel));
+        // [#286] Inspect and Route, in RaidCockpitViewModel.Modes.cs.
+        InteractionModeChanged(previous);
     }
 
     /// <summary>Picks the lifetime the next line gets; the scope is the Marks card's switch.</summary>
