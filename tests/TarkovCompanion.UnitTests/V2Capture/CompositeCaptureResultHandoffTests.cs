@@ -34,6 +34,28 @@ public sealed class CompositeCaptureResultHandoffTests
     }
 
     /// <summary>
+    /// #287: the HEALTH tab and the extract list used to be acknowledged and dropped. They now say
+    /// what the screen was, that nothing reads it yet, and what to do instead.
+    /// </summary>
+    [Theory]
+    [InlineData(ScanIntent.ExtractsAndMap, "Extract list · not supported yet")]
+    [InlineData(ScanIntent.HealthAndCharacter, "Health screen · not supported yet")]
+    public async Task AScreenNothingReadsSaysSoAndWhatToDoInstead(ScanIntent intent, string title)
+    {
+        var unsupported = new UnsupportedScreenHandoff();
+        UnsupportedScreen? said = null;
+        unsupported.ScreenRead += (_, screen) => said = screen;
+
+        var result = await (await CompositeAsync(unsupported: unsupported)).AcceptAsync(Request(intent), CancellationToken.None);
+
+        Assert.Equal(CaptureHandoffDisposition.DurablyAccepted, result.Disposition);
+        Assert.NotNull(said);
+        Assert.Equal(intent, said.Intent);
+        Assert.Equal(title, said.Title);
+        Assert.False(string.IsNullOrWhiteSpace(said.Instead));
+    }
+
+    /// <summary>
     /// [V2 rough package 60 — Intel scan] #287. These four used to fall into the default arm and
     /// produce nothing at all, so "Understand this screen" understood nothing. They now reach the
     /// Intel handoff, which publishes whatever item the frame was read as.
@@ -111,7 +133,9 @@ public sealed class CompositeCaptureResultHandoffTests
     private static CaptureIdentifiedItem Identified(string id, string name, double confidence) =>
         new(id, name, new Confidence(confidence), $"line={name}");
 
-    private static async Task<CompositeCaptureResultHandoff> CompositeAsync(IntelCaptureHandoff? intel = null)
+    private static async Task<CompositeCaptureResultHandoff> CompositeAsync(
+        IntelCaptureHandoff? intel = null,
+        UnsupportedScreenHandoff? unsupported = null)
     {
         var profiles = new ProfileContextService(new MemoryProfileStore(), new ProfileClock(Now));
         var runtime = new ProfileRuntimeContextService(profiles);
@@ -122,7 +146,8 @@ public sealed class CompositeCaptureResultHandoffTests
                 runtime,
                 new InventoryGridReconstructor(),
                 new StashScanWorkflow(new StashScanAssembler(), new UnusedSnapshotStore(), new StashSnapshotComparer())),
-            intel ?? new IntelCaptureHandoff());
+            intel ?? new IntelCaptureHandoff(),
+            unsupported: unsupported);
     }
 
     private static CaptureHandoffRequest Request(ScanIntent intent, params CaptureIdentifiedItem[] identified)

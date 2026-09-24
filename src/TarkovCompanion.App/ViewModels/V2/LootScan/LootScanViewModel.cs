@@ -109,6 +109,25 @@ public sealed class LootScanViewModel : BindableViewModel
     public LootScanResult Result => _result;
 
     /// <summary>"Last scans" (#274): this raid's saved scans, beside the live one.</summary>
+    /// <summary>#287: the retention chip and Read as… for the frame this result came from.</summary>
+    public TarkovCompanion.App.ViewModels.V2.Shell.ScanSourceViewModel? Source
+    {
+        get => _source;
+        set
+        {
+            if (!ReferenceEquals(_source, value))
+            {
+                _source = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasSource));
+            }
+        }
+    }
+
+    public bool HasSource => _source is not null;
+
+    private TarkovCompanion.App.ViewModels.V2.Shell.ScanSourceViewModel? _source;
+
     public LootScanHistoryViewModel? History
     {
         get => _history;

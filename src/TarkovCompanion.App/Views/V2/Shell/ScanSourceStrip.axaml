@@ -1,0 +1,50 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Shell.ScanSourceStrip"
+             x:DataType="shell:ScanSourceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:shell="using:TarkovCompanion.App.ViewModels.V2.Shell">
+  <!-- #287: where a scan result's pixels are, and "Read as…" for the same frame. One strip on the
+       Loot page and in the capture review, so every result says the same thing about its source. -->
+  <StackPanel Spacing="6">
+    <WrapPanel ItemSpacing="8" LineSpacing="6">
+      <Border Background="{DynamicResource V2.Brush.SurfaceRaised}" CornerRadius="10" Padding="8,3"
+              VerticalAlignment="Center"
+              ToolTip.Tip="{Binding RetentionDetail}"
+              AutomationProperties.AutomationId="v2-scan-retention"
+              AutomationProperties.Name="{Binding RetentionDetail}"
+              AutomationProperties.AccessibilityView="Control">
+        <TextBlock Classes="v2-label" Text="{Binding RetentionLabel}"
+                   Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+      </Border>
+      <ToggleButton Classes="v2-outline" VerticalAlignment="Center" Padding="10,3" MinHeight="28"
+                    IsChecked="{Binding IsReadAsOpen}"
+                    Content="{Binding ReadAsLabel}"
+                    AutomationProperties.AutomationId="v2-scan-read-as"
+                    AutomationProperties.Name="{Binding ReadAsHeading}" />
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" IsVisible="{Binding HasCorrection}"
+                 Foreground="{DynamicResource V2.Brush.Action}" Text="{Binding Correction}"
+                 AutomationProperties.AutomationId="v2-scan-correction" />
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" IsVisible="{Binding HasStatus}"
+                 Text="{Binding Status}" AutomationProperties.LiveSetting="Polite"
+                 AutomationProperties.AutomationId="v2-scan-read-as-status" />
+    </WrapPanel>
+    <WrapPanel ItemSpacing="8" LineSpacing="6" IsVisible="{Binding IsReadAsOpen}"
+               AutomationProperties.AutomationId="v2-scan-read-as-menu">
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding ReadAsHeading}" />
+      <ItemsControl ItemsSource="{Binding ReadAsOptions}" IsVisible="{Binding CanReadAs}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="shell:ScanReadAsOptionViewModel">
+            <Button Classes="v2-target v2-chip" Content="{Binding Label}" Command="{Binding Command}"
+                    AutomationProperties.AutomationId="{Binding AutomationId}"
+                    AutomationProperties.Name="{Binding Label}" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" IsVisible="{Binding CannotReadAs}"
+                 Text="{Binding ReadAsUnavailable}" />
+    </WrapPanel>
+  </StackPanel>
+</UserControl>

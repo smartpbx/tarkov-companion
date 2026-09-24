@@ -1654,6 +1654,18 @@ internal static class Program
                 {
                     Console.WriteLine($"Capture notice: {notice.Kind} {notice.Code}");
                 }
+
+                // #287: --read-as-open, --read-as <intent>. See ReadAsDemo.
+                if (args.Contains("--read-as-open") || StringOption(args, "--read-as") is not null)
+                {
+                    ReadAsDemo.Run(shell, sessions, StringOption(args, "--read-as"), args.Contains("--read-as-open"), Pump);
+                }
+            }
+
+            // #287: --capture-unsupported health|extracts. See ReadAsDemo.Unsupported.
+            if (shell is not null && StringOption(args, "--capture-unsupported") is { } unsupportedScreen)
+            {
+                ReadAsDemo.Unsupported(services.GetRequiredService<UnsupportedScreenHandoff>(), unsupportedScreen, Pump);
             }
 
             // [#289] One mark of each scope and lifetime; see MarkScopeDemo. Before the team demo,

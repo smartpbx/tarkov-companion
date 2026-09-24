@@ -7,6 +7,7 @@ using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.LootScan;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 
@@ -72,6 +73,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private CancellationTokenSource? _manualBatchCancellation;
     private string? _manualBatchId;
     private CaptureSessionId? _manualBatchSessionId;
+    private readonly CaptureReanalysis? _reanalysis;
+    private readonly UnsupportedScreenHandoff? _unsupported;
+    private readonly IScreenshotRetentionStore? _tidyStore;
+    private ScanSourceViewModel? _reviewSource;
 
     public V2ShellCaptureBridge(
         V2ShellViewModel shell,
@@ -89,8 +94,20 @@ public sealed class V2ShellCaptureBridge : IDisposable
         IItemIntelService? itemIntel = null,
         IWikiLinkOpener? wikiOpener = null,
         RelayMarksBridge? relayBridge = null,
-        LootScanHistoryViewModel? lootHistory = null)
+        LootScanHistoryViewModel? lootHistory = null,
+        // #287: Read as…, the "not supported yet" screens, and the retention chip's tidy setting.
+        CaptureReanalysis? reanalysis = null,
+        UnsupportedScreenHandoff? unsupported = null,
+        IScreenshotRetentionStore? tidyStore = null)
     {
+        _reanalysis = reanalysis;
+        _unsupported = unsupported;
+        _tidyStore = tidyStore;
+        if (unsupported is not null)
+        {
+            unsupported.ScreenRead += OnUnsupportedScreenRead;
+        }
+
         _itemIntel = itemIntel;
         _wikiOpener = wikiOpener;
         _lootRecognitionProgress = lootRecognitionProgress;
@@ -357,6 +374,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 $"{scan.ItemName ?? "Flea offers"} · {viewModel.SummaryLabel}",
                 "Screenshot · flea rows",
                 false);
+            _reviewSource = BuildSource(scan.ArtifactId, ScanIntent.Flea, null);
         }
 
         _shell.ShowFleaScan(viewModel);
@@ -373,6 +391,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 return;
             }
 
+            _reanalysis?.Corrections.Record(new(
+                ScanCorrectionKind.Candidate,
+                review.ArtifactId,
+                review.ChosenCandidateId ?? "none",
+                candidate.CanonicalId,
+                TimeProvider.System.GetUtcNow()));
             _review = new V2CaptureReview(
                 review.SessionId,
                 review.ArtifactId,
@@ -433,6 +457,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
             _settingDevice = request.RequestingDevice;
             _currentSessionId = sessionId;
             _review = null;
+            _reviewSource = null;
             _attention = null;
         }
 
@@ -508,8 +533,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
             {
                 _shell.ShowFleaScan(fleaScan);
             }
-            else if (_lootScan is { } lootScan)
+            else if (analyzedAs is not (ScanIntent.HealthAndCharacter or ScanIntent.ExtractsAndMap) && _lootScan is { } lootScan)
             {
+                // A screen nothing reads has no page; an older loot result is not its answer.
                 _shell.ShowLootScanResult(lootScan);
             }
 
@@ -562,6 +588,20 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private void OnReviewRequested(object? sender, CaptureReviewRequestedEventArgs eventArgs)
     {
         var review = eventArgs.Review;
+        // #287: a screen nothing reads yet is answered "not supported yet" straight away. Asking
+        // whether to analyse the HEALTH tab as the armed Loot would only lead to wrong advice.
+        if (review.DetectedContext is RecognizedContext.HealthAndCharacter or RecognizedContext.ExtractsAndMap
+            && _unsupported is not null)
+        {
+            _captureSessions.TryReview(
+                review.SessionId,
+                review.ArtifactId,
+                review.DecodeRevision,
+                CaptureReviewAction.UseDetected,
+                "system-unsupported-screen");
+            return;
+        }
+
         var kind = review switch
         {
             { HasIntentDisagreement: true, DetectedContext: not null } => V2CaptureAttentionKind.IntentMismatch,
@@ -632,6 +672,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 ],
                 ChosenCandidateId = identification.Best.CanonicalId,
             };
+            _reviewSource = BuildSource(identification.ArtifactId, identification.EffectiveIntent, null);
         }
 
         _shell.ShowScannedItem(identification.Best.CanonicalId);
@@ -645,6 +686,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     {
         var viewModel = LootScanViewModel.CreateProgress(started, _lootScanControls, openWiki: WikiAction());
         viewModel.History = _lootHistory;
+        viewModel.Source = BuildSource(started.ArtifactId, ScanIntent.Loot, started.CorrelationId);
         lock (_gate)
         {
             _latestLootRecognition = started.CorrelationId;
@@ -688,6 +730,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         }
 
         viewModel.History = _lootHistory;
+        viewModel.Source ??= BuildSource(result.ArtifactId, ScanIntent.Loot, result.CorrelationId);
         _shell.ApplyLootScanResult(viewModel, result, applied =>
         {
             _ = RecordLootScanAsync(applied);
@@ -753,6 +796,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private void OnCaptureSessionsChanged(object? sender, EventArgs eventArgs)
     {
         RefreshManualBatchStatuses();
+        ShowStashWhenRead();
         Push();
     }
 
@@ -823,6 +867,164 @@ public sealed class V2ShellCaptureBridge : IDisposable
     /// opened Loot for itself mid-raid returns to the map now instead of waiting for the countdown.</summary>
     private void OnNonLootIntentHandled(object? sender, ScanIntent intent) => _shell.ReportNonLootScreenshot();
 
+    /// <summary>
+    /// #287: a screen the companion recognised and cannot read yet. The capture panel opens on it,
+    /// says so, says what to do instead, and still offers Read as… for a wrong guess.
+    /// </summary>
+    private void OnUnsupportedScreenRead(object? sender, UnsupportedScreen screen)
+    {
+        lock (_gate)
+        {
+            _attention = null;
+            _review = new V2CaptureReview(
+                screen.SessionId,
+                screen.ArtifactId,
+                0,
+                screen.Intent,
+                screen.Intent == ScanIntent.HealthAndCharacter
+                    ? RecognizedContext.HealthAndCharacter
+                    : RecognizedContext.ExtractsAndMap,
+                screen.ObservedUtc,
+                screen.Title,
+                screen.Instead,
+                canCorrect: false);
+            _reviewSource = BuildSource(screen.ArtifactId, screen.Intent, screen.CorrelationId);
+        }
+
+        _shell.OpenCaptureForReview();
+        Push();
+    }
+
+    /// <summary>The retention chip and Read as… for one captured frame.</summary>
+    private ScanSourceViewModel BuildSource(string artifactId, ScanIntent readAs, CaptureCorrelationId? correlation)
+    {
+        var artifact = _captureSessions.Snapshot.Sessions
+            .SelectMany(session => session.Artifacts)
+            .LastOrDefault(item => string.Equals(item.ArtifactId, artifactId, StringComparison.Ordinal));
+        var held = _reanalysis?.CanReadAgain(artifactId) == true;
+        var correction = correlation is { } rereading ? _reanalysis?.Corrections.ForRereading(rereading) : null;
+        var source = new ScanSourceViewModel(
+            artifact?.SourceKind ?? CaptureSourceKind.UserSelectedImage,
+            _lastTidy,
+            readAs,
+            held,
+            held ? intent => ReadAsAsync(artifactId, intent) : null,
+            correction is null ? null : $"Read as {IntentLabel(correction.To)} by you · was {IntentLabel(correction.From)}");
+        if (_tidyStore is not null)
+        {
+            _ = ApplyTidyAsync(source);
+        }
+
+        return source;
+    }
+
+    private static string IntentLabel(string intent) =>
+        Enum.TryParse<ScanIntent>(intent, out var parsed) ? ScanReadAs.Label(parsed) : intent;
+
+    private ScreenshotRetentionSettings? _lastTidy;
+
+    private CaptureCorrelationId? _stashAfter;
+
+    private void ShowStashWhenRead()
+    {
+        CaptureCorrelationId wanted;
+        lock (_gate)
+        {
+            if (_stashAfter is not { } pending)
+            {
+                return;
+            }
+
+            wanted = pending;
+        }
+
+        var artifact = _captureSessions.Snapshot.Sessions
+            .SelectMany(session => session.Artifacts)
+            .LastOrDefault(item => item.CorrelationId == wanted);
+        if (artifact is null || artifact.Disposition == CaptureArtifactDisposition.Pending)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (_stashAfter != wanted)
+            {
+                return;
+            }
+
+            _stashAfter = null;
+        }
+
+        _shell.ShowStashScan();
+    }
+
+    private async Task ApplyTidyAsync(ScanSourceViewModel source)
+    {
+        try
+        {
+            var tidy = await _tidyStore!.GetAsync(CancellationToken.None).ConfigureAwait(false);
+            _lastTidy = tidy;
+            source.ApplyTidy(tidy);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogDebug(exception, "Could not read the screenshot tidy setting for a retention chip.");
+        }
+    }
+
+    /// <summary>#287 "Read as…": the same frame, armed and submitted again under <paramref name="intent"/>.</summary>
+    private async Task<ScanReadAsOutcome> ReadAsAsync(string artifactId, ScanIntent intent)
+    {
+        if (_reanalysis is null)
+        {
+            return new(false, "Cannot read it again here");
+        }
+
+        try
+        {
+            var outcome = await _reanalysis.ReadAsAsync(
+                    artifactId,
+                    intent,
+                    (wanted, context) =>
+                    {
+                        long revision;
+                        lock (_gate)
+                        {
+                            revision = _intentRevision;
+                        }
+
+                        var sessionId = new CaptureSessionId(Guid.NewGuid());
+                        OnCaptureArmRequested(this, new(
+                            wanted,
+                            new StateRevision(revision),
+                            V2NavigationContext.ThisDesktop,
+                            sessionId,
+                            context));
+                        return sessionId;
+                    },
+                    CancellationToken.None)
+                .ConfigureAwait(true);
+            if (outcome is { Started: true, Rereading: { } rereading } && intent == ScanIntent.Stash)
+            {
+                // The Stash page loads when it is opened, so it is opened once the snapshot is in.
+                lock (_gate)
+                {
+                    _stashAfter = rereading;
+                }
+
+                ShowStashWhenRead();
+            }
+
+            return outcome;
+        }
+        catch (InvalidOperationException exception)
+        {
+            _logger.LogInformation(exception, "Read as {Intent} could not arm.", intent);
+            return new(false, "The last capture is still being read");
+        }
+    }
+
     private void Push()
     {
         if (Volatile.Read(ref _disposed))
@@ -833,6 +1035,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         CaptureSessionSnapshot? session;
         V2CaptureReview? review;
         V2CaptureAttention? attention;
+        ScanSourceViewModel? reviewSource;
         ScanIntent armedIntent;
         long intentRevision;
         string settingDevice;
@@ -843,6 +1046,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
             settingDevice = _settingDevice;
             review = _review;
             attention = _attention;
+            reviewSource = _review is null ? null : _reviewSource;
             session = _currentSessionId is { } id
                 ? _captureSessions.Snapshot.Sessions.FirstOrDefault(item => item.Request.SessionId == id)?.Snapshot
                 : null;
@@ -857,6 +1061,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 session,
                 attention,
                 review));
+            _shell.ShowCaptureReviewSource(reviewSource);
         }
         catch (Exception exception)
         {
@@ -906,6 +1111,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _shell.ManualImageBatchRequested -= OnManualImageBatchRequested;
         _shell.ManualImageBatchCancelRequested -= OnManualImageBatchCancelRequested;
         _shell.CaptureCandidateChosen -= OnCaptureCandidateChosen;
+        if (_unsupported is not null)
+        {
+            _unsupported.ScreenRead -= OnUnsupportedScreenRead;
+        }
+
         lock (_gate)
         {
             _manualBatchCancellation?.Cancel();

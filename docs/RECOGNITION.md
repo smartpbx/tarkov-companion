@@ -202,6 +202,11 @@ after a match. No location crop is a prerequisite, because window shape and UI s
 both surfaces. These are measured text signals for later v2 adapters, not a claim that limb
 health or game state was inferred.
 
+The HEALTH tab draws the stash, pockets and backpack beside the body, so the anchors alone score
+it Container at 1.0. `HealthScreenClassifier` places it first (four of the seven limb captions and
+three "35/35" values; transcribed from the real frame of 2026-09-22, not yet measured on Windows
+OCR), and it and the extract list reach a "not supported yet" answer instead of a grid (#287).
+
 **On three real in-raid Gear screens (2026-09-20, Windows OCR, from Clayton's log).** Context was
 never ambiguous: all three scored Container at 0.70, which only "tactical rig" + "backpack" +
 "pockets" (0.25 + 0.25 + 0.20) sum to, so those three anchors are marked live-validated. The

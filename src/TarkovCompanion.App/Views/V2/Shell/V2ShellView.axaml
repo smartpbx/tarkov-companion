@@ -3,6 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             xmlns:local="using:TarkovCompanion.App.Views.V2.Shell"
              xmlns:stashVm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
              xmlns:stashViews="using:TarkovCompanion.App.Views.V2.StashScan"
              xmlns:debriefVm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
@@ -1024,6 +1025,10 @@
                 <TextBlock Classes="v2-heading-3" Text="{Binding CaptureReviewHeading}" />
                 <TextBlock Classes="v2-body" Text="{Binding CaptureReviewSummary}" />
                 <TextBlock Classes="v2-label" Text="{Binding CaptureReviewEvidence}" />
+                <!-- #287: where the frame is, and Read as… for it. -->
+                <Panel IsVisible="{Binding HasCaptureReviewSource}">
+                  <local:ScanSourceStrip DataContext="{Binding CaptureReviewSource}" />
+                </Panel>
                 <TextBlock Classes="v2-label" IsVisible="{Binding HasCaptureReviewCandidates}"
                            Text="{Binding CaptureCandidatesHeading}" />
                 <ItemsControl ItemsSource="{Binding CaptureReviewCandidates}" IsVisible="{Binding HasCaptureReviewCandidates}">

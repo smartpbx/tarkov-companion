@@ -834,7 +834,9 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             {
                 var now = _timeProvider.GetUtcNow();
                 TrimDeduplicationUnsafe(now);
-                if (_deduplication.ContainsKey(digest))
+                // #287: "Read as…" re-reads a frame the player already captured, on purpose, so
+                // the same pixels arriving again are the request rather than a double shutter.
+                if (_deduplication.ContainsKey(digest) && queued.Submission.ReanalysisOf is null)
                 {
                     duplicate = true;
                     _duplicate++;
@@ -895,7 +897,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     }
 
                     session.AppendCapture(artifact, CaptureSessionStage.DetectingContext, now, "detecting_context");
-                    _deduplication.Add(digest, new(session.Request.SessionId, artifactId, now.Add(_options.DeduplicationLifetime)));
+                    _deduplication[digest] = new(session.Request.SessionId, artifactId, now.Add(_options.DeduplicationLifetime));
                     changed = _changed;
                 }
             }

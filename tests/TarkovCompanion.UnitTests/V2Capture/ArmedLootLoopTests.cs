@@ -133,6 +133,39 @@ public sealed class ArmedLootLoopTests
         Assert.NotNull(context.ProfileContext);
     }
 
+    /// <summary>
+    /// #287 "Read as…": the Loot page offers the other intents for the same frame, pressing one
+    /// hands that frame in again under the new intent, intake takes it rather than calling it a
+    /// duplicate, and the correction is written down.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsStashReadsTheSameFrameAgainAsTheStashAndRecordsTheCorrection()
+    {
+        await using var loop = await Loop.CreateAsync();
+        loop.Arm(ScanIntent.Loot);
+        await loop.SubmitAsync(CaptureIntakeContext.For(loop.Coordinator, loop.Context.Describe()));
+        var page = await loop.LootPageAsync();
+
+        var source = Assert.IsType<ScanSourceViewModel>(page.Source);
+        Assert.Equal("Image not kept · game file stays", source.RetentionLabel);
+        var stash = source.ReadAsOptions.Single(option => option.Intent == ScanIntent.Stash);
+        await ((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)stash.Command).ExecuteAsync();
+
+        Assert.Equal("Reading again as Stash", source.Status);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (loop.Pipeline.Seen.Count < 2 && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.Equal([ScanIntent.Loot, ScanIntent.Stash], loop.Pipeline.Seen.Select(seen => seen.Intent));
+        Assert.Equal(loop.Pipeline.Seen[0].Hash, loop.Pipeline.Seen[1].Hash);
+        Assert.DoesNotContain(loop.Coordinator.Snapshot.Notices, notice => notice.Kind == CaptureSessionNoticeKind.Duplicate);
+        var correction = Assert.Single(loop.Corrections.Entries);
+        Assert.Equal((ScanCorrectionKind.ReadAs, "Loot", "Stash"), (correction.Kind, correction.From, correction.To));
+        Assert.Equal(page.Result.ArtifactId, correction.ArtifactId);
+    }
+
     private sealed class Loop : IAsyncDisposable
     {
         private readonly string _config;
@@ -157,6 +190,10 @@ public sealed class ArmedLootLoopTests
         public CaptureSessionCoordinator Coordinator { get; }
 
         public ShellCaptureContextSource Context { get; }
+
+        public ReadsALootScreen Pipeline { get; private init; } = new();
+
+        public ScanCorrectionLog Corrections { get; private init; } = new();
 
         public static async Task<Loop> CreateAsync()
         {
@@ -203,9 +240,12 @@ public sealed class ArmedLootLoopTests
                 WorkspaceOriginKind.DesktopApplication,
                 "desktop");
             // The coordinator keeps the wall clock because the bridge arms with it.
+            var pipeline = new ReadsALootScreen();
+            var frames = new ScanFrameMemory(pipeline);
+            var corrections = new ScanCorrectionLog();
             var coordinator = new CaptureSessionCoordinator(
                 new InlineCaptureWorkScheduler(),
-                new ReadsALootScreen(),
+                frames,
                 handoff,
                 origin);
             var context = new ShellCaptureContextSource(store, runtime);
@@ -216,8 +256,9 @@ public sealed class ArmedLootLoopTests
                 new IntelCaptureHandoff(),
                 origin,
                 contextSource: context,
-                manualIntake: new ManualImageIntake(coordinator, new NoFiles(), context));
-            return new(config, shell, coordinator, context, bridge);
+                manualIntake: new ManualImageIntake(coordinator, new NoFiles(), context),
+                reanalysis: new CaptureReanalysis(coordinator, frames, corrections));
+            return new(config, shell, coordinator, context, bridge) { Pipeline = pipeline, Corrections = corrections };
         }
 
         public void Arm(ScanIntent intent)
@@ -233,7 +274,7 @@ public sealed class ArmedLootLoopTests
                 new(
                     CaptureDeliveryKind.WatchedFile,
                     new MemoryCaptureSource(
-                        new CapturedImage(new byte[16], 2, 2, 8, PixelFormat.Bgra8888, now, "fixture"),
+                        new CapturedImage(Enumerable.Repeat((byte)9, 16).ToArray(), 2, 2, 8, PixelFormat.Bgra8888, now, "fixture"),
                         CaptureSourceKind.GameWrittenScreenshot),
                     context,
                     now,
@@ -270,7 +311,31 @@ public sealed class ArmedLootLoopTests
     /// <summary>The recognition seam: a loot screen read as four named items and a backpack.</summary>
     private sealed class ReadsALootScreen : ICaptureSessionPipeline
     {
-        public Task<CaptureAnalysis> AnalyzeAsync(CaptureAnalysisRequest request, CancellationToken cancellationToken) =>
+        private readonly List<(ScanIntent Intent, string Hash)> _seen = [];
+
+        /// <summary>Every intent a frame was analysed under, and the frame's content hash.</summary>
+        public IReadOnlyList<(ScanIntent Intent, string Hash)> Seen
+        {
+            get
+            {
+                lock (_seen)
+                {
+                    return [.. _seen];
+                }
+            }
+        }
+
+        public Task<CaptureAnalysis> AnalyzeAsync(CaptureAnalysisRequest request, CancellationToken cancellationToken)
+        {
+            lock (_seen)
+            {
+                _seen.Add((request.RequestedIntent, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(request.Image.Pixels.Span))));
+            }
+
+            return Analyze();
+        }
+
+        private static Task<CaptureAnalysis> Analyze() =>
             Task.FromResult(new CaptureAnalysis(
                 new string('a', 64),
                 RecognizedContext.Loot,

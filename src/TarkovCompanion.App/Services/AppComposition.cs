@@ -914,8 +914,15 @@ public static class AppComposition
                 provider.GetRequiredService<IEventCatalog>())));
         services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
+        // #287: the last frame held in memory for Read as…, around the same pipeline.
+        services.AddSingleton(provider => new ScanFrameMemory(
+            provider.GetRequiredService<CaptureRecognitionPipeline>(),
+            timeProvider));
         services.AddSingleton<ICaptureSessionPipeline>(provider =>
-            provider.GetRequiredService<CaptureRecognitionPipeline>());
+            provider.GetRequiredService<ScanFrameMemory>());
+        services.AddSingleton<ScanCorrectionLog>();
+        services.AddSingleton<CaptureReanalysis>();
+        services.AddSingleton<UnsupportedScreenHandoff>();
         services.AddSingleton<ILootScanRecognitionProgressSource>(provider =>
             provider.GetRequiredService<CaptureRecognitionPipeline>());
         services.AddSingleton<InventoryGridReconstructor>();
