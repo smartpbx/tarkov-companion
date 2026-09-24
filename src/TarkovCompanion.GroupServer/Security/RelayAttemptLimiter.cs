@@ -63,7 +63,9 @@ public sealed class RelayAttemptLimiter
     /// <remarks>
     /// The transport's own remote address, never a header. `X-Forwarded-For` is written by
     /// whoever is nearest, so counting it would let one caller be as many callers as it liked —
-    /// which is the exact thing being limited.
+    /// which is the exact thing being limited. The one exception is a proxy the operator named in
+    /// TARKOV_RELAY_TRUSTED_PROXIES: its header has already replaced this address by the time it
+    /// arrives here (#819, <see cref="RelayForwardedHeaders"/>).
     /// </remarks>
     public static string CallerOf(IPAddress? address) => address?.ToString() ?? "unknown";
 

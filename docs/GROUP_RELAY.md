@@ -611,7 +611,8 @@ from its fifth refused key, doubling to two seconds, and refused for sixty secon
 refusals in five minutes; one accepted key clears the record. It applies to the operator's own
 `/admin` and `/reports` as well, on the same ladder. Sixty seconds rather than longer because this
 counts by transport address, and a relay behind a reverse proxy sees the proxy: a long lockout
-there would be an outage for everybody caused by one stranger.
+there would be an outage for everybody caused by one stranger. Since #819 a proxy named in
+`TARKOV_RELAY_TRUSTED_PROXIES` supplies the caller's address instead (see the deploy README).
 
 A 503 on a group path is a state the relay used to have no way to report. An unreadable
 `rooms.json` emptied the list, and an empty list means open — so a closed relay quietly started

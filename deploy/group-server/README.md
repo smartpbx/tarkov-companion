@@ -37,6 +37,22 @@ The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.Gro
 supplies the reusable group key, which the relay receives before hashing it into a room id. The
 operator/admin credential and optional registered-room state remain separate configuration.
 
+### Trusted proxies (`TARKOV_RELAY_TRUSTED_PROXIES`)
+
+The key and pairing limiters count callers by address, and behind the tunnel every caller arrives
+from the tunnel connector (#819). Set `TARKOV_RELAY_TRUSTED_PROXIES` to the connector's address
+as the relay sees it, and the relay takes the caller from the rightmost `X-Forwarded-For` entry
+on requests from that address only; from anyone else the header is ignored. Addresses or CIDR
+ranges, comma-separated. Unset means loopback only. A value that does not parse, or `0.0.0.0/0`,
+stops the relay starting.
+
+On the live deploy the connector is `cloudflared` on CT 105, which reaches 8090 across the LAN, so
+the value is CT 105's LAN address. Confirm it from the relay container before setting it:
+`ss -tn state established '( sport = :8090 )'` lists it as the only peer. Then, in the service's
+drop-in or `/etc/tarkov-group.env`: `TARKOV_RELAY_TRUSTED_PROXIES=<that address>`. CT 105 takes
+its address from DHCP, so pin it with a reservation or this setting goes stale silently (the
+limiters fall back to one shared bucket, as before).
+
 ## Updating
 
 It updates itself, every half hour, and that is the point: a relay that could not fetch its own
