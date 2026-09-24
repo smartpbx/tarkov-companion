@@ -144,6 +144,11 @@ or 500k) ranked per item or per inventory slot. That choice is evaluated by the 
 the stable-ID scene is reconciled, and the tablet receives both the filtered scene and the filter
 that explains it; neither desktop nor tablet presents those potential spawns as live detections.
 
+Every layer the player turns on or off in the Raid map's Layers menu (or from the paired tablet,
+which drives the same renderer) is remembered by layer id in `workspace-layout.json`
+(`raid.layer-visibility`), globally rather than per map, and laid over every scene build. A layer
+never touched keeps its map default, such as Switches on for Labs, Reserve and Interchange (#796).
+
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential
 spawns remain potential. An interior asset is renderable only after its source, licence, hash,

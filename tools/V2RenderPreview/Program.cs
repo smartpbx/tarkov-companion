@@ -103,6 +103,16 @@ internal static class Program
 
         MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
         MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
+        // [Issue 796] --keep-layout <file>: the workspace layout carried from one render to the
+        // next, so a second run is the app after a restart with the first run's choices.
+        var keptLayout = StringOption(args, "--keep-layout");
+        var layoutPath = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config, "workspace-layout.json");
+        if (keptLayout is not null && File.Exists(keptLayout))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(layoutPath)!);
+            File.Copy(keptLayout, layoutPath, overwrite: true);
+        }
+
         try
         {
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
@@ -1106,6 +1116,10 @@ internal static class Program
                         {
                             layer.ToggleCommand.Execute(null);
                             Pump(10);
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine($"Map layer '{layerId}' is not on: {string.Join(", ", offRenderer.Layers.Select(item => $"{item.Layer.Id.Value}={item.IsVisible}"))}");
                         }
                     }
 
@@ -2359,6 +2373,11 @@ internal static class Program
         {
             try
             {
+                if (keptLayout is not null && File.Exists(layoutPath))
+                {
+                    File.Copy(layoutPath, keptLayout, overwrite: true);
+                }
+
                 MapSwitchProbe.UnlinkMapCache(dataRoot, demoMode);
                 Directory.Delete(dataRoot, recursive: true);
             }

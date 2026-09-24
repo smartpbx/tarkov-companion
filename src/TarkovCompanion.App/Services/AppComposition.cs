@@ -850,7 +850,10 @@ public static class AppComposition
             // [Issue 571] "Done" by hand, and whose profile it belongs to.
             handDone: provider.GetRequiredService<IHandDoneObjectiveStore>(),
             profiles: provider.GetRequiredService<IPlayerProfileService>(),
-            squadQuests: provider.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>()));
+            squadQuests: provider.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>(),
+            // [Issue 796] Never passed until now, so the panel width, cards, Follow zoom, loot
+            // threshold and layer choices all worked for the session and were forgotten after it.
+            layout: provider.GetService<IWorkspaceLayoutStore>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
