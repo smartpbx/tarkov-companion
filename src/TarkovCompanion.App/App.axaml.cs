@@ -34,6 +34,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private V2AppearanceApplier? _appearance;
     private WorkspacePreferenceService? _preferences;
     private UiHangWatchdog? _hangWatchdog;
+    private TarkovCompanion.Application.Services.Runtime.WallClockJumpDetector? _clockJumps;
 
     /// <summary>[#279] Set only for a developer-mode launch with <c>--gallery-scene</c>.</summary>
     internal GalleryReadiness? GalleryReadiness { get; init; }
@@ -158,6 +159,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     GalleryReadiness?.Failed("A gallery scene needs the V2 shell.");
                 }
                 services.GetRequiredService<DatabaseMaintenanceCoordinator>().Start();
+                // [#799] A clock set while running moves the held times rather than stranding them.
+                _clockJumps = ClockJumpWiring.Attach(services);
                 // [#453] From here on a dispatcher that stops answering for five seconds says so
                 // in the log, with the route and the load that was running.
                 _hangWatchdog = UiHangWatchdog.ForApplication();
@@ -353,6 +356,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     public void StopAcceptingWork()
     {
         _hangWatchdog?.Dispose();
+        _clockJumps?.Dispose();
         _hangWatchdog = null;
         try
         {

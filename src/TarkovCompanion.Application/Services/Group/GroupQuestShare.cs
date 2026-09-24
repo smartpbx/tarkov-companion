@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
@@ -123,7 +124,7 @@ public sealed class GroupQuestShare
     public async Task<SharedQuests> GetAsync(CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow();
-        if (now - _readUtc < RereadAfter)
+        if (WallClockAge.IsWithin(now, _readUtc, RereadAfter))
         {
             return _shared;
         }
@@ -131,7 +132,7 @@ public sealed class GroupQuestShare
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_timeProvider.GetUtcNow() - _readUtc < RereadAfter)
+            if (WallClockAge.IsWithin(_timeProvider.GetUtcNow(), _readUtc, RereadAfter))
             {
                 return _shared;
             }

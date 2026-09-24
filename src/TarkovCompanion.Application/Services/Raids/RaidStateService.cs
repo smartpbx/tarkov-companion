@@ -49,6 +49,13 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         Current = staged.Current;
     }
 
+    /// <summary>[#799] Moves every held wall time by a clock jump; see <see cref="RaidSnapshotClockShift"/>.</summary>
+    public RaidSnapshot RebaseClock(TimeSpan jump)
+    {
+        Current = RaidSnapshotClockShift.Shift(Current, jump);
+        return Current;
+    }
+
     public RaidSnapshot Current { get; private set; } = new(
         null,
         RaidLifecycleState.Unknown,

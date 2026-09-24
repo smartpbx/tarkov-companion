@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
@@ -163,7 +164,7 @@ public sealed class SquadQuestResolver(
         {
             var profile = await profiles.GetActiveAsync(cancellationToken).ConfigureAwait(false);
             var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
-            if (_cached is { } cached && cached.Scope == scope && _time.GetUtcNow() - cached.ReadUtc < RereadCatalogAfter)
+            if (_cached is { } cached && cached.Scope == scope && WallClockAge.IsWithin(_time.GetUtcNow(), cached.ReadUtc, RereadCatalogAfter))
             {
                 return (cached.Scope, cached.Catalog, cached.Tasks);
             }

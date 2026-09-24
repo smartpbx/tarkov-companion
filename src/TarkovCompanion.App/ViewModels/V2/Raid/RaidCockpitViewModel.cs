@@ -2165,7 +2165,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
                 // The raid moves from early to mid to late on the clock alone, so the traffic
                 // line has to be asked again as it does, without a rebuild for every tick.
-                if (_timeProvider.GetUtcNow() - _trafficEvaluatedUtc >= TrafficRefreshInterval)
+                if (!WallClockAge.IsWithin(_timeProvider.GetUtcNow(), _trafficEvaluatedUtc, TrafficRefreshInterval))
                 {
                     RefreshTraffic();
                 }

@@ -39,7 +39,7 @@ public sealed partial class RaidCockpitViewModel
             LocateMark,
             (mapId, position, isPing, cancellationToken) =>
                 session.SendMarkAsync(mapId, position, label: null, isPing, cancellationToken),
-            id => session.RemoveMarkAsync(id, CancellationToken.None),
+            (id, why) => session.RemoveMarkAsync(id, CancellationToken.None, why),
             _timeProvider);
         _groupForwarder.Changed += MarksChanged;
     }

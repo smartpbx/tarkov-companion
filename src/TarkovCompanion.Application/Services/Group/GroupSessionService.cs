@@ -137,8 +137,18 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private bool _waitOutTheTick;
 
-    /// <summary>When the last exchange started, for the rate bound.</summary>
-    private DateTimeOffset _lastExchangeUtc = DateTimeOffset.MinValue;
+    /// <summary>When the last exchange started, for the rate bound, on the monotonic clock.</summary>
+    /// <remarks>
+    /// [#799] This was a wall time. The PC's clock was set back four hours while the companion
+    /// ran, so "300 ms since the last exchange" came out as four hours to wait, and the loop sat
+    /// in that one Task.Delay: the squad vanished from this map and this player from theirs.
+    /// </remarks>
+    private long? _lastExchangeStarted;
+
+    /// <summary>When the group was first shown stale, on the monotonic clock, for <see cref="StaleLimit"/>.</summary>
+    private long? _staleSinceStarted;
+
+    private readonly TimeProvider _clock;
 
     /// <summary>How long squadmate positions are taking to arrive, measured on the way in.</summary>
     private readonly GroupPositionLatency _latency = new();
@@ -164,8 +174,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         // Optional so a composition without quest storage still shares a position, which is
         // what every test that builds this by hand relies on.
         GroupQuestShare? quests = null,
-        GroupKitShare? kits = null)
+        GroupKitShare? kits = null,
+        TimeProvider? clock = null)
     {
+        _clock = clock ?? TimeProvider.System;
         _settings = settings;
         _stateStore = stateStore;
         _httpClient = httpClient;
@@ -230,6 +242,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         Interrupt();
     }
 
+    /// <summary>
+    /// [#799] The PC's clock was set: publish now, with the position ages the raid state was
+    /// just re-stamped to, rather than at the end of whatever hold is running.
+    /// </summary>
+    public void ClockJumped()
+    {
+        Interlocked.Increment(ref _localChanges);
+        Interrupt();
+    }
+
     /// <summary>Cuts short whatever exchange is being held open, if one is.</summary>
     private void Interrupt()
     {
@@ -248,7 +270,9 @@ public sealed class GroupSessionService : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             // The rate bound, and the only wait this loop takes that nothing can cut short.
-            var gap = MinimumExchangeGap - (DateTimeOffset.UtcNow - _lastExchangeUtc);
+            var gap = _lastExchangeStarted is { } last
+                ? MinimumExchangeGap - _clock.GetElapsedTime(last)
+                : TimeSpan.Zero;
             if (gap > TimeSpan.Zero)
             {
                 try
@@ -276,7 +300,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 using (var exchange = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token))
                 {
                     exchange.CancelAfter(ExchangeTimeout + hold);
-                    _lastExchangeUtc = DateTimeOffset.UtcNow;
+                    _lastExchangeStarted = _clock.GetTimestamp();
                     await PublishOnceAsync(hold, exchange.Token).ConfigureAwait(false);
                 }
 
@@ -467,14 +491,22 @@ public sealed class GroupSessionService : IAsyncDisposable
                     settings.DisplayName!.Trim(), mapId, position.X, position.Y, position.Z, label)),
             };
             request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+            var started = _clock.GetTimestamp();
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
+            var id = await ReadMarkIdAsync(response, cancellationToken).ConfigureAwait(false);
+            // With its id and how long the relay took, so this line and the removal that follows
+            // it can be paired, and a send that sat waiting is visible as one (#799).
             _logger.LogInformation(
-                "Marked {Kind} on {Map} for the group.", isPing ? "a ping" : "a waypoint", mapId);
+                "Marked {Kind} {Id} on {Map} for the group in {Elapsed:0} ms.",
+                isPing ? "a ping" : "a waypoint",
+                id,
+                mapId,
+                _clock.GetElapsedTime(started).TotalMilliseconds);
             // The mark is drawn from the next exchange like everybody else's, so that exchange
             // happens now rather than at the end of whatever hold was already running.
             Interrupt();
-            return await ReadMarkIdAsync(response, cancellationToken).ConfigureAwait(false);
+            return id;
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -499,7 +531,9 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// the same single code path that draws every mark, so a remover never sees a map the
     /// group does not have.
     /// </remarks>
-    public async Task<bool> RemoveMarkAsync(long id, CancellationToken cancellationToken)
+    /// <param name="why">What removed it, for the log line: a ping leaving early is otherwise a
+    /// "Removed waypoint" line with no cause beside it (#799).</param>
+    public async Task<bool> RemoveMarkAsync(long id, CancellationToken cancellationToken, string? why = null)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsUsable || id <= 0)
@@ -510,12 +544,14 @@ public sealed class GroupSessionService : IAsyncDisposable
             return false;
         }
 
+        var because = string.IsNullOrWhiteSpace(why) ? string.Empty : $" ({why})";
         return await SendAsync(
             settings,
             new Uri(new Uri(settings.ServerUri!), $"waypoints/{id}"),
-            $"Removed waypoint {id} for the group.",
-            "Could not remove a mark for the group.",
-            cancellationToken).ConfigureAwait(false);
+            $"Removed mark {id} for the group{because}.",
+            $"Could not remove mark {id} for the group{because}.",
+            cancellationToken,
+            goneIsDone: true).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -572,20 +608,58 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private sealed record MarkIdDto([property: JsonPropertyName("id")] long Id);
 
+    /// <summary>The start of a refusal's body, for the log: a relay's reason is usually one short line.</summary>
+    private static async Task<string> ReadRefusalAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var body = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim();
+            return body.Length == 0 ? string.Empty : $": {(body.Length > 200 ? body[..200] : body)}";
+        }
+        catch (Exception exception) when (exception is HttpRequestException or IOException or InvalidOperationException)
+        {
+            return string.Empty;
+        }
+    }
+
     /// <summary>One DELETE, said once, because the two above differ only in where they point.</summary>
     private async Task<bool> SendAsync(
         GroupSharingSettings settings,
         Uri uri,
         string done,
         string failed,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool goneIsDone = false)
     {
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
             request.Headers.Add("X-Group-Key", settings.Key!.Trim());
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            if (goneIsDone && response.StatusCode == HttpStatusCode.NotFound)
+            {
+                // The relay forgets a ping by itself after 45 s, and a squadmate may have removed
+                // the mark first. Either way it is gone, which is what was asked for; a warning
+                // here only ever reported the relay agreeing.
+                _logger.LogInformation("{Done} It was already gone from the relay.", done);
+                Interrupt();
+                return true;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // The status and whatever the relay said, which "Response status code does not
+                // indicate success" never carried: 401, 403 and 404 each mean something different.
+                var said = await ReadRefusalAsync(response, cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "{Failed} The relay answered {Status} {Reason}{Said}",
+                    failed,
+                    (int)response.StatusCode,
+                    response.ReasonPhrase,
+                    said);
+                return false;
+            }
+
             _logger.LogInformation("{Done}", done);
             Interrupt();
             return true;
@@ -615,7 +689,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // Deliberate, not a failure, so there is nothing to keep warm.
             _lastGood = null;
             Publish(settings.ResetReason is { Length: > 0 } reason
-                ? GroupSnapshot.Off with { Detail = reason, UpdatedUtc = DateTimeOffset.UtcNow }
+                ? GroupSnapshot.Off with { Detail = reason, UpdatedUtc = _clock.GetUtcNow() }
                 : GroupSnapshot.Off);
             return;
         }
@@ -631,7 +705,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             Publish(GroupSnapshot.Off with
             {
                 Detail = $"Needs {settings.MissingPiece}",
-                UpdatedUtc = DateTimeOffset.UtcNow,
+                UpdatedUtc = _clock.GetUtcNow(),
             });
             return;
         }
@@ -670,7 +744,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         var observed = _kits is null
             ? []
             : await _kits.GetAsync(cancellationToken).ConfigureAwait(false);
-        var payload = Describe(snapshot, settings, sharedQuests, observed);
+        var payload = Describe(snapshot, settings, sharedQuests, observed, _clock.GetUtcNow());
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             new Uri(new Uri(settings.ServerUri!), Exchange(hold)))
@@ -698,7 +772,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                     Detail = response.StatusCode == HttpStatusCode.Forbidden
                         ? "This relay only serves rooms its operator registered"
                         : $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
-                    UpdatedUtc = DateTimeOffset.UtcNow,
+                    UpdatedUtc = _clock.GetUtcNow(),
                 });
                 return;
             }
@@ -737,7 +811,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         // Timed on the way in, before anything is drawn: this is the number that says whether
         // a squadmate's screenshot is reaching this map quickly, and it is the only honest way
         // to have one.
-        var arrived = DateTimeOffset.UtcNow;
+        var arrived = _clock.GetUtcNow();
         foreach (var member in members)
         {
             _latency.Observe(member.Name, member.PositionAge, member.Since, arrived);
@@ -765,7 +839,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             true,
             members,
             Skew(room?.Protocol) is { } skew ? $"{describe} · {skew}" : describe,
-            DateTimeOffset.UtcNow)
+            _clock.GetUtcNow())
         {
             // The things this companion cannot read about its own player, handed back by the
             // people whose game named them.
@@ -787,6 +861,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         // Kept so the next failed exchange has something true to keep showing. StaleSince is
         // null here by construction: this read worked, so nothing on screen is old.
         _lastGood = published;
+        _staleSinceStarted = null;
         Publish(published);
 
         await CompleteReachedAsync(room, snapshot, settings, cancellationToken).ConfigureAwait(false);
@@ -880,7 +955,8 @@ public sealed class GroupSessionService : IAsyncDisposable
         ApplicationRuntimeSnapshot snapshot,
         GroupSharingSettings settings,
         SharedQuests sharedQuests,
-        IReadOnlyList<ObservedKit> observed)
+        IReadOnlyList<ObservedKit> observed,
+        DateTimeOffset now)
     {
         var raid = snapshot.Raid;
         // [#707] Out of the raid, the last screenshot is where the player *was*. Published, it drew
@@ -895,7 +971,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             position?.Position.X,
             position?.Position.Z,
             position?.HeadingDegrees,
-            position is null ? null : (DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime()).TotalSeconds,
+            position is null ? null : Math.Max(0, (now - position.Timestamp.ToUniversalTime()).TotalSeconds),
             settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
             sharedQuests.Names)
         {
@@ -917,7 +993,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                     ScavLockedUntilUnix = kit.ScavLockedUntil?.ToUnixTimeSeconds(),
                 })
                 .ToArray(),
-            Trail = hasLeft ? [] : DescribeTrail(snapshot),
+            Trail = hasLeft ? [] : DescribeTrail(snapshot, now),
             // Only a scav's own screen differs. In a PMC party the offered exits are the same
             // for everybody, which is what makes this shareable; a scav's are not, so a scav
             // publishes none and nobody is handed a list that was never theirs.
@@ -925,7 +1001,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             Transits = IsScav(raid) ? [] : raid.Transits,
             RaidClockSeconds = raid.RaidClock?.TotalSeconds,
             RaidClockAgeSeconds = raid.RaidClockReadUtc is { } read
-                ? Math.Max(0, (DateTimeOffset.UtcNow - read.ToUniversalTime()).TotalSeconds)
+                ? Math.Max(0, (now - read.ToUniversalTime()).TotalSeconds)
                 : null,
         };
     }
@@ -960,7 +1036,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// Each point carries its own age rather than a timestamp. A clock that is wrong by an hour
     /// is common enough, and an age is a duration either end agrees on.
     /// </remarks>
-    private static IReadOnlyList<TrailPointDto> DescribeTrail(ApplicationRuntimeSnapshot snapshot)
+    private static IReadOnlyList<TrailPointDto> DescribeTrail(ApplicationRuntimeSnapshot snapshot, DateTimeOffset now)
     {
         var trail = snapshot.Raid.PositionTrail;
         if (trail.Count < 2)
@@ -968,7 +1044,6 @@ public sealed class GroupSessionService : IAsyncDisposable
             return [];
         }
 
-        var now = DateTimeOffset.UtcNow;
         return
         [
             .. trail
@@ -1063,15 +1138,19 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private void PublishStale(string detail)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _clock.GetUtcNow();
         if (_lastGood is not { } good)
         {
             Publish(GroupSnapshot.Off with { Detail = detail, UpdatedUtc = now });
             return;
         }
 
+        // [#799] How long it has been stale is measured on the monotonic clock: a wall clock set
+        // forward would otherwise drop the whole group on the first failure after it.
+        var staleStarted = _staleSinceStarted ??= _clock.GetTimestamp();
+        var staleFor = _clock.GetElapsedTime(staleStarted);
         var since = good.StaleSince ?? now;
-        if (now - since > StaleLimit)
+        if (staleFor > StaleLimit)
         {
             _lastGood = null;
             Publish(GroupSnapshot.Off with { Detail = detail, UpdatedUtc = now });
@@ -1080,7 +1159,7 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         var stale = good with
         {
-            Detail = $"{detail} · last heard {Ago(now - since)} ago",
+            Detail = $"{detail} · last heard {Ago(staleFor)} ago",
             StaleSince = since,
             UpdatedUtc = now,
         };

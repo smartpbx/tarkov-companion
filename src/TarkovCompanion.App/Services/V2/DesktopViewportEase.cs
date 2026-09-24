@@ -67,6 +67,12 @@ public sealed class DesktopViewportEase : IDisposable
         }
 
         var fraction = (_clock.GetUtcNow() - _startedUtc) / Duration;
+        if (fraction < 0)
+        {
+            // [#799] The clock was set back mid-glide; finish it rather than tick for hours.
+            fraction = 1;
+        }
+
         var camera = At(_from, _to, fraction);
         renderer.ShowCamera(new MapScenePoint(camera.X, camera.Y), camera.Zoom);
         if (fraction >= 1)
