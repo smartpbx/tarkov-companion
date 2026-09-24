@@ -391,6 +391,53 @@ function Invoke-PackagedApp {
     return $Process.ExitCode
 }
 
+# "Exit code: 1" alone (main run 35964313245) said only that a required check failed, and the
+# smoke stops at its first failure, so the report naming the check was never read. Name the failed
+# checks, what the process wrote to stderr, and any other copy of the application still running:
+# that run's self-test started while the installed copy the update step had reopened was starting
+# on the same application data.
+function Get-SelfTestExitDetail {
+    param(
+        [int] $ExitCode,
+        [string] $ReportPath,
+        [string] $WorkRoot
+    )
+
+    $Parts = [System.Collections.Generic.List[string]]::new()
+    $Parts.Add("Exit code: $ExitCode")
+    if ($ExitCode -eq 0) { return $Parts[0] }
+
+    try {
+        if (Test-Path -LiteralPath $ReportPath) {
+            $Report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json
+            $Failed = @($Report.checks | Where-Object { $_.required -and $_.status -ne "pass" })
+            foreach ($Check in $Failed) { $Parts.Add("check $($Check.name) $($Check.status): $($Check.detail)") }
+            if ($Failed.Count -eq 0) { $Parts.Add("the report names no failed required check") }
+        }
+        else {
+            $Parts.Add("no report was written")
+        }
+    }
+    catch {
+        $Parts.Add("the report could not be read: $($_.Exception.Message)")
+    }
+
+    $ErrorPath = Join-Path $WorkRoot "self-test.err.txt"
+    if (Test-Path -LiteralPath $ErrorPath) {
+        $ErrorText = (Get-Content -LiteralPath $ErrorPath -Raw)
+        if (-not [string]::IsNullOrWhiteSpace($ErrorText)) { $Parts.Add("stderr: $($ErrorText.Trim())") }
+    }
+
+    $Others = @(Get-CimInstance Win32_Process -Filter "Name = 'TarkovCompanion.exe'" -ErrorAction SilentlyContinue)
+    if ($Others.Count -gt 0) {
+        $Parts.Add("also running: " + (($Others | ForEach-Object { "pid $($_.ProcessId) $($_.CommandLine)" }) -join "; "))
+    }
+
+    $Detail = $Parts -join " | "
+    Write-Host "self-test-exit: $Detail"
+    return $Detail
+}
+
 function Send-DiagnosticCommand {
     param(
         [string] $ChannelRoot,
@@ -443,7 +490,7 @@ try {
         -Arguments @("--self-test", "--output", $SelfTestPath) `
         -WorkRoot $WorkRoot `
         -Name "self-test"
-    Add-Assertion -Name "self-test-exit" -Passed ($SelfTestExitCode -eq 0) -Detail "Exit code: $SelfTestExitCode"
+    Add-Assertion -Name "self-test-exit" -Passed ($SelfTestExitCode -eq 0) -Detail (Get-SelfTestExitDetail -ExitCode $SelfTestExitCode -ReportPath $SelfTestPath -WorkRoot $WorkRoot)
     $SelfTest = Get-Content -LiteralPath $SelfTestPath -Raw | ConvertFrom-Json
     Add-Assertion -Name "self-test-report" -Passed ([bool]$SelfTest.success) -Detail "Headless report is successful."
     Add-Assertion -Name "self-test-offline" -Passed (-not [bool]$SelfTest.environment.networkContacted) -Detail "Self-test made no network contact."
