@@ -29,12 +29,18 @@ public sealed record ShellLayout(
     /// The sizes on offer, smallest first.
     /// </summary>
     /// <remarks>
-    /// Four, not a slider. The type scale, the row heights and the fixed columns were all
+    /// Steps, not a slider. The type scale, the row heights and the fixed columns were all
     /// designed against one of these, and a continuum of arbitrary multipliers is a continuum
     /// of layouts nobody has ever looked at. Somebody who wants more room has one press to find
     /// it and one press to undo it.
+    ///
+    /// It stopped at 130% until #266: past that, 150% and 200% of the whole window were only
+    /// reachable through the operating system's display scaling, which also scales the game on
+    /// the same machine. At 200% a 1920x1080 window lays the shell out in 960x540, so the V2
+    /// shell's side panels have to collapse or scroll there rather than clip; the renders at
+    /// 150% and 200% are the proof, not this list.
     /// </remarks>
-    public static IReadOnlyList<double> Scales { get; } = [0.9, 1.0, 1.15, 1.3];
+    public static IReadOnlyList<double> Scales { get; } = [0.9, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0];
 
     /// <summary>The size the window has always opened at, for anybody who has not moved it.</summary>
     public static ShellLayout Default { get; } = new(1500, 900, null, null, false, false);
@@ -61,6 +67,71 @@ public sealed record ShellLayout(
         var index = Scales.ToList().IndexOf(NearestScale(from));
         return Scales[Math.Clamp(index + Math.Sign(direction), 0, Scales.Count - 1)];
     }
+
+    /// <summary>The width the shell is laid out in: the window's own width at the chosen scale.</summary>
+    /// <remarks>
+    /// The scale is a layout transform on the whole shell, so at 200% a 1920-wide window is a
+    /// 960-wide shell. Everything below is decided on this number, never on the window's.
+    /// </remarks>
+    public static double LayoutWidth(double windowWidth, double scale) =>
+        double.IsFinite(windowWidth) && double.IsFinite(scale) && scale > 0
+            ? windowWidth / scale
+            : windowWidth;
+
+    /// <summary>The narrowest shell whose navigation rail keeps its words beside its icons.</summary>
+    /// <remarks>
+    /// Below this the rail draws icons only, whatever was chosen, and goes back to words when
+    /// there is room again. 168 of a 960-wide shell (1920 at 200%) is a sixth of the width for
+    /// five words the icons already say, taken from a map that was left 390 wide.
+    /// </remarks>
+    public const double RailLabelsMinimumWidth = 1100;
+
+    /// <summary>The narrowest shell whose top bar shows the product name and the freshness text.</summary>
+    /// <remarks>
+    /// Measured at 200%: the full bar needs about 1180, and a 960-wide shell cut the Ready pill,
+    /// search and capture off the right-hand edge. The name and "Data updated ..." are the two
+    /// things nobody acts on; the freshness keeps its icon and says the words as its tooltip.
+    /// </remarks>
+    public const double TopBarFullMinimumWidth = 1200;
+
+    /// <summary>The narrowest map column whose control strip fits on one row.</summary>
+    /// <remarks>
+    /// About 1300 is what the clock, the presentation switches, the traffic chip, Follow, View
+    /// and Layers need side by side on Customs. At 150% the strip was 1060 wide and the floor
+    /// switches were squeezed to nothing; below this they get a row of their own.
+    /// </remarks>
+    public const double ControlStripOneRowMinimumWidth = 1250;
+
+    /// <summary>Whether a shell this wide keeps the rail's words.</summary>
+    public static bool RailFitsLabels(double layoutWidth) =>
+        !double.IsFinite(layoutWidth) || layoutWidth >= RailLabelsMinimumWidth;
+
+    /// <summary>Whether a shell this wide shows the whole top bar.</summary>
+    public static bool TopBarFitsInFull(double layoutWidth) =>
+        !double.IsFinite(layoutWidth) || layoutWidth >= TopBarFullMinimumWidth;
+
+    /// <summary>Whether a map column this wide keeps its control strip on one row.</summary>
+    public static bool ControlStripFitsOneRow(double columnWidth) =>
+        !double.IsFinite(columnWidth) || columnWidth >= ControlStripOneRowMinimumWidth;
+
+    /// <summary>What the main content keeps before a side panel beside it gives way.</summary>
+    public const double MainContentMinimumWidth = 600;
+
+    /// <summary>
+    /// The most a side panel may take of the workspace it sits in.
+    /// </summary>
+    /// <remarks>
+    /// Whatever leaves the main content <see cref="MainContentMinimumWidth"/>. The Raid plan's
+    /// 360 was chosen at 1920 wide, where it is a fifth; at 200% the same 360 was 40% of an
+    /// 870-wide cockpit and left the map 390 wide. At 100% this is over a thousand and the
+    /// player's own dragged width is never touched. The panel's minimum still wins, because a
+    /// panel narrower than it can hold is clipped rather than smaller — and it scrolls and can
+    /// be put away with its handle, so nothing is lost below it.
+    /// </remarks>
+    public static double SidePanelMaximum(double workspaceWidth, double panelMinimum) =>
+        double.IsFinite(workspaceWidth) && workspaceWidth > 0
+            ? Math.Max(panelMinimum, workspaceWidth - MainContentMinimumWidth)
+            : double.PositiveInfinity;
 
     /// <summary>
     /// Whether these bounds are worth restoring at all.

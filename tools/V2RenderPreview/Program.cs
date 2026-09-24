@@ -2427,7 +2427,7 @@ internal static class Program
 
             if (StringOption(args, "--open-flyout") is { } flyoutId)
             {
-                FlyoutProbe.Save(window, flyoutId, outputPath, Pump);
+                FlyoutProbe.Save(window, flyoutId, outputPath, Pump, args.Contains("--flyout-scroll-end"));
             }
 
             // [#453] --stall-tour / --memory-tour N: walk the app and report stalls or memory.
