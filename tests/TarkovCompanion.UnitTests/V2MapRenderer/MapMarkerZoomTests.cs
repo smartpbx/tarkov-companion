@@ -191,6 +191,32 @@ public sealed class MapMarkerZoomTests
         Assert.Equal(hazards, counted);
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(6)]
+    public void A_route_step_badge_never_covers_the_objective_letter(double zoom)
+    {
+        // [#797] On Windows the gold "5" hid the objective's letter under it at fit zoom.
+        var renderer = Renderer(
+            styleResolver: _ => new MapSceneObjectStyle(Badge: "5"),
+            At("A", MapSceneObjectKind.QuestObjective, 100, 100));
+        if (zoom > 1)
+        {
+            renderer.RequestZoom(zoom);
+        }
+
+        var pin = Assert.Single(renderer.PointMarkers);
+        Assert.True(pin.ShowsPinLetter);
+        var radius = MapSceneRendererObjectViewModel.PinBadgeExtent / 2 / pin.MarkerScale;
+        var badgeX = pin.PinBadgeMargin.Left + (MapSceneRendererObjectViewModel.PinBadgeExtent / 2);
+        var badgeY = pin.PinBadgeMargin.Top + (MapSceneRendererObjectViewModel.PinBadgeExtent / 2);
+        var letterX = pin.PinWidth / 2;
+        var letterY = pin.PinLabelMargin.Top + (pin.PinLabelFontSize / 2);
+        var gap = Math.Sqrt(Math.Pow(badgeX - letterX, 2) + Math.Pow(badgeY - letterY, 2)) - radius;
+        Assert.True(gap >= pin.PinLabelFontSize / 2, $"zoom {zoom}: the badge reaches {gap:F1} from the letter's middle");
+    }
+
     [Fact]
     public void A_route_step_badge_keeps_its_screen_size_at_every_zoom()
     {

@@ -3588,7 +3588,12 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     {
         get
         {
-            var (x, y) = IsWaypointMark ? (PinWidth / 2, PinWidth / 2) : (PinWidth - 1, 1.0);
+            // [#797] Beyond the shield's corner, not on it: the badge keeps its 22 screen DIPs
+            // while the shield shrinks at fit zoom, and on Windows a badge centred on the corner
+            // covered the whole letter. Its radius in pin units grows as the pin shrinks, so the
+            // centre moves out with it, leaving only a sliver over the corner.
+            var outward = PinBadgeExtent / 2 / MarkerScale * 0.6;
+            var (x, y) = IsWaypointMark ? (PinWidth / 2, PinWidth / 2) : (PinWidth + outward, -outward);
             return new(x - (PinBadgeExtent / 2), y - (PinBadgeExtent / 2), 0, 0);
         }
     }
@@ -3786,6 +3791,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             OnPropertyChanged(nameof(HitCornerRadius));
             OnPropertyChanged(nameof(PinHeadHitMargin));
             OnPropertyChanged(nameof(PinBadgeScale));
+            OnPropertyChanged(nameof(PinBadgeMargin));
         }
 
         if (wasShown != IsShownOnPlan)
