@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Team;
@@ -112,7 +113,7 @@ public sealed partial class RaidCockpitViewModel
 
             var ids = projection.Objectives.Select(item => item.ObjectiveId).Distinct(StringComparer.Ordinal).ToArray();
             var names = ids.Select(feed.Picture.MemberFor).OfType<string>().Distinct(StringComparer.Ordinal);
-            return $"Squad: {ids.Length} from {string.Join(", ", names)}";
+            return RaidText.SquadObjectivesFrom(ids.Length, string.Join(", ", names));
         }
     }
 

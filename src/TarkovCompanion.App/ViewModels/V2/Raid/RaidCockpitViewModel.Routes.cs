@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -48,7 +49,7 @@ public sealed partial class RaidCockpitViewModel
 
     public bool HasSuggestedRoute => ShownRoute is not null;
 
-    public string RouteTitle => ShownRoute is { } route ? $"To {route.Extract}" : string.Empty;
+    public string RouteTitle => ShownRoute is { } route ? RaidText.RouteTo(route.Extract) : string.Empty;
 
     public string RouteStartLabel => _routeStartLabel;
 
@@ -60,12 +61,12 @@ public sealed partial class RaidCockpitViewModel
 
     public IReadOnlyList<string> RouteReasons => ShownRoute?.Plan.Reasons ?? [];
 
-    public string RouteCaveat => "Straight-line guidance · walls, water and terrain are not modelled";
+    public string RouteCaveat => RaidText.RouteCaveat;
 
     /// <summary>There is a field to route over and nowhere to route from.</summary>
     public bool ShowsRouteHint => _routeNeedsStart && !HasSuggestedRoute;
 
-    public string RouteHint => "Take a screenshot in raid, or select a spawn on the map, to route from there";
+    public string RouteHint => RaidText.RouteHint;
 
     private (IReadOnlyList<MapSceneLayer> Layers, IReadOnlyList<MapSceneObject> Objects) BuildRouteLayers(
         MapRenderModel model,
@@ -149,20 +150,20 @@ public sealed partial class RaidCockpitViewModel
         {
             Add(
                 "traffic-route:direct",
-                $"Direct line to {shown.Extract} · {direct.MinutesLabel}",
-                $"Higher modelled contact. {RouteCaveat}.",
+                RaidText.DirectLineTo(shown.Extract, direct.MinutesLabel),
+                RaidText.HigherContactDetail(RouteCaveat),
                 direct,
                 new(AlternativeRouteColor, LineThickness: 3, Opacity: 0.85));
         }
 
         Add(
             "traffic-route:lower-contact",
-            $"Lower-contact route to {shown.Extract} · {shown.Plan.LowerContact.MinutesLabel}",
+            RaidText.LowerContactRouteTo(shown.Extract, shown.Plan.LowerContact.MinutesLabel),
             $"{string.Join(". ", shown.Plan.Reasons)}. {RouteCaveat}.",
             shown.Plan.LowerContact,
             new(RouteColor, LineThickness: 4));
         _routeStyles = styles;
-        return ([new(RouteLayerId, "Suggested routes", 65, true)], objects);
+        return ([new(RouteLayerId, RaidText.LayerSuggestedRoutes, 65, true)], objects);
     }
 
     private MapSceneObjectId? _routeStartSpawnId;
@@ -176,12 +177,12 @@ public sealed partial class RaidCockpitViewModel
         _routeStartSpawnId = SelectedSpawnId();
         if (_map.PlayerPosition is { } position && TryPlan(model, position.Position, out var here))
         {
-            return (new(here.X, here.Y), "From your last screenshot");
+            return (new(here.X, here.Y), RaidText.FromYourLastScreenshot);
         }
 
         return Renderer?.SelectedObject?.SceneObject is { Kind: MapSceneObjectKind.SpawnArea } spawn &&
             spawn.Geometry.Points is [var at, ..]
-            ? (new(at.X, at.Y), "From the selected spawn")
+            ? (new(at.X, at.Y), RaidText.FromTheSelectedSpawn)
             : null;
     }
 

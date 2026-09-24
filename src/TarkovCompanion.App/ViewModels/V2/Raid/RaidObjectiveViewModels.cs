@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
@@ -65,10 +66,10 @@ public sealed class RaidObjectiveRowViewModel : BindableViewModel
 
     public bool CanToggleDone { get; }
 
-    public string DoneLabel => IsDone ? "Not done" : "Done";
+    public string DoneLabel => IsDone ? RaidText.NotDone : RaidText.Done;
 
     /// <summary>The row's check button says what pressing it does; the button itself is only an icon.</summary>
-    public string DoneTip => IsDone ? "Mark not done" : "Mark done";
+    public string DoneTip => IsDone ? RaidText.MarkNotDone : RaidText.MarkDone;
 
     public ICommand ToggleDoneCommand { get; }
 }
@@ -115,13 +116,13 @@ public sealed class RaidObjectiveDetailViewModel
         // and an id is no help to anybody reading the card.
         string Named(string itemId) => nameOfItem(itemId) is var name && !string.Equals(name, itemId, StringComparison.Ordinal)
             ? name
-            : "item not in the catalog";
+            : RaidText.ItemNotInCatalog;
         var bring = QuestItemRequirementFormatter.DescribeBring(objective.ItemTargets, Named);
         var handIn = QuestItemRequirementFormatter.DescribeHandIn(objective.ItemTargets, objective.FoundInRaidRequired, Named);
         Items = new[] { bring, handIn }.Where(line => line.Length > 0).ToArray();
         FoundInRaid = objective.ItemTargets.Count == 0 || objective.FoundInRaidRequired is null
             ? string.Empty
-            : objective.FoundInRaidRequired == true ? "Found in raid" : "Found in raid not required";
+            : objective.FoundInRaidRequired == true ? RaidText.FoundInRaid : RaidText.FoundInRaidNotRequired;
         Remaining = RemainingOf(objective);
         _openWiki = openWiki;
         _wikiUri = objective.WikiUri;
@@ -155,11 +156,11 @@ public sealed class RaidObjectiveDetailViewModel
 
     public bool CanRemove { get; }
 
-    public string PlaceLabel => "Place on map";
+    public string PlaceLabel => RaidText.PlaceOnMap;
 
-    public string MoveLabel => "Move my marker";
+    public string MoveLabel => RaidText.MoveMyMarker;
 
-    public string RemoveLabel => "Remove my marker";
+    public string RemoveLabel => RaidText.RemoveMyMarker;
 
     public ICommand PlaceCommand { get; }
 
@@ -197,7 +198,7 @@ public sealed class RaidObjectiveDetailViewModel
     public bool HasRemaining => Remaining.Length > 0;
 
     /// <summary>Where the link goes, named, because it leaves the app.</summary>
-    public string WikiLabel => "Open the wiki page";
+    public string WikiLabel => RaidText.OpenWikiPage;
 
     public string WikiAttribution => WikiLinkPolicy.Attribution;
 
@@ -212,7 +213,7 @@ public sealed class RaidObjectiveDetailViewModel
 
     public bool CanToggleDone { get; }
 
-    public string DoneLabel => IsDone ? "Not done" : "Done";
+    public string DoneLabel => IsDone ? RaidText.NotDone : RaidText.Done;
 
     public ICommand ToggleDoneCommand { get; }
 
@@ -221,7 +222,8 @@ public sealed class RaidObjectiveDetailViewModel
         var active = objective.TaskState == RecordedTaskState.Active &&
             objective.ObjectiveState != RecordedObjectiveState.Completed;
         var pinned = objective.IsTaskPinned || objective.IsObjectivePinned;
-        return (active ? "Active" : "Not active") + (pinned ? " · Pinned" : string.Empty);
+        var state = active ? RaidText.Active : RaidText.NotActive;
+        return pinned ? $"{state} · {RaidText.Pinned}" : state;
     }
 
     private static string RemainingOf(QuestMapObjectiveReadModel objective)
@@ -232,8 +234,6 @@ public sealed class RaidObjectiveDetailViewModel
         }
 
         var remaining = Math.Max(0, target - (objective.RecordedCount ?? 0));
-        return string.Create(
-            CultureInfo.CurrentCulture,
-            $"{remaining:0.##} of {target:0.##} still needed");
+        return RaidText.StillNeeded(remaining, target);
     }
 }

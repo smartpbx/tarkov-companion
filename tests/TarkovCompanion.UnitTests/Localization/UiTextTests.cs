@@ -162,12 +162,14 @@ public sealed class UiTextTests
         Assert.Empty(log);
     }
 
-    // [#314] Plan and Team followed Debrief onto the table. An accessor whose key is missing
+    // [#314] Plan, Team, Intel, Raid and the shell followed Debrief onto the table. An accessor whose key is missing
     // from en.json would show the key itself in the running app; this catches it here instead.
     [Theory]
     [InlineData(typeof(PlanText), 150)]
     [InlineData(typeof(TeamText), 60)]
     [InlineData(typeof(IntelText), 300)]
+    [InlineData(typeof(RaidText), 280)]
+    [InlineData(typeof(ShellText), 10)]
     public void Every_label_a_workspace_accessor_offers_has_an_English_value(Type accessor, int atLeast)
     {
         var log = new List<string>();

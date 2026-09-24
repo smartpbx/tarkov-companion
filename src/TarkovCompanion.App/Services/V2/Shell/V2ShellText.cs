@@ -18,48 +18,9 @@ public static class V2ShellText
 {
     public static IReadOnlyDictionary<string, string> English { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["V2.Shell.AppName"] = "Tarkov Companion",
-        ["V2.Shell.Tag"] = "v2",
         ["V2.Shell.Provisional"] = "provisional - #265 not yet run",
-        ["V2.Shell.WindowTitle"] = "Tarkov Companion · {0} · {1}",
-        ["V2.Shell.WindowTitleClean"] = "Tarkov Companion · {0}",
         ["V2.Shell.Variant.A"] = "Variant A · workspace rail",
         ["V2.Shell.Variant.B"] = "Variant B · workflow hub",
-        ["V2.Shell.Region.Header"] = "Companion header",
-        ["V2.Shell.Region.Context"] = "Current session context",
-        ["V2.Shell.Region.Navigation"] = "Destinations",
-        ["V2.Shell.Region.Sections"] = "Sections",
-        ["V2.Shell.Region.SetupSection"] = "Setup",
-        ["V2.Shell.Region.Status"] = "Status announcements",
-        ["V2.Shell.Region.Main"] = "Current workspace",
-        ["V2.Shell.Nav.Current"] = "Current page",
-        ["V2.Shell.Nav.NotCurrent"] = "Available page",
-        // [#294] Said, not only drawn. The dot beside Setup means nothing to somebody using a
-        // screen reader, and "an update is ready" is the whole of what it is telling anybody.
-        ["V2.Shell.Nav.UpdateWaiting"] = "Update ready",
-
-        ["V2.Shell.Route.Home"] = "Home",
-        ["V2.Shell.Route.Raid"] = "Raid",
-        ["V2.Shell.Route.Loot"] = "Loot decision",
-        ["V2.Shell.LootScan.Empty"] = "Arm Loot decision, then take a screenshot.",
-        ["V2.Shell.LootScan.EmptyTitle"] = "No loot screen yet",
-        ["V2.Shell.LootScan.Scan"] = "Scan loot",
-        ["V2.Shell.Route.Items"] = "Items",
-        ["V2.Shell.Route.Ammo"] = "Ammo",
-        ["V2.Shell.Route.Keys"] = "Keys",
-        ["V2.Shell.Route.Flea"] = "Flea",
-        ["V2.Shell.Route.Item"] = "Item details",
-        ["V2.Shell.Route.Stash"] = "Stash scan",
-        ["V2.Shell.Route.Quests"] = "Quests",
-        ["V2.Shell.Route.Hideout"] = "Hideout",
-        ["V2.Shell.Route.Keep"] = "Keep list",
-        ["V2.Shell.Route.Loadout"] = "Loadout",
-        ["V2.Shell.Route.Events"] = "Events",
-        ["V2.Shell.Route.Squad"] = "Team",
-        ["V2.Shell.Route.Group"] = "Group",
-        ["V2.Shell.Route.Tablet"] = "Tablet preview",
-        ["V2.Shell.Route.History"] = "History",
-        ["V2.Shell.Route.Settings"] = "Settings",
 
         ["V2.Setup.Sections.Region"] = "Setup sections",
         ["V2.Setup.Section.Overview"] = "Overview",
@@ -363,50 +324,6 @@ public static class V2ShellText
         ["V2.Home.Privacy.TelemetryDetail"] = "Nothing is sent unless you report a problem.",
         ["V2.Home.Privacy.Review"] = "Review privacy",
 
-        ["V2.Shell.Label.Raid"] = "Raid",
-        ["V2.Shell.Label.Intel"] = "Intel",
-        ["V2.Shell.Label.Plan"] = "Plan",
-        ["V2.Shell.Label.Team"] = "Team",
-        ["V2.Shell.Label.Debrief"] = "Debrief",
-        ["V2.Shell.Label.SetupAdmin"] = "Setup & Admin",
-        ["V2.Shell.Label.Home"] = "Home",
-        ["V2.Shell.Label.Prepare"] = "Prepare",
-        ["V2.Shell.Label.History"] = "History",
-        ["V2.Shell.Label.Setup"] = "Setup",
-
-        ["V2.Shell.Search.Label"] = "Search",
-        ["V2.Shell.Search.Heading"] = "Search",
-        ["V2.Shell.Search.Placeholder"] = "Items, ammo, keys",
-        ["V2.Shell.Search.Open"] = "Search",
-        ["V2.Shell.Address.Label"] = "Address",
-        ["V2.Shell.Address.Open"] = "Open",
-        ["V2.Shell.BackTo"] = "Back to {0}",
-        ["V2.Shell.Close"] = "Close",
-
-        ["V2.Shell.Command.Back"] = "Back",
-        ["V2.Shell.Command.Forward"] = "Forward",
-        ["V2.Shell.Command.Capture"] = "Capture",
-        ["V2.Shell.Command.Health"] = "Setup status",
-        ["V2.Shell.Command.Palette"] = "Commands",
-        // #292 task 4: the real top bar's own entry to the palette, and the palette's own entry
-        // to the shortcut table Setup > Accessibility lists.
-        ["V2.Shell.Command.PaletteTooltip"] = "Commands (Ctrl+K)",
-        ["V2.Shell.Command.KeyboardShortcuts"] = "Keyboard shortcuts",
-        ["V2.Shell.Command.NavigationRail"] = "Sidebar: labels, icons or hidden",
-        ["V2.Shell.Nav.RailLabels"] = "Sidebar showing labels",
-        ["V2.Shell.Nav.RailIcons"] = "Sidebar showing icons only",
-        ["V2.Shell.Nav.RailHidden"] = "Sidebar hidden",
-        ["V2.Shell.Nav.ShowRail"] = "Show the sidebar",
-        ["V2.Shell.Nav.GoTo"] = "Go to",
-        ["V2.Shell.Command.Search"] = "Search",
-        ["V2.Shell.Command.CopyAddress"] = "Copy address",
-        ["V2.Shell.Command.Pin"] = "Pin or unpin this page",
-        ["V2.Shell.Command.Close"] = "Close the open panel",
-        ["V2.Shell.Command.NextRegion"] = "Next region",
-        ["V2.Shell.Command.PreviousRegion"] = "Previous region",
-        ["V2.Shell.Command.CaptureShortcut"] = "Turn the Capture shortcut on or off",
-        ["V2.Shell.Command.ResetPreview"] = "Reset this preview's navigation",
-
         ["V2.Shell.Palette.Heading"] = "Commands",
         ["V2.Shell.Palette.Query"] = "Type a command or paste an address",
         ["V2.Shell.Palette.Recents"] = "Recent",
@@ -414,60 +331,9 @@ public static class V2ShellText
         ["V2.Shell.Palette.OpenAddress"] = "Open {0}",
         ["V2.Shell.Palette.Empty"] = "No command matches",
 
-        ["V2.Shell.Health.Heading"] = "Setup status",
-        ["V2.Shell.Health.NeedsActionOne"] = "1 setup item needs action",
-        ["V2.Shell.Health.NeedsActionMany"] = "{0} setup items need action",
-        ["V2.Shell.Health.Unconfirmed"] = "Setup: {0} unconfirmed",
-        ["V2.Shell.Health.Clear"] = "Setup: nothing needs action",
-        ["V2.Shell.Health.OpenSetup"] = "Open {0}",
-
-        ["V2.Shell.Readiness.Heading"] = "Get ready",
-        ["V2.Shell.Readiness.Summary"] = "{0} of {1} checks ready · {2} need action · {3} unconfirmed",
-        ["V2.Shell.Readiness.Open"] = "Open",
         ["V2.Shell.Continue.Heading"] = "Continue",
         ["V2.Shell.Continue.Empty"] = "Nothing to continue yet",
 
-        ["V2.Shell.Check.GameLog"] = "Game log folder",
-        ["V2.Shell.Check.Screenshots"] = "Screenshot folder",
-        ["V2.Shell.Check.Recognition"] = "Text recognition",
-        ["V2.Shell.Check.GameData"] = "Game data",
-        ["V2.Shell.Check.Profile"] = "Profile",
-        ["V2.Shell.Check.GroupSharing"] = "Group sharing",
-
-        ["V2.Shell.Status.Ready"] = "Ready",
-        ["V2.Shell.Status.NeedsAction"] = "Needs action",
-        ["V2.Shell.Status.Optional"] = "Optional",
-        ["V2.Shell.Status.Unconfirmed"] = "Unconfirmed",
-        ["V2.Shell.Status.Failed"] = "Failed",
-        ["V2.Shell.Status.Checking"] = "Checking",
-
-        ["V2.Shell.Detail.DemoFixture"] = "Demo fixture: no live game access",
-        ["V2.Shell.Detail.Profile"] = "{0} · {1}",
-        ["V2.Shell.Detail.ProfileNotLoaded"] = "Profile not loaded yet",
-        ["V2.Shell.Detail.Sharing"] = "Sharing with {0} group members",
-        ["V2.Shell.Detail.NotSharing"] = "Off: nothing is shared",
-        ["V2.Shell.Detail.GameData"] = "{0:N0} items · synced {1}",
-        ["V2.Shell.Detail.NoStashScan"] = "No stash scan yet",
-        ["V2.Shell.Detail.NoTablet"] = "No paired tablet yet",
-        ["V2.Shell.Detail.OfflineCached"] = "Offline. Using {0:N0} cached items synced {1}",
-        ["V2.Shell.Detail.UndatedData"] = "{0:N0} items with no sync time",
-        ["V2.Shell.Detail.StaleData"] = "Game data synced {0}",
-        ["V2.Shell.Detail.NeverSynced"] = "never",
-
-        ["V2.Shell.Age.Seconds"] = "{0}s ago",
-        ["V2.Shell.Age.Minutes"] = "{0}m ago",
-        ["V2.Shell.Age.Hours"] = "{0}h ago",
-        ["V2.Shell.Age.Days"] = "{0}d ago",
-        ["V2.Shell.Age.Future"] = "at a future time",
-
-        ["V2.Shell.State.Ready"] = "Ready",
-        ["V2.Shell.State.Loading"] = "Loading",
-        ["V2.Shell.State.Empty"] = "Nothing here yet",
-        ["V2.Shell.State.Offline"] = "Offline",
-        ["V2.Shell.State.Stale"] = "Stale",
-        ["V2.Shell.State.Partial"] = "Partial",
-        ["V2.Shell.State.Denied"] = "Permission denied",
-        ["V2.Shell.State.Failed"] = "Failed",
         ["V2.Shell.StateGlyph.Ready"] = "✓",
         ["V2.Shell.StateGlyph.Loading"] = "…",
         ["V2.Shell.StateGlyph.Empty"] = "○",
@@ -476,31 +342,6 @@ public static class V2ShellText
         ["V2.Shell.StateGlyph.Partial"] = "◔",
         ["V2.Shell.StateGlyph.Denied"] = "⌕",
         ["V2.Shell.StateGlyph.Failed"] = "×",
-        ["V2.Shell.State.AutomationName"] = "{0}. {1}. {2}",
-
-        ["V2.Shell.Remainder.All"] = "Everything is available",
-        ["V2.Shell.Remainder.Local"] = "Local pages, history and settings still work",
-        ["V2.Shell.Remainder.Cached"] = "Everything still works, labelled with its age",
-        ["V2.Shell.Remainder.Stash"] = "Capture and every other page still work",
-        ["V2.Shell.Remainder.Tablet"] = "Team, marks and group sharing still work",
-
-        ["V2.Shell.Action.OpenCapture"] = "Open Capture",
-        ["V2.Shell.Action.OpenTeam"] = "Open Team",
-        ["V2.Shell.Action.ManagePairing"] = "Pair a tablet",
-        ["V2.Shell.Action.SyncNow"] = "Sync now",
-        // V2 rough package 20: the one global-problem banner is a single line; its dismiss
-        // control and the "see the rest in the status pill" wording live here.
-        ["V2.Shell.Action.DismissBanner"] = "Dismiss",
-        ["V2.Shell.Banner.Dismissed"] = "Hidden until this changes. The status pill still has the detail.",
-        ["V2.Shell.Action.OpenSetup"] = "Open Setup",
-        ["V2.Shell.Action.OpenReadiness"] = "Open {0}",
-
-        ["V2.Shell.Readiness.Target.game-log"] = "Review the Logs field under Game folders.",
-        ["V2.Shell.Readiness.Target.screenshots"] = "Review the Screenshots field under Game folders.",
-        ["V2.Shell.Readiness.Target.text-recognition"] = "Review the recognition provider under Scan provider.",
-        ["V2.Shell.Readiness.Target.game-data"] = "Review Local data and use Sync now.",
-        ["V2.Shell.Readiness.Target.profile"] = "Review the active profile and quest plan.",
-        ["V2.Shell.Readiness.Target.group-sharing"] = "Review Group sharing and paired devices.",
 
         ["V2.Shell.Capture.Heading"] = "Capture",
         ["V2.Shell.Capture.NotArmed"] = "Not armed: screenshots use Auto-detect",
@@ -599,45 +440,6 @@ public static class V2ShellText
         ["V2.Shell.Capture.Context.HealthAndCharacter"] = "Health and character",
         ["V2.Shell.Capture.Context.Flea"] = "Flea listings",
 
-        // #287 (Crafts & barters tab): every craft and barter is searchable, priced and ranked
-        // by profit, with what it's made by/used in on the item itself.
-        ["V2.Shell.Route.Crafts"] = "Crafts & barters",
-
-        ["V2.Shell.Banner.Sharing"] = "Sharing with your group",
-        ["V2.Shell.Banner.OpenGroup"] = "Open Group",
-
-        ["V2.Shell.Context.Profile"] = "Profile: {0}",
-        ["V2.Shell.Context.ProfileMode"] = "Profile: {0} · {1}",
-        ["V2.Shell.Context.NoProfile"] = "Profile: not loaded",
-        ["V2.Shell.Context.ModeCompact"] = "{0} · {1}",
-        ["V2.Shell.Context.NoProfileCompact"] = "No profile",
-        ["V2.Shell.Context.UnknownMode"] = "mode unknown",
-        ["V2.Shell.Context.LocalTime"] = "Local {0}",
-        ["V2.Shell.Context.RaidOnMap"] = "{0} · {1}",
-        ["V2.Shell.Context.RaidElapsed"] = "{0} · {1} · {2} elapsed",
-        ["V2.Shell.Context.RaidRemaining"] = "{0} · {1} · {2} left",
-        ["V2.Shell.Context.ClockRemaining"] = "{0} · {1} left",
-        ["V2.Shell.Context.ClockElapsed"] = "{0} · {1} elapsed",
-        ["V2.Shell.Context.NoMap"] = "No active map",
-        ["V2.Shell.DataFreshness.Ago"] = "Data updated {0} ago",
-        ["V2.Shell.DataFreshness.Unknown"] = "Data freshness unknown",
-        ["V2.Shell.DataFreshness.JustNow"] = "Data updated just now",
-        ["V2.Shell.DataFreshness.Minutes"] = "{0} min",
-        ["V2.Shell.DataFreshness.Hours"] = "{0} h",
-        ["V2.Shell.Context.RaidState.Unknown"] = "Raid unknown",
-        ["V2.Shell.Context.RaidState.LauncherOrGameDetected"] = "Game detected",
-        ["V2.Shell.Context.RaidState.Menu"] = "Menu",
-        ["V2.Shell.Context.RaidState.LoadingRaid"] = "Loading raid",
-        ["V2.Shell.Context.RaidState.InRaid"] = "In raid",
-        ["V2.Shell.Context.RaidState.PostRaid"] = "Post-raid",
-        ["V2.Shell.Context.Plan"] = "Plan: {0} · objective {1}",
-        ["V2.Shell.Context.NoPlan"] = "No active plan",
-        ["V2.Shell.Context.NoObjective"] = "none selected",
-        ["V2.Shell.Context.Team"] = "Team: {0}",
-        ["V2.Shell.Context.Device"] = "From: {0}",
-        ["V2.Shell.Context.Selection"] = "Selected: {0}",
-        ["V2.Shell.Context.NoSelection"] = "Nothing selected",
-
         ["V2.Shell.Suggestions.Heading"] = "Suggested",
         ["V2.Shell.Suggestions.Browse"] = "Browse by category",
         ["V2.Shell.Suggestions.Empty"] = "No suggestions match this filter",
@@ -687,10 +489,15 @@ public static class V2ShellText
         ["V2.Shell.Announce.PersistenceRestored"] = "Preview changes are saving again",
     };
 
+    /// <remarks>
+    /// [#314] The top bar, rail, sub-tab and banner words moved to Localization/Strings as "Shell.*".
+    /// Registries still name them by their old key, so a key no longer here is looked up there.
+    /// </remarks>
     public static string Get(string key) =>
         English.TryGetValue(key ?? throw new ArgumentNullException(nameof(key)), out var text)
             ? text
-            : throw new KeyNotFoundException($"The shell has no text for '{key}'.");
+            : TarkovCompanion.App.Localization.ShellText.Moved(key)
+                ?? throw new KeyNotFoundException($"The shell has no text for '{key}'.");
 
     public static string Format(string key, CultureInfo culture, params object?[] arguments) =>
         string.Format(culture, Get(key), arguments);

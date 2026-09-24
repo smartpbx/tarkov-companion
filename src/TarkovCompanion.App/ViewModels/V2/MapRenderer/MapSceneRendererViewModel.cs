@@ -443,7 +443,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// of visible switches. Folded away, the switches no longer say what is drawn; the count on
     /// the button does, so nothing has to be opened to find out.
     /// </remarks>
-    public string LayersMenuLabel => $"Layers · {Layers.Count(layer => layer.IsVisible)} on";
+    public string LayersMenuLabel => _presentation.Format("Map.LayersMenu", Layers.Count(layer => layer.IsVisible));
     /// <summary>What the stack did, in one line: how many plates of how many floors.</summary>
     public string StackStatus { get; private set; } = string.Empty;
     public bool HasStackStatus => StackStatus.Length > 0;
@@ -538,9 +538,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// </remarks>
     public string FloorSummaryLabel => Floors.Count == 0 || SelectedFloor is null
         ? string.Empty
-        : $"{SelectedFloor.Name} · " +
-          $"{_presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected))} of " +
-          $"{_presentation.Number(Floors.Count)}";
+        : _presentation.Format(
+            "Map.Floor.Ladder",
+            SelectedFloor.Name,
+            _presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected)),
+            _presentation.Number(Floors.Count));
 
     public bool CanGoUpAFloor => StepTarget(1) is not null;
     public bool CanGoDownAFloor => StepTarget(-1) is not null;

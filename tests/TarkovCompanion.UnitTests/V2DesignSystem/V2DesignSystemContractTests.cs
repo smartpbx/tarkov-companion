@@ -312,7 +312,9 @@ public sealed class V2DesignSystemContractTests
         Assert.NotEmpty(copy);
         Assert.All(copy, attribute => Assert.True(
             attribute.Value.StartsWith("{Binding", StringComparison.Ordinal) ||
-            attribute.Value.StartsWith("{DynamicResource V2.", StringComparison.Ordinal),
+            attribute.Value.StartsWith("{DynamicResource V2.", StringComparison.Ordinal) ||
+            // [#314] The string table's typed accessors, which replaced the V2Strings entries.
+            attribute.Value.StartsWith("{x:Static l:", StringComparison.Ordinal),
             $"{attribute.Parent!.Name.LocalName}.{attribute.Name.LocalName} contains literal copy."));
     }
 

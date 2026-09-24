@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
@@ -1977,7 +1978,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public bool IsRotated => RotationDegrees != 0;
 
     /// <summary>What the button says, so the next press is predictable.</summary>
-    public string RotationLabel => RotationDegrees == 0 ? "Rotate" : $"{RotationDegrees}°";
+    public string RotationLabel => RotationDegrees == 0 ? RaidText.Rotate : $"{RotationDegrees}°";
 
     /// <summary>
     /// The turn applied to the whole surface, about its top-left corner.
@@ -4335,8 +4336,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>What the button says, which is a count once there is one.</summary>
     public string VisitedLabel => ShowsVisited && _visitedTrails.Count > 0
-        ? $"Visited · {_visitedTrails.Count}"
-        : "Visited";
+        ? RaidText.VisitedCount(_visitedTrails.Count)
+        : RaidText.LayerVisited;
 
     /// <summary>Turns the layer on or off, loading it the first time it is asked for.</summary>
     /// <remarks>
@@ -5592,7 +5593,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>What is missing and where it went, in one line.</summary>
     public string FloorVariantHint => _floorVariant is { } variant
-        ? $"{variant.Floors.Count} floors are on the {variant.DisplayName} map"
+        ? RaidText.FloorsOnMap(variant.Floors.Count, variant.DisplayName)
         : string.Empty;
 
     /// <summary>Switches to the variant of this map that has floors.</summary>
@@ -5827,8 +5828,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>What the control says, which is the thing it will do next.</summary>
     public string FrameAreaText => _frameArea
-        ? "Show the whole floor"
-        : Area is { Length: > 0 } area ? $"Frame {area}" : "Frame this building";
+        ? RaidText.ShowWholeFloor
+        : Area is { Length: > 0 } area ? RaidText.FrameArea(area) : RaidText.FrameThisBuilding;
 
     public bool HasArea => Area.Length > 0;
     /// <summary>

@@ -122,7 +122,9 @@ key, logging a missing key once. Arguments are formatted in the current culture,
 set it with `TARKOV_COMPANION_UI_CULTURE=qps-ploc` or V2RenderPreview's `--ui-culture qps-ploc`. Debrief is migrated;
 to migrate the next workspace, add its keys to `en.json` under its own prefix, add a typed accessor like `DebriefText`
 (a property per label, a method per format or count), bind the view with `{x:Static l:<Workspace>Text.Name}`, replace
-the view model's literals, and render it in both cultures. `scripts/sweep-prose.sh` scans the tables.
+the view model's literals, and render it in both cultures. `scripts/sweep-prose.sh` scans the tables. The shell's
+registry keys (`V2.Shell.Route.*` and the rest of the top bar) still pass through `V2ShellText.Get`, which reads a moved
+key from the table as `Shell.*`; the map renderer's `Map.*` words are in the table too.
 
 ## Feature flags
 

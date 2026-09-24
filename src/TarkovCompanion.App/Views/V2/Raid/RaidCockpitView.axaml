@@ -2,6 +2,7 @@
              x:DataType="vm:RaidCockpitViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Raid"
              xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:mapVm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer"
@@ -281,19 +282,19 @@
           <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
                   Margin="12,64,12,12" IsVisible="{Binding Replay.IsOpen}"
                   AutomationProperties.AutomationId="v2-raid-replay"
-                  AutomationProperties.Name="Replay of a past raid">
+                  AutomationProperties.Name="{x:Static l:RaidText.ReplayOfPastRaid}">
             <StackPanel Orientation="Horizontal" Spacing="10">
               <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Replay.Title}" />
               <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Replay.Position}" />
               <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Replay.Comparison}"
                          IsVisible="{Binding Replay.HasComparison}" />
-              <Button Classes="v2-target v2-raid-viewcontrol" Content="Back" Command="{Binding Replay.BackCommand}"
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Back}" Command="{Binding Replay.BackCommand}"
                       AutomationProperties.AutomationId="v2-raid-replay-back" />
               <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding Replay.PlayLabel}"
                       Command="{Binding Replay.PlayCommand}" AutomationProperties.AutomationId="v2-raid-replay-play" />
-              <Button Classes="v2-target v2-raid-viewcontrol" Content="Forward" Command="{Binding Replay.ForwardCommand}"
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Forward}" Command="{Binding Replay.ForwardCommand}"
                       AutomationProperties.AutomationId="v2-raid-replay-forward" />
-              <Button Classes="v2-target v2-raid-viewcontrol" Content="Close" Command="{Binding Replay.CloseCommand}"
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Close}" Command="{Binding Replay.CloseCommand}"
                       AutomationProperties.AutomationId="v2-raid-replay-close" />
             </StackPanel>
           </Border>
@@ -304,22 +305,22 @@
                   Margin="12,12,12,12" IsVisible="{Binding IsDrawMode}"
                   AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.AutomationId="v2-raid-draw-bar"
-                  AutomationProperties.Name="Draw mode">
+                  AutomationProperties.Name="{x:Static l:RaidText.DrawMode}">
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Pencil}" />
-              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="Drawing" FontWeight="SemiBold" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:RaidText.Drawing}" FontWeight="SemiBold" />
               <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding DrawSettingsLabel}"
                       Click="DrawSettingsClicked"
                       AutomationProperties.AutomationId="v2-raid-draw-settings"
-                      ToolTip.Tip="Who sees new lines, and for how long" />
-              <Button Classes="v2-target v2-raid-viewcontrol" Content="Clear mine"
+                      ToolTip.Tip="{x:Static l:RaidText.DrawScopeTip}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ClearMine}"
                       Command="{Binding ClearMyDrawingsCommand}" IsEnabled="{Binding HasOwnDrawings}"
                       AutomationProperties.AutomationId="v2-raid-draw-clear"
-                      ToolTip.Tip="Clear my drawings on this map" />
-              <Button Classes="v2-target v2-raid-viewcontrol" Content="Done"
+                      ToolTip.Tip="{x:Static l:RaidText.ClearMineTip}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Done}"
                       Command="{Binding ToggleDrawCommand}"
                       AutomationProperties.AutomationId="v2-raid-draw-done"
-                      ToolTip.Tip="Back to moving the map (Esc)" />
+                      ToolTip.Tip="{x:Static l:RaidText.DoneDrawingTip}" />
             </StackPanel>
           </Border>
 
@@ -432,31 +433,31 @@
                           ToolTip.Tip="{Binding DrawModeLabel}">
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pencil}" />
             </ToggleButton>
-            <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="Follow"
+            <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="{x:Static l:RaidText.Follow}"
                           IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
                           Command="{Binding ToggleFollowCommand}"
                           AutomationProperties.AutomationId="v2-raid-follow"
                           AutomationProperties.Name="{Binding FollowLabel}"
-                          ToolTip.Tip="Move the map to you when you take a screenshot" />
+                          ToolTip.Tip="{x:Static l:RaidText.FollowTip}" />
             <Button Classes="v2-target v2-raid-follow-step" Content="{Binding FollowZoomLabel}"
                     AutomationProperties.AutomationId="v2-raid-follow-zoom"
                     AutomationProperties.Name="{Binding FollowLabel}"
-                    ToolTip.Tip="Change Follow zoom">
+                    ToolTip.Tip="{x:Static l:RaidText.FollowZoomTip}">
               <Button.Flyout>
                 <Flyout Placement="Top">
                   <StackPanel Orientation="Horizontal" Spacing="4">
                     <Button Classes="v2-target v2-raid-follow-step" Content="−"
                             Command="{Binding DecreaseFollowZoomCommand}"
                             AutomationProperties.AutomationId="v2-raid-follow-zoom-out"
-                            AutomationProperties.Name="Zoom Follow out"
-                            ToolTip.Tip="Zoom Follow out" />
+                            AutomationProperties.Name="{x:Static l:RaidText.ZoomFollowOut}"
+                            ToolTip.Tip="{x:Static l:RaidText.ZoomFollowOut}" />
                     <TextBlock Classes="v2-label" MinWidth="32" TextAlignment="Center"
                                VerticalAlignment="Center" Text="{Binding FollowZoomLabel}" />
                     <Button Classes="v2-target v2-raid-follow-step" Content="+"
                             Command="{Binding IncreaseFollowZoomCommand}"
                             AutomationProperties.AutomationId="v2-raid-follow-zoom-in"
-                            AutomationProperties.Name="Zoom Follow in"
-                            ToolTip.Tip="Zoom Follow in" />
+                            AutomationProperties.Name="{x:Static l:RaidText.ZoomFollowIn}"
+                            ToolTip.Tip="{x:Static l:RaidText.ZoomFollowIn}" />
                   </StackPanel>
                 </Flyout>
               </Button.Flyout>
@@ -470,7 +471,7 @@
                   DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
                   AutomationProperties.AutomationId="v2-raid-layers"
                   AutomationProperties.Name="{Binding LayersMenuLabel}"
-                  ToolTip.Tip="Choose what is drawn on the map">
+                  ToolTip.Tip="{x:Static l:RaidText.LayersTip}">
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.List}" />
               <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding LayersMenuLabel}"
@@ -484,7 +485,7 @@
                   <ItemsControl x:DataType="mapVm:MapSceneRendererViewModel" ItemsSource="{Binding Layers}"
                                 MinWidth="260"
                                 AutomationProperties.AccessibilityView="Control"
-                                AutomationProperties.Name="Map layers">
+                                AutomationProperties.Name="{x:Static l:RaidText.MapLayers}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="mapVm:MapSceneRendererLayerViewModel">
                         <!-- No AutomationProperties.AutomationId here: this switch shares its view model
@@ -544,12 +545,12 @@
                               x:DataType="vm:RaidCockpitViewModel"
                               IsVisible="{Binding ShowsTrafficBanner}"
                               AutomationProperties.AccessibilityView="Control"
-                              AutomationProperties.Name="Modelled traffic phase and legend">
+                              AutomationProperties.Name="{x:Static l:RaidText.TrafficPhaseAndLegend}">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" ToolTip.Tip="{Binding TrafficPhaseTip}">
-                      <TextBlock Classes="v2-label" Text="Phase" VerticalAlignment="Center" />
+                      <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.Phase}" VerticalAlignment="Center" />
                       <ItemsControl Grid.Column="1" ItemsSource="{Binding TrafficPhases}"
                                     AutomationProperties.AccessibilityView="Control"
-                                    AutomationProperties.Name="Modelled traffic raid phase">
+                                    AutomationProperties.Name="{x:Static l:RaidText.TrafficRaidPhase}">
                         <ItemsControl.ItemsPanel>
                           <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
@@ -573,8 +574,8 @@
                       </Border.Background>
                     </Border>
                     <Grid ColumnDefinitions="*,Auto">
-                      <TextBlock Classes="v2-label" Text="Lower modelled traffic" />
-                      <TextBlock Grid.Column="1" Classes="v2-label" Text="Higher" />
+                      <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.LowerModelledTraffic}" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:RaidText.Higher}" />
                     </Grid>
                     <!-- [#266] The same legend as ordered text, so colour is not the only channel:
                          the bands low to high with where each starts, then the busiest places
@@ -582,7 +583,7 @@
                     <ItemsControl ItemsSource="{Binding TrafficLegendBands}"
                                   AutomationProperties.AutomationId="v2-raid-traffic-legend-bands"
                                   AutomationProperties.AccessibilityView="Control"
-                                  AutomationProperties.Name="Traffic bands, low to high">
+                                  AutomationProperties.Name="{x:Static l:RaidText.TrafficBands}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:TrafficLegendRow">
                           <Grid ColumnDefinitions="18,*,Auto" ColumnSpacing="6" Margin="0,1"
@@ -594,13 +595,13 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="Busiest, highest first"
+                    <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{x:Static l:RaidText.BusiestHighestFirst}"
                                IsVisible="{Binding HasTrafficLegendPlaces}" />
                     <ItemsControl ItemsSource="{Binding TrafficLegendPlaces}"
                                   IsVisible="{Binding HasTrafficLegendPlaces}"
                                   AutomationProperties.AutomationId="v2-raid-traffic-legend-places"
                                   AutomationProperties.AccessibilityView="Control"
-                                  AutomationProperties.Name="Busiest places, highest first">
+                                  AutomationProperties.Name="{x:Static l:RaidText.BusiestPlaces}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:TrafficLegendRow">
                           <Grid ColumnDefinitions="18,*,Auto" ColumnSpacing="6" Margin="0,1"
@@ -624,10 +625,10 @@
                closing border; the column is what places it. -->
           <Button Grid.Column="4" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
                   AutomationProperties.AutomationId="v2-raid-view-menu"
-                  AutomationProperties.Name="Map view"
-                  ToolTip.Tip="Turn the map, show where you have been, choose the artwork">
+                  AutomationProperties.Name="{x:Static l:RaidText.MapView}"
+                  ToolTip.Tip="{x:Static l:RaidText.MapViewTip}">
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <TextBlock VerticalAlignment="Center" Text="View" />
+              <TextBlock VerticalAlignment="Center" Text="{x:Static l:RaidText.View}" />
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
             </StackPanel>
             <Button.Flyout>
@@ -636,46 +637,46 @@
                      height, a tick column, the label; not stretched buttons of their own. -->
                 <StackPanel Spacing="2" MinWidth="260" MaxWidth="420"
                             AutomationProperties.AccessibilityView="Control"
-                            AutomationProperties.Name="Map view controls">
+                            AutomationProperties.Name="{x:Static l:RaidText.MapViewControls}">
                   <ToggleButton Classes="v2-menu-row"
                                 Content="{Binding RotationLabel}"
                                 IsChecked="{Binding IsRotated, Mode=OneWay}"
                                 Command="{Binding RotateCommand}"
                                 AutomationProperties.AutomationId="v2-raid-rotate"
-                                AutomationProperties.Name="Turn the map a quarter"
-                                ToolTip.Tip="Turn the map a quarter turn, remembered per map" />
+                                AutomationProperties.Name="{x:Static l:RaidText.TurnQuarter}"
+                                ToolTip.Tip="{x:Static l:RaidText.TurnQuarterTip}" />
                   <ToggleButton Classes="v2-menu-row"
                                 Content="{Binding VisitedLabel}"
                                 IsChecked="{Binding ShowsVisited, Mode=OneWay}"
                                 Command="{Binding ToggleVisitedCommand}"
                                 AutomationProperties.AutomationId="v2-raid-visited"
-                                AutomationProperties.Name="Show where you have been"
-                                ToolTip.Tip="Draw where your own screenshots put you in past raids on this map" />
+                                AutomationProperties.Name="{x:Static l:RaidText.ShowVisited}"
+                                ToolTip.Tip="{x:Static l:RaidText.ShowVisitedTip}" />
                   <ToggleButton Classes="v2-menu-row"
-                                Content="Squad names"
+                                Content="{x:Static l:RaidText.SquadNames}"
                                 IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"
                                 Command="{Binding ToggleGroupNamesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-group-names"
-                                ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
+                                ToolTip.Tip="{x:Static l:RaidText.SquadNamesTip}" />
                   <Button Classes="v2-menu-row"
                           Content="{Binding FrameAreaText}"
                           IsVisible="{Binding CanFrameArea}"
                           Command="{Binding FrameAreaCommand}"
                           AutomationProperties.AutomationId="v2-raid-frame-area"
-                          ToolTip.Tip="Put the part of the map this raid is happening in on screen" />
+                          ToolTip.Tip="{x:Static l:RaidText.FrameAreaTip}" />
                   <!-- [Issue 573] Hidden / Dim (default) / Normal, one press cycles to the next. -->
                   <Button Classes="v2-menu-row"
                           Content="{Binding CoOpExtractVisibilityLabel}"
                           Command="{Binding ToggleCoOpExtractVisibilityCommand}"
                           AutomationProperties.AutomationId="v2-raid-coop-extract-visibility"
-                          ToolTip.Tip="How a co-op extract is drawn and offered: hidden, dim (fewer players use one), or normal" />
+                          ToolTip.Tip="{x:Static l:RaidText.CoOpTip}" />
                   <!-- The one place artwork is chosen: every reviewed piece of artwork this map
                        publishes, remembered per map by V1's selection service (package 39). -->
-                  <TextBlock Classes="v2-label" Text="Artwork" IsVisible="{Binding HasArtworkVariants}" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.Artwork}" IsVisible="{Binding HasArtworkVariants}" />
                   <ItemsControl ItemsSource="{Binding ArtworkVariants}" IsVisible="{Binding HasArtworkVariants}"
                                 AutomationProperties.AutomationId="v2-raid-artwork-variants"
                                 AutomationProperties.AccessibilityView="Control"
-                                AutomationProperties.Name="Map artwork">
+                                AutomationProperties.Name="{x:Static l:RaidText.MapArtwork}">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
@@ -691,11 +692,11 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
-                  <Button Classes="v2-menu-row" Content="Floors…"
+                  <Button Classes="v2-menu-row" Content="{x:Static l:RaidText.Floors}"
                           IsVisible="{Binding HasFloorVariant}"
                           Command="{Binding UseFloorVariantCommand}"
                           AutomationProperties.AutomationId="v2-raid-floor-variant"
-                          AutomationProperties.Name="Use the artwork with floors"
+                          AutomationProperties.Name="{x:Static l:RaidText.UseFloorArtwork}"
                           ToolTip.Tip="{Binding FloorVariantHint}" />
                   <TextBlock Classes="v2-label" Text="{Binding FloorVariantHint}" TextWrapping="Wrap"
                              IsVisible="{Binding HasFloorVariant}" />
@@ -721,7 +722,7 @@
             PointerReleased="PanelHandleReleased"
             PointerCaptureLost="PanelHandleCaptureLost"
             AutomationProperties.AccessibilityView="Control"
-            AutomationProperties.Name="Raid plan width">
+            AutomationProperties.Name="{x:Static l:RaidText.RaidPlanWidth}">
       <!-- The handle was the page's own colour with a 60%-opaque icon on it: a working splitter
            nobody could see, reported as "the context panel cannot be resized". The line is what
            says there is an edge here to take hold of. -->
@@ -744,7 +745,7 @@
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
       <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">
         <prim:StagedStack Spacing="12" Margin="16,12,16,16">
-          <TextBlock Classes="v2-heading-2" Text="Raid plan" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-heading-2" Text="{x:Static l:RaidText.RaidPlan}" AutomationProperties.HeadingLevel="2" />
 
           <!-- Header card: the map, the raid phase, and what this map offers at a glance. Mode is a
                shell-level concept and already sits in the top bar. -->
@@ -791,7 +792,7 @@
                     IsExpanded="{Binding Cards.Squad.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Squad" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.Squad}" />
                 <TextBlock Classes="v2-label" Text="{Binding SquadSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Squad.IsCollapsed}" />
               </StackPanel>
@@ -837,7 +838,7 @@
                     IsExpanded="{Binding Cards.Objectives.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Objectives" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.Objectives}" />
                 <TextBlock Classes="v2-label" Text="{Binding QuestObjectiveSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Objectives.IsCollapsed}" />
               </StackPanel>
@@ -848,31 +849,31 @@
                 <WrapPanel ItemSpacing="10" LineSpacing="4">
                   <TextBlock Classes="v2-label" Text="{Binding QuestObjectiveSummary}" TextWrapping="Wrap" VerticalAlignment="Center" />
                   <!-- [Issue 571] Brings a done objective back on the map and this list, dimmed with a check. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Show completed"
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ShowCompleted}"
                                 IsChecked="{Binding ShowCompletedObjectives, Mode=OneWay}"
                                 Command="{Binding ToggleShowCompletedObjectivesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
-                                ToolTip.Tip="Show objectives already marked done, dimmed with a check" />
+                                ToolTip.Tip="{x:Static l:RaidText.ShowCompletedTip}" />
                   <!-- [#307] The objective route opened from Plan follows the plan while shown. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Hide route"
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.HideRoute}"
                                 IsVisible="{Binding HasObjectiveRoute}"
                                 IsChecked="{Binding ObjectiveRouteHidden, Mode=OneWay}"
                                 Command="{Binding ToggleObjectiveRouteCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objective-route-hide"
-                                ToolTip.Tip="Hide the objective route from Plan" />
+                                ToolTip.Tip="{x:Static l:RaidText.HideRouteTip}" />
                   <!-- [#780] Squadmates' open objectives on this map, outlined in their colour. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Squad"
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Squad}"
                                 IsVisible="{Binding HasSquadObjectivesHere}"
                                 IsChecked="{Binding ShowSquadObjectives, Mode=OneWay}"
                                 Command="{Binding ToggleSquadObjectivesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objectives-squad"
-                                ToolTip.Tip="Show squadmates' open objectives on this map" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Route squad"
+                                ToolTip.Tip="{x:Static l:RaidText.SquadObjectivesTip}" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.RouteSquad}"
                                 IsVisible="{Binding CanRouteSquadStops}"
                                 IsChecked="{Binding RouteSquadStops, Mode=OneWay}"
                                 Command="{Binding ToggleRouteSquadStopsCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objective-route-squad"
-                                ToolTip.Tip="Add squadmates' stops to the objective route" />
+                                ToolTip.Tip="{x:Static l:RaidText.RouteSquadTip}" />
                 </WrapPanel>
                 <TextBlock Classes="v2-label" Text="{Binding SquadObjectiveSummary}"
                            IsVisible="{Binding ShowsSquadObjectiveSummary}" TextWrapping="Wrap" />
@@ -881,8 +882,8 @@
                      place, not a ping; this says so and lets the player back out. -->
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsPlacingObjective}"
                             AutomationProperties.AutomationId="v2-raid-objective-placing">
-                  <TextBlock Classes="v2-label" Text="Right-click the map where it is" VerticalAlignment="Center" />
-                  <Button Classes="v2-target v2-raid-viewcontrol" Content="Cancel"
+                  <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.RightClickWhereItIs}" VerticalAlignment="Center" />
+                  <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Cancel}"
                           Command="{Binding CancelPlacingObjectiveCommand}"
                           AutomationProperties.AutomationId="v2-raid-objective-place-cancel" />
                 </StackPanel>
@@ -899,7 +900,7 @@
                             </Border>
                             <TextBlock Grid.Column="1" Classes="v2-heading-3" Text="{Binding Task}" TextWrapping="Wrap"
                                        VerticalAlignment="Center" />
-                            <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Close"
+                            <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Close}"
                                     Command="{Binding CloseCommand}"
                                     AutomationProperties.AutomationId="v2-raid-objective-close" />
                           </Grid>
@@ -1014,7 +1015,7 @@
                     IsExpanded="{Binding Cards.Extracts.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Extract options" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.ExtractOptions}" />
                 <TextBlock Classes="v2-label" Text="{Binding ExtractClockSummary}"
                            AutomationProperties.AutomationId="v2-raid-extract-clock"
                            IsVisible="{Binding ExtractClockSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -1023,7 +1024,7 @@
               </StackPanel>
             </Expander.Header>
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-label" Text="No extract data for this map yet."
+                <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NoExtractData}"
                            IsVisible="{Binding !HasMapExtracts}" />
                 <!-- While a raid is running, the legacy extract matcher's own offered list (with its
                      confidence) comes first. -->
@@ -1096,10 +1097,10 @@
                               <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Clock}" /></Viewbox>
                             </Border>
                             <Border Classes="v2-raid-chip" Padding="4,2" IsVisible="{Binding NeedsNoBackpack}">
-                              <TextBlock Classes="v2-label" Text="NO BAG" />
+                              <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NoBag}" />
                             </Border>
                             <Border Classes="v2-raid-chip" Padding="4,2" IsVisible="{Binding NeedsNoArmor}">
-                              <TextBlock Classes="v2-label" Text="NO VEST" />
+                              <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NoVest}" />
                             </Border>
                             <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding NeedsItems}">
                               <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Box}" /></Viewbox>
@@ -1188,7 +1189,7 @@
                     IsExpanded="{Binding Cards.Route.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Lower-contact route" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.LowerContactRoute}" />
                 <TextBlock Classes="v2-label" Text="{Binding RouteTitle}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Route.IsCollapsed}" />
               </StackPanel>
@@ -1200,15 +1201,15 @@
                 </StackPanel>
                 <Grid ColumnDefinitions="34,*,Auto" ColumnSpacing="8">
                   <Line StartPoint="0,8" EndPoint="34,8" Stroke="#FF5CF0FF" StrokeThickness="4" StrokeDashArray="2,1.5" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="Suggested · lower contact" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:RaidText.SuggestedLowerContact}" />
                   <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding PrimaryRouteEstimate}" />
                 </Grid>
                 <Grid ColumnDefinitions="34,*,Auto" ColumnSpacing="8" IsVisible="{Binding HasAlternativeRoute}">
                   <Line StartPoint="0,8" EndPoint="34,8" Stroke="#FFD7DEE6" StrokeThickness="3" StrokeDashArray="2,1.5" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="Direct line · higher contact" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:RaidText.DirectHigherContact}" />
                   <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding AlternativeRouteEstimate}" />
                 </Grid>
-                <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="Why this route" Margin="0,4,0,0" />
+                <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{x:Static l:RaidText.WhyThisRoute}" Margin="0,4,0,0" />
                 <ItemsControl ItemsSource="{Binding RouteReasons}" AutomationProperties.AutomationId="v2-raid-route-reasons">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="3" /></ItemsPanelTemplate>
@@ -1235,7 +1236,7 @@
                     IsExpanded="{Binding Cards.Marks.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Marks" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.Marks}" />
                 <TextBlock Classes="v2-label" Text="{Binding MarksSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Marks.IsCollapsed}" />
               </StackPanel>
@@ -1243,17 +1244,17 @@
               <StackPanel Spacing="8">
                 <!-- #289: the scope a new mark gets. Squad while group sharing is on. -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Classes="v2-label" Text="New marks" VerticalAlignment="Center" />
-                  <ToggleButton Classes="v2-target" Content="Just me" IsChecked="{Binding NewMarksAreJustMe, Mode=OneWay}"
+                  <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NewMarks}" VerticalAlignment="Center" />
+                  <ToggleButton Classes="v2-target" Content="{x:Static l:RaidText.JustMe}" IsChecked="{Binding NewMarksAreJustMe, Mode=OneWay}"
                                 Command="{Binding NewMarksJustMeCommand}"
                                 AutomationProperties.AutomationId="v2-raid-new-marks-just-me" />
-                  <ToggleButton Classes="v2-target" Content="Squad" IsChecked="{Binding NewMarksAreSquad, Mode=OneWay}"
+                  <ToggleButton Classes="v2-target" Content="{x:Static l:RaidText.Squad}" IsChecked="{Binding NewMarksAreSquad, Mode=OneWay}"
                                 Command="{Binding NewMarksSquadCommand}"
                                 AutomationProperties.AutomationId="v2-raid-new-marks-squad" />
                 </StackPanel>
                 <!-- #290: the colour new marks get, drawn here, on the tablet and on the squad's maps. -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Classes="v2-label" Text="Colour" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.Colour}" VerticalAlignment="Center" />
                   <ItemsControl ItemsSource="{Binding MarkColourChoices}"
                                 AutomationProperties.AutomationId="v2-raid-new-marks-colour">
                     <ItemsControl.ItemsPanel>
@@ -1268,7 +1269,7 @@
                                       Command="{Binding ChooseCommand}"
                                       ToolTip.Tip="{Binding Name}"
                                       AutomationProperties.Name="{Binding Name}">
-                          <TextBlock Classes="v2-label" Text="A" IsVisible="{Binding IsAuto}"
+                          <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.AutoColourLetter}" IsVisible="{Binding IsAuto}"
                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </ToggleButton>
                       </DataTemplate>
@@ -1279,7 +1280,7 @@
                            Foreground="{DynamicResource V2.Brush.Warning}"
                            AutomationProperties.AutomationId="v2-raid-mark-note" />
                 <TextBlock Classes="v2-label" IsVisible="{Binding !HasMarks}"
-                           Text="Right-click: ping. Shift: waypoint. Ctrl: pick a lifetime. Right-click a mark for options." TextWrapping="Wrap" />
+                           Text="{x:Static l:RaidText.MarksHint}" TextWrapping="Wrap" />
                 <ItemsControl ItemsSource="{Binding Marks}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -1299,21 +1300,21 @@
                                        AutomationProperties.AutomationId="v2-raid-mark-label" />
                             <TextBlock Grid.Column="3" Classes="v2-label" VerticalAlignment="Center"
                                        IsVisible="{Binding HasOwner}" Text="{Binding Owner}" />
-                            <Button Grid.Column="4" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
+                            <Button Grid.Column="4" Classes="v2-target" Content="{x:Static l:RaidText.Remove}" Command="{Binding RemoveCommand}"
                                     AutomationProperties.AutomationId="v2-raid-mark-remove" />
                           </Grid>
                           <!-- #289: who sees it and how long it has left, and the menu that changes both. -->
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding CanChangeOptions}">
                             <TextBlock Classes="v2-label" Text="{Binding OptionsLabel}" VerticalAlignment="Center"
                                        AutomationProperties.AutomationId="v2-raid-mark-options-label" />
-                            <Button Grid.Column="1" Classes="v2-target" Content="Options" Click="MarkOptionsClicked"
+                            <Button Grid.Column="1" Classes="v2-target" Content="{x:Static l:RaidText.Options}" Click="MarkOptionsClicked"
                                     AutomationProperties.AutomationId="v2-raid-mark-options" />
                           </Grid>
                           <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding CanRename}">
-                            <TextBox Text="{Binding EditableName}" PlaceholderText="Name (blank = numbered)"
+                            <TextBox Text="{Binding EditableName}" PlaceholderText="{x:Static l:RaidText.MarkNamePlaceholder}"
                                      AutomationProperties.AutomationId="v2-raid-mark-rename-input" />
-                            <Button Grid.Column="1" Classes="v2-target" Content="Rename" Command="{Binding RenameCommand}"
+                            <Button Grid.Column="1" Classes="v2-target" Content="{x:Static l:RaidText.Rename}" Command="{Binding RenameCommand}"
                                     AutomationProperties.AutomationId="v2-raid-mark-rename" />
                           </Grid>
                         </StackPanel>
@@ -1331,17 +1332,17 @@
                     IsExpanded="{Binding Cards.GroupMarks.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Group waypoints" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.GroupWaypoints}" />
                 <TextBlock Classes="v2-label" Text="{Binding GroupMarksSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.GroupMarks.IsCollapsed}" />
               </StackPanel>
             </Expander.Header>
               <StackPanel Spacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-                  <Button Classes="v2-target v2-raid-viewcontrol" Content="Clear reached"
+                  <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ClearReached}"
                           IsVisible="{Binding HasReachedMarks}" Command="{Binding ClearReachedMarksCommand}"
                           AutomationProperties.AutomationId="v2-raid-clear-reached" />
-                  <Button Classes="v2-target v2-raid-viewcontrol" Content="Clear all"
+                  <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ClearAll}"
                           Command="{Binding ClearMarksCommand}"
                           AutomationProperties.AutomationId="v2-raid-clear-marks" />
                 </StackPanel>
@@ -1356,7 +1357,7 @@
                           <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
                                      TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                           <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
-                          <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Remove"
+                          <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Remove}"
                                   Command="{Binding $parent[ItemsControl].((vm:RaidCockpitViewModel)DataContext).RemoveMarkCommand}"
                                   CommandParameter="{Binding}" />
                         </Grid>
@@ -1374,7 +1375,7 @@
                     IsExpanded="{Binding Cards.Tasks.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Tasks on this map" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.TasksOnThisMap}" />
                 <TextBlock Classes="v2-label" Text="{Binding TasksSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Tasks.IsCollapsed}" />
               </StackPanel>
@@ -1454,13 +1455,13 @@
                     IsExpanded="{Binding Cards.SpawnAreas.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Spawn areas" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.SpawnAreas}" />
                 <TextBlock Classes="v2-label" Text="{Binding SpawnAreasSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.SpawnAreas.IsCollapsed}" />
               </StackPanel>
             </Expander.Header>
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-label" Text="No spawn areas for this map yet."
+                <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NoSpawnAreas}"
                            IsVisible="{Binding !HasSpawnAreas}" />
                 <ItemsControl ItemsSource="{Binding SpawnAreas}">
                   <ItemsControl.ItemsPanel>
@@ -1487,7 +1488,7 @@
                     IsExpanded="{Binding Cards.Spawns.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Where the others started" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.WhereOthersStarted}" />
                 <TextBlock Classes="v2-label" Text="{Binding SpawnsSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Spawns.IsCollapsed}" />
               </StackPanel>
@@ -1530,7 +1531,7 @@
                     IsExpanded="{Binding Cards.WaysOut.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Ways out from here" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.WaysOutFromHere}" />
                 <TextBlock Classes="v2-label" Text="{Binding WaysOutSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.WaysOut.IsCollapsed}" />
               </StackPanel>
@@ -1564,7 +1565,7 @@
                     IsExpanded="{Binding Cards.LootNearby.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="Loot near you" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.LootNearYou}" />
                 <TextBlock Classes="v2-label" Text="{Binding LootNearbySummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.LootNearby.IsCollapsed}" />
               </StackPanel>
@@ -1609,7 +1610,7 @@
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Gem}" />
                 </Viewbox>
                 <StackPanel Spacing="1" VerticalAlignment="Center">
-                  <TextBlock Classes="v2-heading-3" Text="High-value loot filters" />
+                  <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.HighValueLootFilters}" />
                   <TextBlock Classes="v2-label" Text="{Binding HighValueLoot.StateMessage}" TextTrimming="CharacterEllipsis"
                              IsVisible="{Binding #MapCard.((vm:RaidCockpitViewModel)DataContext).Cards.LootFilters.IsCollapsed}" />
                 </StackPanel>
@@ -1625,10 +1626,10 @@
                                IsVisible="{Binding IsUnavailable}" />
                     <TextBlock Classes="v2-label" Text="{Binding StateMessage}" TextWrapping="Wrap"
                                IsVisible="{Binding !IsUnavailable}" />
-                    <Button Classes="v2-target" Content="Refresh" Command="{Binding RefreshCommand}"
+                    <Button Classes="v2-target" Content="{x:Static l:RaidText.Refresh}" Command="{Binding RefreshCommand}"
                             IsVisible="{Binding IsUnavailable}"
                             AutomationProperties.AutomationId="v2-raid-loot-refresh"
-                            AutomationProperties.Name="Refresh loot spawn data" />
+                            AutomationProperties.Name="{x:Static l:RaidText.RefreshLootSpawnData}" />
                     <!-- [Issue 318] What this map's loot data covers, and how old it is. The label was
                          computed and bound only in the renderer's own side panel, which this page hides,
                          so a player on the Raid page never saw it. -->

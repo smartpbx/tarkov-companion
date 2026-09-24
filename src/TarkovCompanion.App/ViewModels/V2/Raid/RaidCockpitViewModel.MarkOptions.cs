@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -105,10 +106,10 @@ public sealed partial class RaidCockpitViewModel
     internal static string MarkHoverDetail(RaidMark mark)
     {
         ArgumentNullException.ThrowIfNull(mark);
-        var ends = mark.State.ExpiresUtc is { } expires ? $"ends {TarkovCompanion.Core.Common.LocalTime.ShortTime(expires)}" : string.Empty;
+        var ends = mark.State.ExpiresUtc is { } expires ? RaidText.Ends(TarkovCompanion.Core.Common.LocalTime.ShortTime(expires)) : string.Empty;
         return string.Join(
             " · ",
-            new[] { RaidMarkLifetimes.ScopeName(mark.Scope), RaidMarkLifetimes.Name(mark.Lifetime), ends }.Where(part => part.Length > 0));
+            new[] { RaidText.MarkScope(mark.Scope), RaidText.MarkLifetime(mark.Lifetime), ends }.Where(part => part.Length > 0));
     }
 
     /// <summary>
@@ -151,8 +152,8 @@ public sealed partial class RaidCockpitViewModel
         }
 
         ShowMarkNote(names.Length == 1
-            ? $"Waypoint {names[0]} removed by squad"
-            : $"{lost.Count} waypoints removed by squad");
+            ? RaidText.WaypointRemovedBySquad(names[0])
+            : RaidText.WaypointsRemovedBySquad(lost.Count));
     }
 
     private void ShowMarkNote(string note)
@@ -234,7 +235,7 @@ public sealed partial class RaidCockpitViewModel
                 MarksLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.UserAuthored,
-                $"Route · {stops.Length} stops",
+                RaidText.RouteStops(stops.Length),
                 null,
                 new(MapSceneGeometryKind.Line, stops),
                 [],

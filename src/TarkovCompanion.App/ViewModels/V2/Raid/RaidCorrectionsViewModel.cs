@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Domain.Raids;
@@ -29,8 +30,9 @@ public sealed class RaidExtractChoiceViewModel(string name, bool isOffered, Acti
 /// </remarks>
 public sealed class RaidCorrectionsViewModel : BindableViewModel
 {
-    private const string Automatic = "Automatic";
-    private const string Manual = "Manual";
+    // The side as the corrections store keeps it; never shown, so never translated.
+    private const string Pmc = "PMC";
+    private const string Scav = "Scav";
 
     private readonly RaidManualCorrections _corrections;
     private readonly TimeProvider _time;
@@ -45,8 +47,8 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
     {
         _corrections = corrections ?? throw new ArgumentNullException(nameof(corrections));
         _time = time ?? TimeProvider.System;
-        SetPmcCommand = new DelegateCommand(() => SetSide("PMC"));
-        SetScavCommand = new DelegateCommand(() => SetSide("Scav"));
+        SetPmcCommand = new DelegateCommand(() => SetSide(Pmc));
+        SetScavCommand = new DelegateCommand(() => SetSide(Scav));
         SetTimeLeftCommand = new DelegateCommand(SetTimeLeft);
         StartedNowCommand = new DelegateCommand(() => WhenInRaid(() => _corrections.SetStarted(_time.GetUtcNow())));
         ReturnSideCommand = new DelegateCommand(() => _corrections.ReturnToAutomatic(RaidCorrectionField.Side));
@@ -83,7 +85,7 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
         get
         {
             var manual = new[] { SideIsManual, ClockIsManual, ExtractsIsManual }.Count(item => item);
-            return !IsInRaid ? "During a raid" : manual == 0 ? "All automatic" : $"{manual} set by you";
+            return !IsInRaid ? RaidText.DuringARaid : manual == 0 ? RaidText.AllAutomatic : RaidText.SetByYou(manual);
         }
     }
 
@@ -91,25 +93,30 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
 
     public bool IsNotInRaid => !IsInRaid;
 
-    public bool IsPmc => SideOf(_raid?.Side) == "PMC";
+    public bool IsPmc => SideOf(_raid?.Side) == Pmc;
 
-    public bool IsScav => SideOf(_raid?.Side) == "Scav";
+    public bool IsScav => SideOf(_raid?.Side) == Scav;
 
-    public string SideText => SideOf(_raid?.Side) ?? "Unknown";
+    public string SideText => SideOf(_raid?.Side) switch
+    {
+        Pmc => RaidText.Pmc,
+        Scav => RaidText.Scav,
+        _ => RaidText.Unknown,
+    };
 
     public bool SideIsManual => IsInRaid && _corrections.IsManual(RaidCorrectionField.Side);
 
-    public string SideSource => SideIsManual ? Manual : Automatic;
+    public string SideSource => SideIsManual ? RaidText.Manual : RaidText.Automatic;
 
-    public string ClockText => _clockText.Length > 0 ? _clockText : "Unknown";
+    public string ClockText => _clockText.Length > 0 ? _clockText : RaidText.Unknown;
 
     public bool ClockIsManual => IsInRaid && _corrections.IsManual(RaidCorrectionField.Clock);
 
-    public string ClockSource => ClockIsManual ? Manual : Automatic;
+    public string ClockSource => ClockIsManual ? RaidText.Manual : RaidText.Automatic;
 
     public bool ExtractsIsManual => IsInRaid && _corrections.IsManual(RaidCorrectionField.Extracts);
 
-    public string ExtractsSource => ExtractsIsManual ? Manual : Automatic;
+    public string ExtractsSource => ExtractsIsManual ? RaidText.Manual : RaidText.Automatic;
 
     public bool HasExtractChoices => ExtractChoices.Count > 0;
 
@@ -118,7 +125,7 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
         get
         {
             var offered = ExtractChoices.Count(choice => choice.IsOffered);
-            return offered == 0 ? "None marked offered" : $"{offered} offered";
+            return offered == 0 ? RaidText.NoneMarkedOffered : RaidText.OfferedCount(offered);
         }
     }
 
@@ -186,7 +193,7 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
     {
         if (!RaidManualCorrections.TryParseTimeLeft(TimeLeftInput, out var left))
         {
-            InputNote = "Type the time left as minutes:seconds, like 23:10";
+            InputNote = RaidText.TimeLeftFormatHint;
             return;
         }
 
@@ -212,7 +219,7 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
     {
         if (!IsInRaid)
         {
-            InputNote = "No raid in progress";
+            InputNote = RaidText.NoRaidInProgress;
             return;
         }
 
@@ -222,8 +229,8 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
 
     private static string? SideOf(string? side) => side?.Trim().ToLowerInvariant() switch
     {
-        "scav" or "savage" => "Scav",
-        "pmc" or "usec" or "bear" => "PMC",
+        "scav" or "savage" => Scav,
+        "pmc" or "usec" or "bear" => Pmc,
         _ => null,
     };
 }

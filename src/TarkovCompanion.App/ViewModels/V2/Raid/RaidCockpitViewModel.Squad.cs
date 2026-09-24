@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -200,8 +201,8 @@ public sealed partial class RaidCockpitViewModel
         }
 
         return isOnOpenMap(member.MapId)
-            ? $"Watching {member.Name}"
-            : $"Follow {member.Name} · {nameOfMap(member.MapId) ?? member.MapId}";
+            ? RaidText.WatchingMember(member.Name)
+            : RaidText.FollowMember(member.Name, nameOfMap(member.MapId) ?? member.MapId);
     }
 
     private void FollowSquadmate()

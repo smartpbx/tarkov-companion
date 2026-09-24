@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Maps;
 
@@ -15,17 +16,17 @@ internal static class RaidMarkMenu
     {
         ArgumentNullException.ThrowIfNull(row);
         var menu = new MenuFlyout();
-        menu.Items.Add(Item("Remove", null, () => row.RemoveCommand.Execute(null)));
+        menu.Items.Add(Item(RaidText.Remove, null, () => row.RemoveCommand.Execute(null)));
         menu.Items.Add(new Separator());
         foreach (var scope in new[] { RaidMarkScope.Private, RaidMarkScope.Squad })
         {
-            menu.Items.Add(Item(RaidMarkLifetimes.ScopeName(scope), row.Scope == scope, () => _ = row.ChooseScopeAsync(scope)));
+            menu.Items.Add(Item(RaidText.MarkScope(scope), row.Scope == scope, () => _ = row.ChooseScopeAsync(scope)));
         }
 
         menu.Items.Add(new Separator());
         foreach (var lifetime in RaidMarkLifetimes.All)
         {
-            menu.Items.Add(Item(RaidMarkLifetimes.Name(lifetime), row.Lifetime == lifetime, () => _ = row.ChooseLifetimeAsync(lifetime)));
+            menu.Items.Add(Item(RaidText.MarkLifetime(lifetime), row.Lifetime == lifetime, () => _ = row.ChooseLifetimeAsync(lifetime)));
         }
 
         return menu;
@@ -35,10 +36,10 @@ internal static class RaidMarkMenu
     {
         ArgumentNullException.ThrowIfNull(place);
         var menu = new MenuFlyout();
-        menu.Items.Add(new MenuItem { Header = $"Place for {RaidMarkLifetimes.ScopeName(scope)}", IsEnabled = false });
+        menu.Items.Add(new MenuItem { Header = RaidText.PlaceFor(RaidText.MarkScope(scope)), IsEnabled = false });
         foreach (var lifetime in RaidMarkLifetimes.All)
         {
-            menu.Items.Add(Item(RaidMarkLifetimes.Name(lifetime), null, () => place(lifetime)));
+            menu.Items.Add(Item(RaidText.MarkLifetime(lifetime), null, () => place(lifetime)));
         }
 
         return menu;
@@ -50,18 +51,18 @@ internal static class RaidMarkMenu
         ArgumentNullException.ThrowIfNull(cockpit);
         ArgumentNullException.ThrowIfNull(drawing);
         var menu = new MenuFlyout();
-        menu.Items.Add(Item("Remove", null, () => cockpit.RemoveDrawing(drawing.Id)));
-        menu.Items.Add(Item("Clear my drawings", null, () => cockpit.ClearMyDrawingsCommand.Execute(null)));
+        menu.Items.Add(Item(RaidText.Remove, null, () => cockpit.RemoveDrawing(drawing.Id)));
+        menu.Items.Add(Item(RaidText.ClearMyDrawings, null, () => cockpit.ClearMyDrawingsCommand.Execute(null)));
         menu.Items.Add(new Separator());
         foreach (var scope in new[] { RaidMarkScope.Private, RaidMarkScope.Squad })
         {
-            menu.Items.Add(Item(RaidMarkLifetimes.ScopeName(scope), drawing.Scope == scope, () => cockpit.SetDrawingOptions(drawing.Id, scope, drawing.Lifetime)));
+            menu.Items.Add(Item(RaidText.MarkScope(scope), drawing.Scope == scope, () => cockpit.SetDrawingOptions(drawing.Id, scope, drawing.Lifetime)));
         }
 
         menu.Items.Add(new Separator());
         foreach (var lifetime in DrawingLifetimes)
         {
-            menu.Items.Add(Item(RaidMarkLifetimes.Name(lifetime), drawing.Lifetime == lifetime, () => cockpit.SetDrawingOptions(drawing.Id, drawing.Scope, lifetime)));
+            menu.Items.Add(Item(RaidText.MarkLifetime(lifetime), drawing.Lifetime == lifetime, () => cockpit.SetDrawingOptions(drawing.Id, drawing.Scope, lifetime)));
         }
 
         return menu;
@@ -72,12 +73,12 @@ internal static class RaidMarkMenu
     {
         ArgumentNullException.ThrowIfNull(cockpit);
         var menu = new MenuFlyout();
-        menu.Items.Add(Item(RaidMarkLifetimes.ScopeName(RaidMarkScope.Private), cockpit.NewMarksAreJustMe, () => cockpit.NewMarksJustMeCommand.Execute(null)));
-        menu.Items.Add(Item(RaidMarkLifetimes.ScopeName(RaidMarkScope.Squad), cockpit.NewMarksAreSquad, () => cockpit.NewMarksSquadCommand.Execute(null)));
+        menu.Items.Add(Item(RaidText.MarkScope(RaidMarkScope.Private), cockpit.NewMarksAreJustMe, () => cockpit.NewMarksJustMeCommand.Execute(null)));
+        menu.Items.Add(Item(RaidText.MarkScope(RaidMarkScope.Squad), cockpit.NewMarksAreSquad, () => cockpit.NewMarksSquadCommand.Execute(null)));
         menu.Items.Add(new Separator());
         foreach (var lifetime in DrawingLifetimes)
         {
-            menu.Items.Add(Item(RaidMarkLifetimes.Name(lifetime), cockpit.NewDrawingLifetime == lifetime, () => cockpit.ChooseDrawingLifetime(lifetime)));
+            menu.Items.Add(Item(RaidText.MarkLifetime(lifetime), cockpit.NewDrawingLifetime == lifetime, () => cockpit.ChooseDrawingLifetime(lifetime)));
         }
 
         return menu;

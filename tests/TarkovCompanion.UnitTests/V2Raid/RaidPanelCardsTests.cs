@@ -59,7 +59,7 @@ public sealed class RaidPanelCardsTests
     [InlineData(1, "1 area")]
     [InlineData(38, "38 areas")]
     public void A_closed_cards_line_counts_what_is_inside(int count, string expected) =>
-        Assert.Equal(expected, RaidCockpitViewModel.Counted(count, "area", "areas"));
+        Assert.Equal(expected, RaidCockpitViewModel.Counted(count, TarkovCompanion.App.Localization.RaidText.AreaCount));
 
     private sealed class MemoryLayout : IWorkspaceLayoutStore
     {

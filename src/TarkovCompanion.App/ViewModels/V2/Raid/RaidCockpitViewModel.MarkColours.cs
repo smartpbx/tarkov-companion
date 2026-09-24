@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using Avalonia.Media;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -89,7 +90,7 @@ public sealed partial class RaidCockpitViewModel
     /// <summary>Auto and the six palette colours, for the Marks card.</summary>
     public IReadOnlyList<MarkColourChoiceViewModel> MarkColourChoices => _markColourChoices ??=
     [
-        new(null, "Auto colour", this),
+        new(null, RaidText.AutoColour, this),
         .. MarkPalette.Colours.Select(colour => new MarkColourChoiceViewModel(colour.Hex, colour.Name, this)),
     ];
 
