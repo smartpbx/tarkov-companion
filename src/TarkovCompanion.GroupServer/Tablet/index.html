@@ -635,7 +635,7 @@
 
   // What the ceremony in flight is: a first pairing, where a person compares six digits, or a
   // paired tablet coming back, where nobody does and the desktop's pinned key stands in for them.
-  let ceremony = { pinnedDesktopKeyId: null, deviceName: "Tablet", signal: null, deadline: 0 };
+  let ceremony = { pinnedDesktopKeyId: null, resumeTicketId: null, deviceName: "Tablet", signal: null, deadline: 0 };
   let ceremonyAbort = null;
 
   // [#840] How long this tablet waits on each step, by its own clock. The offer's expiry is the
@@ -658,6 +658,29 @@
       : ceremony.deadline;
   }
 
+  // [#846] A desktop that will not let this tablet back in says so on the resume ticket, before
+  // it answered (a tablet it does not know) or after (the handshake failed). Without this the
+  // page only learned by timing out: a minute on the ticket, 30 s on a step. A relay or desktop
+  // from before #846 never sets it, and the timeouts above still apply.
+  const RESUME_REFUSALS = {
+    "not-recognised": "Desktop didn't recognise this tablet · enter the code",
+    failed: "Desktop couldn't reconnect this tablet · enter the code",
+  };
+
+  function resumeRefused(reason) {
+    return Object.assign(new Error(RESUME_REFUSALS[reason] || RESUME_REFUSALS.failed), {
+      stop: true,
+      resumeRefused: reason === "not-recognised" ? "not-recognised" : "failed",
+    });
+  }
+
+  /** Between mailbox polls of a returning tablet: has its desktop given up on it? */
+  async function throwIfResumeRefused() {
+    if (!ceremony.resumeTicketId) return;
+    const ticket = await getJson(`/v2/companion/relay/resume/requests/${ceremony.resumeTicketId}`, ceremony.signal);
+    if (ticket?.refused) throw resumeRefused(ticket.refused);
+  }
+
   function showReconnecting() {
     setStage("pairingWaiting");
     $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
@@ -671,7 +694,12 @@
     ceremonyAbort?.abort();
     const controller = new AbortController();
     ceremonyAbort = controller;
-    ceremony = { pinnedDesktopKeyId: options?.pinnedDesktopKeyId || null, deviceName, signal: controller.signal };
+    ceremony = {
+      pinnedDesktopKeyId: options?.pinnedDesktopKeyId || null,
+      resumeTicketId: options?.resumeTicketId || null,
+      deviceName,
+      signal: controller.signal,
+    };
     try {
       await runPairing(rawCode, deviceName);
     } finally {
@@ -771,6 +799,7 @@
     const attemptId = offer.attemptId.value;
     const signal = ceremony.signal;
     const reveal = await pollMailbox(`/v2/companion/pairing/reveals/${attemptId}`, stepDeadline(), signal, async () => {
+      await throwIfResumeRefused();
       const denied = await getJson(`/v2/companion/pairing/denied/${attemptId}`, signal);
       if (denied && denied.denied) {
         throw Object.assign(new Error("The desktop declined this pairing request."), { stop: true });
@@ -819,7 +848,7 @@
 
   async function pollForChallenge(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret, reveal) {
     const attemptId = offer.attemptId.value;
-    const challenge = await pollMailbox(`/v2/companion/pairing/challenges/${attemptId}`, stepDeadline(), ceremony.signal);
+    const challenge = await pollMailbox(`/v2/companion/pairing/challenges/${attemptId}`, stepDeadline(), ceremony.signal, throwIfResumeRefused);
     if (challenge) {
       return completeWithChallenge(offer, device, tabletEphemeralSpki, clientNonce, reveal, sharedSecret, challenge);
     }
@@ -929,7 +958,7 @@
 
   async function pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey) {
     const attemptId = offer.attemptId.value;
-    const established = await pollMailbox(`/v2/companion/pairing/established/${attemptId}`, stepDeadline(), ceremony.signal);
+    const established = await pollMailbox(`/v2/companion/pairing/established/${attemptId}`, stepDeadline(), ceremony.signal, throwIfResumeRefused);
     if (established) {
       if (!bytesEqual(base64UrlDecode(established.transcriptHashBase64Url), transcriptHash)) {
         throw new Error("The desktop's session confirmation did not match. This pairing was not completed.");
@@ -2222,13 +2251,17 @@
       while (!code && Date.now() < deadline) {
         const answer = await getJson(`/v2/companion/relay/resume/requests/${ticket.ticketId}`, controller.signal);
         if (!answer) break;
+        if (answer.refused) throw resumeRefused(answer.refused); // [#846]
         code = answer.pairingCode;
         if (!code) await pause(1500, controller.signal);
       }
 
       if (!code) return "waiting";
       pendingApproval = null;
-      await beginPairing(code, paired.deviceName || "Tablet", { pinnedDesktopKeyId: paired.desktopKeyId });
+      await beginPairing(code, paired.deviceName || "Tablet", {
+        pinnedDesktopKeyId: paired.desktopKeyId,
+        resumeTicketId: ticket.ticketId,
+      });
       $("pairedName").textContent = paired.deviceName || "Tablet";
       setStage("pairingDone");
       return "resumed";
@@ -2248,7 +2281,7 @@
       outcome = await comeBackByKey();
     } catch (error) {
       if (isAbort(error)) return;
-      outcome = "waiting";
+      outcome = error?.resumeRefused ? `refused-${error.resumeRefused}` : "waiting";
     }
 
     // [#840] The player typed a code while this was still asking: their pairing owns the page now,
@@ -2270,13 +2303,24 @@
       return;
     }
 
+    // [#846] The desktop does not know this tablet (revoked, or its pairings were reset): asking
+    // again cannot work, so it is forgotten here too and the code form is the way back.
+    if (outcome === "refused-not-recognised") {
+      await idbDelete(PAIRED_KEY).catch(() => {});
+      showRememberedDesktopActions(false);
+      setStage("pairingIdle", RESUME_REFUSALS["not-recognised"]);
+      return;
+    }
+
     comeBackFailures += 1;
     const prominent = comeBackFailures >= PROMINENT_PAIR_AGAIN_AFTER ||
       Date.now() - comeBackStartedAt >= 60_000;
     offerPairAgain(true, prominent);
     setStage(
       "pairingIdle",
-      outcome === "offline"
+      outcome === "refused-failed"
+        ? RESUME_REFUSALS.failed
+        : outcome === "offline"
         ? prominent
           ? "The desktop is still offline. Pair again to use a new code."
           : "The desktop is not connected. This tablet will keep trying."

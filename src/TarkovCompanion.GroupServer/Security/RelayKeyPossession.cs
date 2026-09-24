@@ -113,6 +113,25 @@ public sealed record RelayResumeTicket(Guid TicketId, string DeviceKeyId, DateTi
 {
     /// <summary>The pairing code of the offer the desktop opened for this device, once it has.</summary>
     public string? PairingCode { get; init; }
+
+    /// <summary>
+    /// [#846] Why the desktop will not let this device back in, once it has said so: one of
+    /// <see cref="RelayResumeRefusals"/>. The tablet reads it and goes straight to its code form
+    /// instead of waiting out a step that nobody is going to answer.
+    /// </summary>
+    public string? Refusal { get; init; }
+}
+
+/// <summary>[#846] The only reasons a desktop can give for refusing a returning device.</summary>
+public static class RelayResumeRefusals
+{
+    /// <summary>The desktop has no approved device with this key: revoked, replaced or never paired there.</summary>
+    public const string NotRecognised = "not-recognised";
+
+    /// <summary>The desktop tried and the handshake did not finish.</summary>
+    public const string Failed = "failed";
+
+    public static bool IsKnown(string? reason) => reason is NotRecognised or Failed;
 }
 
 /// <summary>
@@ -167,7 +186,7 @@ public sealed class RelayResumeTickets
         lock (_gate)
         {
             Prune(now);
-            return _tickets.Values.Where(item => item.PairingCode is null).ToArray();
+            return _tickets.Values.Where(item => item.PairingCode is null && item.Refusal is null).ToArray();
         }
     }
 
@@ -177,12 +196,41 @@ public sealed class RelayResumeTickets
         lock (_gate)
         {
             Prune(now);
-            if (!_tickets.TryGetValue(ticketId, out var ticket) || ticket.PairingCode is not null)
+            if (!_tickets.TryGetValue(ticketId, out var ticket) || ticket.PairingCode is not null || ticket.Refusal is not null)
             {
                 return false;
             }
 
             _tickets[ticketId] = ticket with { PairingCode = pairingCode };
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// [#846] The desktop's "no": before it answered (a device it does not know) or after (the
+    /// handshake failed). The first refusal stands; the ticket still lapses on its own time.
+    /// </summary>
+    public bool Refuse(Guid ticketId, string reason)
+    {
+        if (!RelayResumeRefusals.IsKnown(reason))
+        {
+            throw new ArgumentException("Unknown resume refusal.", nameof(reason));
+        }
+
+        var now = _timeProvider.GetUtcNow().ToUniversalTime();
+        lock (_gate)
+        {
+            Prune(now);
+            if (!_tickets.TryGetValue(ticketId, out var ticket))
+            {
+                return false;
+            }
+
+            if (ticket.Refusal is null)
+            {
+                _tickets[ticketId] = ticket with { Refusal = reason };
+            }
+
             return true;
         }
     }

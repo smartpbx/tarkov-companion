@@ -477,6 +477,47 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
     }
 
     /// <summary>
+    /// [#846] Tells a returning device, through the relay, that this desktop will not let it back
+    /// in, so its page shows the code form at once instead of timing out. <paramref name="reason"/>
+    /// is <c>not-recognised</c> or <c>failed</c>. False when the relay would not take it: the
+    /// ticket lapsed, no owner session, or a relay from before #846 (404), where the tablet still
+    /// times out as it always did.
+    /// </summary>
+    public async Task<bool> RefuseResumeTicketAsync(Guid ticketId, string reason, CancellationToken cancellationToken = default)
+    {
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            relay = _relay;
+            owner = _owner;
+        }
+
+        if (relay is null || owner is null)
+        {
+            Log?.Write("resume-refusal:no-owner", "resume refusal not sent: no owner session.", Microsoft.Extensions.Logging.LogLevel.Warning);
+            return false;
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"v2/companion/relay/resume/requests/{ticketId:D}/refusal?reason={Uri.EscapeDataString(reason)}");
+        AddBearer(request, owner);
+        using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.IsSuccessStatusCode)
+        {
+            Log?.Write("resume-refusal:posted", $"resume refusal posted ({reason}).");
+            return true;
+        }
+
+        Log?.Write(
+            "resume-refusal:failed",
+            $"resume refusal refused by the relay: HTTP {(int)response.StatusCode}.",
+            Microsoft.Extensions.Logging.LogLevel.Warning);
+        return false;
+    }
+
+    /// <summary>
     /// Registers a just-completed tablet pairing on the relay (so the hub can route its traffic),
     /// then immediately delivers the canonical snapshot <c>DesktopCompanionAuthority.RegisterPairingAsync</c>
     /// already queued for it locally.
