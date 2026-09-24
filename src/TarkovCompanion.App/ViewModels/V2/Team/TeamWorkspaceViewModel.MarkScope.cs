@@ -46,4 +46,42 @@ public sealed partial class TeamWorkspaceViewModel
             };
         }
     }
+
+    /// <summary>
+    /// #289: our "Squad" marks whose send failed, listed as "Queued" until the relay takes them.
+    /// </summary>
+    /// <remarks>
+    /// Neither on the relay nor "Just me", so without these rows the Team list simply lacked them
+    /// and the player had no way to tell that the squad had not seen them.
+    /// </remarks>
+    private IEnumerable<TeamMarkRowViewModel> QueuedMarkRows(DateTimeOffset now)
+    {
+        if (_raidCockpit is not { } cockpit)
+        {
+            yield break;
+        }
+
+        foreach (var mark in cockpit.QueuedMarks)
+        {
+            yield return QueuedMarkRow(mark, now, () => cockpit.RemoveLocalMarkAsync(mark.Id));
+        }
+    }
+
+    internal static TeamMarkRowViewModel QueuedMarkRow(RaidMark mark, DateTimeOffset now, Func<Task> remove)
+    {
+        ArgumentNullException.ThrowIfNull(mark);
+        var isPing = mark.Kind == RaidMarkKind.Ping;
+        var kind = isPing ? "Ping" : "Waypoint";
+        var age = $"{GroupSessionService.Ago(now - mark.CreatedUtc)} ago";
+        var timeLeft = RaidMarkLifetimes.TimeLeft(mark, now);
+        return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, "marked by you", age, isPing ? timeLeft : null, false)
+        {
+            RemoveCommand = new AsyncDelegateCommand(remove),
+            Number = isPing ? null : "·",
+            Title = mark.State.Label ?? kind,
+            Detail = JoinDetail(MapLabel(mark.State.MapId), age),
+            MetadataLabel = JoinDetail("Queued · sends on reconnect", $"TTL · {timeLeft}"),
+            IsQueued = true,
+        };
+    }
 }

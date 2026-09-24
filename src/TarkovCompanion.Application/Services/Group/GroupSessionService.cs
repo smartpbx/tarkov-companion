@@ -179,7 +179,9 @@ public sealed class GroupSessionService : IAsyncDisposable
         // what every test that builds this by hand relies on.
         GroupQuestShare? quests = null,
         GroupKitShare? kits = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        // [#289] The extract, note and ready state set on the Team workspace. Optional like the rest.
+        GroupSquadStatus? status = null)
     {
         _clock = clock ?? TimeProvider.System;
         _settings = settings;
@@ -188,7 +190,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         _logger = logger;
         _quests = quests;
         _kits = kits;
+        _status = status;
     }
+
+    private readonly GroupSquadStatus? _status;
 
     private readonly GroupQuestShare? _quests;
     private readonly GroupKitShare? _kits;
@@ -207,6 +212,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         if (_quests is not null)
         {
             _quests.Changed += QuestsChanged;
+        }
+
+        if (_status is not null)
+        {
+            // [#289] A ready toggle is sent now, the same way a quest change is.
+            _status.Changed += QuestsChanged;
         }
 
         _worker = Task.Run(() => RunAsync(_stopping.Token));
@@ -774,7 +785,15 @@ public sealed class GroupSessionService : IAsyncDisposable
         // [#269] Sent whatever the quest switch says: a squadmate on another mode is told so even
         // when nobody shares quests, and it is what keeps their quests apart when somebody does.
         var ownMode = _quests is null ? null : await _quests.GameModeAsync(cancellationToken).ConfigureAwait(false);
-        var payload = Describe(snapshot, settings, sharedQuests, observed, _clock.GetUtcNow()) with { GameMode = ownMode };
+        var status = _status?.Current ?? SquadStatus.None;
+        var payload = Describe(snapshot, settings, sharedQuests, observed, _clock.GetUtcNow()) with
+        {
+            GameMode = ownMode,
+            // [#289] Only what the player set on the Team workspace; absent (not false) when unset.
+            Ready = status.Ready,
+            PlannedExtract = status.ExtractFor(snapshot.Raid.MapId),
+            Note = status.Note,
+        };
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             new Uri(new Uri(settings.ServerUri!), Exchange(hold)))
@@ -1135,6 +1154,10 @@ public sealed class GroupSessionService : IAsyncDisposable
     {
         QuestIds = member.QuestIds ?? [],
         GameMode = GroupModeCheck.Normalize(member.GameMode),
+        // [#289] Absent from a companion or relay that predates them, which reads as "not said".
+        Ready = member.Ready,
+        PlannedExtract = string.IsNullOrWhiteSpace(member.PlannedExtract) ? null : member.PlannedExtract.Trim(),
+        Note = string.IsNullOrWhiteSpace(member.Note) ? null : member.Note.Trim(),
         // [#780] Absent from a companion or relay that predates it, which reads as no objectives.
         Objectives = [.. (member.Objectives ?? [])
             .Where(objective => objective is { TaskId.Length: > 0, ObjectiveId.Length: > 0 })
@@ -1453,6 +1476,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             _quests.Changed -= QuestsChanged;
         }
+
+        if (_status is not null)
+        {
+            _status.Changed -= QuestsChanged;
+        }
         // Said out loud rather than left to time out. DELETE /state/{name} has been served
         // since the relay was written and called by nothing, so a member who closed the
         // application stayed on everybody else's map for the full three-minute lifetime,
@@ -1546,6 +1574,18 @@ public sealed class GroupSessionService : IAsyncDisposable
         /// <summary>[#269] "pvp", "pve" or "seasonal"; absent from clients and relays that predate it.</summary>
         [JsonPropertyName("gameMode")]
         public string? GameMode { get; init; }
+
+        /// <summary>[#289] Ready or not, as the member said on Team; absent when they have not said.</summary>
+        [JsonPropertyName("ready")]
+        public bool? Ready { get; init; }
+
+        /// <summary>[#289] The extract the member plans to leave by.</summary>
+        [JsonPropertyName("plannedExtract")]
+        public string? PlannedExtract { get; init; }
+
+        /// <summary>[#289] A short line for the squad.</summary>
+        [JsonPropertyName("note")]
+        public string? Note { get; init; }
 
         /// <summary>How high they were standing, absent from clients that predate it.</summary>
         [JsonPropertyName("y")]

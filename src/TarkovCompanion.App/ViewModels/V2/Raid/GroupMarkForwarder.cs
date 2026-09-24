@@ -29,6 +29,14 @@ namespace TarkovCompanion.App.ViewModels.V2.Raid;
 /// lifetime can change the kind (only the 45-second one is a ping), which the relay cannot change
 /// either, so that is a remove and resend like a move. The relay forgets nothing on a timer except
 /// pings, so a five-minute waypoint leaves it when the local store expires it, like any removal.
+///
+/// #289 offline queue, the desktop half of the tablet's #766. A "Squad" mark whose send failed
+/// (relay down, network gone) used to be forgotten on the spot: it stayed on this map and reached
+/// nobody, and nothing said so. It now waits in a queue the Team list shows as "Queued", and goes
+/// out the next time the group is seen live (<see cref="ObserveGroup"/>), at its current place and
+/// kind. A queued mark that is removed, narrowed to "Just me" or expires locally leaves the queue;
+/// one still unsent after <see cref="QueueLimit"/> is dropped, the tablet's fifteen minutes, because
+/// a waypoint from a raid ago is a plan nobody is still making.
 /// </remarks>
 internal sealed class GroupMarkForwarder : IDisposable
 {
@@ -37,6 +45,15 @@ internal sealed class GroupMarkForwarder : IDisposable
 
     /// <summary>How old a mark may be when first seen and still count as just placed.</summary>
     private static readonly TimeSpan JustPlaced = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long a mark may wait for the relay before it is given up (the tablet's #766 bound).</summary>
+    internal static readonly TimeSpan QueueLimit = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// The shortest gap between two tries of one queued mark. A relay that answers exchanges but
+    /// refuses marks would otherwise be asked again on every snapshot.
+    /// </summary>
+    internal static readonly TimeSpan RetryGap = TimeSpan.FromSeconds(5);
 
     private readonly IRaidMarkStore _marks;
     private readonly Func<RaidMark, WorldPosition?> _locate;
@@ -48,6 +65,8 @@ internal sealed class GroupMarkForwarder : IDisposable
     private readonly HashSet<Guid> _seen = [];
     private readonly HashSet<Guid> _private = [];
     private readonly Dictionary<Guid, Sent> _sent = [];
+    /// <summary>Marks whose send failed, with when they first failed and when they were last tried.</summary>
+    private readonly Dictionary<Guid, Queued> _queued = [];
     private bool _disposed;
 
     public GroupMarkForwarder(
@@ -116,12 +135,88 @@ internal sealed class GroupMarkForwarder : IDisposable
         }
     }
 
+    /// <summary>Whether a local mark is waiting for the relay to come back.</summary>
+    public bool IsQueued(Guid markId)
+    {
+        lock (_gate)
+        {
+            return _queued.ContainsKey(markId);
+        }
+    }
+
+    /// <summary>The local marks waiting for the relay, oldest first.</summary>
+    public IReadOnlyList<Guid> QueuedIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _queued.OrderBy(item => item.Value.FirstFailedUtc).Select(item => item.Key)];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sends every queued mark again, now that the relay answers. Called from
+    /// <see cref="ObserveGroup"/>; public so a caller that learns of a reconnect another way can too.
+    /// </summary>
+    public void RetryQueued()
+    {
+        var now = _clock.GetUtcNow();
+        var toSend = new List<RaidMark>();
+        var dropped = false;
+        lock (_gate)
+        {
+            if (_disposed || _queued.Count == 0)
+            {
+                return;
+            }
+
+            var present = _marks.Marks.ToDictionary(mark => mark.Id);
+            foreach (var (id, queued) in _queued.ToArray())
+            {
+                if (!present.TryGetValue(id, out var mark) ||
+                    mark.Scope == RaidMarkScope.Private ||
+                    now - queued.FirstFailedUtc > QueueLimit)
+                {
+                    _queued.Remove(id);
+                    dropped = true;
+                    continue;
+                }
+
+                if (queued.LastTriedUtc is { } tried && now - tried < RetryGap)
+                {
+                    continue;
+                }
+
+                _queued[id] = queued with { LastTriedUtc = now };
+                _sent[id] = new(null, mark.State.X, mark.State.Y, mark.Kind)
+                {
+                    PlacedUtc = mark.CreatedUtc,
+                    ExpiresUtc = mark.State.ExpiresUtc,
+                };
+                toSend.Add(mark);
+            }
+        }
+
+        if (dropped)
+        {
+            Changed?.Invoke();
+        }
+
+        foreach (var mark in toSend)
+        {
+            _ = SendAsync(mark);
+        }
+    }
+
     private void MarksChanged()
     {
         var current = _marks.Marks;
         var now = _clock.GetUtcNow();
         var toSend = new List<RaidMark>();
         var toRemove = new List<(long Id, string Why)>();
+        var queueShrank = false;
         lock (_gate)
         {
             if (_disposed)
@@ -180,6 +275,15 @@ internal sealed class GroupMarkForwarder : IDisposable
             }
 
             _private.RemoveWhere(id => !present.ContainsKey(id));
+            // A queued mark removed, expired or narrowed to "Just me" here is no longer wanted.
+            foreach (var id in _queued.Keys.ToArray())
+            {
+                if (!present.TryGetValue(id, out var queuedMark) || queuedMark.Scope == RaidMarkScope.Private)
+                {
+                    _queued.Remove(id);
+                    queueShrank = true;
+                }
+            }
 
             foreach (var (id, sent) in _sent.ToArray())
             {
@@ -215,6 +319,11 @@ internal sealed class GroupMarkForwarder : IDisposable
             _ = RemoveQuietlyAsync(id, why);
         }
 
+        if (queueShrank)
+        {
+            Changed?.Invoke();
+        }
+
         foreach (var mark in toSend)
         {
             _ = SendAsync(mark);
@@ -245,18 +354,38 @@ internal sealed class GroupMarkForwarder : IDisposable
         }
 
         var stillWanted = false;
+        var queueChanged = false;
         lock (_gate)
         {
             if (_sent.TryGetValue(mark.Id, out var sent) && sent.GroupId is null &&
                 sent.X == mark.State.X && sent.Y == mark.State.Y && sent.Kind == mark.Kind && groupId is not null)
             {
                 _sent[mark.Id] = sent with { GroupId = groupId };
+                queueChanged = _queued.Remove(mark.Id);
                 stillWanted = true;
             }
             else if (groupId is null)
             {
+                // #289: still wanted (not removed, moved or narrowed while it was on its way), so
+                // it waits for the relay rather than being forgotten.
+                var wanted = _sent.TryGetValue(mark.Id, out var failed) && failed.GroupId is null && !_disposed;
                 _sent.Remove(mark.Id);
+                if (wanted && !_queued.ContainsKey(mark.Id))
+                {
+                    var now = _clock.GetUtcNow();
+                    _queued[mark.Id] = new(now, now);
+                    queueChanged = true;
+                }
             }
+            else
+            {
+                queueChanged = _queued.Remove(mark.Id);
+            }
+        }
+
+        if (queueChanged && !stillWanted)
+        {
+            Changed?.Invoke();
         }
 
         if (!stillWanted && groupId is > 0)
@@ -346,8 +475,12 @@ internal sealed class GroupMarkForwarder : IDisposable
             }
         }
 
+        // A live snapshot is the relay answering again: whatever waited for it goes now.
+        RetryQueued();
         return lost;
     }
+
+    private sealed record Queued(DateTimeOffset FirstFailedUtc, DateTimeOffset? LastTriedUtc);
 
     private sealed record Sent(long? GroupId, double X, double Y, RaidMarkKind Kind, bool SeenOnRelay = false)
     {
