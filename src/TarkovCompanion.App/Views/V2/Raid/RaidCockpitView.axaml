@@ -334,8 +334,12 @@
               ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                       AutomationProperties.HelpText="{Binding TimeLeftDetail}">
-            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
+            <!-- [#266] Only while a raid clock runs: the state words are already in the top bar
+                 and the Raid plan card, and the strip has no width to repeat them on Customs. -->
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}"
+                  IsVisible="{Binding ShowsStripPhase}" />
             <TextBlock Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
+                       IsVisible="{Binding ShowsStripPhase}"
                        AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
             <!-- [#707] Out of the raid with a squadmate still inside: whose map this is, or one
                  press to go to it. -->

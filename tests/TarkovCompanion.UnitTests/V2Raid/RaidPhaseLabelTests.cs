@@ -38,4 +38,13 @@ public sealed class RaidPhaseLabelTests
     {
         Assert.Equal("20:56 left", RaidCockpitViewModel.PhaseLabel("20:56 left", RaidLifecycleState.InRaid));
     }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("00:09 elapsed", true)]
+    [InlineData("20:56 left", true)]
+    public void The_strip_shows_the_phase_only_while_a_clock_runs(string clock, bool shown)
+    {
+        Assert.Equal(shown, RaidCockpitViewModel.ShowsPhaseInStrip(clock));
+    }
 }
