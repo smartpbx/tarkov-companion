@@ -57,6 +57,27 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
 
     public long TimerCreationCount => Interlocked.Read(ref _timerCreations);
 
+    /// <summary>
+    /// When set, timers created from inside a method whose name contains this text are marked,
+    /// and <see cref="ScheduledMarkedTimerCountAt"/> counts only those.
+    /// </summary>
+    /// <remarks>
+    /// A due time alone cannot tell two timers apart when they fall due together. The outbox
+    /// re-arms its heartbeat at exactly the instant the renewal's own lease-expiry timer was due,
+    /// so "a timer is due then" was true before the heartbeat existed, and a test that advanced on
+    /// it moved the clock between the heartbeat reading the time and arming its delay: the
+    /// heartbeat landed a step late and the test then waited for it at the right time forever.
+    /// </remarks>
+    public string? MarkTimersCreatedBy { get; init; }
+
+    public int ScheduledMarkedTimerCountAt(DateTimeOffset dueUtc)
+    {
+        lock (_gate)
+        {
+            return _timers.Count(timer => timer.Marked && timer.DueUtc == dueUtc);
+        }
+    }
+
     public override ITimer CreateTimer(
         TimerCallback callback,
         object? state,
@@ -64,7 +85,10 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         TimeSpan period)
     {
         ArgumentNullException.ThrowIfNull(callback);
-        var timer = new ManualTimer(this, callback, state);
+        var timer = new ManualTimer(this, callback, state)
+        {
+            Marked = MarkTimersCreatedBy is { } marker && CreatedBy(marker),
+        };
         timer.Change(dueTime, period);
         Interlocked.Increment(ref _timerCreations);
         return timer;
@@ -93,6 +117,22 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         }
     }
 
+    /// <summary>Whether the nearest application method on the stack is the marked one.</summary>
+    /// <remarks>
+    /// The nearest, not any: a method the marked one calls runs synchronously to its first await,
+    /// and a timer it creates there has the marked method further down the stack as well.
+    /// </remarks>
+    private static bool CreatedBy(string marker)
+    {
+        var caller = new System.Diagnostics.StackTrace(false).GetFrames()
+            .Select(frame => frame.GetMethod())
+            .FirstOrDefault(method => method?.DeclaringType is { } type
+                && type.Assembly != typeof(ManualTimeProvider).Assembly
+                && type.Assembly.GetName().Name?.StartsWith("TarkovCompanion.", StringComparison.Ordinal) == true);
+        var name = caller?.DeclaringType?.Name + "." + caller?.Name;
+        return name.Contains(marker, StringComparison.Ordinal);
+    }
+
     private void RegisterUnsafe(ManualTimer timer)
     {
         if (!_timers.Contains(timer))
@@ -113,6 +153,8 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         private bool _disposed;
 
         public DateTimeOffset? DueUtc => _dueUtc;
+
+        public bool Marked { get; init; }
 
         public bool Change(TimeSpan dueTime, TimeSpan period)
         {
