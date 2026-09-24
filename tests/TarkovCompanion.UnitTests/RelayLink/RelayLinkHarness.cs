@@ -639,6 +639,13 @@ internal sealed class TabletSimulator : IDisposable
 
     public Task<HttpResponseMessage> ReadFramesRawAsync() => SendAsync(HttpMethod.Get, $"v2/companion/relay/frames?after={_afterDeliveryId}", null);
 
+    /// <summary>[#294] The read a page from #604 on makes: held, with its cursor as its acknowledgement.</summary>
+    public Task<HttpResponseMessage> ReadFramesHeldRawAsync(int waitSeconds) =>
+        SendAsync(HttpMethod.Get, $"v2/companion/relay/frames?after={_afterDeliveryId}&wait={waitSeconds}", null);
+
+    /// <summary>[#294] What a page asks when a read says its queue broke.</summary>
+    public Task<HttpResponseMessage> ResetFramesRawAsync() => SendAsync(HttpMethod.Post, "v2/companion/relay/frames/reset", null);
+
     /// <summary>Reads and opens every queued frame, returning what each one carried.</summary>
     public async Task<IReadOnlyList<RelayPayload>> ReadAsync()
     {

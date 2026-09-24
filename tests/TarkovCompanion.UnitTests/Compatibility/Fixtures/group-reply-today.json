@@ -1,0 +1,87 @@
+{
+  "room": "9f2c0000000000000000000000000000000000000000000000000000000000aa",
+  "members": [
+    {
+      "name": "TodayGeo",
+      "mapId": "customs",
+      "raidState": "InRaid",
+      "side": "pmc",
+      "x": 12.5,
+      "z": 44,
+      "heading": 90,
+      "positionAge": 4,
+      "loadout": [],
+      "quests": [
+        "Debut"
+      ],
+      "questIds": [
+        "quest-debut"
+      ],
+      "gameMode": "pvp",
+      "ready": true,
+      "plannedExtract": "ZB-1011",
+      "note": "rotating north",
+      "objectives": [
+        {
+          "task": "quest-debut",
+          "id": "objective-shoot",
+          "count": 2
+        }
+      ],
+      "y": null,
+      "observed": [],
+      "sinceSeconds": 1.0,
+      "extracts": [],
+      "transits": [],
+      "raidClockSeconds": null,
+      "raidClockAge": null,
+      "trail": [],
+      "drawings": [
+        {
+          "id": "line-1",
+          "mapId": "customs",
+          "points": [
+            10,
+            20,
+            15.5,
+            25.3,
+            30,
+            40
+          ],
+          "floor": "ground"
+        }
+      ]
+    }
+  ],
+  "serverUtc": "2026-09-24T05:00:00+00:00",
+  "waypoints": [
+    {
+      "id": 1,
+      "by": "TodayGeo",
+      "mapId": "customs",
+      "x": 56.16,
+      "y": -2.95,
+      "z": 110.52,
+      "label": "Dorms",
+      "createdUtc": "2026-09-24T04:59:00+00:00",
+      "completedUtc": null,
+      "completedBy": null,
+      "color": "#009E73"
+    }
+  ],
+  "pings": [
+    {
+      "id": 2,
+      "by": "TodayGeo",
+      "mapId": "customs",
+      "x": 56.16,
+      "y": -2.95,
+      "z": 110.52,
+      "label": null,
+      "createdUtc": "2026-09-24T04:59:50+00:00",
+      "color": "#56B4E9"
+    }
+  ],
+  "protocol": 1,
+  "revision": 1
+}

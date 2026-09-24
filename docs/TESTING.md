@@ -69,7 +69,11 @@ and relay replies from `v2-rough-1` and `53a3b743`, a relay reply with fields no
 and the tablet page's commands and read paths at `v2-rough-11` and `53a3b743`. The tests feed them
 to the current relay routes, the current `GroupSessionService` and the current desktop reducer,
 and check that the current relay reply, canonical messages and map surface still carry every
-field those older readers need. When a release changes the wire, add its messages as new fixtures.
+field those older readers need. The relay's frame poll, frame reset and resume ticket are read
+over real HTTP against each page's read paths. The `today` fixtures were recorded from a1da01af
+through the current writers (mark colours, review cards, drawings, resume refusal), and a test
+fails when the current relay stops writing one of their paths.
+When a release changes the wire, add its messages as new fixtures.
 Do not edit the old ones.
 
 ## Simulator

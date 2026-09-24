@@ -9,7 +9,9 @@ namespace TarkovCompanion.UnitTests.Compatibility;
 /// [#294] Players update at different times and the relay is redeployed on its own, so every pairing
 /// of an older and a newer build is live at some point. Each fixture is named for the commit whose
 /// source it was derived from (v2-rough-1 and v2-rough-11 are tags; 53a3b743 is the relay build
-/// deployed before the #289 Ready check). Ids and names in them are synthetic.
+/// deployed before the #289 Ready check). "today" fixtures were recorded from a1da01af (mark colours,
+/// review cards, drawings and resume refusal) through the current code's own writers, so a later build
+/// is held to them the same way. Ids and names in them are synthetic.
 /// </remarks>
 internal static class CompatibilityFixtures
 {
@@ -29,6 +31,42 @@ internal static class CompatibilityFixtures
     /// </remarks>
     public static IReadOnlyList<string> Missing(JsonNode root, IEnumerable<string> paths) =>
         [.. paths.Where(path => !Carries(root, path.Split('.'), 0))];
+
+    /// <summary>
+    /// Every path <paramref name="root"/> carries, in the form <see cref="Missing"/> reads: a golden
+    /// message turned into the list of what the build it was recorded from wrote.
+    /// </summary>
+    /// <remarks>An array of objects is followed through its first element; any other value ends a path.</remarks>
+    public static IReadOnlyList<string> PathsOf(JsonNode root)
+    {
+        var paths = new List<string>();
+        Collect(root, string.Empty, paths);
+        return paths;
+    }
+
+    private static void Collect(JsonNode? node, string prefix, List<string> paths)
+    {
+        if (node is not JsonObject target)
+        {
+            return;
+        }
+
+        foreach (var (name, value) in target)
+        {
+            switch (value)
+            {
+                case JsonObject:
+                    Collect(value, $"{prefix}{name}.", paths);
+                    break;
+                case JsonArray { Count: > 0 } items when items[0] is JsonObject:
+                    Collect(items[0], $"{prefix}{name}[].", paths);
+                    break;
+                default:
+                    paths.Add(prefix + name);
+                    break;
+            }
+        }
+    }
 
     private static bool Carries(JsonNode? node, string[] segments, int index)
     {
