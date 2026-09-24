@@ -275,6 +275,15 @@ public sealed record GroupMemberView(
     /// </remarks>
     public IReadOnlyList<GroupObjectiveView> Objectives { get; init; } = [];
 
+    /// <summary>[#289] Ready or not, as they said on their Team workspace; null when unsaid.</summary>
+    public bool? Ready { get; init; }
+
+    /// <summary>[#289] The extract they plan to leave by, where they chose one.</summary>
+    public string? PlannedExtract { get; init; }
+
+    /// <summary>[#289] A short line they left for the squad.</summary>
+    public string? Note { get; init; }
+
     /// <summary>
     /// Where they have been this raid, oldest first, without their current position.
     /// </summary>

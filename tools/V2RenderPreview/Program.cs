@@ -1755,6 +1755,15 @@ internal static class Program
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
                 var demo = TeamDemoGroup(viewModel.Map.RenderModel);
+                // [#289] The ready check, and a waypoint queued while the relay is away.
+                if (args.Contains("--team-status-demo"))
+                {
+                    var extract = TeamStatusDemo.FirstExtract(services);
+                    demo = TeamStatusDemo.WithSquadStatus(demo, extract);
+                    DrainUntilComplete(TeamStatusDemo.PlaceQueuedAsync(services, viewModel.Map.RenderModel?.Location.Id, extract));
+                    Pump(10);
+                }
+
                 var party = DemoParty();
                 for (var i = 0; i < 6; i++)
                 {

@@ -139,6 +139,17 @@ public sealed record GroupMemberState(
             return "A game mode must be 16 characters or fewer.";
         }
 
+        // [#289] What the player typed or picked on their Team workspace, for a squadmate's panel.
+        if (PlannedExtract is { Length: > 64 })
+        {
+            return "A planned extract must be 64 characters or fewer.";
+        }
+
+        if (Note is { Length: > 120 })
+        {
+            return "A note must be 120 characters or fewer.";
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
@@ -171,6 +182,25 @@ public sealed record GroupMemberState(
     /// </summary>
     [JsonPropertyName("gameMode")]
     public string? GameMode { get; init; }
+
+    /// <summary>
+    /// [#289] Ready or not, as the member said on their Team workspace; null when they have not.
+    /// </summary>
+    /// <remarks>
+    /// These three are init properties like every field added since the first: a client that
+    /// predates them neither sends nor reads them, and a relay that predates them drops them,
+    /// which a receiver reads as "not said".
+    /// </remarks>
+    [JsonPropertyName("ready")]
+    public bool? Ready { get; init; }
+
+    /// <summary>[#289] The extract the member chose to leave by, by its catalog name.</summary>
+    [JsonPropertyName("plannedExtract")]
+    public string? PlannedExtract { get; init; }
+
+    /// <summary>[#289] A short line the member left for the squad.</summary>
+    [JsonPropertyName("note")]
+    public string? Note { get; init; }
 
     /// <summary>
     /// [#780] The open objectives of this member's active quests, by id, with a count where kept.

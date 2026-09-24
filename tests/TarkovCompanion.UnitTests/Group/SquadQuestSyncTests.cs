@@ -19,7 +19,7 @@ namespace TarkovCompanion.UnitTests.Group;
 /// [#780] Quest sync across the squad: a member's active quests and open objectives reach the
 /// others by id, through the relay's own exchange route, and a change goes out at once.
 /// </summary>
-public sealed class SquadQuestSyncTests
+public sealed partial class SquadQuestSyncTests
 {
     [Fact]
     public async Task OpenObjectivesTravelThroughTheRelayToASquadmate()

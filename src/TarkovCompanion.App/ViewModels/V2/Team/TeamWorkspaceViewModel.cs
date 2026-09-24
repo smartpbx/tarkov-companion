@@ -100,6 +100,9 @@ public sealed record TeamMarkRowViewModel(
     public string MetadataLabel { get; init; } = string.Empty;
 
     public ICommand? RemoveCommand { get; init; }
+
+    /// <summary>#289: one of ours whose send failed; it goes out when the relay is back.</summary>
+    public bool IsQueued { get; init; }
 }
 
 /// <summary>
@@ -161,7 +164,9 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         TimeProvider? clock = null,
         RaidCockpitViewModel? raidCockpit = null,
         // [#780] The squad's quests, named from this player's catalog. Optional like the rest.
-        SquadQuestFeed? squadQuests = null)
+        SquadQuestFeed? squadQuests = null,
+        // [#289] The extract, note and ready state this player shares. Optional like the rest.
+        GroupSquadStatus? squadStatus = null)
     {
         _groupSession = groupSession ?? throw new ArgumentNullException(nameof(groupSession));
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
@@ -169,6 +174,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         _clock = clock ?? TimeProvider.System;
         _raidCockpit = raidCockpit;
         AttachSquadQuests(squadQuests);
+        AttachSquadStatus(squadStatus);
         if (_raidCockpit is not null)
         {
             // The centre map follows whichever map the Raid workspace shows (the top bar's map
@@ -417,6 +423,8 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         {
             Waypoints.Count switch { 0 => string.Empty, 1 => "1 waypoint", var count => $"{count} waypoints" },
             Pings.Count switch { 0 => string.Empty, 1 => "1 ping", var count => $"{count} pings" },
+            // #289: said in the header too, so a collapsed list still admits it.
+            Marks.Count(mark => mark.IsQueued) switch { 0 => string.Empty, var count => $"{count} queued" },
         }.Where(part => part.Length > 0));
 
     /// <summary>The centre map: the Raid workspace's current map carrying only the group's marks.</summary>
@@ -661,7 +669,8 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                         CultureInfo.CurrentCulture,
                         $"{position.X:F0}, {position.Z:F0} · from a screenshot {GroupPageViewModel.Age(member.PositionAge)}")
                     : string.Empty,
-                Shared = string.Join(" · ", member.Loadout.Concat(member.Quests)),
+                // [#289] Their ready state, extract and note first: the squad's question before a raid.
+                Shared = JoinDetail([DescribeStatus(member), .. member.Loadout, .. member.Quests]),
             })
             .ToArray();
 
@@ -746,11 +755,13 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         }
 
         marks.AddRange(PrivateMarkRows(now));
+        marks.AddRange(QueuedMarkRows(now));
         Marks = marks;
         Waypoints = marks.Where(mark => mark.Number is not null).ToArray();
         Pings = marks.Where(mark => mark.Number is null).ToArray();
         _group = group;
         RefreshModeWarning(group);
+        RefreshSquadStatus(group);
 
         OnPropertyChanged(nameof(MyLoadout));
         OnPropertyChanged(nameof(MyProfile));

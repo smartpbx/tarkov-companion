@@ -204,6 +204,29 @@
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
+    <!-- [#289] The ready check's two answers: the chosen one filled (ready) or amber (not ready). -->
+    <Style Selector="Button.v2-team-outline.v2-team-on">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.v2-team-outline.v2-team-on:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Button.v2-team-outline.v2-team-hold">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.v2-team-outline.v2-team-hold:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.v2-team-ready-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
     <Style Selector="ToggleSwitch.v2-team-switch">
       <Setter Property="MinWidth" Value="0" />
     </Style>
@@ -657,6 +680,70 @@
               </Grid>
             </Border>
 
+            <!-- [#289] Ready check: what this player shares with the squad (ready or not, an
+                 extract on the map on screen, a short note) and what each squadmate shared. -->
+            <Border Classes="v2-team-section v2-team-accent" IsVisible="{Binding CanShareStatus}"
+                    AutomationProperties.AutomationId="v2-team-ready-check">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Check}" />
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Ready check"
+                             AutomationProperties.HeadingLevel="3" />
+                  <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding ReadySummary}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                  <Button Classes="v2-team-outline" HorizontalAlignment="Stretch" Content="Ready"
+                          Classes.v2-team-on="{Binding IsReady}"
+                          AutomationProperties.AutomationId="v2-team-ready"
+                          Command="{Binding ReadyCommand}" />
+                  <Button Grid.Column="1" Classes="v2-team-outline" HorizontalAlignment="Stretch" Content="Not ready"
+                          Classes.v2-team-hold="{Binding IsNotReady}"
+                          AutomationProperties.AutomationId="v2-team-not-ready"
+                          Command="{Binding NotReadyCommand}" />
+                </Grid>
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                  <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="Extract" />
+                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                            AutomationProperties.AutomationId="v2-team-extract"
+                            AutomationProperties.Name="Extract to share"
+                            ItemsSource="{Binding ExtractOptions}" SelectedItem="{Binding SelectedExtract, Mode=TwoWay}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox Classes="v2-field-input" Text="{Binding NoteDraft, Mode=TwoWay}" MaxLength="{Binding NoteLimit}"
+                           Watermark="Note for the squad"
+                           AutomationProperties.AutomationId="v2-team-note"
+                           AutomationProperties.Name="Note for the squad" />
+                  <Button Grid.Column="1" Classes="v2-team-outline" Content="Share"
+                          AutomationProperties.AutomationId="v2-team-share-note"
+                          IsEnabled="{Binding CanShareNote}" Command="{Binding ShareNoteCommand}" />
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding SharedNoteLabel}" IsVisible="{Binding HasSharedNote}"
+                           TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding SquadStatusRows}" IsVisible="{Binding HasSquadStatusRows}"
+                              AutomationProperties.AutomationId="v2-team-squad-status">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TeamSquadStatusRowViewModel">
+                      <StackPanel Spacing="1">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                          <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center"
+                                     Classes.v2-team-ready-text="{Binding IsReady}"
+                                     Classes.v2-team-warning-text="{Binding IsNotReady}"
+                                     Text="{Binding ReadyLabel}" IsVisible="{Binding HasReady}" />
+                        </Grid>
+                        <TextBlock Classes="v2-label" Text="{Binding ExtractLabel}" IsVisible="{Binding HasExtract}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-body" Text="{Binding Note}" IsVisible="{Binding HasNote}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
             <!-- [#780] Squad quests: every member's active quests, named from this catalog, with
                  progress, and "Shared" where two or more of you are on the same one. -->
             <Border Classes="v2-team-section v2-team-accent" IsVisible="{Binding HasSquadQuests}"
@@ -809,7 +896,8 @@
                           <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
                             <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       Classes.v2-team-warning-text="{Binding IsQueued}" />
                           </StackPanel>
                           <Path Grid.Column="2" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
                                 Data="{DynamicResource V2.Icon.Check}" IsVisible="{Binding IsReached}" />
@@ -835,7 +923,8 @@
                           <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
                             <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
                             <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                       Classes.v2-team-warning-text="{Binding IsQueued}" />
                           </StackPanel>
                           <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
                                   AutomationProperties.Name="Remove ping" ToolTip.Tip="Remove">

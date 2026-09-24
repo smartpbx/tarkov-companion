@@ -83,6 +83,11 @@ previous entry rather than adding a second one.
 - `gameMode` — `"pvp"`, `"pve"` or `"seasonal"`, the sender's active profile (#269). At most 16
   characters. A receiver on another mode drops that member's `quests`, `questIds` and
   `objectives` and says so once on the Team page; absent means unknown, never "different".
+- `ready`, `plannedExtract`, `note` — what the player set in Team's Ready check (#289): ready
+  or not (absent means not said), an extract (at most 64 characters, sent only while the sender
+  is on that extract's map or on none) and a note (at most 120). A relay older than these drops
+  them; a client older than them ignores them. A desktop "Squad" mark whose send fails is queued,
+  shown as "Queued" in Team's marks, and sent when the group is next seen live (at most 15 min).
 
 The reply is everyone else in the group:
 
