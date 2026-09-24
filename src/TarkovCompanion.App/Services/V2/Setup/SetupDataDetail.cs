@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Application.Services.Execution;
@@ -44,20 +45,20 @@ public sealed record SetupDataDetail(IReadOnlyList<SetupFact> Facts, string? Rea
             .FirstOrDefault();
 
         var coverage = data.ItemCount > 0
-            ? V2ShellText.Format("V2.Setup.Data.Coverage", culture, data.ItemCount, Math.Min(data.SyncedEndpointCount, EndpointsPerRefresh), EndpointsPerRefresh)
-            : V2ShellText.Get("V2.Setup.Data.NoData");
+            ? SetupText.DataCoverage(data.ItemCount, Math.Min(data.SyncedEndpointCount, EndpointsPerRefresh), EndpointsPerRefresh)
+            : SetupText.DataNoData;
         var lastSuccess = data.UpdatedUtc is { } updated
             ? V2ShellText.Age(updated, now, culture)
-            : V2ShellText.Get("V2.Setup.Data.Never");
+            : SetupText.DataNever;
         var failed = attempt is { State: BackgroundWorkState.Faulted or BackgroundWorkState.TimedOut or BackgroundWorkState.Rejected };
 
         var facts = new List<SetupFact>
         {
-            new(V2ShellText.Get("V2.Setup.Data.SourceLabel"), V2ShellText.Format("V2.Setup.Data.Source", culture, scope)),
-            new(V2ShellText.Get("V2.Setup.Data.CoverageLabel"), coverage),
-            new(V2ShellText.Get("V2.Setup.Data.LastAttemptLabel"), DescribeAttempt(attempt, snapshot.IsOffline, now, culture)),
-            new(V2ShellText.Get("V2.Setup.Data.LastSuccessLabel"), lastSuccess),
-            new(V2ShellText.Get("V2.Setup.Data.NextLabel"), DescribeNext(snapshot, refreshesAfter, culture)),
+            new(SetupText.DataSourceLabel, SetupText.DataSource(scope)),
+            new(SetupText.DataCoverageLabel, coverage),
+            new(SetupText.DataLastAttemptLabel, DescribeAttempt(attempt, snapshot.IsOffline, now, culture)),
+            new(SetupText.DataLastSuccessLabel, lastSuccess),
+            new(SetupText.DataNextLabel, DescribeNext(snapshot, refreshesAfter, culture)),
         };
 
         var degraded = data.Availability is DataAvailability.Cached or DataAvailability.Error or DataAvailability.Unavailable
@@ -72,18 +73,18 @@ public sealed record SetupDataDetail(IReadOnlyList<SetupFact> Facts, string? Rea
     {
         if (attempt is null)
         {
-            return offline ? V2ShellText.Get("V2.Setup.Data.AttemptOffline") : V2ShellText.Get("V2.Setup.Data.AttemptNone");
+            return offline ? SetupText.DataAttemptOffline : SetupText.DataAttemptNone;
         }
 
         var when = attempt.CompletedUtc ?? attempt.StartedUtc ?? attempt.SubmittedUtc;
         return attempt.State switch
         {
             BackgroundWorkState.Pending or BackgroundWorkState.Running or BackgroundWorkState.Restarting =>
-                V2ShellText.Get("V2.Setup.Data.AttemptRunning"),
-            BackgroundWorkState.Succeeded => V2ShellText.Format("V2.Setup.Data.AttemptSucceeded", culture, V2ShellText.Age(when, now, culture)),
-            BackgroundWorkState.TimedOut => V2ShellText.Format("V2.Setup.Data.AttemptTimedOut", culture, V2ShellText.Age(when, now, culture)),
-            BackgroundWorkState.Cancelled => V2ShellText.Format("V2.Setup.Data.AttemptStopped", culture, V2ShellText.Age(when, now, culture)),
-            _ => V2ShellText.Format("V2.Setup.Data.AttemptFailed", culture, V2ShellText.Age(when, now, culture)),
+                SetupText.DataAttemptRunning,
+            BackgroundWorkState.Succeeded => SetupText.DataAttemptSucceeded(V2ShellText.Age(when, now, culture)),
+            BackgroundWorkState.TimedOut => SetupText.DataAttemptTimedOut(V2ShellText.Age(when, now, culture)),
+            BackgroundWorkState.Cancelled => SetupText.DataAttemptStopped(V2ShellText.Age(when, now, culture)),
+            _ => SetupText.DataAttemptFailed(V2ShellText.Age(when, now, culture)),
         };
     }
 
@@ -91,16 +92,16 @@ public sealed record SetupDataDetail(IReadOnlyList<SetupFact> Facts, string? Rea
     {
         if (snapshot.IsDemoMode)
         {
-            return V2ShellText.Get("V2.Setup.Data.NextDemo");
+            return SetupText.DataNextDemo;
         }
 
         if (snapshot.IsOffline)
         {
-            return V2ShellText.Get("V2.Setup.Data.NextOffline");
+            return SetupText.DataNextOffline;
         }
 
         // Said as what the app does, because that is all it does: it refreshes at launch when the data is
         // old enough, and when the connection returns. There is no timer, so "in 3 hours" would be a claim.
-        return V2ShellText.Format("V2.Setup.Data.NextAtLaunch", culture, (int)Math.Round(refreshesAfter.TotalHours));
+        return SetupText.DataNextAtLaunch((int)Math.Round(refreshesAfter.TotalHours));
     }
 }

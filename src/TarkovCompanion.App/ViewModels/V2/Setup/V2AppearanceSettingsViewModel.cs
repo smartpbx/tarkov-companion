@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -58,8 +59,8 @@ public sealed class V2AppearanceChoiceViewModel : BindableViewModel
     public string DisplayLabel => IsCurrent ? $"✓ {Label}" : Label;
 
     public string AutomationState => IsCurrent
-        ? V2ShellText.Get("V2.Setup.Appearance.StateOn")
-        : V2ShellText.Get("V2.Setup.Appearance.StateOff");
+        ? SetupText.AppearanceStateOn
+        : SetupText.AppearanceStateOff;
 
     public ICommand ChooseCommand { get; }
 }
@@ -107,7 +108,7 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
         TextScales = [.. WorkspacePreferences.TextScales.Select(percent =>
             new V2AppearanceChoiceViewModel(
                 $"text-{percent}",
-                () => V2ShellText.Format("V2.Setup.Appearance.TextScaleOption", CultureInfo.CurrentCulture, percent),
+                () => SetupText.AppearanceTextScaleOption(percent),
                 () => SetTextScale(percent)))];
 
         ReduceMotionCommand = new DelegateCommand(() => SetReduceMotion(!Current.ReduceMotion));
@@ -133,37 +134,32 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
 
     public ICommand ResetCommand { get; }
 
-    public string ThemeLabel => V2ShellText.Get("V2.Setup.Appearance.ThemeLabel");
-    public string ThemeHint => V2ShellText.Get("V2.Setup.Appearance.ThemeHint");
-    public string VisionLabel => V2ShellText.Get("V2.Setup.Appearance.VisionLabel");
-    public string VisionHint => V2ShellText.Get("V2.Setup.Appearance.VisionHint");
-    public string TextScaleLabel => V2ShellText.Get("V2.Setup.Appearance.TextScaleLabel");
-    public string TextScaleHint => V2ShellText.Get("V2.Setup.Appearance.TextScaleHint");
-    public string DensityLabel => V2ShellText.Get("V2.Setup.Appearance.DensityLabel");
-    public string MotionLabel => V2ShellText.Get("V2.Setup.Appearance.MotionLabel");
-    public string MotionHint => V2ShellText.Get("V2.Setup.Appearance.MotionHint");
-    public string ResetAllLabel => V2ShellText.Get("V2.Setup.Appearance.ResetAllLabel");
+    public string ThemeLabel => SetupText.AppearanceThemeLabel;
+    public string ThemeHint => SetupText.AppearanceThemeHint;
+    public string VisionLabel => SetupText.AppearanceVisionLabel;
+    public string VisionHint => SetupText.AppearanceVisionHint;
+    public string TextScaleLabel => SetupText.AppearanceTextScaleLabel;
+    public string TextScaleHint => SetupText.AppearanceTextScaleHint;
+    public string DensityLabel => SetupText.AppearanceDensityLabel;
+    public string MotionLabel => SetupText.AppearanceMotionLabel;
+    public string MotionHint => SetupText.AppearanceMotionHint;
+    public string ResetAllLabel => SetupText.AppearanceResetAllLabel;
 
     /// <summary>The motion toggle's own label, which says what pressing it will do.</summary>
     public string MotionToggleLabel => Current.ReduceMotion
-        ? V2ShellText.Get("V2.Setup.Appearance.Motion.Reduced")
-        : V2ShellText.Get("V2.Setup.Appearance.Motion.Full");
+        ? SetupText.AppearanceMotionReduced
+        : SetupText.AppearanceMotionFull;
 
-    public string FocusLabel => V2ShellText.Get("V2.Setup.Appearance.FocusLabel");
-    public string FocusHint => V2ShellText.Get("V2.Setup.Appearance.FocusHint");
+    public string FocusLabel => SetupText.AppearanceFocusLabel;
+    public string FocusHint => SetupText.AppearanceFocusHint;
 
     /// <summary>The focus toggle's own label, the same shape as <see cref="MotionToggleLabel"/>.</summary>
     public string FocusToggleLabel => Current.FocusAlwaysVisible
-        ? V2ShellText.Get("V2.Setup.Appearance.Focus.Always")
-        : V2ShellText.Get("V2.Setup.Appearance.Focus.KeyboardOnly");
+        ? SetupText.AppearanceFocusAlways
+        : SetupText.AppearanceFocusKeyboardOnly;
 
     /// <summary>What is in force now, in one line, so the section can be read without counting ticks.</summary>
-    public string Summary => V2ShellText.Format(
-        "V2.Setup.Appearance.Summary",
-        CultureInfo.CurrentCulture,
-        ThemeName(Current.Theme),
-        Current.TextScalePercent,
-        DensityName(Current.Density));
+    public string Summary => SetupText.AppearanceSummary(ThemeName(Current.Theme), Current.TextScalePercent, DensityName(Current.Density));
 
     public void Dispose() => _preferences.Changed -= OnPreferencesChanged;
 

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Core.Common;
@@ -70,36 +71,28 @@ public sealed class SetupDatabaseStatusViewModel : BindableViewModel
 
     public ICommand BackUpNowCommand { get; }
 
-    public string HeadingLabel => V2ShellText.Get("V2.Setup.Data.DatabaseHeading");
+    public string HeadingLabel => SetupText.DataDatabaseHeading;
 
-    public string BackUpNowLabel => V2ShellText.Get("V2.Setup.Data.BackUpNowLabel");
+    public string BackUpNowLabel => SetupText.DataBackUpNowLabel;
 
-    public string OpenBackupFolderLabel => V2ShellText.Get("V2.Setup.Data.OpenBackupFolderLabel");
+    public string OpenBackupFolderLabel => SetupText.DataOpenBackupFolderLabel;
 
     /// <summary>Reads the current state fresh. Called on construction and whenever Data is opened.</summary>
     public async Task RefreshAsync()
     {
         var status = await _migrations.GetStatusAsync(CancellationToken.None).ConfigureAwait(true);
         VersionLine = status is { CurrentVersion: { } version }
-            ? V2ShellText.Format(
-                "V2.Setup.Data.VersionLine",
-                System.Globalization.CultureInfo.CurrentCulture,
-                version,
-                status.LastAppliedUtc is { } applied ? LocalTime.Moment(applied) : V2ShellText.Get("V2.Setup.Data.UnknownTime"))
-            : V2ShellText.Get("V2.Setup.Data.NoMigrations");
+            ? SetupText.DataVersionLine(version, status.LastAppliedUtc is { } applied ? LocalTime.Moment(applied) : SetupText.DataUnknownTime)
+            : SetupText.DataNoMigrations;
 
         if (status.LastVerifiedBackupPath is { } path && status.LastVerifiedBackupBytes is { } bytes && status.LastVerifiedBackupUtc is { } backedUpAt)
         {
-            BackupLine = V2ShellText.Format(
-                "V2.Setup.Data.BackupLine",
-                System.Globalization.CultureInfo.CurrentCulture,
-                SetupCleanupViewModel.FormatBytes(bytes),
-                LocalTime.Moment(backedUpAt));
+            BackupLine = SetupText.DataBackupLine(SetupCleanupViewModel.FormatBytes(bytes), LocalTime.Moment(backedUpAt));
             BackupFolderPath = Path.GetDirectoryName(path);
         }
         else
         {
-            BackupLine = V2ShellText.Get("V2.Setup.Data.NoBackup");
+            BackupLine = SetupText.DataNoBackup;
             BackupFolderPath = null;
         }
     }
@@ -112,19 +105,16 @@ public sealed class SetupDatabaseStatusViewModel : BindableViewModel
         }
 
         IsBackingUp = true;
-        StatusMessage = V2ShellText.Get("V2.Setup.Data.BackingUp");
+        StatusMessage = SetupText.DataBackingUp;
         try
         {
             await _migrations.BackUpNowAsync(CancellationToken.None).ConfigureAwait(true);
             await RefreshAsync().ConfigureAwait(true);
-            StatusMessage = V2ShellText.Get("V2.Setup.Data.BackedUp");
+            StatusMessage = SetupText.DataBackedUp;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            StatusMessage = V2ShellText.Format(
-                "V2.Setup.Data.BackupFailed",
-                System.Globalization.CultureInfo.CurrentCulture,
-                exception.Message);
+            StatusMessage = SetupText.DataBackupFailed(exception.Message);
         }
         finally
         {

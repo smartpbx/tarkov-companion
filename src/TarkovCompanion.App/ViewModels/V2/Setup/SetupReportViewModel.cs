@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -49,13 +50,13 @@ public sealed class SetupReportViewModel : BindableViewModel
 
     public ICommand DiscardCommand { get; }
 
-    public string ReviewLabel => V2ShellText.Get("V2.Setup.Report.Review");
-    public string SendLabel => V2ShellText.Get("V2.Setup.Report.Send");
-    public string DiscardLabel => V2ShellText.Get("V2.Setup.Report.Discard");
-    public string Heading => V2ShellText.Get("V2.Setup.Report.Heading");
-    public string Note => V2ShellText.Get("V2.Setup.Report.Note");
-    public string Destination => V2ShellText.Get("V2.Setup.Report.Destination");
-    public string ConsentLabel => V2ShellText.Get("V2.Setup.Report.Consent");
+    public string ReviewLabel => SetupText.ReportReview;
+    public string SendLabel => SetupText.ReportSend;
+    public string DiscardLabel => SetupText.ReportDiscard;
+    public string Heading => SetupText.ReportHeading;
+    public string Note => SetupText.ReportNote;
+    public string Destination => SetupText.ReportDestination;
+    public string ConsentLabel => SetupText.ReportConsent;
 
     /// <summary>The player's agreement to send the report on screen; cleared whenever that report changes or goes.</summary>
     public bool Consented
@@ -76,7 +77,7 @@ public sealed class SetupReportViewModel : BindableViewModel
 
     public string Size => _reviewed is null
         ? string.Empty
-        : V2ShellText.Format("V2.Setup.Report.Size", CultureInfo.CurrentCulture, _reviewed.Length);
+        : SetupText.ReportSize(_reviewed.Length);
 
     public string Status
     {
@@ -97,7 +98,7 @@ public sealed class SetupReportViewModel : BindableViewModel
         // Built once and kept: this string is what Send sends, not something rebuilt at the moment of sending.
         _reviewed = _build();
         Consented = false;
-        Status = _reviewed is null ? V2ShellText.Get("V2.Setup.Report.Nothing") : string.Empty;
+        Status = _reviewed is null ? SetupText.ReportNothing : string.Empty;
         Changed();
     }
 
@@ -110,19 +111,19 @@ public sealed class SetupReportViewModel : BindableViewModel
 
         if (!Consented)
         {
-            Status = V2ShellText.Get("V2.Setup.Report.NeedsConsent");
+            Status = SetupText.ReportNeedsConsent;
             return;
         }
 
         _isSending = true;
-        Status = V2ShellText.Get("V2.Setup.Report.Sending");
+        Status = SetupText.ReportSending;
         try
         {
             Status = await _send(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = V2ShellText.Format("V2.Setup.Report.Failed", CultureInfo.CurrentCulture, exception.Message);
+            Status = SetupText.ReportFailed(exception.Message);
         }
         finally
         {

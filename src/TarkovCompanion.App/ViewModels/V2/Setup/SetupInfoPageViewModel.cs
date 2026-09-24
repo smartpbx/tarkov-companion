@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Setup;
@@ -47,7 +48,7 @@ public sealed class SetupDisclosureItemViewModel : BindableViewModel
 
     public string AutomationId => $"v2-setup-disclosure-{Id}";
 
-    public string ToggleLabel => IsExpanded ? V2ShellText.Get("V2.Setup.Info.Less") : V2ShellText.Get("V2.Setup.Info.More");
+    public string ToggleLabel => IsExpanded ? SetupText.InfoLess : SetupText.InfoMore;
 
     public bool IsExpanded
     {

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Updates;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
@@ -113,7 +114,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
 
     public string ProvenanceHeading => "This build";
 
-    public string GoingBackHeading => TarkovCompanion.App.Services.V2.Shell.V2ShellText.Get("V2.Setup.Updates.GoingBackHeading");
+    public string GoingBackHeading => SetupText.UpdatesGoingBackHeading;
 
     public string Status
     {

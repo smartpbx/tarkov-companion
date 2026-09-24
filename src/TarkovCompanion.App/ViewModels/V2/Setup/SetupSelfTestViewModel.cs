@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -149,15 +150,15 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
     /// </remarks>
     public ObservableCollection<SelfTestRowViewModel> Strip => Rows;
 
-    public string Heading => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestHeading");
+    public string Heading => SetupText.DiagnosticsSelfTestHeading;
 
-    public string Intro => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestIntro");
+    public string Intro => SetupText.DiagnosticsSelfTestIntro;
 
-    public string RunLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestRun");
+    public string RunLabel => SetupText.DiagnosticsSelfTestRun;
 
-    public string StopLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestStop");
+    public string StopLabel => SetupText.DiagnosticsSelfTestStop;
 
-    public string CopyLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestCopy");
+    public string CopyLabel => SetupText.DiagnosticsSelfTestCopy;
 
     public ICommand RunCommand { get; }
 

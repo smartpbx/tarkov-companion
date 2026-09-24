@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -28,16 +29,13 @@ public sealed class SetupDisplayRow(
     public bool HoldsCompanion => _holdsCompanion;
     public ICommand? MoveCommand { get; } = moveCommand;
     public bool CanMove => MoveCommand is not null && !HoldsCompanion;
-    public string MoveLabel => V2ShellText.Format(
-        "V2.Setup.Displays.MoveHere",
-        CultureInfo.CurrentCulture,
-        Name);
+    public string MoveLabel => SetupText.DisplaysMoveHere(Name);
 
     public string Badges => string.Join(" · ", new[]
     {
-        IsPrimary ? V2ShellText.Get("V2.Setup.Displays.Primary") : null,
-        HoldsCompanion ? V2ShellText.Get("V2.Setup.Displays.CompanionHere") : null,
-        HoldsGame ? V2ShellText.Get("V2.Setup.Displays.GameHere") : null,
+        IsPrimary ? SetupText.DisplaysPrimary : null,
+        HoldsCompanion ? SetupText.DisplaysCompanionHere : null,
+        HoldsGame ? SetupText.DisplaysGameHere : null,
     }.Where(badge => badge is not null));
 
     public bool HasBadges => IsPrimary || HoldsCompanion || HoldsGame;
@@ -91,10 +89,10 @@ public sealed class SetupDisplaysViewModel : BindableViewModel
 
     public ICommand RefreshCommand { get; }
 
-    public string Heading => V2ShellText.Get("V2.Setup.Displays.Heading");
-    public string CaptureHeading => V2ShellText.Get("V2.Setup.Displays.CaptureHeading");
-    public string RefreshLabel => V2ShellText.Get("V2.Setup.Displays.Refresh");
-    public string UnavailableNote => V2ShellText.Get("V2.Setup.Displays.NoInfo");
+    public string Heading => SetupText.DisplaysHeading;
+    public string CaptureHeading => SetupText.DisplaysCaptureHeading;
+    public string RefreshLabel => SetupText.DisplaysRefresh;
+    public string UnavailableNote => SetupText.DisplaysNoInfo;
 
     public bool IsAvailable
     {
@@ -171,17 +169,12 @@ public sealed class SetupDisplaysViewModel : BindableViewModel
         }
 
         IsAvailable = true;
-        CaptureNote = V2ShellText.Get("V2.Setup.Displays.CaptureNote");
+        CaptureNote = SetupText.DisplaysCaptureNote;
         CaptureTarget = game switch
         {
-            null => V2ShellText.Get("V2.Setup.Displays.CaptureMissing"),
-            { IsMinimized: true } => V2ShellText.Get("V2.Setup.Displays.CaptureMinimized"),
-            _ => V2ShellText.Format(
-                "V2.Setup.Displays.CaptureFound",
-                CultureInfo.CurrentCulture,
-                game.Bounds.Width,
-                game.Bounds.Height,
-                holding?.Name ?? V2ShellText.Get("V2.Setup.Displays.UnknownDisplay")),
+            null => SetupText.DisplaysCaptureMissing,
+            { IsMinimized: true } => SetupText.DisplaysCaptureMinimized,
+            _ => SetupText.DisplaysCaptureFound(game.Bounds.Width, game.Bounds.Height, holding?.Name ?? SetupText.DisplaysUnknownDisplay),
         };
     }
 

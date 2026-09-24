@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Shell;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
@@ -31,14 +32,14 @@ public sealed class V2SetupAccessibilityViewModel(
 
     public bool HasShortcuts => Shortcuts.Count > 0;
 
-    public string PreviewHeading => V2ShellText.Get("V2.Setup.Accessibility.PreviewHeading");
-    public string PreviewHint => V2ShellText.Get("V2.Setup.Accessibility.PreviewHint");
-    public string PreviewSampleHeading => V2ShellText.Get("V2.Setup.Accessibility.PreviewSampleHeading");
-    public string PreviewSampleBody => V2ShellText.Get("V2.Setup.Accessibility.PreviewSampleBody");
-    public string PreviewSampleButton => V2ShellText.Get("V2.Setup.Accessibility.PreviewSampleButton");
-    public string PreviewSampleField => V2ShellText.Get("V2.Setup.Accessibility.PreviewSampleField");
-    public string PreviewSampleReady => V2ShellText.Get("V2.Setup.Accessibility.PreviewSampleReady");
-    public string PreviewSampleFailed => V2ShellText.Get("V2.Setup.Accessibility.PreviewSampleFailed");
-    public string ShortcutsHeading => V2ShellText.Get("V2.Setup.Accessibility.ShortcutsHeading");
-    public string ShortcutsHint => V2ShellText.Get("V2.Setup.Accessibility.ShortcutsHint");
+    public string PreviewHeading => SetupText.AccessibilityPreviewHeading;
+    public string PreviewHint => SetupText.AccessibilityPreviewHint;
+    public string PreviewSampleHeading => SetupText.AccessibilityPreviewSampleHeading;
+    public string PreviewSampleBody => SetupText.AccessibilityPreviewSampleBody;
+    public string PreviewSampleButton => SetupText.AccessibilityPreviewSampleButton;
+    public string PreviewSampleField => SetupText.AccessibilityPreviewSampleField;
+    public string PreviewSampleReady => SetupText.AccessibilityPreviewSampleReady;
+    public string PreviewSampleFailed => SetupText.AccessibilityPreviewSampleFailed;
+    public string ShortcutsHeading => SetupText.AccessibilityShortcutsHeading;
+    public string ShortcutsHint => SetupText.AccessibilityShortcutsHint;
 }

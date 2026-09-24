@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -33,8 +34,8 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
         ZoneId = record.Context.Locale.TimeZone;
         Summary = $"{Mode} · {Wipe} · {record.Context.Locale.Language} · {SetupProfileZoneOption.ShortLabel(ZoneId)}";
         StatusLabel = IsActive
-            ? V2ShellText.Get("V2.Setup.Profiles.ActiveBadge")
-            : IsArchived ? V2ShellText.Get("V2.Setup.Profiles.ArchivedBadge") : string.Empty;
+            ? SetupText.ProfilesActiveBadge
+            : IsArchived ? SetupText.ProfilesArchivedBadge : string.Empty;
         SwitchCommand = switchTo;
         ArchiveCommand = archive;
         RestoreCommand = restore;
@@ -96,15 +97,15 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
 
     public ICommand SaveEditCommand { get; }
 
-    public string EditLabel => V2ShellText.Get("V2.Setup.Profiles.Edit");
+    public string EditLabel => SetupText.ProfilesEdit;
 
-    public string SaveEditLabel => V2ShellText.Get("V2.Setup.Profiles.SaveEdit");
+    public string SaveEditLabel => SetupText.ProfilesSaveEdit;
 
-    public string CancelEditLabel => V2ShellText.Get("V2.Setup.Profiles.CancelEdit");
+    public string CancelEditLabel => SetupText.ProfilesCancelEdit;
 
-    public string EditModeFieldLabel => V2ShellText.Get("V2.Setup.Profiles.ModeLabel");
+    public string EditModeFieldLabel => SetupText.ProfilesModeLabel;
 
-    public string EditWipeFieldLabel => V2ShellText.Get("V2.Setup.Profiles.WipeLabel");
+    public string EditWipeFieldLabel => SetupText.ProfilesWipeLabel;
 
     public Guid Id { get; }
 
@@ -133,11 +134,11 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
 
     public string AutomationName => $"{Name}, {Summary}";
 
-    public string SwitchLabel => V2ShellText.Get("V2.Setup.Profiles.Switch");
+    public string SwitchLabel => SetupText.ProfilesSwitch;
 
-    public string ArchiveLabel => V2ShellText.Get("V2.Setup.Profiles.Archive");
+    public string ArchiveLabel => SetupText.ProfilesArchive;
 
-    public string RestoreLabel => V2ShellText.Get("V2.Setup.Profiles.Restore");
+    public string RestoreLabel => SetupText.ProfilesRestore;
 
     public ICommand SwitchCommand { get; }
 
@@ -222,16 +223,16 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
 
     public ICommand CreateCommand { get; }
 
-    public string Heading => V2ShellText.Get("V2.Setup.Profiles.Heading");
-    public string Intro => V2ShellText.Get("V2.Setup.Profiles.Intro");
-    public string NewHeading => V2ShellText.Get("V2.Setup.Profiles.NewHeading");
-    public string NameLabel => V2ShellText.Get("V2.Setup.Profiles.NameLabel");
-    public string NamePlaceholder => V2ShellText.Get("V2.Setup.Profiles.NamePlaceholder");
-    public string WipeLabel => V2ShellText.Get("V2.Setup.Profiles.WipeLabel");
-    public string WipePlaceholder => V2ShellText.Get("V2.Setup.Profiles.WipePlaceholder");
-    public string ModeFieldLabel => V2ShellText.Get("V2.Setup.Profiles.ModeLabel");
-    public string CreateLabel => V2ShellText.Get("V2.Setup.Profiles.Create");
-    public string ShowArchivedLabel => V2ShellText.Get("V2.Setup.Profiles.ShowArchived");
+    public string Heading => SetupText.ProfilesHeading;
+    public string Intro => SetupText.ProfilesIntro;
+    public string NewHeading => SetupText.ProfilesNewHeading;
+    public string NameLabel => SetupText.ProfilesNameLabel;
+    public string NamePlaceholder => SetupText.ProfilesNamePlaceholder;
+    public string WipeLabel => SetupText.ProfilesWipeLabel;
+    public string WipePlaceholder => SetupText.ProfilesWipePlaceholder;
+    public string ModeFieldLabel => SetupText.ProfilesModeLabel;
+    public string CreateLabel => SetupText.ProfilesCreate;
+    public string ShowArchivedLabel => SetupText.ProfilesShowArchived;
 
     /// <summary>The active profile's name, or a sentence saying there is none.</summary>
     public string ActiveTitle
@@ -365,7 +366,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
             Apply(snapshot);
             NewName = string.Empty;
             NewWipe = string.Empty;
-            Say(V2ShellText.Format("V2.Setup.Profiles.Created", CultureInfo.CurrentCulture, name), isError: false);
+            Say(SetupText.ProfilesCreated(name), isError: false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -411,7 +412,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
                 Apply(await _service.UpdateTimeZoneAsync(row.Id, row.EditZone.Id, CancellationToken.None).ConfigureAwait(true));
             }
 
-            Say(V2ShellText.Format("V2.Setup.Profiles.Edited", CultureInfo.CurrentCulture, row.Name), isError: false);
+            Say(SetupText.ProfilesEdited(row.Name), isError: false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -453,16 +454,12 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
         HasArchived = archived > 0;
         OnPropertyChanged(nameof(HasArchived));
         var active = snapshot.ActiveProfile;
-        ActiveTitle = active?.Name ?? V2ShellText.Get("V2.Setup.Profiles.None");
+        ActiveTitle = active?.Name ?? SetupText.ProfilesNone;
         ActiveDetail = active is null
             ? string.Empty
             : $"{ModeLabel(active.Context.Mode)} · {active.Context.WipeSeason.Value}";
         ScopeLine = snapshot.CatalogScope is { } scope
-            ? V2ShellText.Format(
-                "V2.Setup.Profiles.DataFor",
-                CultureInfo.CurrentCulture,
-                ModeLabel(active!.Context.Mode),
-                scope.Language)
+            ? SetupText.ProfilesDataFor(ModeLabel(active!.Context.Mode), scope.Language)
             : string.Empty;
         HeaderSuffix = active is null
             ? string.Empty
@@ -472,8 +469,8 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
                     .Where(part => !string.IsNullOrWhiteSpace(part)));
         Notice = snapshot.State switch
         {
-            ProfileRuntimeContextState.UnknownGameMode => V2ShellText.Get("V2.Setup.Profiles.UnknownMode"),
-            ProfileRuntimeContextState.NoActiveProfile => V2ShellText.Get("V2.Setup.Profiles.NoProfile"),
+            ProfileRuntimeContextState.UnknownGameMode => SetupText.ProfilesUnknownMode,
+            ProfileRuntimeContextState.NoActiveProfile => SetupText.ProfilesNoProfile,
             _ => string.Empty,
         };
     }
