@@ -353,6 +353,8 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
             _unroutedObjectiveCount > 0
                 ? string.Create(CultureInfo.CurrentCulture, $"{_unroutedObjectiveCount:N0} without one exact position")
                 : string.Empty,
+            // #307: which rules ordered it, as a saved loot scan names its ruleset.
+            route.PlannerVersion.Length > 0 ? PlannerVersions.Label(route.PlannerVersion) : string.Empty,
         }.Where(value => value.Length > 0))
         : string.Empty;
 

@@ -321,7 +321,7 @@ public sealed class HideoutWorkspaceViewModelTests
         Assert.Equal("Build time · 1h 30m", step.DurationLabel);
         Assert.Equal("Missing · Bolts ×2", step.MissingItems);
         Assert.Equal("Gate · Metabolism level 3", step.GateLabel);
-        Assert.Equal("1 upgrade · 1h 30m total · in this order", viewModel.Upgrades.PathSummary);
+        Assert.Equal("1 upgrade · 1h 30m total · in this order · Rules hideout-path-307.1", viewModel.Upgrades.PathSummary);
     }
 
     [Fact]

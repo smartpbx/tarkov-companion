@@ -178,7 +178,7 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
 
     public string PathSummary => _path.Count == 0
         ? "Already built."
-        : DurationSummary(_path) + " · in this order";
+        : DurationSummary(_path) + " · in this order · " + PlannerVersions.Label(PlannerVersions.HideoutPath);
 
     public bool CanRaiseTarget => _target is not null && _target.Levels.Any(level => level > _targetLevel);
 

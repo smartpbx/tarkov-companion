@@ -506,6 +506,7 @@ public static class AppComposition
         // item id instead of a whole legacy page.
         services.AddSingleton<IItemIntelService, ItemIntelService>();
         services.AddSingleton<IItemAcquisitionService, ItemAcquisitionService>();
+        services.AddSingleton<TarkovCompanion.Application.Services.Planning.LoadoutSuggestionService>();
         // Package 33 (#287, the lookup half): the Intel landing page's four real sections need
         // only what is already registered above, plus the catalog's own value ranking.
         services.AddSingleton<IHighValueItemCatalog, SqliteHighValueItemCatalog>();

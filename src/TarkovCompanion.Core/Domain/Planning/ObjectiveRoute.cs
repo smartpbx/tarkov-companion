@@ -27,4 +27,8 @@ public sealed record ObjectiveRouteBundle(
     string StartLabel,
     double TotalDistanceMetres,
     IReadOnlyList<ObjectiveRouteStep> Steps,
-    bool ImprovedByTwoOpt);
+    bool ImprovedByTwoOpt)
+{
+    /// <summary>The rules version of the planner that ordered it (#307); empty where none stamped it.</summary>
+    public string PlannerVersion { get; init; } = string.Empty;
+}

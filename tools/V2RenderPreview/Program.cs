@@ -753,6 +753,13 @@ internal static class Program
                 }
             }
 
+            // #307: Plan › Loadout's suggestions for a named map ("Customs"), read before the frame.
+            if (StringOption(args, "--loadout-suggest-map") is { } suggestMap && viewModel.Loadout.Suggestions is { } suggestions)
+            {
+                DrainUntilComplete(suggestions.SelectMapAsync(suggestMap, CancellationToken.None));
+                Pump(20);
+            }
+
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
             {
                 var loadout = viewModel.Loadout;
@@ -1583,6 +1590,11 @@ internal static class Program
                 players.SaveAsync(profile with { OwnedItemCounts = owned }, default).GetAwaiter().GetResult();
                 DrainUntilComplete(viewModel.Ammo.RefreshOwnedAsync(CancellationToken.None));
                 DrainUntilComplete(viewModel.Keys.RefreshOwnedAsync(CancellationToken.None));
+                if (viewModel.Loadout.Suggestions is { } ownedSuggestions)
+                {
+                    DrainUntilComplete(ownedSuggestions.RefreshAsync(CancellationToken.None));
+                }
+
                 Pump(20);
             }
 
