@@ -253,11 +253,17 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <!-- [#828] From and To are two items, not one, so each can take a line of its own. As one
+                 StackPanel the pair needed about 700 and a 960-wide shell (1920 at 200%) left the
+                 pane about 410: the To picker ran off the right-hand edge, where WrapPanel cannot
+                 help because it never splits an item. -->
             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
               <TextBlock Classes="v2-debrief-muted" Text="From" VerticalAlignment="Center" />
               <DatePicker SelectedDate="{Binding DateFrom}"
                           AutomationProperties.AutomationId="v2-debrief-filter-date-from"
                           AutomationProperties.Name="From date" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
               <TextBlock Classes="v2-debrief-muted" Text="To" VerticalAlignment="Center" />
               <DatePicker SelectedDate="{Binding DateTo}"
                           AutomationProperties.AutomationId="v2-debrief-filter-date-to"
@@ -357,7 +363,7 @@
                       <TextBlock Grid.Column="0" Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
                       <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding RaidsLabel}" />
                       <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
-                      <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding LoadLabel}" />
+                      <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding LoadLabel}" TextWrapping="Wrap" />
                       <!-- #291 package 4: kills and value brought out, summed over this map's raids. -->
                       <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasManual}">
                         <TextBlock Classes="v2-debrief-muted" Text="{Binding ManualLabel}" TextWrapping="Wrap" />
