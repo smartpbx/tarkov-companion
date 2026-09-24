@@ -547,6 +547,7 @@ function Invoke-ShellInteraction {
                 -Height ([int](Get-InteractionProperty -Object $Step -Name "height" -Default 0))
         }
         elseif ($Action -ne "assert") {
+            $Refusals = [System.Collections.Generic.List[string]]::new()
             $Target = Wait-AutomationElement `
                 -WindowHandle $WindowHandle `
                 -AutomationId $TargetId `
@@ -556,7 +557,37 @@ function Invoke-ShellInteraction {
                 -TimeoutSeconds $StepTimeout
             if ($null -eq $Target) { throw "Interaction target '$Description' was not in the packaged app's automation tree." }
             switch ($Action) {
-                "invoke" { Invoke-AutomationElement -Element $Target -Description $Description -TimeoutSeconds $StepTimeout }
+                "invoke" {
+                    # A refused Invoke is retried on a freshly found element until the step's
+                    # timeout: a list that re-renders (the readiness checks do as they settle)
+                    # replaces the peer that was found, and the stale one never becomes enabled.
+                    # Each refusal is kept, so a step that passed on a retry still says so.
+                    $InvokeDeadline = [DateTime]::UtcNow.AddSeconds($StepTimeout)
+                    while ($true) {
+                        $Remaining = [Math]::Max(1, [int]($InvokeDeadline - [DateTime]::UtcNow).TotalSeconds)
+                        try {
+                            Invoke-AutomationElement -Element $Target -Description $Description -TimeoutSeconds $Remaining
+                            break
+                        }
+                        catch {
+                            $Refusals.Add([string]$_.Exception.Message)
+                            if ([DateTime]::UtcNow -ge $InvokeDeadline) {
+                                throw "$($Refusals -join ' Then: ')"
+                            }
+                        }
+                        Start-Sleep -Milliseconds 250
+                        $Target = Wait-AutomationElement `
+                            -WindowHandle $WindowHandle `
+                            -AutomationId $TargetId `
+                            -Name $TargetName `
+                            -ControlType $ControlType `
+                            -IncludeOffscreen $IncludeOffscreen `
+                            -TimeoutSeconds $Remaining
+                        if ($null -eq $Target) {
+                            throw "Interaction target '$Description' left the packaged app's automation tree after: $($Refusals -join ' Then: ')"
+                        }
+                    }
+                }
                 "toggle" { Toggle-AutomationElement -Element $Target -Description $Description }
                 "focus" { $Target.SetFocus() }
                 "set-value" {
@@ -731,7 +762,12 @@ function Invoke-ShellInteraction {
             }
         }
 
-        $Completed.Add($Description)
+        if ($Action -eq "invoke" -and $Refusals.Count -gt 0) {
+            $Completed.Add("$Description (invoked after $($Refusals.Count) refusal(s): $($Refusals[0]))")
+        }
+        else {
+            $Completed.Add($Description)
+        }
     }
 
     return "Completed $($Completed.Count) packaged-shell step(s): $($Completed -join '; ')."
