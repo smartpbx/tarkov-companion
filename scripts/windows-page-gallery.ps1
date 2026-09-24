@@ -418,7 +418,16 @@ function Invoke-ShellInteraction {
         # catalog, which a clean runner downloads first) may wait longer than the usual 15s.
         $StepTimeout = [int](Get-InteractionProperty -Object $Step -Name "timeoutSeconds" -Default 15)
 
-        if ($Action -eq "resize") {
+        if ($Action -eq "ready") {
+            # [#279] The scene's own answer instead of a fixed sleep after the step before.
+            if ($null -eq $script:GalleryChannelRoot) { throw "'$Description' needs a --gallery-scene launch to ask." }
+            $Condition = [string](Get-InteractionProperty -Object $Step -Name "condition" -Default "settled")
+            $Ready = Wait-GalleryReady -ChannelRoot $script:GalleryChannelRoot -Token $script:GalleryChannelToken -Condition $Condition
+            if (-not $Ready.ready) { throw "'$Description' was not ready: $($Ready.detail)" }
+            $Completed.Add("$Description ($($Ready.detail))")
+            continue
+        }
+        elseif ($Action -eq "resize") {
             Set-WindowSize `
                 -WindowHandle $WindowHandle `
                 -Width ([int](Get-InteractionProperty -Object $Step -Name "width" -Default 0)) `
@@ -975,7 +984,40 @@ function New-ShotResult {
         # [#279] What the app said when asked "ready" on its diagnostic channel; null when the
         # shot has no gallery scene and was not asked.
         readinessDetail = $null
+        # [#279] A matrix size beyond 1920/3840 (see $V2AcceptanceWidths): reported, never gating.
+        advisory = $false
+        # [#279] Seconds from launch to the process gone, and the scene's "ready" wait inside it.
+        shotSeconds = $null
+        readySeconds = $null
     }
+}
+
+<#
+    [#279] The text scale a matrix shot is photographed at, written where the app keeps it
+    (JsonFileWorkspacePreferenceStore: Config\preferences.json) before the launch and put back
+    after it, so the next shot and the workflow's later steps see the runner's own choice.
+#>
+$PreferencesPath = Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA "TarkovCompanion") "Config") "preferences.json"
+$PreferencesSaved = $null
+
+function Set-TextScalePreference {
+    param([int] $Percent)
+
+    $script:PreferencesSaved = if (Test-Path -LiteralPath $PreferencesPath) { [System.IO.File]::ReadAllText($PreferencesPath) } else { "" }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $PreferencesPath) -Force | Out-Null
+    $Json = [ordered]@{ schemaVersion = 1; textScalePercent = $Percent } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($PreferencesPath, $Json, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Restore-TextScalePreference {
+    if ($null -eq $script:PreferencesSaved) { return }
+    if ($script:PreferencesSaved.Length -gt 0) {
+        [System.IO.File]::WriteAllText($PreferencesPath, $script:PreferencesSaved, [System.Text.UTF8Encoding]::new($false))
+    }
+    elseif (Test-Path -LiteralPath $PreferencesPath) {
+        Remove-Item -LiteralPath $PreferencesPath -Force
+    }
+    $script:PreferencesSaved = $null
 }
 
 <#
@@ -985,14 +1027,18 @@ function New-ShotResult {
     "Timed out waiting" from here means the channel never answered, not that the UI was slow.
 #>
 function Wait-GalleryReady {
-    param([string] $ChannelRoot, [string] $Token, [int] $TimeoutSeconds = 180)
+    param([string] $ChannelRoot, [string] $Token, [int] $TimeoutSeconds = 180, [string] $Condition = "")
 
     $Id = "ready-" + [Guid]::NewGuid().ToString("N").Substring(0, 12)
     $CommandDirectory = Join-Path $ChannelRoot "commands"
     $ResponsePath = Join-Path (Join-Path $ChannelRoot "responses") ($Id + ".response.json")
     New-Item -ItemType Directory -Path $CommandDirectory -Force | Out-Null
     $CommandPath = Join-Path $CommandDirectory ($Id + ".command.json")
-    $Payload = [ordered]@{ id = $Id; command = "ready"; token = $Token } | ConvertTo-Json -Compress
+    $Command = [ordered]@{ id = $Id; command = "ready"; token = $Token }
+    # [#279] A condition asks for something after a gallery step (GalleryReadiness.AfterStep):
+    # "settled" once an extract press or zoom has been drawn, "loot" once the loot pins are.
+    if ($Condition.Length -gt 0) { $Command["scenario"] = $Condition }
+    $Payload = $Command | ConvertTo-Json -Compress
     # BOM-free, and renamed into place, for the reasons windows-smoke.ps1 gives.
     [System.IO.File]::WriteAllText($CommandPath + ".tmp", $Payload, [System.Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath ($CommandPath + ".tmp") -Destination $CommandPath
@@ -1362,9 +1408,28 @@ $Shots.Add([pscustomobject]@{
 #   * map card      - [package 46] a floor under how much of the window the Raid plan gets, so
 #                     the chrome that was just taken off it cannot grow back. Expressed as a
 #                     fraction of the window, since the runner's scaling decides the pixels.
+#
+# [#279] The matrix beyond those two: a 1280x720 laptop, a 1500x900 window, the narrowest window
+# the app allows (MainWindow MinWidth x MinHeight, 1120x720) and 150%/200% text at 1080p. They
+# are advisory: each is photographed, asserted and reported (log, report, job summary), but a
+# failure in one does not fail the step, because a layout fault at 720 lines is a bug to file,
+# not a reason to stop publishing a build that works at 1080p. Only the "insideWindow" bounds
+# travel to them (a control cut off by the frame is wrong at any size); the fraction floors and
+# dead-space ceilings were chosen at 1920x1080 and mean nothing at other proportions.
+# Only some routes, to keep the gallery about three minutes longer rather than ten: every route
+# with an insideWindow bound at 1280x720, and the six workspaces at the others.
+$V2MatrixWorkspaces = @("raid", "intel", "plan", "team", "debrief", "setup")
+$V2MatrixClipRoutes = $V2MatrixWorkspaces + @("intel-ammo", "intel-flea", "plan-loadout", "plan-events")
 $V2AcceptanceWidths = @(
     [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080 },
-    [pscustomobject]@{ suffix = "3840"; width = 3840; height = 1080 }
+    [pscustomobject]@{ suffix = "3840"; width = 3840; height = 1080 },
+    [pscustomobject]@{ suffix = "1280x720"; width = 1280; height = 720; advisory = $true; routes = $V2MatrixClipRoutes },
+    [pscustomobject]@{ suffix = "1500x900"; width = 1500; height = 900; advisory = $true; routes = $V2MatrixWorkspaces },
+    [pscustomobject]@{ suffix = "1120x720"; width = 1120; height = 720; advisory = $true; routes = $V2MatrixWorkspaces },
+    [pscustomobject]@{ suffix = "1920-text150"; width = 1920; height = 1080; textScale = 150; advisory = $true
+        routes = @("raid", "intel-ammo", "plan", "plan-loadout", "team", "setup") },
+    [pscustomobject]@{ suffix = "1920-text200"; width = 1920; height = 1080; textScale = 200; advisory = $true
+        routes = @("raid", "intel-ammo", "plan", "plan-loadout", "team", "setup") }
 )
 
 $V2AcceptanceRoutes = @(
@@ -1449,14 +1514,22 @@ $V2AcceptanceRoutes = @(
 
 foreach ($Route in $V2AcceptanceRoutes) {
     foreach ($Size in $V2AcceptanceWidths) {
+        $SizeRoutes = Get-InteractionProperty -Object $Size -Name "routes"
+        if ($null -ne $SizeRoutes -and @($SizeRoutes) -notcontains $Route.key) { continue }
+        $Advisory = [bool](Get-InteractionProperty -Object $Size -Name "advisory" -Default $false)
+        $TextScale = [int](Get-InteractionProperty -Object $Size -Name "textScale" -Default 0)
         $Step = [ordered]@{
             action = "assert"
-            description = "Variant A $($Route.address) at $($Size.width)x$($Size.height)"
+            description = "Variant A $($Route.address) at $($Size.width)x$($Size.height)$(if ($TextScale -gt 0) { " with $TextScale% text" })"
             expectedAutomationIds = @($Route.expected)
             expectedHeading = $Route.heading
         }
-        if ($null -ne (Get-InteractionProperty -Object $Route -Name "bounds")) {
-            $Step["expectedBounds"] = @($Route.bounds)
+        $RouteBounds = @(Get-InteractionProperty -Object $Route -Name "bounds" -Default @())
+        if ($Advisory) {
+            $RouteBounds = @($RouteBounds | Where-Object { [bool](Get-InteractionProperty -Object $_ -Name "insideWindow" -Default $false) })
+        }
+        if ($RouteBounds.Count -gt 0) {
+            $Step["expectedBounds"] = $RouteBounds
         }
         if ($null -ne (Get-InteractionProperty -Object $Route -Name "forbidden")) {
             $Step["forbiddenAutomationIds"] = @($Route.forbidden)
@@ -1472,16 +1545,18 @@ foreach ($Route in $V2AcceptanceRoutes) {
             captureBeforeInteraction = $true
             interaction = [pscustomobject]@{ steps = @([pscustomobject]$Step) }
             measureDeadSpace = $true
+            advisory = $Advisory
+            textScale = $TextScale
         }
         # The ultrawide bound is the 1920 one with headroom: the same page has more window to
         # fill at 3840 and nothing new to fill it with, which is the deferred layout problem the
         # PR's route table describes rather than a regression to catch tonight.
         $Headroom = if ($Size.width -ge 3840) { 0.15 } else { 0.0 }
-        $EdgeBound = [double](Get-InteractionProperty -Object $Route -Name "edge" -Default (-1))
+        $EdgeBound = if ($Advisory) { -1 } else { [double](Get-InteractionProperty -Object $Route -Name "edge" -Default (-1)) }
         if ($EdgeBound -ge 0) {
             $Shot["maximumEdgeDeadFraction"] = [Math]::Min(1.0, $EdgeBound + $Headroom)
         }
-        $BandBound = [double](Get-InteractionProperty -Object $Route -Name "band" -Default (-1))
+        $BandBound = if ($Advisory) { -1 } else { [double](Get-InteractionProperty -Object $Route -Name "band" -Default (-1)) }
         if ($BandBound -ge 0) {
             $Shot["maximumFlatBandFraction"] = [Math]::Min(1.0, $BandBound + $Headroom)
         }
@@ -1501,14 +1576,16 @@ foreach ($Zoom in @(0, 3)) {
     $ExtractSteps.Add([pscustomobject]@{
         action = "invoke"; description = "select the first extract from Extract options"
         targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
-        includeOffscreen = $true; timeoutSeconds = 30; settleMilliseconds = 500
+        includeOffscreen = $true; timeoutSeconds = 30
     })
     for ($Index = 0; $Index -lt $Zoom; $Index++) {
         $ExtractSteps.Add([pscustomobject]@{
             action = "invoke"; description = "zoom the raid map in ($($Index + 1))"
-            targetAutomationId = "v2-map-zoom-in"; targetControlType = "Button"; settleMilliseconds = 700
+            targetAutomationId = "v2-map-zoom-in"; targetControlType = "Button"
         })
     }
+    # [#279] One wait for the selection and zoom to be drawn, instead of 500 ms plus 700 ms a step.
+    $ExtractSteps.Add([pscustomobject]@{ action = "ready"; condition = "settled"; description = "the map settled" })
     $ExtractShotName = "v2-a-raid-extracts-1920"
     if ($Zoom -gt 0) { $ExtractShotName = "v2-a-raid-extracts-zoom-1920" }
     $Shots.Add([pscustomobject]@{
@@ -1534,8 +1611,9 @@ $Shots.Add([pscustomobject]@{
         [pscustomobject]@{
             action = "invoke"; description = "select the first Labs extract from Extract options"
             targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
-            includeOffscreen = $true; timeoutSeconds = 30; settleMilliseconds = 500
-        }) }
+            includeOffscreen = $true; timeoutSeconds = 30
+        },
+        [pscustomobject]@{ action = "ready"; condition = "settled"; description = "the map settled" }) }
 })
 # [#279] Marker states a clean runner never has: the app seeds them itself (--gallery-scene,
 # developer mode only; see GallerySceneRunner) from the catalog it has already downloaded, and
@@ -1570,13 +1648,18 @@ $Shots.Add([pscustomobject]@{
     name = "v2-a-raid-loot-layer-1920"
     args = @("--ui-shell", "v2-a", "--map", "customs")
     shellMode = "v2-a"; width = 1920; height = 1080
+    # [#279] The map scene's readiness, then "loot": the layer's pins drawn (or its "no loot data"
+    # state, which is what a runner without a loot publication shows) and settled, where a fixed
+    # four seconds after the button used to be.
+    galleryScene = "map"
     seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
     interaction = [pscustomobject]@{ steps = @(
         [pscustomobject]@{
             action = "invoke"; description = "show only the high-value loot layer"
             targetAutomationId = "v2-map-loot-preset"; targetControlType = "Button"
-            timeoutSeconds = 120; settleMilliseconds = 4000
-        }) }
+            timeoutSeconds = 120
+        },
+        [pscustomobject]@{ action = "ready"; condition = "loot"; description = "the loot layer drawn" }) }
 })
 $Shots.Add([pscustomobject]@{
     name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"
@@ -1700,15 +1783,20 @@ $Shots.Add([pscustomobject]@{
     }
 })
 
+$GalleryClock = [System.Diagnostics.Stopwatch]::StartNew()
 foreach ($Shot in $Shots) {
     $Page = $Shot.name
     $Screenshot = Join-Path $ScreenshotDirectory ("{0}.png" -f $Page.ToLowerInvariant())
     $WarningLog = Join-Path $WarningDirectory ("{0}.log" -f $Page.ToLowerInvariant())
     $Interaction = Get-InteractionProperty -Object $Shot -Name "interaction"
     $Result = New-ShotResult -Page $Page -ShellMode $Shot.shellMode -InteractionRequired ($null -ne $Interaction)
+    $Result.advisory = [bool](Get-InteractionProperty -Object $Shot -Name "advisory" -Default $false)
+    $ShotClock = [System.Diagnostics.Stopwatch]::StartNew()
     $Process = $null
     $ChannelRoot = $null
     $ChannelToken = $null
+    $script:GalleryChannelRoot = $null
+    $script:GalleryChannelToken = $null
     try {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
         # V2 rough package 30 (acceptance sweep): a window this size needs a desktop that size.
@@ -1734,6 +1822,8 @@ foreach ($Shot in $Shots) {
 
         $SeedPreview = Get-InteractionProperty -Object $Shot -Name "seedPreview"
         if ($null -ne $SeedPreview) { Set-V2PreviewState -Seed $SeedPreview }
+        $ShotTextScale = [int](Get-InteractionProperty -Object $Shot -Name "textScale" -Default 0)
+        if ($ShotTextScale -gt 0) { Set-TextScalePreference -Percent $ShotTextScale }
         # Inherited by this launch only, and read back once it has exited. The application
         # writes nothing there unless this is set, so a player's run costs nothing.
         $env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog
@@ -1744,6 +1834,9 @@ foreach ($Shot in $Shots) {
             $ChannelRoot = Join-Path $env:TEMP ("tc-gallery-channel-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
             $ChannelToken = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
             $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN = $ChannelToken
+            # Read by the "ready" steps in Invoke-ShellInteraction.
+            $script:GalleryChannelRoot = $ChannelRoot
+            $script:GalleryChannelToken = $ChannelToken
             $LaunchArguments += @("--developer-mode", "--gallery-scene", $GalleryScene, "--diagnostic-channel", ('"{0}"' -f $ChannelRoot))
         }
         if ($Shot.width -gt 0 -and $Shot.height -gt 0) {
@@ -1822,7 +1915,9 @@ foreach ($Shot in $Shots) {
         }
 
         if ($null -ne $ChannelRoot) {
+            $ReadyClock = [System.Diagnostics.Stopwatch]::StartNew()
             $Ready = Wait-GalleryReady -ChannelRoot $ChannelRoot -Token $ChannelToken
+            $Result.readySeconds = [Math]::Round($ReadyClock.Elapsed.TotalSeconds, 2)
             $Result.readinessDetail = $Ready.detail
             if (-not $Ready.ready) {
                 # Photographed anyway: what was on screen is most of the diagnosis.
@@ -1907,6 +2002,9 @@ foreach ($Shot in $Shots) {
             try { Restore-SceneState }
             catch { $Result.detail = "{0} (scene state not restored: {1})" -f $Result.detail, $_.Exception.Message }
         }
+        try { Restore-TextScalePreference }
+        catch { $Result.detail = "{0} (text scale not restored: {1})" -f $Result.detail, $_.Exception.Message }
+        $Result.shotSeconds = [Math]::Round($ShotClock.Elapsed.TotalSeconds, 2)
 
         # Every outcome, including a launch that never showed a window: what the toolkit said
         # on the way down is often the explanation. Read after the close, so it is all there.
@@ -1932,19 +2030,30 @@ foreach ($Shot in $Shots) {
     }
 }
 
-$NoWindow = @($Results | Where-Object { -not $_.windowShown })
-$Incomplete = @($Results | Where-Object { $_.windowShown -and -not $_.presented })
-$Blank = @($Results | Where-Object { $_.presented -and -not $_.visuallyVaried })
-$Faulted = @($Results | Where-Object { $_.interfaceFaultCount -gt 0 })
-$Unarmed = @($Results | Where-Object { -not $_.warningCaptureArmed })
-$Ungraceful = @($Results | Where-Object { -not $_.gracefulShutdown })
-$InteractionFailed = @($Results | Where-Object { $_.interactionRequired -and -not $_.interactionSmoke })
-$DeadSpace = @($Results | Where-Object { -not $_.deadSpaceWithinBounds })
-$Failed = @($Results | Where-Object {
-    -not $_.presented -or -not $_.visuallyVaried -or $_.interfaceFaultCount -gt 0 -or
-        -not $_.warningCaptureArmed -or -not $_.gracefulShutdown -or
-        ($_.interactionRequired -and -not $_.interactionSmoke) -or -not $_.deadSpaceWithinBounds
-})
+$GalleryClock.Stop()
+
+# [#279] Advisory matrix shots are judged by the same rules and reported beside the rest, but only
+# the gated ones decide the step. See $V2AcceptanceWidths.
+function Test-ShotFailed {
+    param([object] $Result)
+    return (-not $Result.presented -or -not $Result.visuallyVaried -or $Result.interfaceFaultCount -gt 0 -or
+        -not $Result.warningCaptureArmed -or -not $Result.gracefulShutdown -or
+        ($Result.interactionRequired -and -not $Result.interactionSmoke) -or -not $Result.deadSpaceWithinBounds)
+}
+$Gated = @($Results | Where-Object { -not $_.advisory })
+$AdvisoryFailed = @($Results | Where-Object { $_.advisory -and (Test-ShotFailed $_) })
+
+$NoWindow = @($Gated | Where-Object { -not $_.windowShown })
+$Incomplete = @($Gated | Where-Object { $_.windowShown -and -not $_.presented })
+$Blank = @($Gated | Where-Object { $_.presented -and -not $_.visuallyVaried })
+$Faulted = @($Gated | Where-Object { $_.interfaceFaultCount -gt 0 })
+$Unarmed = @($Gated | Where-Object { -not $_.warningCaptureArmed })
+$Ungraceful = @($Gated | Where-Object { -not $_.gracefulShutdown })
+$InteractionFailed = @($Gated | Where-Object { $_.interactionRequired -and -not $_.interactionSmoke })
+$DeadSpace = @($Gated | Where-Object { -not $_.deadSpaceWithinBounds })
+$Failed = @($Gated | Where-Object { Test-ShotFailed $_ })
+# Said in the detail itself, because the evidence excerpts and the job log quote it on its own.
+foreach ($Result in $AdvisoryFailed) { $Result.detail = "Advisory, not gating: $($Result.detail)" }
 
 $Report = [pscustomobject]@{
     generatedUtc = [DateTime]::UtcNow.ToString("o")
@@ -1960,6 +2069,9 @@ $Report = [pscustomobject]@{
     interactionFailureCount = $InteractionFailed.Count
     deadSpaceFailureCount = $DeadSpace.Count
     skippedCount = @($Results | Where-Object { $_.skipped }).Count
+    advisoryCount = @($Results | Where-Object { $_.advisory }).Count
+    advisoryFailedCount = $AdvisoryFailed.Count
+    gallerySeconds = [Math]::Round($GalleryClock.Elapsed.TotalSeconds, 1)
     scope = "Responsive visual variation, retained-route, focus, dialog, title and current-destination UI Automation assertions, graceful shutdown, and toolkit interface faults; full usability/accessibility and data/tile readiness are not proven and remain open #279 criteria that depend on the application readiness signal owned by #281."
 }
 
@@ -1968,15 +2080,16 @@ New-Item -ItemType Directory -Path $Directory -Force | Out-Null
 $Report | ConvertTo-Json -Depth 6 | Set-Content -Path $OutputPath -Encoding utf8
 
 foreach ($Result in $Results) {
-    $Mark = if ($Failed -contains $Result) { "FAIL" } elseif ($Result.skipped) { "skip" } else { "ok  " }
+    $Mark = if ($Failed -contains $Result) { "FAIL" } elseif ($AdvisoryFailed -contains $Result) { "WARN" } elseif ($Result.skipped) { "skip" } else { "ok  " }
     $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
     $Timing = if ($null -ne $Result.windowShownAfterSeconds) { ", window after $($Result.windowShownAfterSeconds)s" } else { "" }
-    Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Timing$Dead"
+    $Took = if ($null -ne $Result.shotSeconds) { ", shot $($Result.shotSeconds)s" } else { "" }
+    Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Timing$Took$Dead"
     if ($null -ne $Result.readinessDetail) { Write-Host "     readiness: $($Result.readinessDetail)" }
     # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
     # here is what turns "no window: Loadout" in the job log into a sentence somebody can act on
     # without downloading anything.
-    if (($Failed -contains $Result) -and -not [string]::IsNullOrWhiteSpace($Result.detail)) {
+    if ((($Failed -contains $Result) -or ($AdvisoryFailed -contains $Result)) -and -not [string]::IsNullOrWhiteSpace($Result.detail)) {
         Write-Host "     $($Result.detail)"
     }
 
@@ -1988,6 +2101,68 @@ foreach ($Result in $Results) {
         Write-Host "     $Line"
     }
 }
+
+<#
+    [#279] The job summary: how long the gallery took and where the time went, what failed
+    (gated and advisory), and every PNG it captured, so a run can be read without downloading it.
+    File names only; nothing here carries a runner path.
+#>
+function Write-GallerySummary {
+    param([string] $Path)
+
+    $Lines = [System.Collections.Generic.List[string]]::new()
+    $Launched = @($Results | Where-Object { -not $_.skipped })
+    $Lines.Add("### Page gallery")
+    $Lines.Add("")
+    $Lines.Add("$($Results.Count) shots, $($Launched.Count) launched, in $([Math]::Round($GalleryClock.Elapsed.TotalMinutes, 1)) min. Gated failures: $($Failed.Count). Advisory (matrix) failures: $($AdvisoryFailed.Count) of $(@($Results | Where-Object { $_.advisory }).Count).")
+    $Lines.Add("")
+    $Families = $Launched | Group-Object -Property {
+        if ($_.shellMode -eq "legacy") { "legacy pages" }
+        elseif ($_.page -match '^v2-a-.+-(1280x720|1500x900|1120x720|1920-text\d+)$') { "V2 matrix $($Matches[1])" }
+        elseif ($null -ne $_.readySeconds) { "V2 map scenes" }
+        elseif ($_.page -match '^v2-a-') { "V2 routes 1920" }
+        else { "other V2 and map renderer" }
+    }
+    $Lines.Add("| Family | Launches | Seconds | Slowest |")
+    $Lines.Add("| --- | ---: | ---: | --- |")
+    foreach ($Family in ($Families | Sort-Object Name)) {
+        $Timed = @($Family.Group | Where-Object { $null -ne $_.shotSeconds })
+        $Sum = ($Timed | Measure-Object -Property shotSeconds -Sum).Sum
+        $Slowest = $Timed | Sort-Object shotSeconds -Descending | Select-Object -First 1
+        $Lines.Add("| $($Family.Name) | $($Family.Count) | $([Math]::Round([double]$Sum, 1)) | $(if ($Slowest) { "$($Slowest.page) $($Slowest.shotSeconds)s" }) |")
+    }
+    $Scenes = @($Launched | Where-Object { $null -ne $_.readySeconds })
+    if ($Scenes.Count -gt 0) {
+        $Lines.Add("")
+        $Lines.Add("Scene readiness: " + (($Scenes | ForEach-Object { "$($_.page) $($_.readySeconds)s" }) -join ", "))
+    }
+    foreach ($Pair in @(@("Gated failures", $Failed), @("Advisory failures", $AdvisoryFailed))) {
+        if (@($Pair[1]).Count -eq 0) { continue }
+        $Lines.Add("")
+        $Lines.Add("**$($Pair[0])**")
+        foreach ($Result in $Pair[1]) {
+            $Why = if ($Result.interactionRequired -and -not $Result.interactionSmoke) { $Result.interactionDetail } else { $Result.detail }
+            $Why = ([string]$Why) -replace '[A-Za-z]:\\[^\s''"]+', '<path>'
+            if ($Why.Length -gt 300) { $Why = $Why.Substring(0, 300) + "..." }
+            $Lines.Add("- ``$($Result.page)``: $Why")
+        }
+    }
+    $Captured = @(Get-ChildItem -LiteralPath $ScreenshotDirectory -Filter "*.png" -File | Sort-Object Name | ForEach-Object { $_.Name })
+    $Lines.Add("")
+    $Lines.Add("<details><summary>$($Captured.Count) PNGs captured (v2-a-* are in the v2-route-gallery artifact)</summary>")
+    $Lines.Add("")
+    $Lines.Add(($Captured | ForEach-Object { "``$_``" }) -join " ")
+    $Lines.Add("")
+    $Lines.Add("</details>")
+    $Lines.Add("")
+    ($Lines -join [Environment]::NewLine) | Out-File -FilePath $Path -Append -Encoding utf8
+}
+
+if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
+    try { Write-GallerySummary -Path $env:GITHUB_STEP_SUMMARY }
+    catch { Write-Host "Gallery summary not written: $($_.Exception.Message)" }
+}
+Write-Host "Gallery: $($Results.Count) shots in $([Math]::Round($GalleryClock.Elapsed.TotalSeconds, 1))s; $($AdvisoryFailed.Count) advisory failure(s)."
 
 # Named separately because they are different repairs. No window is a launch that broke, an
 # unvaried one did not fill in, an interface fault is a page asking for something it does not
