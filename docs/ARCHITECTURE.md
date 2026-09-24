@@ -124,6 +124,16 @@ to migrate the next workspace, add its keys to `en.json` under its own prefix, a
 (a property per label, a method per format or count), bind the view with `{x:Static l:<Workspace>Text.Name}`, replace
 the view model's literals, and render it in both cultures. `scripts/sweep-prose.sh` scans the tables.
 
+## Feature flags
+
+A new feature can ship behind a reversible flag (#314). `Flag` in `Core/Features` lists each one: key, what turning it off
+hides, owner issue, and its default per ring (dev = run from a folder or a custom feed, rough = the installed relay
+feed, stable = the signed ring #280 will add; `TARKOV_RELEASE_RING` overrides). `FeatureFlagService` resolves ring
+default then `Config/feature-flags.json` once at startup; unknown keys are logged once and written back untouched. A
+feature asks `IFeatureFlags.IsOn(Flag.X)` (or `AppFeatureFlags.Current` where the container does not build it). Setup ›
+Diagnostics shows each flag, where its value comes from, and Reset; a flag read at startup says "Restart to apply".
+V2RenderPreview's `--seed-feature-flags <file>` renders either state. Delete a flag with its checks once the feature settles.
+
 ## Cross-platform contract
 
 Linux must build and test all domain, application, data, recognition, simulator, and demo behavior. Windows-specific code is guarded behind interfaces and runtime OS checks. The self-contained `win-x64` publish is produced on Linux and proven in the Windows VM with synthetic permitted inputs.

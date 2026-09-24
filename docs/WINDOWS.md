@@ -65,6 +65,10 @@ Two things are not true yet, and are recorded rather than implied:
   verifier and binary/data/model transaction are implemented and fixture-tested, but #294 still
   has to compose them with Velopack and component activation, and #270 supplies persisted state.
 
+Windows verification's `rollback-applies` step (#292) follows `update-applies`: it runs
+`--roll-back-and-exit` against the next version's one-package feed, so the only way back is the
+copy kept before the update, and requires the original version in `current\BUILD_INFO.txt`.
+
 Signed desktop builds reach a machine without the in-app updater, or without any network, through
 `scripts/release/install-offline.ps1`:
 

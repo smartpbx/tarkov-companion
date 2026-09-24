@@ -1050,6 +1050,7 @@ public static class AppComposition
             provider.GetRequiredService<IReleaseExperienceStateStore>(),
             provider.GetRequiredService<IRuntimeStateStore>(),
             dispatch: action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
+        TarkovCompanion.App.Services.FeatureFlags.FeatureFlagComposition.Add(services, paths); // [#314] ring defaults + Config/feature-flags.json
         services.AddSingleton<LegacyProfileContextBootstrap>();
         // [#309] Setup > Privacy: preview before turning tidying on, a dry run, and the last-run ledger.
         services.AddSingleton(provider => new SetupCleanupViewModel(

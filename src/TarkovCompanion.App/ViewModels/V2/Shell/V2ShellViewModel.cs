@@ -212,6 +212,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         RecommendationHorizonSettingsViewModel? recommendationHorizons = null,
         // #314: the after-update banner and its player-facing change list.
         ReleaseExperienceViewModel? releaseExperience = null,
+        SetupFeatureFlagsViewModel? featureFlags = null, // #314: Setup › Diagnostics' feature flags.
         LearnModeSetting? learnMode = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
@@ -245,6 +246,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         ReleaseExperience = releaseExperience;
         SetupWorkspace?.AttachPairing(_companionPairing);
+        if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);

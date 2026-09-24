@@ -100,7 +100,7 @@ internal static class Program
                 Console.Error.WriteLine($"Ignoring '{unknown}': this build does not have that option.");
             }
 
-            if (options.ApplyUpdateAndExit)
+            if (options.ApplyUpdateAndExit || options.RollBackAndExit)
             {
                 return UpdateApplyProbe.Run(options);
             }
@@ -223,6 +223,7 @@ internal static class Program
     private static bool IsOrdinaryLaunch(AppCommandLine options) =>
         !options.SelfTest
         && !options.ApplyUpdateAndExit
+        && !options.RollBackAndExit
         && !options.Headless
         && !options.Demo
         && !options.DeveloperMode

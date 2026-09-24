@@ -50,7 +50,13 @@ durable consumer state. Until then an installed build follows the unsigned rough
 relay serves at `/updates/rough/` (what it proves and does not: `RELEASES.md`, "The rough
 channel"; how to publish to it: `deploy/group-server/README.md`), and signed desktop builds use
 the verified offline path in `RELEASES.md`. A build run from a portable zip does not update
-itself and keeps its data beside its executable.
+itself and keeps its data beside its executable. **Setup › Updates › Go back to the previous
+version** (#292) reinstalls the previous full build through the updater with the downgrade
+allowed: from the feed if it still lists one, otherwise from the copy of the running build kept in
+`%LOCALAPPDATA%\TarkovCompanion\Updates\previous\` before each update (the relay keeps only the
+newest package). It then stays on that build until one newer than the feed's newest at the time is
+published; `Updates\update-state.json` holds that pin and what was last applied (version, feed
+host, SHA256, time), which Setup shows under "This build".
 
 ## The group relay
 

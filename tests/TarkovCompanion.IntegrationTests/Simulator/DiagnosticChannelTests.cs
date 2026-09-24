@@ -165,12 +165,9 @@ public sealed class DiagnosticChannelTests
         Assert.NotNull(channel);
 
         var commandPath = scratch.Command("scan-3");
-        var held = new FileStream(commandPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        var held = OpenHeldCommandFile(scratch, commandPath, JsonSerializer.Serialize(new { id = "scan-3", command = "scan", token }));
         try
         {
-            await held.WriteAsync(System.Text.Encoding.UTF8.GetBytes(
-                JsonSerializer.Serialize(new { id = "scan-3", command = "scan", token })));
-            await held.FlushAsync();
 
             await Task.Delay(TimeSpan.FromMilliseconds(600));
             Assert.False(File.Exists(scratch.Response("scan-3")), "Nothing is answered while the file is held.");
@@ -185,6 +182,34 @@ public sealed class DiagnosticChannelTests
         Assert.True(response.Accepted);
         Assert.Equal("scan-completed", response.Event);
         Assert.Equal(1, scan.CallCount);
+    }
+
+    /// <summary>
+    /// A command file that is already complete and already held when the channel can first see it,
+    /// which is what a scanner holding a freshly renamed file looks like.
+    /// </summary>
+    /// <remarks>
+    /// Creating the file in place with <see cref="FileShare.None"/> is not that on Linux: .NET creates
+    /// the file and only then takes its advisory lock, so a poll landing between the two read an
+    /// empty, unlocked file, rejected it as invalid JSON and answered while the test still "held"
+    /// it (main run 35958124060, "Nothing is answered while the file is held"). So on Linux the file
+    /// is written and locked under another name and renamed into place; the lock stays with the
+    /// file. Windows cannot rename a file this process holds, and its create-and-deny is atomic.
+    /// </remarks>
+    private static FileStream OpenHeldCommandFile(ChannelRoot scratch, string commandPath, string json)
+    {
+        var path = OperatingSystem.IsWindows()
+            ? commandPath
+            : System.IO.Path.Combine(scratch.Path, System.IO.Path.GetFileName(commandPath) + ".staging");
+        var held = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        held.Write(System.Text.Encoding.UTF8.GetBytes(json));
+        held.Flush();
+        if (!OperatingSystem.IsWindows())
+        {
+            File.Move(path, commandPath);
+        }
+
+        return held;
     }
 
     private sealed class ChannelRoot : IDisposable
