@@ -107,7 +107,7 @@ public sealed class NotificationBridge : IDisposable
     /// "test this" on a notification you have turned off is how you decide whether to turn it on.
     /// Quiet hours are ignored too: a test pressed at midnight is somebody asking to see it.
     /// </remarks>
-    public void Test(NotificationKind kind) => Deliver(NotificationSamples.For(kind, _timeProvider.GetUtcNow()), ignoreQuietHours: true);
+    public void Test(NotificationKind kind) => Deliver(TarkovCompanion.App.Localization.SetupText.NotificationSample(kind, _timeProvider.GetUtcNow()), ignoreQuietHours: true);
 
     /// <summary>Sets quiet hours for the pop-up, and remembers the answer.</summary>
     public async Task SetQuietHoursAsync(bool enabled, int fromHour, int toHour, CancellationToken cancellationToken)

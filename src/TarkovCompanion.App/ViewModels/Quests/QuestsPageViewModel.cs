@@ -53,7 +53,7 @@ public sealed class QuestImportProposalViewModel(
         _ => proposal.Classification.ToString(),
     };
 
-    public string Entity => $"{proposal.EntityKind}: {proposal.EntityId}";
+    public string Entity => SetupText.QuestsEntity(SetupText.QuestEntityKind(proposal.EntityKind), proposal.EntityId);
 
     public string Detail => proposal.Reason;
 
@@ -61,7 +61,7 @@ public sealed class QuestImportProposalViewModel(
 
     public string IncomingValue => SetupText.QuestsIncomingValue(FormatValue(proposal.IncomingValue));
 
-    public string Resolution => resolution?.ToString() ??
+    public string Resolution => (resolution is { } chosen ? SetupText.QuestResolution(chosen) : null) ??
         (proposal.Classification == QuestImportClassification.Conflict ? SetupText.QuestsUnresolved : SetupText.QuestsAutomatic);
 
     private static string FormatValue(QuestImportValue? value)
@@ -73,14 +73,14 @@ public sealed class QuestImportProposalViewModel(
 
         if (value.TaskState is { } taskState)
         {
-            return taskState.ToString();
+            return SetupText.QuestTaskState(taskState);
         }
 
         if (value.ObjectiveState is { } objectiveState)
         {
             return value.ObjectiveCount is { } count
-                ? SetupText.QuestsValueCount(objectiveState, count)
-                : objectiveState.ToString();
+                ? SetupText.QuestsValueCount(SetupText.QuestObjectiveState(objectiveState), count)
+                : SetupText.QuestObjectiveState(objectiveState);
         }
 
         if (value.HoldingCount is { } holdingCount && value.HoldingFoundInRaid is { } foundInRaid)
@@ -91,7 +91,7 @@ public sealed class QuestImportProposalViewModel(
         if (value.PinTargetKind is { } pinKind && value.PinSortOrder is { } sortOrder)
         {
             var note = string.IsNullOrWhiteSpace(value.PinNote) ? SetupText.QuestsNoNote : $"“{value.PinNote}”";
-            return SetupText.QuestsPinValue(pinKind, sortOrder, note);
+            return SetupText.QuestsPinValue(SetupText.QuestPinKind(pinKind), sortOrder, note);
         }
 
         return SetupText.QuestsUnsupportedValue;
@@ -1431,12 +1431,12 @@ public sealed class QuestsPageViewModel : PageViewModel
             $"{record.ProfileName} · {LocalTime.Moment(record.ImportedUtc)}"),
         SetupText.QuestsHistoryDetail(record.AppliedChangeCount, record.KeptLocalCount, record.Unresolved.Count, record.SourceAppVersion),
         [.. record.Conflicts.Select(conflict => new QuestImportHistoryLineViewModel(
-            $"{conflict.EntityKind} {conflict.EntityId}",
+            SetupText.QuestsHistoryEntity(SetupText.QuestEntityKind(conflict.EntityKind), conflict.EntityId),
             conflict.Resolution == QuestImportResolution.KeepLocal
                 ? SetupText.QuestsKeptHere(conflict.Reason)
                 : SetupText.QuestsTookIncoming(conflict.Reason))),
          .. record.Unresolved.Select(unresolved => new QuestImportHistoryLineViewModel(
-            $"{unresolved.EntityKind} {unresolved.EntityId}",
+            SetupText.QuestsHistoryEntity(SetupText.QuestEntityKind(unresolved.EntityKind), unresolved.EntityId),
             SetupText.QuestsNotApplied(unresolved.Reason)))]);
 
     private async Task UndoLastImportAsync()

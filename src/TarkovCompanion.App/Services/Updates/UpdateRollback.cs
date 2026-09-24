@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Common;
 using Velopack;
 
@@ -173,7 +174,7 @@ public sealed record UpdateProvenanceRow(string Label, string Value);
 /// <summary>The running build's provenance, as Setup shows it.</summary>
 public static class UpdateProvenanceText
 {
-    public const string NotRecorded = "Not recorded · installed by Setup or an older build";
+    public static string NotRecorded => SetupText.ProvenanceNotRecordedInstalled;
 
     /// <summary>The feed's host, which is all of the address a player needs to recognise.</summary>
     public static string HostOf(Uri feed)
@@ -199,19 +200,19 @@ public static class UpdateProvenanceText
         string? feedSha256)
     {
         var record = recorded is not null && SameVersion(recorded.Version, installed) ? recorded : null;
-        var sha = record?.Sha256 ?? (feedSha256 is null ? "Not recorded" : $"{feedSha256} · as the feed lists it");
+        var sha = record?.Sha256 ?? (feedSha256 is null ? SetupText.ProvenanceNotRecorded : SetupText.ProvenanceAsFeedLists(feedSha256));
         var applied = record is null
             ? NotRecorded
             : record.WentBack
-                ? $"{LocalTime.Moment(record.AppliedUtc)} · went back"
+                ? SetupText.ProvenanceWentBack(LocalTime.Moment(record.AppliedUtc))
                 : LocalTime.Moment(record.AppliedUtc);
         return
         [
-            new("Version", installed),
-            new("Channel", record?.Channel ?? channel),
-            new("Feed", record?.FeedHost ?? HostOf(feed)),
-            new("SHA-256", sha),
-            new("Applied", applied),
+            new(SetupText.ProvenanceVersion, installed),
+            new(SetupText.ProvenanceChannel, record?.Channel ?? channel),
+            new(SetupText.ProvenanceFeed, record?.FeedHost ?? HostOf(feed)),
+            new(SetupText.ProvenanceSha, sha),
+            new(SetupText.ProvenanceApplied, applied),
         ];
     }
 

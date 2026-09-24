@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
 using Velopack;
@@ -199,15 +200,15 @@ public sealed partial class VelopackUpdateGateway
     /// </remarks>
     public string InstalledBuild => _manager.Value is { IsInstalled: true } manager
         && manager.CurrentVersion is { } version
-        ? $"Version {version}"
-        : $"Version {AppBuildIdentity.Current.Version} · running from a folder, not installed";
+        ? SetupText.UpdateInstalledVersion(version)
+        : SetupText.UpdateRunningFromFolder(AppBuildIdentity.Current.Version);
 
     public async Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_manager.Value is not { IsInstalled: true } manager)
         {
-            return new UpdateProgress("Run from a folder, so it cannot update itself");
+            return new UpdateProgress(SetupText.UpdateCannotUpdateFolder);
         }
 
         _verified = null;
@@ -220,12 +221,12 @@ public sealed partial class VelopackUpdateGateway
         {
             _pending = null;
             _logger?.LogWarning(exception, "Could not check {Feed} for a newer build", Channel.Feed);
-            return new($"Could not check · {exception.Message}", Failed: true);
+            return new(SetupText.UpdateCouldNotCheck(exception.Message), Failed: true);
         }
 
         if (_pending is not { } update)
         {
-            return new("Up to date");
+            return new(SetupText.UpdateUpToDate);
         }
 
         var available = update.TargetFullRelease.Version.ToString();
@@ -237,7 +238,7 @@ public sealed partial class VelopackUpdateGateway
         }
 
         return new(
-            $"{available} is available",
+            SetupText.UpdateAvailable(available),
             CanDownload: true,
             Available: available,
             Notes: update.TargetFullRelease.NotesMarkdown);
@@ -251,7 +252,7 @@ public sealed partial class VelopackUpdateGateway
     {
         if (_pending is not { } update || _manager.Value is not { } manager)
         {
-            return new("Check for updates first.");
+            return new(SetupText.UpdateCheckFirst);
         }
 
         var available = update.TargetFullRelease.Version.ToString();
@@ -264,7 +265,7 @@ public sealed partial class VelopackUpdateGateway
             await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             _verified = update.TargetFullRelease;
-            return new($"{available} is ready · it installs when this restarts", CanApply: true, Available: available);
+            return new(SetupText.UpdateReady(available), CanApply: true, Available: available);
         }
         catch (UpdateHashMismatchException exception)
         {
@@ -272,14 +273,14 @@ public sealed partial class VelopackUpdateGateway
             // sixty-four character strings are not something anybody reads on a settings page.
             _logger?.LogError(exception, "Refused {Available}: the download did not match the feed", available);
             return new(
-                "Refused · the download did not match the feed, so nothing was installed",
+                SetupText.UpdateRefused,
                 CanDownload: true,
                 Available: available);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger?.LogWarning(exception, "Could not download");
-            return new($"Could not download · {exception.Message}", CanDownload: true, Available: available);
+            return new(SetupText.UpdateCouldNotDownload(exception.Message), CanDownload: true, Available: available);
         }
     }
 

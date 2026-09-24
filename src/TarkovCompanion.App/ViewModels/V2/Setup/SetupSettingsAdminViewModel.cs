@@ -46,7 +46,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
     private V2SetupSection _currentSection = V2SetupSection.Overview;
     private SetupSettingsPendingKind _pendingKind;
     private SetupSettingsSnapshot? _pendingTarget;
-    private IReadOnlyList<SetupSettingsDiffEntry> _pendingDiff = [];
+    private IReadOnlyList<SetupSettingsDiffRow> _pendingDiff = [];
     private string _pendingLabel = string.Empty;
     private string _exchangePath = string.Empty;
     private string _statusMessage = string.Empty;
@@ -92,7 +92,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         private set => SetProperty(ref _pendingLabel, value);
     }
 
-    public IReadOnlyList<SetupSettingsDiffEntry> PendingDiff
+    public IReadOnlyList<SetupSettingsDiffRow> PendingDiff
     {
         get => _pendingDiff;
         private set => SetProperty(ref _pendingDiff, value);
@@ -254,7 +254,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
 
         _pendingKind = kind;
         _pendingTarget = target;
-        PendingDiff = diff;
+        PendingDiff = [.. diff.Select(SetupSettingsDiffRow.From)];
         PendingLabel = label;
         StatusMessage = string.Empty;
         OnPropertyChanged(nameof(HasPendingChange));

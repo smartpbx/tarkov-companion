@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace TarkovCompanion.Application.Services.Notifications;
 
 /// <summary>
@@ -13,74 +11,11 @@ namespace TarkovCompanion.Application.Services.Notifications;
 /// </remarks>
 public static class NotificationSamples
 {
-    /// <summary>One sentence per kind, for the row in Setup that describes it.</summary>
-    public static string Describe(NotificationKind kind) => kind switch
-    {
-        NotificationKind.SquadMark => "A squadmate drops a ping or a mark while you are in a raid.",
-        NotificationKind.DebriefReady => "A raid ends and its debrief is ready to read.",
-        NotificationKind.DataRefreshFailed => "The game-data refresh fails, naming what did not answer.",
-        NotificationKind.UpdateReady => "A new build has downloaded and is waiting to be installed.",
-        NotificationKind.RelayUnreachable => "The squad relay stops answering while sharing is on.",
-        NotificationKind.FleaSold => "A flea offer sells.",
-        _ => string.Empty,
-    };
-
-    /// <summary>The short name of the switch.</summary>
-    public static string Title(NotificationKind kind) => kind switch
-    {
-        NotificationKind.SquadMark => "Squadmate marks",
-        NotificationKind.DebriefReady => "Debrief ready",
-        NotificationKind.DataRefreshFailed => "Data refresh failed",
-        NotificationKind.UpdateReady => "Update ready",
-        NotificationKind.RelayUnreachable => "Relay unreachable",
-        NotificationKind.FleaSold => "Flea offer sold",
-        _ => string.Empty,
-    };
+    // [#314] The words (each kind's name, its sentence, the test pop-up) are the App's:
+    // SetupText.NotificationTitle, NotificationDescription and NotificationSample.
 
     /// <summary>Whether this one is allowed to interrupt a raid. Exactly one is.</summary>
     public static bool FiresDuringRaid(NotificationKind kind) => kind == NotificationKind.SquadMark;
-
-    /// <summary>A real request, with invented content, for the test button.</summary>
-    public static NotificationRequest For(NotificationKind kind, DateTimeOffset nowUtc) => kind switch
-    {
-        NotificationKind.SquadMark => new(
-            kind,
-            string.Create(CultureInfo.CurrentCulture, $"3 marks from Ferret"),
-            "On the raid map. (Test)",
-            3,
-            nowUtc),
-        NotificationKind.DebriefReady => new(
-            kind,
-            "Raid over",
-            "The debrief is ready. (Test)",
-            1,
-            nowUtc),
-        NotificationKind.DataRefreshFailed => new(
-            kind,
-            "Game data did not refresh",
-            "items and tasks did not answer. The local copy still stands. (Test)",
-            2,
-            nowUtc),
-        NotificationKind.UpdateReady => new(
-            kind,
-            "Update ready",
-            "A newer build is downloaded and waiting in Setup › Updates. (Test)",
-            1,
-            nowUtc),
-        NotificationKind.RelayUnreachable => new(
-            kind,
-            "Squad relay unreachable",
-            "Sharing is on but the relay stopped answering. (Test)",
-            1,
-            nowUtc),
-        NotificationKind.FleaSold => new(
-            kind,
-            "2 flea offers sold",
-            "3 items. Intel › Flea lists them. (Test)",
-            2,
-            nowUtc),
-        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-    };
 
     /// <summary>The six, in the order Setup lists them: the one that matters most first.</summary>
     public static IReadOnlyList<NotificationKind> All { get; } =

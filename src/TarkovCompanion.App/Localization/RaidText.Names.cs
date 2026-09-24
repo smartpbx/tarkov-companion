@@ -45,3 +45,15 @@ public static partial class RaidText
         _ => visibility.ToString(),
     };
 }
+
+/// <summary>The palette colours' names, said by a screen reader and shown on hover (#314).</summary>
+public static partial class RaidText
+{
+    /// <summary>The name of a <see cref="TarkovCompanion.Core.Common.MarkPalette"/> colour, by its hex; Core's English for one not in the table.</summary>
+    public static string MarkColourName(TarkovCompanion.Core.Common.MarkColour colour)
+    {
+        ArgumentNullException.ThrowIfNull(colour);
+        var key = $"Raid.MarkColour.{colour.Hex.TrimStart('#')}";
+        return UiText.English.ContainsKey(key) ? UiText.Get(key) : colour.Name;
+    }
+}

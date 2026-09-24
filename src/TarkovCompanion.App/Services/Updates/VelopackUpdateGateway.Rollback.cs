@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -92,7 +93,7 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
     {
         if (InstalledVersion is not { } installed || _manager.Value is not { } manager)
         {
-            return new(AppBuildIdentity.Current.Version, null, null, "Run from a folder, so it cannot go back");
+            return new(AppBuildIdentity.Current.Version, null, null, SetupText.UpdateCannotGoBackFolder);
         }
 
         IReadOnlyList<UpdateFeedPackage> packages = [];
@@ -117,8 +118,8 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
         var reason = previous is not null
             ? null
             : feedError is not null
-                ? $"No older build kept on this PC, and the feed could not be read · {feedError}"
-                : "No older build in the feed or kept on this PC";
+                ? SetupText.UpdateNoOlderFeedUnread(feedError)
+                : SetupText.UpdateNoOlder;
         return new(installed, previous, latest, reason);
     }
 
@@ -130,7 +131,7 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
         ArgumentNullException.ThrowIfNull(offer);
         if (offer.Previous is not { } target || _manager.Value is not { IsInstalled: true } manager)
         {
-            return new("There is no older build to go back to.");
+            return new(SetupText.UpdateNothingToGoBackTo);
         }
 
         _verified = null;
@@ -151,7 +152,7 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
             cancellationToken.ThrowIfCancellationRequested();
             if (info is null || !SameVersion(info.TargetFullRelease.Version.ToString(), target.Version))
             {
-                return new($"The updater would not go back to {target.Version}.", Failed: true);
+                return new(SetupText.UpdateWouldNotGoBack(target.Version), Failed: true);
             }
 
             await downgrade.DownloadUpdatesAsync(info, progress, cancellationToken).ConfigureAwait(true);
@@ -166,12 +167,12 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
         catch (UpdateHashMismatchException exception)
         {
             _logger?.LogError(exception, "Refused {Target}: the package did not match its hash", target.Version);
-            return new("Refused · the package did not match its hash, so nothing was installed", Failed: true);
+            return new(SetupText.UpdateRollbackRefused, Failed: true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger?.LogWarning(exception, "Could not fetch {Target} to go back to", target.Version);
-            return new($"Could not fetch {target.Version} · {exception.Message}", Failed: true);
+            return new(SetupText.UpdateCouldNotFetch(target.Version, exception.Message), Failed: true);
         }
     }
 
@@ -203,7 +204,7 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
         if (UpdateRollbackRules.Holds(pin, current.ToString(), available))
         {
             _logger?.LogInformation("Holding {Available} back: staying on {Pinned} until a newer build", available, pin.Version);
-            return new($"Staying on {pin.Version} · {available} is held until a newer build", Available: available, Held: true);
+            return new(SetupText.UpdateStayingOn(pin.Version, available), Available: available, Held: true);
         }
 
         _logger?.LogInformation("{Available} is newer than {HoldThrough}; no longer staying on {Pinned}", available, pin.HoldThrough, pin.Version);

@@ -1,12 +1,47 @@
-using System.Globalization;
-
 namespace TarkovCompanion.Application.Services.Setup;
 
-/// <summary>One field that differs between two snapshots, in words a confirm dialog can show.</summary>
-/// <param name="Field">What the field is called, e.g. "Theme".</param>
-/// <param name="CurrentValue">What it is now.</param>
+/// <summary>A setting a diff row names; the App says it in the interface language (#314).</summary>
+public enum SetupSettingsField
+{
+    Theme,
+    StatusColours,
+    TextSize,
+    Spacing,
+    ReducedMotion,
+    FocusIndicator,
+    SquadmateMarks,
+    DebriefReady,
+    DataRefreshFailed,
+    UpdateReady,
+    RelayUnreachable,
+    FleaOfferSold,
+    DesktopPopup,
+    QuietHours,
+    QuietFrom,
+    QuietUntil,
+    ScreenshotCleanup,
+    ScreenshotRetention,
+}
+
+/// <summary>How a diff value is written: as itself (a switch, a choice), a percentage, an hour of the day, or a number of hours.</summary>
+public enum SetupSettingsValueKind
+{
+    Plain,
+    Percent,
+    HourOfDay,
+    Hours,
+}
+
+/// <summary>One field that differs between two snapshots.</summary>
+/// <param name="Field">Which setting.</param>
+/// <param name="CurrentValue">What it is now: a bool, an enum value or a number.</param>
 /// <param name="NewValue">What it would become.</param>
-public sealed record SetupSettingsDiffEntry(string Field, string CurrentValue, string NewValue);
+/// <param name="Kind">How the number is written.</param>
+public sealed record SetupSettingsDiffEntry(
+    SetupSettingsField Field,
+    object CurrentValue,
+    object NewValue,
+    SetupSettingsValueKind Kind = SetupSettingsValueKind.Plain);
 
 /// <summary>
 /// What would actually change between two <see cref="SetupSettingsSnapshot"/>s, field by field.
@@ -31,74 +66,35 @@ public static class SetupSettingsDiff
         incoming = incoming.Normalized();
 
         var entries = new List<SetupSettingsDiffEntry>();
-        void Add(string field, object currentValue, object newValue, Func<object, string>? describe = null)
+        void Add(SetupSettingsField field, object currentValue, object newValue, SetupSettingsValueKind kind = SetupSettingsValueKind.Plain)
         {
             if (!Equals(currentValue, newValue))
             {
-                describe ??= Describe;
-                entries.Add(new SetupSettingsDiffEntry(field, describe(currentValue), describe(newValue)));
+                entries.Add(new SetupSettingsDiffEntry(field, currentValue, newValue, kind));
             }
         }
 
-        Add("Theme", current.Appearance.Theme, incoming.Appearance.Theme);
-        Add("Status colours", current.Appearance.ColorVision, incoming.Appearance.ColorVision);
-        Add("Text size", current.Appearance.TextScalePercent, incoming.Appearance.TextScalePercent, DescribePercent);
-        Add("Spacing", current.Appearance.Density, incoming.Appearance.Density);
-        Add("Reduced motion", current.Appearance.ReduceMotion, incoming.Appearance.ReduceMotion);
-        Add("Focus indicator", current.Appearance.FocusAlwaysVisible, incoming.Appearance.FocusAlwaysVisible);
+        Add(SetupSettingsField.Theme, current.Appearance.Theme, incoming.Appearance.Theme);
+        Add(SetupSettingsField.StatusColours, current.Appearance.ColorVision, incoming.Appearance.ColorVision);
+        Add(SetupSettingsField.TextSize, current.Appearance.TextScalePercent, incoming.Appearance.TextScalePercent, SetupSettingsValueKind.Percent);
+        Add(SetupSettingsField.Spacing, current.Appearance.Density, incoming.Appearance.Density);
+        Add(SetupSettingsField.ReducedMotion, current.Appearance.ReduceMotion, incoming.Appearance.ReduceMotion);
+        Add(SetupSettingsField.FocusIndicator, current.Appearance.FocusAlwaysVisible, incoming.Appearance.FocusAlwaysVisible);
 
-        Add("Squadmate marks", current.Notifications.SquadMark, incoming.Notifications.SquadMark);
-        Add("Debrief ready", current.Notifications.DebriefReady, incoming.Notifications.DebriefReady);
-        Add("Data refresh failed", current.Notifications.DataRefreshFailed, incoming.Notifications.DataRefreshFailed);
-        Add("Update ready", current.Notifications.UpdateReady, incoming.Notifications.UpdateReady);
-        Add("Relay unreachable", current.Notifications.RelayUnreachable, incoming.Notifications.RelayUnreachable);
-        Add("Flea offer sold", current.Notifications.FleaSold, incoming.Notifications.FleaSold);
-        Add("Desktop pop-up", current.Notifications.ShowsDesktopPopup, incoming.Notifications.ShowsDesktopPopup);
-        Add("Quiet hours", current.Notifications.QuietHours, incoming.Notifications.QuietHours);
-        Add("Quiet from", current.Notifications.QuietFromHour, incoming.Notifications.QuietFromHour, DescribeHourOfDay);
-        Add("Quiet until", current.Notifications.QuietToHour, incoming.Notifications.QuietToHour, DescribeHourOfDay);
+        Add(SetupSettingsField.SquadmateMarks, current.Notifications.SquadMark, incoming.Notifications.SquadMark);
+        Add(SetupSettingsField.DebriefReady, current.Notifications.DebriefReady, incoming.Notifications.DebriefReady);
+        Add(SetupSettingsField.DataRefreshFailed, current.Notifications.DataRefreshFailed, incoming.Notifications.DataRefreshFailed);
+        Add(SetupSettingsField.UpdateReady, current.Notifications.UpdateReady, incoming.Notifications.UpdateReady);
+        Add(SetupSettingsField.RelayUnreachable, current.Notifications.RelayUnreachable, incoming.Notifications.RelayUnreachable);
+        Add(SetupSettingsField.FleaOfferSold, current.Notifications.FleaSold, incoming.Notifications.FleaSold);
+        Add(SetupSettingsField.DesktopPopup, current.Notifications.ShowsDesktopPopup, incoming.Notifications.ShowsDesktopPopup);
+        Add(SetupSettingsField.QuietHours, current.Notifications.QuietHours, incoming.Notifications.QuietHours);
+        Add(SetupSettingsField.QuietFrom, current.Notifications.QuietFromHour, incoming.Notifications.QuietFromHour, SetupSettingsValueKind.HourOfDay);
+        Add(SetupSettingsField.QuietUntil, current.Notifications.QuietToHour, incoming.Notifications.QuietToHour, SetupSettingsValueKind.HourOfDay);
 
-        Add("Screenshot cleanup", current.ScreenshotRetention.IsEnabled, incoming.ScreenshotRetention.IsEnabled);
-        Add("Screenshot retention", current.ScreenshotRetention.RetentionHours, incoming.ScreenshotRetention.RetentionHours, DescribeHours);
+        Add(SetupSettingsField.ScreenshotCleanup, current.ScreenshotRetention.IsEnabled, incoming.ScreenshotRetention.IsEnabled);
+        Add(SetupSettingsField.ScreenshotRetention, current.ScreenshotRetention.RetentionHours, incoming.ScreenshotRetention.RetentionHours, SetupSettingsValueKind.Hours);
 
         return entries;
-    }
-
-    private static string Describe(object value) => value switch
-    {
-        bool flag => flag ? "On" : "Off",
-        Enum e => SplitPascalCase(e.ToString()),
-        _ => value.ToString() ?? string.Empty,
-    };
-
-    private static string DescribePercent(object value) => ((int)value).ToString(CultureInfo.InvariantCulture);
-
-    private static string DescribeHourOfDay(object value) =>
-        string.Create(CultureInfo.InvariantCulture, $"{(int)value:00}:00");
-
-    private static string DescribeHours(object value) =>
-        string.Format(CultureInfo.InvariantCulture, "{0}h", (int)value);
-
-    /// <summary>"HighContrast" as "High Contrast", for a diff row a player reads rather than parses.</summary>
-    private static string SplitPascalCase(string value)
-    {
-        if (value.Length == 0)
-        {
-            return value;
-        }
-
-        var result = new System.Text.StringBuilder(value.Length + 4);
-        result.Append(value[0]);
-        for (var index = 1; index < value.Length; index++)
-        {
-            if (char.IsUpper(value[index]) && !char.IsUpper(value[index - 1]))
-            {
-                result.Append(' ');
-            }
-
-            result.Append(value[index]);
-        }
-
-        return result.ToString();
     }
 }

@@ -3,8 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
-             xmlns:setupSvc="using:TarkovCompanion.Application.Services.Setup">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
   <!-- #292 task 2: "Reset this section", "Reset everything", export and import. Shown on every
        section (below the section tabs, beside "Show file paths") rather than owning one of its
        own, since "this section" only means something once a section is already open. Nothing here
@@ -43,7 +42,7 @@
           <ItemsControl ItemsSource="{Binding PendingDiff}"
                         AutomationProperties.AutomationId="v2-setup-settings-diff">
             <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="setupSvc:SetupSettingsDiffEntry">
+              <DataTemplate x:DataType="l:SetupSettingsDiffRow">
                 <Grid ColumnDefinitions="220,Auto,*" ColumnSpacing="10" Margin="0,2">
                   <TextBlock Classes="v2-label" Text="{Binding Field}" />
                   <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding CurrentValue}" />

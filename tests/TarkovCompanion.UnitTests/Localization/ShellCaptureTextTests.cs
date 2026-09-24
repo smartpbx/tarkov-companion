@@ -186,3 +186,50 @@ public sealed class VerdictTextTests
             IntelText.KeyReason(new(TarkovCompanion.Core.Domain.Planning.KeyVerdictReason.DearerOpensOnce, Share: TarkovCompanion.Core.Domain.Planning.KeyShareBand.FourInFive)));
     }
 }
+
+public sealed class SetupCodeTextTests
+{
+    [Fact]
+    public void Every_setting_field_notification_kind_quest_enum_and_colour_reads_from_the_table()
+    {
+        var log = new List<string>();
+        using var scope = UiText.Scope(UiText.Create(PseudoLocale.Name, log.Add));
+        static void FromTable(string text) => Assert.StartsWith("[", text, StringComparison.Ordinal);
+
+        foreach (var field in Enum.GetValues<TarkovCompanion.Application.Services.Setup.SetupSettingsField>())
+        {
+            FromTable(SetupText.SettingsField(field));
+        }
+
+        foreach (var kind in TarkovCompanion.Application.Services.Notifications.NotificationSamples.All)
+        {
+            FromTable(SetupText.NotificationTitle(kind));
+            FromTable(SetupText.NotificationDescription(kind));
+            var sample = SetupText.NotificationSample(kind, DateTimeOffset.UnixEpoch);
+            FromTable(sample.Title);
+            FromTable(sample.Body);
+        }
+
+        Assert.All(Enum.GetValues<TarkovCompanion.Core.Domain.Quests.QuestProgressEntityKind>(), kind => FromTable(SetupText.QuestEntityKind(kind)));
+        Assert.All(Enum.GetValues<TarkovCompanion.Core.Domain.Quests.QuestImportResolution>(), value => FromTable(SetupText.QuestResolution(value)));
+        Assert.All(Enum.GetValues<TarkovCompanion.Core.Domain.Quests.RecordedTaskState>(), value => FromTable(SetupText.QuestTaskState(value)));
+        Assert.All(Enum.GetValues<TarkovCompanion.Core.Domain.Quests.RecordedObjectiveState>(), value => FromTable(SetupText.QuestObjectiveState(value)));
+        Assert.All(Enum.GetValues<TarkovCompanion.Core.Domain.Quests.QuestPinTargetKind>(), value => FromTable(SetupText.QuestPinKind(value)));
+        Assert.All(Enum.GetValues<TarkovCompanion.Application.Services.Runtime.DataAvailability>(), value => FromTable(SetupText.DataAvailabilityName(value)));
+        Assert.All(TarkovCompanion.Core.Common.MarkPalette.Colours, colour => FromTable(RaidText.MarkColourName(colour)));
+        Assert.All(TarkovCompanion.Core.Features.Flag.All, flag =>
+        {
+            FromTable(SetupText.FlagTitle(flag));
+            FromTable(SetupText.FlagDescription(flag));
+        });
+        Assert.Empty(log);
+    }
+
+    [Fact]
+    public void A_quest_kind_stored_as_its_name_reads_as_a_word_and_an_unknown_one_as_itself()
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        Assert.Equal("ItemHolding", SetupText.QuestEntityKind("ItemHolding"));
+        Assert.Equal("Mystery", SetupText.QuestEntityKind("Mystery"));
+    }
+}
