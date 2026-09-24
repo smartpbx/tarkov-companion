@@ -143,14 +143,14 @@
   #mapOverlay .notice { margin: 0; max-width: 520px; background: rgba(14, 21, 29, .94); }
   #surfacePanel h2 { margin-top: 6px; }
   /* #572: a Loot Scan result, over the map until it is put away. */
-  #lootSheet {
+  #lootSheet, #reviewSheet {
     position: absolute; inset: 10px 64px 10px 10px; z-index: 2;
     display: flex; flex-direction: column; gap: 8px;
     background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
   }
-  #lootSheet .lootHead { display: flex; align-items: center; gap: 10px; }
-  #lootSheet .lootHead h3 { margin: 0; font-size: 16px; flex: 1; min-width: 0; }
-  #lootRows { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  #lootSheet .lootHead, #reviewSheet .lootHead { display: flex; align-items: center; gap: 10px; }
+  #lootSheet .lootHead h3, #reviewSheet .lootHead h3 { margin: 0; font-size: 16px; flex: 1; min-width: 0; }
+  #lootRows, #reviewRows { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
   .lootRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
     border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 7px 10px; }
   .lootRow .verdict { font-size: 11px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--line); }
@@ -161,6 +161,26 @@
   .lootRow .lootName { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lootRow .lootValue { font-variant-numeric: tabular-nums; }
   .lootRow .lootReason { grid-column: 2 / 4; color: var(--quiet); font-size: 13px; }
+  /* #290: the colour new marks get. Each swatch is a named button; the chosen one is ringed. */
+  .swatches { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+  .swatches button { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+  .swatches button[aria-checked="true"] { border-color: var(--text); box-shadow: 0 0 0 3px rgba(220, 229, 238, .35); }
+  .swatches button.auto { font-size: 12px; background: var(--inset); color: var(--quiet); }
+  .markSwatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  /* #290: a Stash scan or flea screen the desktop read, as read-only cards. */
+  .reviewCard { border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 8px 10px;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; }
+  .reviewCard .reviewName { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reviewCard .reviewTag { font-size: 11px; font-weight: 700; letter-spacing: .04em; border-radius: 999px; padding: 2px 8px;
+    border: 1px solid var(--line); justify-self: end; align-self: center; }
+  .reviewCard .reviewTag.Good { color: var(--sage); border-color: var(--sage); }
+  .reviewCard .reviewTag.Sell { color: var(--cyan); border-color: var(--cyan); }
+  .reviewCard .reviewTag.Bad { color: var(--alarm); border-color: var(--alarm); }
+  .reviewCard .reviewTag.Review { color: var(--ochre); border-color: var(--ochre); }
+  .reviewCard .reviewTag.Neutral { color: var(--quiet); }
+  .reviewCard .reviewMeta { grid-column: 1 / 3; color: var(--quiet); font-size: 13px; }
+  .reviewCard .reviewDetail { grid-column: 1 / 3; font-size: 13px; }
+  .reviewAgain { display: flex; gap: 8px; flex-wrap: wrap; }
   body.panel-hidden #surfacePanel { display: none; }
   #panelToggle[aria-expanded="false"] { color: var(--cyan); }
   /* A tablet on its side: the map fills the height, the controls are a column beside it that
@@ -279,6 +299,17 @@
           <p class="quiet" id="lootSummary" style="margin:0"></p>
           <div id="lootRows"></div>
         </div>
+        <!-- #290: the last Stash scan or flea screen the desktop read. Read-only: what was read,
+             how sure, and when it was seen. Nothing here acts on the game or the flea market. -->
+        <div id="reviewSheet" role="dialog" aria-labelledby="reviewTitle" hidden>
+          <div class="lootHead">
+            <h3 id="reviewTitle">Stash scan</h3>
+            <button type="button" id="reviewClose">Back to map</button>
+          </div>
+          <p class="quiet" id="reviewSummary" style="margin:0"></p>
+          <p class="quiet" id="reviewNote" style="margin:0"></p>
+          <div id="reviewRows"></div>
+        </div>
       </div>
       <p class="attribution" id="attribution"></p>
     </div>
@@ -303,6 +334,14 @@
         <h2 style="margin-top:16px">Loot</h2>
         <button type="button" id="lootOpen">Last loot scan</button>
       </div>
+      <!-- #290: the last Stash scan and flea screen, to look at again. -->
+      <div id="reviewAgain" hidden>
+        <h2 style="margin-top:16px">Captures</h2>
+        <div class="reviewAgain">
+          <button type="button" id="stashOpen" hidden>Last stash scan</button>
+          <button type="button" id="fleaOpen" hidden>Last flea scan</button>
+        </div>
+      </div>
 
       <h2 style="margin-top:16px">Marks</h2>
       <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
@@ -313,6 +352,8 @@
         <button type="button" data-scope="Private" aria-pressed="false">Just me</button>
         <button type="button" data-scope="Squad" aria-pressed="true">Squad</button>
       </div>
+      <!-- #290: the colour of new marks, shown on the desktop and the squad's maps too. -->
+      <div class="swatches" id="markColour" role="radiogroup" aria-label="Colour of new marks"></div>
       <div class="form">
         <select id="markLifetime" class="grow" aria-label="How long new marks last">
           <option value="">Tap ping, hold waypoint</option>
@@ -1227,7 +1268,7 @@
   // read as either one even before the ring shape registers. [Issue 584] `fraction` is how much
   // of its lifetime is left (1 = just placed, 0 = about to go), so it visibly fades rather than
   // holding at full strength until it snaps away.
-  function drawPing(px, py, scale, fraction = 1) {
+  function drawPing(px, py, scale, fraction = 1, tint = null) {
     // [Issue 598] A dark halo just behind the outer ring: red on the traffic heat's own red end
     // (this map's Resort, with the layer on) would otherwise wash the ring out entirely.
     context.strokeStyle = "#0b1016";
@@ -1236,7 +1277,7 @@
     context.beginPath();
     context.arc(px, py, 13 * scale, 0, Math.PI * 2);
     context.stroke();
-    context.strokeStyle = COLOURS.Ping;
+    context.strokeStyle = tint ?? COLOURS.Ping;
     context.globalAlpha = 0.32 * fraction;
     context.lineWidth = 1.5 * scale;
     context.beginPath();
@@ -1248,7 +1289,7 @@
     context.arc(px, py, 7 * scale, 0, Math.PI * 2);
     context.stroke();
     context.globalAlpha = fraction;
-    context.fillStyle = COLOURS.Ping;
+    context.fillStyle = tint ?? COLOURS.Ping;
     context.beginPath();
     context.arc(px, py, 3 * scale, 0, Math.PI * 2);
     context.fill();
@@ -1378,7 +1419,7 @@
       // every floor. This is the desktop's own rule, not a second one.
       if (floor && item.floorIds.length > 0 && !item.floorIds.includes(floor)) continue;
       // [Issue 581] A squadmate's own colour, the same one their chip has in the desktop's panel.
-      const colour = item.kind === "TeammateLastKnown" ? squadColour(item.label) : (COLOURS[item.kind] ?? "#8f9ba6");
+      const colour = item.kind === "TeammateLastKnown" ? squadColour(item.label) : (paletteColour(item.color) ?? COLOURS[item.kind] ?? "#8f9ba6");
       const points = item.points;
       if (points.length > 2) {
         context.beginPath();
@@ -1399,7 +1440,7 @@
 
       if (item.kind === "Ping") {
         if (pingExpired(item)) continue;
-        drawPing(px, py, scale, pingFraction(item));
+        drawPing(px, py, scale, pingFraction(item), paletteColour(item.color));
         continue;
       }
 
@@ -1411,7 +1452,7 @@
         drawPin(
           px,
           py,
-          COLOURS[item.kind],
+          (item.kind === "Waypoint" ? paletteColour(item.color) : null) ?? COLOURS[item.kind],
           item.kind === "QuestObjective" ? "shield" : "round",
           label,
           scale,
@@ -1955,6 +1996,7 @@
       if (mode === "Control") renderMapSwitcher();
       takeSentView(surface);
       takeLoot(surface);
+      takeReviews(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
       } else if (!surface.artwork) {
@@ -2039,7 +2081,74 @@
       holder.appendChild(empty);
     }
 
+    $("reviewSheet").hidden = true;
+    shownReview = null;
     $("lootSheet").hidden = false;
+  }
+
+  // #290: the last Stash scan and flea screen, the same way as a loot result: a new one opens over
+  // the map; the first surface after a load only records them, so a reload never pops up an old one.
+  const seenReviewIds = {};
+  let shownReview = null;
+  function takeReviews(surface) {
+    let opened = null;
+    for (const kind of ["stash", "flea"]) {
+      const review = surface[kind] ?? null;
+      const id = review ? `${review.id}|${review.seenUtc}` : null;
+      const first = !(kind in seenReviewIds);
+      const fresh = id !== null && id !== seenReviewIds[kind];
+      seenReviewIds[kind] = id;
+      $(`${kind}Open`).hidden = !review;
+      if (review && fresh && !first) opened = kind;
+      if (shownReview === kind) {
+        if (review) renderReview(kind, review); else $("reviewSheet").hidden = true;
+      }
+    }
+    $("reviewAgain").hidden = !surface.stash && !surface.flea;
+    if (opened && $("lootSheet").hidden) renderReview(opened, surface[opened]);
+  }
+
+  function renderReview(kind, review) {
+    const at = new Date(review.seenUtc).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("reviewTitle").textContent = `${review.heading} · as seen at ${at}`;
+    $("reviewSummary").textContent = review.hiddenRows > 0
+      ? `${review.summary} · ${review.hiddenRows} more on the desktop`
+      : review.summary;
+    $("reviewNote").textContent = review.note ?? "";
+    $("reviewNote").hidden = !review.note;
+    const holder = $("reviewRows");
+    holder.replaceChildren();
+    for (const item of review.rows) {
+      const card = document.createElement("div");
+      card.className = "reviewCard";
+      const name = document.createElement("span");
+      name.className = "reviewName";
+      name.textContent = item.name;
+      const tag = document.createElement("span");
+      tag.className = `reviewTag ${["Good", "Sell", "Bad", "Review", "Neutral"].includes(item.tagKind) ? item.tagKind : "Neutral"}`;
+      tag.textContent = item.tag;
+      const meta = document.createElement("span");
+      meta.className = "reviewMeta";
+      meta.textContent = [item.value, item.confidence].filter((part) => part).join(" · ");
+      card.append(name, tag, meta);
+      if (item.detail) {
+        const detail = document.createElement("span");
+        detail.className = "reviewDetail";
+        detail.textContent = item.detail;
+        card.append(detail);
+      }
+      holder.appendChild(card);
+    }
+
+    if (review.rows.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = kind === "flea" ? "No offers were read." : "Nothing was read in that stash.";
+      holder.appendChild(empty);
+    }
+
+    shownReview = kind;
+    $("reviewSheet").hidden = false;
   }
 
   // #290: the desktop pressed "Send to tablet". Independent keeps its own view on purpose, so
@@ -2800,6 +2909,14 @@
       const name = document.createElement("div");
       name.className = "name";
       name.textContent = mark.state.label || mark.kind;
+      if (paletteColour(mark.color)) {
+        const swatch = document.createElement("span");
+        swatch.className = "markSwatch";
+        swatch.style.background = paletteColour(mark.color);
+        swatch.setAttribute("role", "img");
+        swatch.setAttribute("aria-label", paletteName(mark.color));
+        name.prepend(swatch);
+      }
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = `${mark.kind} · ${markOptionsLabel(mark)}`;
@@ -3219,6 +3336,70 @@
     ThisRaid: "This raid",
   };
 
+  // #290: the six colours a mark can be given, the same list the desktop and the group relay keep
+  // (MarkPalette): Okabe and Ito's colour-blind-safe set, less its black and dark blue. "Auto"
+  // sends the kind's own colour, which is what every page before this sent.
+  const MARK_PALETTE = [
+    ["#56B4E9", "Sky blue"],
+    ["#E69F00", "Orange"],
+    ["#009E73", "Green"],
+    ["#F0E442", "Yellow"],
+    ["#D55E00", "Red orange"],
+    ["#CC79A7", "Pink"],
+  ];
+  const paletteColour = (value) => {
+    if (typeof value !== "string") return null;
+    const hex = value.toUpperCase();
+    return MARK_PALETTE.some(([entry]) => entry === hex) ? hex : null;
+  };
+  const paletteName = (value) => MARK_PALETTE.find(([entry]) => entry === paletteColour(value))?.[1] ?? null;
+  const MARK_COLOUR_KEY = "tarkov-companion-tablet-mark-colour";
+  let markColour = null;
+  try { markColour = paletteColour(localStorage.getItem(MARK_COLOUR_KEY)); } catch { /* private window */ }
+
+  function setMarkColour(colour) {
+    markColour = paletteColour(colour);
+    try {
+      if (markColour) localStorage.setItem(MARK_COLOUR_KEY, markColour); else localStorage.removeItem(MARK_COLOUR_KEY);
+    } catch { /* private window */ }
+    for (const button of $("markColour").querySelectorAll("button")) {
+      button.setAttribute("aria-checked", String((button.dataset.colour || null) === markColour));
+      button.tabIndex = (button.dataset.colour || null) === markColour ? 0 : -1;
+    }
+  }
+
+  function buildColourPicker() {
+    const holder = $("markColour");
+    const choices = [[null, "Auto"], ...MARK_PALETTE];
+    for (const [hex, name] of choices) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-label", hex ? name : "Auto colour");
+      button.title = hex ? name : "Auto: pings and waypoints keep their own colours";
+      if (hex) {
+        button.dataset.colour = hex;
+        button.style.background = hex;
+      } else {
+        button.className = "auto";
+        button.textContent = "Auto";
+      }
+      button.addEventListener("click", () => setMarkColour(hex));
+      holder.appendChild(button);
+    }
+    // Arrow keys move the choice, as a radio group does.
+    holder.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const index = choices.findIndex(([hex]) => hex === markColour);
+      const step = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+      const next = choices[(index + step + choices.length) % choices.length][0];
+      setMarkColour(next);
+      holder.querySelector(`button[aria-checked="true"]`)?.focus();
+    });
+  }
+
   function setMarkScope(scope) {
     markScope = scope === "Private" ? "Private" : "Squad";
     try { localStorage.setItem(MARK_SCOPE_KEY, markScope); } catch { /* private window */ }
@@ -3280,7 +3461,7 @@
         coordinateSpace: "World",
         projectionVersion: live.surface.transformVersion,
         height: null,
-        color: markKind === "Ping" ? "#C7A66B" : "#22D3EE",
+        color: markColour ?? (markKind === "Ping" ? "#C7A66B" : "#22D3EE"),
       },
     });
   }
@@ -3968,6 +4149,15 @@
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => drawMap()).observe($("mapWrap"));
   $("lootClose").addEventListener("click", () => { $("lootSheet").hidden = true; });
   $("lootOpen").addEventListener("click", () => { if (live?.surface?.loot) renderLoot(live.surface.loot); });
+  $("reviewClose").addEventListener("click", () => { $("reviewSheet").hidden = true; shownReview = null; });
+  for (const kind of ["stash", "flea"]) {
+    $(`${kind}Open`).addEventListener("click", () => {
+      if (live?.surface?.[kind]) {
+        $("lootSheet").hidden = true;
+        renderReview(kind, live.surface[kind]);
+      }
+    });
+  }
   $("panelToggle").addEventListener("click", () =>
     setPanelHidden(!document.body.classList.contains("panel-hidden")));
   try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
@@ -3975,6 +4165,8 @@
     button.addEventListener("click", () => setMarkScope(button.dataset.scope));
   }
   setMarkScope(markScope);
+  buildColourPicker();
+  setMarkColour(markColour);
   $("routeStart").addEventListener("click", () => {
     routeDraft = [];
     renderRouteBar();
@@ -4117,6 +4309,16 @@
     lootOpen: !$("lootSheet").hidden,
     pairingStages: [...stageHistory],
     lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
+    markColour,
+    markColours: (live?.marks ?? []).map((mark) => mark.color ?? null),
+    objectColours: (live?.surface?.objects ?? []).filter((item) => item.color).map((item) => ({ id: item.id, color: item.color })),
+    reviewOpen: !$("reviewSheet").hidden ? shownReview : null,
+    reviewTitle: $("reviewTitle").textContent,
+    reviewRows: [...document.querySelectorAll("#reviewRows .reviewCard")].map((card) => ({
+      name: card.querySelector(".reviewName").textContent,
+      tag: card.querySelector(".reviewTag").textContent,
+      meta: card.querySelector(".reviewMeta").textContent,
+    })),
   });
 
   setStage("pairingIdle");

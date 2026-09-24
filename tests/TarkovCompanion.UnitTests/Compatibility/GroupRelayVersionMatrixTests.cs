@@ -65,8 +65,9 @@ public sealed class GroupRelayVersionMatrixTests
         await relay.PublishAsync(CompatibilityFixtures.Read("group-publish-v2-rough-1.json"));
         var mark = JsonSerializer.Deserialize<MarkRequest>(CompatibilityFixtures.Read("group-mark-v2-rough-1.json"), Web)!;
         Assert.Null(mark.Validate());
-        relay.AddWaypoint(mark);
-        relay.AddPing(mark with { Label = null });
+        // #290: coloured, so the oldest reader meets the colour field and has to ignore it.
+        relay.AddWaypoint(mark with { Color = "#E69F00" });
+        relay.AddPing(mark with { Label = null, Color = "#56B4E9" });
         await relay.PublishAsync(CurrentMember("Geo"));
 
         var reply = await relay.PublishAsync(CompatibilityFixtures.Read("group-publish-v2-rough-1.json"));
@@ -134,7 +135,34 @@ public sealed class GroupRelayVersionMatrixTests
         Assert.Equal(sent["objectives"]?.AsArray().Count ?? 0, member.Objectives.Count);
         Assert.Equal(reply["waypoints"]!.AsArray().Count, group.Waypoints.Count);
         Assert.Equal(reply["pings"]!.AsArray().Count, group.Pings.Count);
+        // #290: a relay that predates mark colours reads as "no colour", never as a default claim;
+        // a relay that sends one has it held to the palette.
+        Assert.Equal(
+            reply["waypoints"]!.AsArray().Select(item => MarkPalette.Normalize(item!["color"]?.GetValue<string>())),
+            group.Waypoints.Select(waypoint => waypoint.Colour));
         Assert.DoesNotContain("Relay speaks", group.Detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// #290: the current desktop's mark body carries its colour, and still binds in a relay whose
+    /// mark request predates it: the colour is one extra field, which that binder ignores.
+    /// </summary>
+    [Fact]
+    public async Task ACurrentDesktopsColouredMarkBindsInAnOlderRelay()
+    {
+        var handler = new FixedRelay(CompatibilityFixtures.Read("group-reply-53a3b743.json"));
+        await using var session = Session(handler, null, out _);
+
+        await session.SendMarkAsync("customs", new(56.1, -2.9, 110.5), "Dorms", isPing: false, CancellationToken.None, "#e69f00");
+        await session.SendMarkAsync("customs", new(1, 2, 3), null, isPing: true, CancellationToken.None);
+
+        var bodies = handler.Marks.ToArray();
+        Assert.Equal(2, bodies.Length);
+        var old = JsonSerializer.Deserialize<Rough1MarkRequest>(bodies[0], Web)!;
+        Assert.Equal(("customs", 56.1, "Dorms"), (old.MapId, old.X, old.Label));
+        Assert.Equal("#E69F00", JsonSerializer.Deserialize<MarkRequest>(bodies[0], Web)!.PaletteColor);
+        // A mark with no colour is the body every relay has always read.
+        Assert.DoesNotContain("color", bodies[1], StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -258,10 +286,10 @@ public sealed class GroupRelayVersionMatrixTests
 
         // The two mark routes are inline in Program.cs; these are the calls they make once a body validates.
         public void AddWaypoint(MarkRequest mark) =>
-            _marks.AddWaypoint(_room, mark.By, mark.MapId, mark.X, mark.Y, mark.Z, mark.Label);
+            _marks.AddWaypoint(_room, mark.By, mark.MapId, mark.X, mark.Y, mark.Z, mark.Label, mark.PaletteColor);
 
         public void AddPing(MarkRequest mark) =>
-            _marks.AddPing(_room, mark.By, mark.MapId, mark.X, mark.Y, mark.Z, mark.Label);
+            _marks.AddPing(_room, mark.By, mark.MapId, mark.X, mark.Y, mark.Z, mark.Label, mark.PaletteColor);
     }
 
     /// <summary>A relay of another build: answers every exchange with one recorded reply.</summary>
@@ -269,8 +297,20 @@ public sealed class GroupRelayVersionMatrixTests
     {
         public ConcurrentQueue<string> Published { get; } = new();
 
+        /// <summary>#290: the bodies of every mark this desktop sent.</summary>
+        public ConcurrentQueue<string> Marks { get; } = new();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath is "/waypoints" or "/pings")
+            {
+                Marks.Enqueue(await request.Content!.ReadAsStringAsync(cancellationToken));
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"id\":1}", Encoding.UTF8, "application/json"),
+                };
+            }
+
             if (request.Method != HttpMethod.Post || request.RequestUri!.AbsolutePath != "/state")
             {
                 return new HttpResponseMessage(HttpStatusCode.OK);
@@ -291,6 +331,9 @@ public sealed class GroupRelayVersionMatrixTests
 
         public Task SaveAsync(GroupSharingSettings settings, CancellationToken cancellationToken) => Task.CompletedTask;
     }
+
+    // The mark body every relay before #290 bound (Program.cs MarkRequest at v2-rough-1).
+    private sealed record Rough1MarkRequest(string By, string MapId, double X, double Y, double Z, string? Label);
 
     // The v2-rough-1 desktop's reader (GroupSessionService.RoomStateDto and the records under it at
     // that tag), reproduced so the current relay's reply is parsed exactly as that build parses it.

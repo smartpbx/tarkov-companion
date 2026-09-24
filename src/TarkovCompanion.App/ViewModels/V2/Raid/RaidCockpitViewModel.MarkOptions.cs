@@ -68,12 +68,12 @@ public sealed partial class RaidCockpitViewModel
         }
 
         var floorId = Renderer?.Scene.View.SelectedFloorId ?? model.SelectedFloor?.Id;
-        _ = _marks.PlaceAsync(model.Location.Id, floorId, point.X, point.Y, null, NewMarkScope, lifetime);
+        _ = _marks.PlaceAsync(model.Location.Id, floorId, point.X, point.Y, null, NewMarkScope, lifetime, colour: NewMarkColour);
     }
 
     /// <summary>The gestures' own placement: the gesture picks the kind, the Marks card the scope.</summary>
     private Task PlaceWithScopeAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y) =>
-        _marks.PlaceAsync(mapId, floorId, x, y, null, NewMarkScope, RaidMarkLifetimes.DefaultFor(kind));
+        _marks.PlaceAsync(mapId, floorId, x, y, null, NewMarkScope, RaidMarkLifetimes.DefaultFor(kind), colour: NewMarkColour);
 
     internal Task SetMarkOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime)
     {

@@ -47,7 +47,9 @@ public sealed record TabletMapObject(
     // Issue 584: a ping's own fixed disappearance time (UTC), so the tablet can fade and drop it
     // on its own, exactly when it should, without waiting for the desktop to publish again. Null
     // for everything that is not a ping.
-    DateTimeOffset? ExpiresUtc = null);
+    DateTimeOffset? ExpiresUtc = null,
+    // #290: a mark's chosen palette colour, which the tablet draws in place of the kind's own.
+    string? Color = null);
 
 /// <summary>
 /// One answer to a lookup the tablet asked the desktop to run.
@@ -153,7 +155,78 @@ public sealed record TabletMapSurface(
     TabletMapLootFilter? LootFilter = null,
     // #800: the desktop's own map picker, in its order, so a tablet in Control offers the same
     // maps under the same ids. The tablet's built-in list named ids no desktop map carries.
-    IReadOnlyList<TabletMapChoice>? Maps = null);
+    IReadOnlyList<TabletMapChoice>? Maps = null,
+    // #290: the last Stash scan and flea screen the desktop read, for review on the tablet.
+    TabletCaptureReview? Stash = null,
+    TabletCaptureReview? Flea = null);
+
+/// <summary>One thing a capture read, as the tablet's review card shows it: the desktop's own words.</summary>
+/// <param name="Tag">The verdict or group word, e.g. "Sell" or "Good buy".</param>
+/// <param name="TagKind">What the tablet colours the tag by: Good, Bad, Neutral or Review.</param>
+/// <param name="Confidence">How sure the read was, e.g. "read 93% sure".</param>
+public sealed record TabletReviewRow(string Name, string Tag, string TagKind, string Value, string Confidence, string Detail);
+
+/// <summary>
+/// A Stash scan or flea screen the desktop already read, for the paired tablet to look at (#290).
+/// </summary>
+/// <remarks>
+/// Read-only: the tablet shows what was read, how sure, and when it was seen; it cannot act on it.
+/// Rides on the map surface for the same reason <see cref="TabletLootResult"/> does, and is cut
+/// to <see cref="MaximumRows"/> rows of <see cref="MaximumText"/> characters so the surface stays
+/// far inside the relay's bound whatever a scan found.
+/// </remarks>
+public sealed record TabletCaptureReview(
+    string Kind,
+    string Id,
+    DateTimeOffset SeenUtc,
+    string Heading,
+    string Summary,
+    string? Note,
+    IReadOnlyList<TabletReviewRow> Rows,
+    int HiddenRows)
+{
+    public const int MaximumRows = 30;
+
+    public const int MaximumText = 140;
+
+    /// <summary>A review with every string clipped and at most <see cref="MaximumRows"/> rows.</summary>
+    public static TabletCaptureReview Bounded(
+        string kind,
+        string id,
+        DateTimeOffset seenUtc,
+        string heading,
+        string summary,
+        string? note,
+        IReadOnlyList<TabletReviewRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var kept = rows
+            .Take(MaximumRows)
+            .Select(row => new TabletReviewRow(
+                Clip(row.Name),
+                Clip(row.Tag),
+                Clip(row.TagKind),
+                Clip(row.Value),
+                Clip(row.Confidence),
+                Clip(row.Detail)))
+            .ToArray();
+        return new(
+            Clip(kind),
+            Clip(id),
+            seenUtc.ToUniversalTime(),
+            Clip(heading),
+            Clip(summary),
+            string.IsNullOrEmpty(note) ? null : Clip(note),
+            kept,
+            rows.Count - kept.Length);
+    }
+
+    internal static string Clip(string? value)
+    {
+        var text = value?.Trim() ?? string.Empty;
+        return text.Length <= MaximumText ? text : string.Concat(text.AsSpan(0, MaximumText - 1), "…");
+    }
+}
 
 /// <summary>One entry of the desktop's map picker: the id a switch must name, and its label.</summary>
 public sealed record TabletMapChoice(string Id, string Name);
@@ -180,7 +253,8 @@ public static class TabletMapSurfaceBuilder
         DateTimeOffset publishedUtc,
         DateTimeOffset? sentToTabletUtc = null,
         TabletLootResult? loot = null,
-        TabletMapLootFilter? lootFilter = null)
+        TabletMapLootFilter? lootFilter = null,
+        IReadOnlyDictionary<string, string>? markColours = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
@@ -209,7 +283,9 @@ public static class TabletMapSurfaceBuilder
         var objects = scene.Objects
             .OrderBy(item => IsBulk(item.Kind) ? 1 : 0)
             .Take(MaximumObjects)
-            .Select(ToTabletObject)
+            .Select(item => markColours is not null && markColours.TryGetValue(item.Id.Value, out var colour)
+                ? ToTabletObject(item) with { Color = colour }
+                : ToTabletObject(item))
             .ToArray();
 
         // The camera the desktop is actually showing. Its centre is in plan units already, the

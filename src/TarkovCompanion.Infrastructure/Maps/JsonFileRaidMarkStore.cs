@@ -115,7 +115,8 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         RaidMarkScope scope,
         RaidMarkLifetime lifetime,
         CancellationToken cancellationToken = default,
-        RaidMarkRoute? route = null)
+        RaidMarkRoute? route = null,
+        string? colour = null)
     {
         var now = _timeProvider.GetUtcNow();
         // A waypoint is a plan and stays until removed; a ping is "look here, now" and this is the
@@ -130,6 +131,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             Scope = scope,
             Lifetime = lifetime,
             Route = route,
+            Colour = MarkPalette.Normalize(colour),
         };
         await MutateAsync(marks => marks.Add(mark), cancellationToken).ConfigureAwait(false);
         return mark;
@@ -462,6 +464,8 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
                 Scope = row.Scope ?? RaidMarkScope.Squad,
                 Lifetime = row.Lifetime ?? RaidMarkLifetimes.DefaultFor(row.Kind),
                 Route = row.RouteId is { } routeId && row.RouteStep is { } step ? new RaidMarkRoute(routeId, step) : null,
+                // #290: a hand-edited colour outside the palette loads as none rather than drawn.
+                Colour = MarkPalette.Normalize(row.Colour),
             };
         }
         catch (ArgumentException)
@@ -483,7 +487,8 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         mark.Scope,
         mark.Lifetime,
         mark.Route?.RouteId,
-        mark.Route?.Step);
+        mark.Route?.Step,
+        mark.Colour);
 
     public void Dispose()
     {
@@ -514,5 +519,6 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         RaidMarkScope? Scope = null,
         RaidMarkLifetime? Lifetime = null,
         Guid? RouteId = null,
-        int? RouteStep = null);
+        int? RouteStep = null,
+        string? Colour = null);
 }

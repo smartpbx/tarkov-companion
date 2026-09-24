@@ -42,6 +42,9 @@ internal readonly record struct MarkReconciliationAction(
 
     /// <summary>#290: the tablet route this waypoint is a stop on.</summary>
     public RaidMarkRoute? Route { get; init; }
+
+    /// <summary>#290: the palette colour the tablet chose, or null for the kind's own.</summary>
+    public string? Colour { get; init; }
 }
 
 /// <summary>
@@ -1315,7 +1318,8 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
                         action.Scope,
                         action.Lifetime,
                         cancellationToken,
-                        action.Route)
+                        action.Route,
+                        action.Colour)
                     .ConfigureAwait(false);
                 lock (_gate)
                 {
@@ -1413,6 +1417,9 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
                     Scope = upsert.Mark.Scope == MapMarkScope.Private ? RaidMarkScope.Private : RaidMarkScope.Squad,
                     Lifetime = LocalLifetime(upsert.Mark, upsert.IssuedUtc),
                     Route = upsert.Mark.RouteId is { } routeId && upsert.Mark.RouteStep is { } step ? new RaidMarkRoute(routeId, step) : null,
+                    // #290: every tablet sends a colour, and only a palette one was chosen; the
+                    // fixed ping/waypoint colours older pages send mean "the kind's own".
+                    Colour = TarkovCompanion.Core.Common.MarkPalette.Normalize(upsert.Mark.Color),
                 };
 
             case DeleteMarkCommand delete:

@@ -378,6 +378,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         }
 
         _shell.ShowFleaScan(viewModel);
+        FleaScanShown?.Invoke(viewModel);
         Push();
     }
 
@@ -791,6 +792,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
     /// <summary>#572: a Loot Scan result was handed to the shell; the paired tablet shows it too.</summary>
     public event Action<LootScanViewModel>? LootScanShown;
+
+    /// <summary>#290: a flea screen was read and handed to Intel &gt; Flea; the paired tablet shows it too.</summary>
+    public event Action<TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel>? FleaScanShown;
 
     private Func<string, Task>? WikiAction() =>
         _itemIntel is not null && _wikiOpener is not null ? OpenWikiAsync : null;

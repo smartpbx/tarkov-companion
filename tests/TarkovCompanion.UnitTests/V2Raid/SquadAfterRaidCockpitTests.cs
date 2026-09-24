@@ -344,7 +344,7 @@ public sealed class SquadAfterRaidCockpitTests
 
         public Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default, RaidMarkRoute? route = null)
+        public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default, RaidMarkRoute? route = null, string? colour = null)
         {
             var mark = new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, now)), now) { Scope = scope, Lifetime = lifetime, Route = route };
             _marks.Add(mark);
