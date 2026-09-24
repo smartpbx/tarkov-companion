@@ -95,7 +95,11 @@ public sealed record RaidExportRecord(
     RaidHistoryEntry Raid,
     RaidFactSources Sources,
     IReadOnlyList<RaidScanFact> Scans,
-    RaidManualMetadata? Manual = null);
+    RaidManualMetadata? Manual = null)
+{
+    /// <summary>[#269] The wipe label the raid was played in, or null when it cannot be placed.</summary>
+    public string? Wipe { get; init; }
+}
 
 /// <summary>
 /// Writes raid history as CSV or JSON with the source of every fact beside it.
@@ -126,12 +130,17 @@ public sealed record RaidExportRecord(
 /// <c>bossKills</c>/<c>valueRoubles</c> on the raid plus their sources on <c>sources</c> in JSON.
 /// Every version 2 column and field keeps its name and position; nothing moved.
 /// </para>
+/// <para>
+/// Version 4 (#269) adds <c>wipe</c>, the profile's wipe label when the raid started, as the last
+/// CSV column and a <c>wipe</c> field in JSON, empty or null where it cannot be placed. With
+/// <c>mode</c> it says which game each raid belongs to, so a file mixing contexts is readable as one.
+/// </para>
 /// </remarks>
 public static class RaidHistoryExport
 {
     // Version 3 adds the manual kills and carried-value fields and their source columns; version
     // 2's columns, including its own additions over version 1, keep their names and positions.
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     // The file is opened in a spreadsheet by the player, so times are their own clock in a shape a
     // spreadsheet reads as a date-time (an ISO string with an offset arrives as text), and the
@@ -144,6 +153,7 @@ public static class RaidHistoryExport
         "scans", "scans_recognised",
         "pmc_kills", "scav_kills", "boss_kills", "value_roubles",
         "pmc_kills_source", "scav_kills_source", "boss_kills_source", "value_roubles_source",
+        "wipe",
     ];
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -193,6 +203,7 @@ public static class RaidHistoryExport
                 Escape(manual?.ScavKills is null ? null : manualSource),
                 Escape(manual?.BossKills is null ? null : manualSource),
                 Escape(manual?.ValueRoubles is null ? null : manualSource),
+                Escape(record.Wipe),
             });
             await writer.WriteLineAsync(row.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
@@ -224,6 +235,7 @@ public static class RaidHistoryExport
             record.Raid.ProfileId,
             record.Raid.MapId,
             record.Raid.Mode,
+            record.Wipe,
             // Local for the person who opens it, with the numeric offset so a program reads the
             // same instant back — the keys drop "Utc" because the values are no longer written at
             // offset zero (docs/DEBRIEF_EXPORT.md).
@@ -269,6 +281,7 @@ public static class RaidHistoryExport
         Guid ProfileId,
         string? MapId,
         string Mode,
+        string? Wipe,
         string? Started,
         string? Ended,
         string? Outcome,

@@ -210,13 +210,16 @@ public sealed class ProfileContextService : IDisposable
                 return snapshot;
             }
 
+            // [#269] A raid row has no wipe of its own; when the label changes is what places a
+            // raid in the old wipe or the new one (ProfileWipeHistory).
+            var now = UtcNow();
             var replacement = new ProfileRecord(
                 new ProfileContext(profile.Context.Identity, mode, wipeSeason, profile.Context.Locale, profile.Context.DataSnapshot),
                 profile.Name,
                 profile.Progress,
                 profile.Lifecycle,
-                UtcNow(),
-                profile.ExtensionJson);
+                now,
+                ProfileWipeHistory.Record(profile.ExtensionJson, profile.Context.WipeSeason.Value, wipeSeason.Value, now));
             return new ProfileWorkspaceSnapshot(
                 checked(snapshot.Revision + 1),
                 snapshot.ActiveProfileId,

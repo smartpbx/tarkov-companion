@@ -14,6 +14,7 @@ using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Profiles;
 
 namespace TarkovCompanion.App.ViewModels.V2.Debrief;
 
@@ -39,6 +40,11 @@ public sealed record DebriefRaidRowViewModel(
     public string TagsLabel { get; init; } = string.Empty;
 
     public bool HasTags => TagsLabel.Length > 0;
+
+    /// <summary>[#269] The wipe the raid was played in, under its mode; empty where it cannot be placed.</summary>
+    public string WipeLabel { get; init; } = string.Empty;
+
+    public bool HasWipe => WipeLabel.Length > 0;
 }
 
 /// <summary>One fact about the selected raid, with the kind of evidence behind it.</summary>
@@ -241,6 +247,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         public string? UsedExtract { get; init; }
 
         public bool IsArchived { get; init; }
+
+        /// <summary>[#269] How the raid stands against the active profile's mode and wipe.</summary>
+        public RaidContextMatch Match { get; init; }
+
+        public string? Wipe { get; init; }
     }
 
     public DebriefWorkspaceViewModel(
@@ -252,9 +263,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         IPlayerProfileService? profileService = null,
         QuestTrackingOptions? questOptions = null,
         IWorkspaceLayoutStore? layoutStore = null,
-        ILootScanHistoryStore? lootScans = null)
+        ILootScanHistoryStore? lootScans = null,
+        IRaidContextSource? raidContext = null)
     {
         _lootScans = lootScans;
+        _raidContext = raidContext;
         _raidHistoryService = raidHistoryService ?? throw new ArgumentNullException(nameof(raidHistoryService));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _clock = clock ?? TimeProvider.System;
@@ -295,7 +308,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     /// <summary>Distinguishes an empty history from a filter that matched nothing in it.</summary>
     public string NoRaidsMessage => _showArchived
         ? "No archived raids."
-        : _allRecords.Count == 0
+        : !ContextRecords.Any()
             ? "No raids recorded yet."
             : "No raids match these filters.";
 
@@ -834,8 +847,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             // #453's rule: reading and projecting hundreds of raids — a corrections query and a
             // state-events query each — belongs on the pool, not the dispatcher. Filtering and the
             // per-map stats that follow are then pure in-memory work over the result.
-            _allRecords = await OffInterfaceThread.Run(
-                () => BuildRecordsAsync(raids, cancellationToken), cancellationToken).ConfigureAwait(true);
+            _allRecords = StampContext(await OffInterfaceThread.Run(
+                () => BuildRecordsAsync(raids, cancellationToken), cancellationToken).ConfigureAwait(true));
             RebuildMapFilterOptions();
             RebuildTagFilterOptions();
             ApplyFilters();
@@ -934,9 +947,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     private void ApplyFilters()
     {
         // An archived raid is out of the list and every total; the archive view lists only those.
-        var filtered = _allRecords.Where(record => record.IsArchived == _showArchived).Where(MatchesFilters).ToArray();
+        // [#269] ...and a raid from another mode or wipe is out of both until "Show all" is on.
+        var inContext = ContextRecords.ToArray();
+        var filtered = inContext.Where(record => record.IsArchived == _showArchived).Where(MatchesFilters).ToArray();
         var active = _showArchived
-            ? _allRecords.Where(record => !record.IsArchived).Where(MatchesFilters).ToArray()
+            ? inContext.Where(record => !record.IsArchived).Where(MatchesFilters).ToArray()
             : filtered;
         var rows = new List<DebriefRaidRowViewModel>(filtered.Length);
         foreach (var record in filtered)
@@ -955,15 +970,16 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                 IsSelected = _selected?.Id == raid.Id,
                 OutcomeKindLabel = record.Sources.Outcome.Label(),
                 TagsLabel = string.Join(" · ", record.Tags),
+                WipeLabel = record.Wipe ?? string.Empty,
             });
         }
 
         Raids = rows;
         MapStats = BuildMapStats(active);
         RebuildCoverage(active);
-        Status = _showArchived
+        Status = (_showArchived
             ? CountLabel(filtered.Length, "archived raid")
-            : BuildStatusLabel(filtered.Length, _allRecords.Count(record => !record.IsArchived));
+            : BuildStatusLabel(filtered.Length, inContext.Count(record => !record.IsArchived))) + ContextSuffix;
         RaiseAll();
     }
 
@@ -1331,6 +1347,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         var facts = new List<DebriefFactRowViewModel>
         {
             new("Mode", SelectedModeLabel, _selectedSources.Mode.Label()),
+            new("Wipe", SelectedWipeLabel, SelectedRecord?.Wipe is null ? string.Empty : RaidFactKind.Inferred.Label()),
             new("Started", SelectedStartedLabel, _selectedSources.Started.Label()),
             new("Ended", SelectedEndedLabel, _selectedSources.Ended.Label()),
             new("Duration", SelectedDurationLabel, _selectedSources.Duration.Label()),

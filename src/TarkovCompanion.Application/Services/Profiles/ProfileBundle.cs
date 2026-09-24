@@ -69,7 +69,9 @@ public sealed record ProfileBundleRaid(
     DateTimeOffset? EndedUtc,
     string? Outcome,
     string? Notes,
-    RaidManualMetadata? Manual);
+    RaidManualMetadata? Manual,
+    // [#269] The wipe label the raid was played in; null in older files and where it cannot be placed.
+    string? Wipe = null);
 
 /// <summary>A file this version cannot read because a newer version of the app wrote it.</summary>
 public sealed class ProfileBundleVersionException(int version)
@@ -247,7 +249,9 @@ public static class ProfileBundleChanges
             changes.Add(new("Quest pins", $"{current.Quests.Pins.Count}", $"{current.Quests.Pins.Count + pinsAdded}"));
         }
 
-        var raidsAdded = NewRaids(current.Raids, SameMode(incoming.Raids, incoming.Profile.Mode)).Count;
+        var sameMode = SameMode(incoming.Raids, incoming.Profile.Mode);
+        var sameWipe = SameWipe(sameMode, current.Profile.Wipe);
+        var raidsAdded = NewRaids(current.Raids, sameWipe).Count;
         if (raidsAdded > 0)
         {
             changes.Add(new("Raids", $"{current.Raids.Count}", $"{current.Raids.Count + raidsAdded}"));
@@ -255,10 +259,17 @@ public static class ProfileBundleChanges
 
         // [#269] A raid played in another mode is not this profile's history, whatever file it
         // arrived in. Said here, before the import, rather than dropped without a word.
-        var foreign = incoming.Raids.Count - SameMode(incoming.Raids, incoming.Profile.Mode).Count;
+        var foreign = incoming.Raids.Count - sameMode.Count;
         if (foreign > 0)
         {
             changes.Add(new("Raids from another mode", $"{foreign}", "not imported"));
+        }
+
+        // [#269] The same for a raid the file places in another wipe than the target's.
+        var otherWipe = sameMode.Count - sameWipe.Count;
+        if (otherWipe > 0)
+        {
+            changes.Add(new("Raids from another wipe", $"{otherWipe}", "not imported"));
         }
 
         return changes;
@@ -285,13 +296,14 @@ public static class ProfileBundleChanges
         [.. raids.Where(raid => RaidMode(raid.Mode) is not { } played || played == mode)];
 
     /// <summary>A raid's recorded mode as a profile mode, or null when it cannot be read.</summary>
-    public static ProfileGameMode? RaidMode(string? mode) => mode?.Trim().ToLowerInvariant() switch
-    {
-        "regular" or "pvp" => ProfileGameMode.Pvp,
-        "pve" => ProfileGameMode.Pve,
-        "pvpseason" or "seasonal" => ProfileGameMode.Seasonal,
-        _ => null,
-    };
+    public static ProfileGameMode? RaidMode(string? mode) => RaidContextRules.ModeOf(mode);
+
+    /// <summary>
+    /// [#269] The raids the file places in <paramref name="wipe"/>. A raid with no wipe (an older
+    /// file, or one that could not be placed) is kept: unknown is not evidence of another wipe.
+    /// </summary>
+    public static IReadOnlyList<ProfileBundleRaid> SameWipe(IReadOnlyList<ProfileBundleRaid> raids, string wipe) =>
+        [.. raids.Where(raid => string.IsNullOrWhiteSpace(raid.Wipe) || string.Equals(raid.Wipe, wipe, StringComparison.Ordinal))];
 
     private static (string, DateTimeOffset?) Key(ProfileBundleRaid raid) => (raid.MapId ?? string.Empty, raid.StartedUtc?.ToUniversalTime());
 

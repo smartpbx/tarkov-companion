@@ -25,7 +25,7 @@ public sealed class RaidHistoryExportTests
         Assert.Equal(
             "id,profile_id,map_id,mode,start_local,end_local,outcome,notes,schema_version,map_source,mode_source,"
                 + "start_source,end_source,outcome_source,notes_source,scans,scans_recognised,pmc_kills,scav_kills,"
-                + "boss_kills,value_roubles,pmc_kills_source,scav_kills_source,boss_kills_source,value_roubles_source",
+                + "boss_kills,value_roubles,pmc_kills_source,scav_kills_source,boss_kills_source,value_roubles_source,wipe",
             lines[0].TrimEnd('\r'));
         Assert.Equal(RaidHistoryExport.CsvColumns, lines[0].TrimEnd('\r').Split(','));
         Assert.StartsWith("id,profile_id,map_id,mode,start_local,end_local,outcome,notes,", lines[0], StringComparison.Ordinal);
@@ -40,7 +40,7 @@ public sealed class RaidHistoryExportTests
         var header = RaidHistoryExport.CsvColumns.ToList();
         string Cell(string column) => row[header.IndexOf(column)];
 
-        Assert.Equal("3", Cell("schema_version"));
+        Assert.Equal("4", Cell("schema_version"));
         Assert.Equal("customs", Cell("map_id"));
         Assert.Equal("observed", Cell("map_source"));
         Assert.Equal("inferred", Cell("mode_source"));
@@ -130,7 +130,7 @@ public sealed class RaidHistoryExportTests
 
         using var document = JsonDocument.Parse(stream.ToArray());
         var root = document.RootElement;
-        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(exported, root.GetProperty("exportedUtc").GetDateTimeOffset());
         var raid = Assert.Single(root.GetProperty("raids").EnumerateArray());
         Assert.Equal("customs", raid.GetProperty("mapId").GetString());
