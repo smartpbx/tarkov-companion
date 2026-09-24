@@ -310,6 +310,8 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private async Task RunAsync(CancellationToken cancellationToken)
     {
+        // Whether the last exchange was a hold cut short by a local change, and so never answered.
+        var cutShort = false;
         while (!cancellationToken.IsCancellationRequested)
         {
             // The rate bound, and the only wait this loop takes that nothing can cut short.
@@ -335,14 +337,29 @@ public sealed class GroupSessionService : IAsyncDisposable
             using var cycle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             Volatile.Write(ref _holding, cycle);
             var onATick = true;
+            var held = false;
             try
             {
                 // Read after the interrupt is armed, so a change landing in between is still
                 // caught: either it cancels this source, or it is seen here.
-                var hold = Interlocked.Read(ref _localChanges) == generation && Interlocked.Exchange(ref _roomWanted, 0) == 0
+                //
+                // The exchange after a hold that was cut short is not held, and a local change
+                // does not cut it short: it waits on nothing and comes back in a round trip.
+                // Every change used to end whatever exchange was in flight, so while positions
+                // kept arriving faster than the relay answered, no answer was ever read. A relay
+                // refusing every request was then never seen to fail, the back-off never ran, and
+                // it was asked again at the rate bound for as long as the player moved. The
+                // change still ends the tick after it, through the cycle, so the next exchange
+                // goes as soon as this one is back.
+                var hold = Interlocked.Read(ref _localChanges) == generation
+                    && Interlocked.Exchange(ref _roomWanted, 0) == 0
+                    && !cutShort
                     ? HoldFor
                     : TimeSpan.Zero;
-                using (var exchange = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token))
+                held = hold > TimeSpan.Zero;
+                cutShort = false;
+                using (var exchange = CancellationTokenSource.CreateLinkedTokenSource(
+                           held ? cycle.Token : cancellationToken))
                 {
                     exchange.CancelAfter(ExchangeTimeout + hold);
                     _lastExchangeStarted = _clock.GetTimestamp();
@@ -360,11 +377,12 @@ public sealed class GroupSessionService : IAsyncDisposable
             // that made adding a timeout worse than not having one.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                if (exception is OperationCanceledException && Interlocked.Read(ref _localChanges) != generation)
+                if (held && exception is OperationCanceledException && Interlocked.Read(ref _localChanges) != generation)
                 {
                     // A hold this loop cut short on purpose is not a failure and must not be
                     // reported as one: the group is about to be told something newer.
                     Volatile.Write(ref _holding, null);
+                    cutShort = true;
                     continue;
                 }
 
