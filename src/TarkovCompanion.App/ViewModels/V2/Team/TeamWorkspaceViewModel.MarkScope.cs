@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -18,7 +19,7 @@ public sealed partial class TeamWorkspaceViewModel
     /// <summary>"TTL · 4m 12s left" for one of our own sent marks; null for anybody else's.</summary>
     private string? OwnMarkTtl(long groupId, DateTimeOffset now) =>
         _raidCockpit?.LocalMarkForGroupId(groupId) is { } mark
-            ? $"TTL · {RaidMarkLifetimes.TimeLeft(mark, now)}"
+            ? TeamText.Ttl(RaidMarkLifetimes.TimeLeft(mark, now))
             : null;
 
     private IEnumerable<TeamMarkRowViewModel> PrivateMarkRows(DateTimeOffset now)
@@ -31,18 +32,18 @@ public sealed partial class TeamWorkspaceViewModel
         foreach (var mark in cockpit.PrivateMarks.OrderBy(mark => mark.CreatedUtc))
         {
             var isPing = mark.Kind == RaidMarkKind.Ping;
-            var kind = isPing ? "Ping" : "Waypoint";
-            var age = $"{GroupSessionService.Ago(now - mark.CreatedUtc)} ago";
+            var kind = isPing ? TeamText.Ping : TeamText.Waypoint;
+            var age = TeamText.Ago(GroupSessionService.Ago(now - mark.CreatedUtc));
             var timeLeft = RaidMarkLifetimes.TimeLeft(mark, now);
             var id = mark.Id;
-            yield return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, "marked by you", age, isPing ? timeLeft : null, false)
+            yield return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, TeamText.MarkedByYou, age, isPing ? timeLeft : null, false)
             {
                 RemoveCommand = new AsyncDelegateCommand(() => cockpit.RemoveLocalMarkAsync(id)),
                 // Not numbered: the map numbers the squad's waypoints, and this one is not the squad's.
                 Number = isPing ? null : "·",
                 Title = mark.State.Label ?? kind,
                 Detail = JoinDetail(MapLabel(mark.State.MapId), age),
-                MetadataLabel = JoinDetail("Scope · just me", $"TTL · {timeLeft}"),
+                MetadataLabel = JoinDetail(TeamText.ScopeJustMe, TeamText.Ttl(timeLeft)),
             };
         }
     }
@@ -71,16 +72,16 @@ public sealed partial class TeamWorkspaceViewModel
     {
         ArgumentNullException.ThrowIfNull(mark);
         var isPing = mark.Kind == RaidMarkKind.Ping;
-        var kind = isPing ? "Ping" : "Waypoint";
-        var age = $"{GroupSessionService.Ago(now - mark.CreatedUtc)} ago";
+        var kind = isPing ? TeamText.Ping : TeamText.Waypoint;
+        var age = TeamText.Ago(GroupSessionService.Ago(now - mark.CreatedUtc));
         var timeLeft = RaidMarkLifetimes.TimeLeft(mark, now);
-        return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, "marked by you", age, isPing ? timeLeft : null, false)
+        return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, TeamText.MarkedByYou, age, isPing ? timeLeft : null, false)
         {
             RemoveCommand = new AsyncDelegateCommand(remove),
             Number = isPing ? null : "·",
             Title = mark.State.Label ?? kind,
             Detail = JoinDetail(MapLabel(mark.State.MapId), age),
-            MetadataLabel = JoinDetail("Queued · sends on reconnect", $"TTL · {timeLeft}"),
+            MetadataLabel = JoinDetail(TeamText.QueuedSendsOnReconnect, TeamText.Ttl(timeLeft)),
             IsQueued = true,
         };
     }

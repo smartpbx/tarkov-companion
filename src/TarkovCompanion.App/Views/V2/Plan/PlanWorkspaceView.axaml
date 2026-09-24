@@ -4,7 +4,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
-             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
+             xmlns:l="using:TarkovCompanion.App.Localization">
   <UserControl.Styles>
     <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
          colour is a class of its own rather than an attribute on the text. -->
@@ -147,22 +148,22 @@
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
-              <TextBlock Classes="v2-heading-2" Text="Next raid" AutomationProperties.HeadingLevel="2"
+              <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.NextRaid}" AutomationProperties.HeadingLevel="2"
                          VerticalAlignment="Center" />
               <ToggleButton Grid.Column="1" Classes="v2-target v2-intel-chip v2-intel-chip-small"
-                            Content="Learn" IsChecked="{Binding LearnMode.IsEnabled}"
+                            Content="{x:Static l:PlanText.Learn}" IsChecked="{Binding LearnMode.IsEnabled}"
                             AutomationProperties.AutomationId="v2-plan-learn-mode"
-                            AutomationProperties.Name="Learn Mode" />
+                            AutomationProperties.Name="{x:Static l:PlanText.LearnMode}" />
               <!-- [V2 rough package 61 — plan export] #288/#315: the plan as text, on the
                    clipboard and in a file. Beside Refresh because both act on the whole board. -->
               <Button Grid.Column="2" Classes="v2-target v2-plan-link" VerticalAlignment="Center"
-                      Padding="8,2" Content="Export"
+                      Padding="8,2" Content="{x:Static l:PlanText.Export}"
                       AutomationProperties.AutomationId="v2-plan-export"
-                      AutomationProperties.Name="Export this plan as text"
-                      ToolTip.Tip="Copy the plan and save it" Command="{Binding ExportCommand}" />
+                      AutomationProperties.Name="{x:Static l:PlanText.ExportName}"
+                      ToolTip.Tip="{x:Static l:PlanText.ExportTip}" Command="{Binding ExportCommand}" />
               <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
-                      AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="Refresh"
-                      ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
+                      AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="{x:Static l:PlanText.Refresh}"
+                      ToolTip.Tip="{x:Static l:PlanText.Refresh}" Command="{Binding RefreshCommand}">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
               </Button>
             </Grid>
@@ -203,12 +204,12 @@
                 <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
                       Data="{DynamicResource V2.Icon.Search}" />
                 <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchText}"
-                         PlaceholderText="Search quests, objectives, maps"
+                         PlaceholderText="{x:Static l:PlanText.SearchPlaceholder}"
                          AutomationProperties.AutomationId="v2-plan-search"
-                         AutomationProperties.Name="Search quests" />
+                         AutomationProperties.Name="{x:Static l:PlanText.SearchQuests}" />
                 <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain" IsVisible="{Binding HasSearchText}"
                         AutomationProperties.AutomationId="v2-plan-search-clear"
-                        AutomationProperties.Name="Clear search" ToolTip.Tip="Clear search"
+                        AutomationProperties.Name="{x:Static l:PlanText.ClearSearch}" ToolTip.Tip="{x:Static l:PlanText.ClearSearch}"
                         Command="{Binding ClearSearchCommand}">
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
                 </Button>
@@ -229,7 +230,7 @@
             </ItemsControl>
             <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Traders}" SelectedItem="{Binding SelectedTrader}"
                       AutomationProperties.AutomationId="v2-plan-trader"
-                      AutomationProperties.Name="Trader">
+                      AutomationProperties.Name="{x:Static l:PlanText.Trader}">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:PlanTraderOption">
                   <TextBlock Text="{Binding Name}" />
@@ -239,7 +240,7 @@
             <!-- The level is typed here because the game never writes its own player's down, and
                  every level-gated quest is measured against it. Loyalty is set once a wipe. -->
             <Border Classes="v2-plan-disclosure">
-            <Expander Classes="v2-why" Header="Level and trader loyalty">
+            <Expander Classes="v2-why" Header="{x:Static l:PlanText.LevelAndLoyalty}">
               <Expander.Resources>
                 <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
                 <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="Transparent" />
@@ -252,11 +253,11 @@
               </Expander.Resources>
               <StackPanel Spacing="8" Margin="0,4,0,0">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                  <TextBlock Classes="v2-body" Text="Your level" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-body" Text="{x:Static l:PlanText.YourLevel}" VerticalAlignment="Center" />
                   <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="1" Maximum="79"
                                  Value="{Binding PlayerLevel, Mode=OneWay}" ValueChanged="LevelChanged"
                                  AutomationProperties.AutomationId="v2-plan-level"
-                                 AutomationProperties.Name="Your level" />
+                                 AutomationProperties.Name="{x:Static l:PlanText.YourLevel}" />
                 </Grid>
                 <ItemsControl ItemsSource="{Binding TraderLoyalty}" IsVisible="{Binding HasTraderLoyalty}">
                   <ItemsControl.ItemTemplate>
@@ -276,7 +277,7 @@
             </Border>
 
             <Rectangle Height="1" Fill="{DynamicResource V2.Brush.Divider}" Margin="0,4" />
-            <TextBlock Classes="v2-heading-3" Text="By map" AutomationProperties.HeadingLevel="2"
+            <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.ByMap}" AutomationProperties.HeadingLevel="2"
                        IsVisible="{Binding HasGroups}" />
             <ItemsControl ItemsSource="{Binding VisibleGroups}" IsVisible="{Binding HasGroups}">
               <ItemsControl.ItemsPanel>
@@ -297,7 +298,7 @@
                                    IsVisible="{Binding HasAvailabilityLabel}"
                                    Foreground="{DynamicResource V2.Brush.Warning}" />
                         <!-- #288: the map where one raid moves the most quests along. -->
-                        <TextBlock Classes="v2-label" Text="Suggested next raid" IsVisible="{Binding IsSuggested}"
+                        <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.SuggestedNextRaid}" IsVisible="{Binding IsSuggested}"
                                    Foreground="{DynamicResource V2.Brush.Action}"
                                    AutomationProperties.AutomationId="v2-plan-suggested-raid" />
                       </StackPanel>
@@ -315,15 +316,15 @@
 
             <Button Classes="v2-target v2-plan-bundle" Command="{Binding OpenHideoutCommand}"
                     AutomationProperties.AutomationId="v2-plan-open-hideout"
-                    AutomationProperties.Name="Hideout">
+                    AutomationProperties.Name="{x:Static l:PlanText.CardHideout}">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                 <Border Classes="v2-plan-tile">
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.House}"
                         HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
-                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="Hideout" />
-                  <TextBlock Classes="v2-label" Text="Stations and upgrade items" />
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{x:Static l:PlanText.CardHideout}" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.CardHideoutDetail}" />
                 </StackPanel>
                 <Path Grid.Column="2" Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.ChevronRight}"
                       VerticalAlignment="Center" />
@@ -339,7 +340,7 @@
       <Grid>
         <TextBlock Classes="v2-body" IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" TextAlignment="Center"
                    HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Opacity="0.8"
-                   Text="Nothing planned yet. Active quest objectives appear here, grouped by map." />
+                   Text="{x:Static l:PlanText.NothingPlanned}" />
         <TextBlock Classes="v2-body" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.8"
                    HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
                    IsVisible="{Binding MapNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -358,7 +359,7 @@
     <Border x:Name="PlanPanel" Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" Width="440" Classes="v2-plan-panel">
       <Panel>
         <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasPresentedSelectedGroup}" TextWrapping="Wrap"
-                   Text="Pick a map to see its objectives." />
+                   Text="{x:Static l:PlanText.PickAMap}" />
         <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
              would resolve IsVisible against SelectedGroup. -->
         <Panel IsVisible="{Binding HasPresentedSelectedGroup}">
@@ -417,7 +418,7 @@
                             </TextBlock>
                             <WrapPanel ItemSpacing="8" LineSpacing="4">
                               <Border Classes="v2-plan-chip" ToolTip.Tip="{Binding StateDetail}"
-                                      AutomationProperties.Name="Quest state">
+                                      AutomationProperties.Name="{x:Static l:PlanText.QuestState}">
                                 <TextBlock Classes="v2-label" Text="{Binding StateLabel}" />
                               </Border>
                               <!-- [#780] A squadmate has this quest active too. -->
@@ -429,22 +430,22 @@
                                          IsVisible="{Binding HasMetadataLabel}" VerticalAlignment="Center" />
                               <!-- [Package 35] The quest's wiki page, where the quest is: a link out that opens the
                                    player's browser. Nothing of the page is fetched or shown here. -->
-                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="Wiki" Padding="6,0"
+                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="{x:Static l:PlanText.Wiki}" Padding="6,0"
                                       Command="{Binding OpenWikiCommand}" IsVisible="{Binding HasWikiLink}"
                                       ToolTip.Tip="{Binding WikiAttribution}"
                                       AutomationProperties.AutomationId="v2-plan-objective-wiki"
-                                      AutomationProperties.Name="Open this quest's page on the wiki" />
+                                      AutomationProperties.Name="{x:Static l:PlanText.WikiName}" />
                               <!-- [#802] Marks the quest active and pins it, so the Raid map draws it. -->
-                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="On it" Padding="6,0"
+                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="{x:Static l:PlanText.OnIt}" Padding="6,0"
                                       Command="{Binding OnItCommand}" IsVisible="{Binding CanPutOnIt}"
-                                      ToolTip.Tip="Mark active and show on the Raid map"
+                                      ToolTip.Tip="{x:Static l:PlanText.OnItTip}"
                                       AutomationProperties.AutomationId="v2-plan-objective-on-it"
-                                      AutomationProperties.Name="I'm on this quest" />
-                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="Show in Raid" Padding="6,0"
+                                      AutomationProperties.Name="{x:Static l:PlanText.OnItName}" />
+                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="{x:Static l:PlanText.ShowInRaid}" Padding="6,0"
                                       Command="{Binding ShowInRaidCommand}" IsVisible="{Binding CanShowInRaid}"
-                                      ToolTip.Tip="Open the Raid map on this objective"
+                                      ToolTip.Tip="{x:Static l:PlanText.ShowInRaidTip}"
                                       AutomationProperties.AutomationId="v2-plan-objective-show-in-raid"
-                                      AutomationProperties.Name="Show this objective in Raid" />
+                                      AutomationProperties.Name="{x:Static l:PlanText.ShowInRaidName}" />
                             </WrapPanel>
                             <TextBlock Classes="v2-label" IsVisible="{Binding HasRouteReason}" TextWrapping="Wrap">
                               <Run Text="{Binding RouteDistanceLabel}" />
@@ -458,11 +459,11 @@
                         </Border>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,2,0,0">
                           <Button Classes="v2-target v2-icon-btn v2-plan-link" Command="{Binding MarkObjectiveDoneCommand}"
-                                  AutomationProperties.Name="Mark objective done" ToolTip.Tip="Mark objective done">
+                                  AutomationProperties.Name="{x:Static l:PlanText.MarkObjectiveDone}" ToolTip.Tip="{x:Static l:PlanText.MarkObjectiveDone}">
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Tick}" />
                           </Button>
-                          <Button Classes="v2-target v2-icon-btn v2-plan-link" AutomationProperties.Name="More actions"
-                                  ToolTip.Tip="More actions" Click="ObjectiveActionsClicked">
+                          <Button Classes="v2-target v2-icon-btn v2-plan-link" AutomationProperties.Name="{x:Static l:PlanText.MoreActions}"
+                                  ToolTip.Tip="{x:Static l:PlanText.MoreActions}" Click="ObjectiveActionsClicked">
                             <Path Classes="v2-icon v2-icon-muted" StrokeThickness="3" Data="{DynamicResource V2.Icon.More}" />
                           </Button>
                         </StackPanel>
@@ -485,7 +486,7 @@
                   AutomationProperties.AutomationId="v2-plan-requirements">
             <Grid RowDefinitions="Auto,*,Auto">
               <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-                <TextBlock Classes="v2-heading-3" Text="Requirements" AutomationProperties.HeadingLevel="2" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.Requirements}" AutomationProperties.HeadingLevel="2" />
                 <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding RequirementsSummary}"
                            Classes.v2-intel-good="{Binding RequirementsReady}" />
               </Grid>
@@ -536,12 +537,12 @@
             <Button Classes="v2-target v2-plan-primary" Command="{Binding OpenInRaidCommand}"
                     IsVisible="{Binding CanOpenInRaid}"
                     AutomationProperties.AutomationId="v2-plan-open-in-raid"
-                    AutomationProperties.Name="Open in Raid">
+                    AutomationProperties.Name="{x:Static l:PlanText.OpenInRaid}">
               <StackPanel Orientation="Horizontal" Spacing="12">
                 <Viewbox Width="20" Height="20">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Play}" />
                 </Viewbox>
-                <TextBlock Text="Open in Raid" VerticalAlignment="Center" />
+                <TextBlock Text="{x:Static l:PlanText.OpenInRaid}" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
           </StackPanel>

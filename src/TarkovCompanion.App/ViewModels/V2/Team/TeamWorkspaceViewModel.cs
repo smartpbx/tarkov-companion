@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -43,9 +44,9 @@ public sealed record TeamPresenceRowViewModel(string Name, string SinceLabel, Te
 {
     public string StateLabel => State switch
     {
-        TeamPresenceState.Live => "Live",
-        TeamPresenceState.Stale => "Stale",
-        _ => "Offline",
+        TeamPresenceState.Live => TeamText.Live,
+        TeamPresenceState.Stale => TeamText.Stale,
+        _ => TeamText.Offline,
     };
 
     /// <summary>Where they are and what they are doing, e.g. "Customs · In raid"; empty when neither is known.</summary>
@@ -71,7 +72,7 @@ public sealed record TeamPresenceRowViewModel(string Name, string SinceLabel, Te
 /// <summary>A quest somebody in the group shared, and how many of them are on it.</summary>
 public sealed record TeamQuestRowViewModel(string Name, int Members)
 {
-    public string CountLabel => Members == 1 ? "1 member" : $"{Members} members";
+    public string CountLabel => TeamText.MemberCount(Members);
 }
 
 /// <summary>One of the group's marks — a waypoint or a ping — with who, when, and (for a ping) how long it has left.</summary>
@@ -146,10 +147,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     private GroupSnapshot _group = GroupSnapshot.Off;
     private MapSceneRendererViewModel? _mapPreview;
     private string? _mapPreviewSignature;
-    private string _mapNote = "Loading map…";
+    private string _mapNote = TeamText.LoadingMap;
     private TeamWorkspaceSection _activeSection = TeamWorkspaceSection.Overview;
     private bool _confirmingLeave;
-    private string _status = "Loading group settings…";
+    private string _status = TeamText.LoadingSettings;
     private bool _isEnabled;
     private string _serverUri = string.Empty;
     private string _displayName = string.Empty;
@@ -285,7 +286,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             Key = stored.Key ?? string.Empty;
             SharesLoadout = stored.SharesLoadout;
             SharesQuests = stored.SharesQuests;
-            Status = stored.IsEnabled ? "Saved" : "Not sharing";
+            Status = stored.IsEnabled ? TeamText.Saved : TeamText.NotSharing;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -294,7 +295,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             // out through the command's async void and be handled by the window instead of by the
             // pane the player is looking at.
             CrashLog.Write("workspace-fault/team", $"load: {exception}");
-            Status = "Sharing settings couldn't be read. Try Reload, or set them again below.";
+            Status = TeamText.SettingsUnreadable;
         }
     }
 
@@ -350,7 +351,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
     public bool HasMyProfile => MyProfile.Length > 0;
 
-    public string LeaveLabel => _confirmingLeave ? "Confirm leave" : "Leave group";
+    public string LeaveLabel => _confirmingLeave ? TeamText.ConfirmLeave : TeamText.LeaveGroup;
 
     public ICommand SaveCommand { get; }
 
@@ -365,10 +366,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         _confirmingLeave = false;
         OnPropertyChanged(nameof(LeaveLabel));
         Status = !settings.IsEnabled
-            ? "Saved · sharing is off"
+            ? TeamText.SavedSharingOff
             : settings.MissingPiece is { } missing
-                ? $"Saved · still needs {missing}"
-                : "Saved · sharing starts in a few seconds";
+                ? TeamText.SavedStillNeeds(missing)
+                : TeamText.SavedSharingStarts;
     }
 
     /// <summary>Leaves the group on the second press, so a stray click cannot end sharing by accident.</summary>
@@ -378,7 +379,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         {
             _confirmingLeave = true;
             OnPropertyChanged(nameof(LeaveLabel));
-            Status = "Press “Confirm leave” to stop sharing.";
+            Status = TeamText.PressConfirmLeave;
             return;
         }
 
@@ -388,7 +389,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
     private static string? Trimmed(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    public string ConnectionHealth { get; private set; } = "Not in a group";
+    public string ConnectionHealth { get; private set; } = TeamText.NotInAGroup;
 
     public bool IsConnected { get; private set; }
 
@@ -418,13 +419,13 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
     /// <summary>"4 waypoints · 1 ping", for the collapsed marks section's header.</summary>
     public string MarksSummary => Marks.Count == 0
-        ? "None yet"
+        ? TeamText.MarksNoneYet
         : string.Join(" · ", new[]
         {
-            Waypoints.Count switch { 0 => string.Empty, 1 => "1 waypoint", var count => $"{count} waypoints" },
-            Pings.Count switch { 0 => string.Empty, 1 => "1 ping", var count => $"{count} pings" },
+            Waypoints.Count switch { 0 => string.Empty, var count => TeamText.WaypointCount(count) },
+            Pings.Count switch { 0 => string.Empty, var count => TeamText.PingCount(count) },
             // #289: said in the header too, so a collapsed list still admits it.
-            Marks.Count(mark => mark.IsQueued) switch { 0 => string.Empty, var count => $"{count} queued" },
+            Marks.Count(mark => mark.IsQueued) switch { 0 => string.Empty, var count => TeamText.QueuedCount(count) },
         }.Where(part => part.Length > 0));
 
     /// <summary>The centre map: the Raid workspace's current map carrying only the group's marks.</summary>
@@ -479,7 +480,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         {
             MapPreview = null;
             _mapPreviewSignature = null;
-            MapNote = _raidCockpit is null ? "The map isn't available." : "Pick a map in the top bar to see the shared plan.";
+            MapNote = _raidCockpit is null ? TeamText.MapUnavailable : TeamText.PickAMap;
             return;
         }
 
@@ -503,7 +504,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             MapPreview);
         _mapPreviewSignature = preview is null ? null : signature;
         MapPreview = preview;
-        MapNote = preview is null ? "This map has no 2D plan yet." : string.Empty;
+        MapNote = preview is null ? TeamText.NoPlanForMap : string.Empty;
     }
 
     private void MapPreviewViewChangeRequested(MapSceneViewChange change)
@@ -576,14 +577,14 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             }
 
             route.Add(point);
-            var name = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {number}" : waypoint.Label!;
+            var name = string.IsNullOrWhiteSpace(waypoint.Label) ? TeamText.WaypointNumbered(number) : waypoint.Label!;
             objects.Add(new MapSceneObject(
                 new($"{WaypointObjectPrefix}{waypoint.Id}"),
                 GroupMarksLayerId,
                 MapSceneObjectKind.Waypoint,
                 MapSceneTruthKind.UserAuthored,
                 number.ToString(CultureInfo.InvariantCulture),
-                waypoint.Reached is { Length: > 0 } ? $"{name} · reached by {waypoint.Reached}" : $"{name} · marked by {waypoint.By}",
+                waypoint.Reached is { Length: > 0 } ? TeamText.NameReachedBy(name, waypoint.Reached!) : TeamText.NameMarkedBy(name, waypoint.By),
                 MapSceneGeometry.At(point),
                 [],
                 new DataProvenance("group-relay", waypoint.CreatedUtc == DateTimeOffset.UnixEpoch ? nowUtc : waypoint.CreatedUtc)));
@@ -601,8 +602,8 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 GroupMarksLayerId,
                 MapSceneObjectKind.Ping,
                 MapSceneTruthKind.UserAuthored,
-                "Ping",
-                $"{ping.By} is pointing here",
+                TeamText.Ping,
+                TeamText.PointingHere(ping.By),
                 MapSceneGeometry.At(point),
                 [],
                 new DataProvenance("group-relay", ping.CreatedUtc)));
@@ -615,8 +616,8 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 GroupMarksLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.UserAuthored,
-                "Shared route",
-                "The group's waypoints, in order",
+                TeamText.SharedRoute,
+                TeamText.SharedRouteDetail,
                 new MapSceneGeometry(MapSceneGeometryKind.Line, route),
                 [],
                 new DataProvenance("group-relay", nowUtc)));
@@ -624,7 +625,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
         return objects.Count == 0
             ? (null, [])
-            : (new MapSceneLayer(GroupMarksLayerId, "Group marks", 40, true), objects);
+            : (new MapSceneLayer(GroupMarksLayerId, TeamText.GroupMarks, 40, true), objects);
     }
 
     /// <summary>The quests the other members shared, most-shared first.</summary>
@@ -633,7 +634,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     public bool HasTeamQuests => TeamQuests.Count > 0;
 
     /// <summary>"3 sharing", or empty when nobody else is.</summary>
-    public string MemberCountLabel => Presence.Count == 0 ? string.Empty : $"{Presence.Count} sharing";
+    public string MemberCountLabel => Presence.Count == 0 ? string.Empty : TeamText.SharingCount(Presence.Count);
 
     /// <summary>Rebuilds presence and marks from the runtime snapshot the shell already refreshes on.</summary>
     public void Apply(ApplicationRuntimeSnapshot snapshot)
@@ -643,10 +644,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         var now = _clock.GetUtcNow();
 
         ConnectionHealth = !group.IsSharing
-            ? "Not in a group"
+            ? TeamText.NotInAGroup
             : group.StaleSince is not null
-                ? "Reconnecting"
-                : "Connected";
+                ? TeamText.Reconnecting
+                : TeamText.Connected;
         ConnectionDetail = group.Detail;
         IsConnected = group.IsSharing && group.StaleSince is null;
         IsReconnecting = group.IsSharing && group.StaleSince is not null;
@@ -658,16 +659,14 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         Presence = group.Members
             .Select(member => new TeamPresenceRowViewModel(
                 member.Name,
-                member.Since is { } since ? $"{GroupSessionService.Ago(since)} ago" : "just now",
+                member.Since is { } since ? TeamText.Ago(GroupSessionService.Ago(since)) : TeamText.JustNow,
                 reconnecting ? TeamPresenceState.Offline
                     : member.HasGoneQuiet ? TeamPresenceState.Stale
                     : TeamPresenceState.Live)
             {
                 Detail = string.Join(" · ", new[] { MapLabel(member.MapId), RaidStateLabel(member.RaidState) }.Where(part => part.Length > 0)),
                 Position = member.Position is { } position
-                    ? string.Create(
-                        CultureInfo.CurrentCulture,
-                        $"{position.X:F0}, {position.Z:F0} · from a screenshot {GroupPageViewModel.Age(member.PositionAge)}")
+                    ? TeamText.PositionFromScreenshot(position.X, position.Z, GroupPageViewModel.Age(member.PositionAge))
                     : string.Empty,
                 // [#289] Their ready state, extract and note first: the squad's question before a raid.
                 Shared = JoinDetail([DescribeStatus(member), .. member.Loadout, .. member.Quests]),
@@ -677,8 +676,8 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         MyLoadout = group.MyLoadout.Count > 0
             ? string.Join(" · ", group.MyLoadout)
             : group.IsSharing
-                ? "Nobody in your party is running this yet."
-                : "Turn sharing on, and a squadmate running this can tell you.";
+                ? TeamText.NobodyRunning
+                : TeamText.TurnSharingOn;
         MyProfile = GroupPageViewModel.DescribeMe(group);
 
         TeamQuests = group.Members
@@ -701,14 +700,14 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 ? numbered.ToString(CultureInfo.CurrentCulture)
                 : waypoint.Label!;
             var age = waypoint.CreatedUtc == DateTimeOffset.UnixEpoch
-                ? "age unknown"
-                : $"{GroupSessionService.Ago(now - waypoint.CreatedUtc)} ago";
+                ? TeamText.AgeUnknown
+                : TeamText.Ago(GroupSessionService.Ago(now - waypoint.CreatedUtc));
             marks.Add(new(
                 waypoint.Id,
-                "Waypoint",
+                TeamText.Waypoint,
                 name,
                 waypoint.MapId,
-                reached ? $"marked by {waypoint.By} · reached by {waypoint.Reached}" : $"marked by {waypoint.By}",
+                reached ? TeamText.MarkedByReachedBy(waypoint.By, waypoint.Reached!) : TeamText.MarkedBy(waypoint.By),
                 age,
                 null,
                 reached)
@@ -717,14 +716,14 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                     waypoint.Id,
                     new RemovedMark(waypoint.MapId, new WorldPosition(waypoint.X, waypoint.Y, waypoint.Z), waypoint.Label, IsPing: false, name))),
                 Number = numbered.ToString(CultureInfo.CurrentCulture),
-                Title = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {numbered}" : waypoint.Label!,
+                Title = string.IsNullOrWhiteSpace(waypoint.Label) ? TeamText.WaypointNumbered(numbered) : waypoint.Label!,
                 Detail = JoinDetail(MapLabel(waypoint.MapId), age),
                 // #289: scope and time first, so a narrow panel trims the author rather than them.
                 MetadataLabel = JoinDetail(
-                    "Scope · squad",
-                    OwnMarkTtl(waypoint.Id, now) ?? "TTL · until removed",
-                    reached ? $"By · {waypoint.By} · reached by {waypoint.Reached}" : $"By · {waypoint.By}",
-                    reconnecting ? "Offline snapshot" : string.Empty),
+                    TeamText.ScopeSquad,
+                    OwnMarkTtl(waypoint.Id, now) ?? TeamText.TtlUntilRemoved,
+                    reached ? TeamText.ByReachedBy(waypoint.By, waypoint.Reached!) : TeamText.By(waypoint.By),
+                    reconnecting ? TeamText.OfflineSnapshot : string.Empty),
             });
         }
 
@@ -734,23 +733,23 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             var remaining = PingLifetime - elapsed;
             marks.Add(new(
                 ping.Id,
-                "Ping",
-                string.IsNullOrWhiteSpace(ping.Label) ? "Ping" : ping.Label!,
+                TeamText.Ping,
+                string.IsNullOrWhiteSpace(ping.Label) ? TeamText.Ping : ping.Label!,
                 ping.MapId,
-                $"pinged by {ping.By}",
-                $"{GroupSessionService.Ago(elapsed)} ago",
-                remaining > TimeSpan.Zero ? $"{GroupSessionService.Ago(remaining)} left" : "expiring",
+                TeamText.PingedBy(ping.By),
+                TeamText.Ago(GroupSessionService.Ago(elapsed)),
+                remaining > TimeSpan.Zero ? TeamText.TimeLeft(GroupSessionService.Ago(remaining)) : TeamText.Expiring,
                 false)
             {
                 RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(
                     ping.Id,
-                    new RemovedMark(ping.MapId, new WorldPosition(ping.X, ping.Y, ping.Z), ping.Label, IsPing: true, "Ping"))),
-                Detail = JoinDetail(MapLabel(ping.MapId), $"{GroupSessionService.Ago(elapsed)} ago"),
+                    new RemovedMark(ping.MapId, new WorldPosition(ping.X, ping.Y, ping.Z), ping.Label, IsPing: true, TeamText.Ping))),
+                Detail = JoinDetail(MapLabel(ping.MapId), TeamText.Ago(GroupSessionService.Ago(elapsed))),
                 MetadataLabel = JoinDetail(
-                    "Scope · squad",
-                    OwnMarkTtl(ping.Id, now) ?? $"TTL · {(remaining > TimeSpan.Zero ? $"{GroupSessionService.Ago(remaining)} left" : "expiring")}",
-                    $"By · {ping.By}",
-                    reconnecting ? "Offline snapshot" : string.Empty),
+                    TeamText.ScopeSquad,
+                    OwnMarkTtl(ping.Id, now) ?? TeamText.Ttl(remaining > TimeSpan.Zero ? TeamText.TimeLeft(GroupSessionService.Ago(remaining)) : TeamText.Expiring),
+                    TeamText.By(ping.By),
+                    reconnecting ? TeamText.OfflineSnapshot : string.Empty),
             });
         }
 
@@ -800,10 +799,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
     private static string RaidStateLabel(RaidLifecycleState state) => state switch
     {
-        RaidLifecycleState.InRaid => "In raid",
-        RaidLifecycleState.LoadingRaid => "Loading in",
-        RaidLifecycleState.PostRaid => "After raid",
-        RaidLifecycleState.Menu => "In menu",
+        RaidLifecycleState.InRaid => TeamText.InRaid,
+        RaidLifecycleState.LoadingRaid => TeamText.LoadingIn,
+        RaidLifecycleState.PostRaid => TeamText.AfterRaid,
+        RaidLifecycleState.Menu => TeamText.InMenu,
         _ => string.Empty,
     };
 
@@ -816,7 +815,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     public bool CanUndoRemove => _undoable is not null;
 
     /// <summary>What Undo would put back, named, so it is not a blind button.</summary>
-    public string UndoRemoveLabel => _undoable is { } mark ? $"Put {mark.Name} back" : string.Empty;
+    public string UndoRemoveLabel => _undoable is { } mark ? TeamText.PutBack(mark.Name) : string.Empty;
 
     /// <summary>Puts the last removed mark back.</summary>
     public ICommand UndoRemoveCommand => _undoRemoveCommand ??= new AsyncDelegateCommand(UndoRemoveAsync);
@@ -870,14 +869,13 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
     public string DevicesSummary => Devices.Count switch
     {
-        0 => "No paired devices",
-        1 => "1 paired device",
-        var count => $"{count} paired devices",
+        0 => TeamText.NoPairedDevices,
+        var count => TeamText.PairedDeviceCount(count),
     };
 
     public bool CanPairDevice => _pairing?.CanPair == true;
 
-    public string PairingUnavailableReason => _pairing?.UnavailableReason ?? "Pairing isn't available on this device.";
+    public string PairingUnavailableReason => _pairing?.UnavailableReason ?? TeamText.PairingUnavailableHere;
 
     /// <summary>Why "Pair a tablet" is disabled, as its tooltip; null while pairing is available.</summary>
     public string? PairTabletTooltip => CanPairDevice ? null : PairingUnavailableReason;

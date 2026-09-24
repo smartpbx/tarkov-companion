@@ -1,4 +1,5 @@
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -69,9 +70,9 @@ public sealed class EventsPageViewModel : PageViewModel
     /// </remarks>
     private int? _knownItemCount;
 
-    private const string EmptyGuidanceText = "Name one above to create it.";
+    private static string EmptyGuidanceText => PlanText.EventsEmptyGuidance;
 
-    private const string StateGuidanceText = "Untested is the default. Unknown means you cannot say.";
+    private static string StateGuidanceText => PlanText.EventsStateGuidance;
 
     /// <summary>How many search hits are worth offering at once.</summary>
     private const int MatchLimit = 25;
@@ -89,9 +90,9 @@ public sealed class EventsPageViewModel : PageViewModel
     private IReadOnlyList<EventItemMatchViewModel> _matches = [];
     private EventSummaryViewModel? _selected;
     private bool _hasEvents;
-    private string _status = "Reading local event definitions…";
-    private string _detail = "Select an event to see the items it applies to.";
-    private string _progress = "No event selected.";
+    private string _status = PlanText.EventsReadingDefinitions;
+    private string _detail = PlanText.EventsSelectAnEvent;
+    private string _progress = PlanText.EventsNoEventSelected;
     private string _newEventName = string.Empty;
     private string _itemQuery = string.Empty;
     private string _searchStatus = string.Empty;
@@ -214,7 +215,7 @@ public sealed class EventsPageViewModel : PageViewModel
     /// record a result. Two presses rather than a dialog: the second press is the confirmation,
     /// and changing the selection or reloading puts it back.
     /// </remarks>
-    public string DeleteLabel => _confirmingDelete ? "Confirm delete" : "Delete event";
+    public string DeleteLabel => _confirmingDelete ? PlanText.EventsConfirmDelete : PlanText.EventsDeleteEvent;
 
     private bool ConfirmingDelete
     {
@@ -293,7 +294,7 @@ public sealed class EventsPageViewModel : PageViewModel
     }
 
     /// <summary>What the archive button will do, said on the button.</summary>
-    public string ArchiveLabel => IsArchived ? "Bring back" : "Archive event";
+    public string ArchiveLabel => IsArchived ? PlanText.EventsBringBack : PlanText.EventsArchiveEvent;
 
     /// <summary>The effects this definition would apply while its schedule is active.</summary>
     public string RulePreview
@@ -443,7 +444,7 @@ public sealed class EventsPageViewModel : PageViewModel
     {
         try
         {
-            Status = "Reading local event definitions…";
+            Status = PlanText.EventsReadingDefinitions;
             await LoadChoicesAsync(cancellationToken).ConfigureAwait(true);
             var definitions = await _catalog.GetAsync(cancellationToken).ConfigureAwait(true);
             _definitions = definitions.ToDictionary(definition => definition.Id, StringComparer.Ordinal);
@@ -453,15 +454,15 @@ public sealed class EventsPageViewModel : PageViewModel
             HasEvents = Events.Count > 0;
             Selected = null;
             Items = [];
-            Progress = "No event selected.";
+            Progress = PlanText.EventsNoEventSelected;
 
             // An empty catalog is the ordinary out-of-season state. Saying so in the same tone as
             // a successful read is the whole point; the view shows the guidance panel instead.
             Status = HasEvents
-                ? Events.Count == 1 ? "1 definition loaded" : $"{Events.Count} definitions loaded"
-                : "No definitions configured";
+                ? PlanText.EventsDefinitionsLoaded(Events.Count)
+                : PlanText.EventsNoDefinitions;
             Detail = HasEvents
-                ? "Select an event to see the items it applies to."
+                ? PlanText.EventsSelectAnEvent
                 : string.Empty;
 
             // Last, so the detail line the selection produces is not overwritten by the one
@@ -478,8 +479,8 @@ public sealed class EventsPageViewModel : PageViewModel
             Events = [];
             Items = [];
             HasEvents = false;
-            Progress = "No event selected.";
-            Status = $"Unreadable · {exception.Message}";
+            Progress = PlanText.EventsNoEventSelected;
+            Status = PlanText.EventsUnreadable(exception.Message);
         }
     }
 
@@ -489,19 +490,19 @@ public sealed class EventsPageViewModel : PageViewModel
         if (!_definitions.TryGetValue(summary.EventId, out var definition))
         {
             Items = [];
-            Progress = "No event selected.";
-            Detail = $"{summary.Name} is no longer loaded · reload";
+            Progress = PlanText.EventsNoEventSelected;
+            Detail = PlanText.EventsNoLongerLoaded(summary.Name);
             return;
         }
 
         try
         {
-            Detail = $"Reading recorded results for {definition.Name}…";
+            Detail = PlanText.EventsReadingResults(definition.Name);
             if (definition.ApplicableItemIds.Count == 0)
             {
                 Items = [];
-                Progress = "This definition lists no applicable items.";
-                Detail = $"{definition.Name} lists no applicable items";
+                Progress = PlanText.EventsNoApplicableItemsProgress;
+                Detail = PlanText.EventsListsNoItems(definition.Name);
                 return;
             }
 
@@ -519,7 +520,7 @@ public sealed class EventsPageViewModel : PageViewModel
                 rows.Add(new(
                     itemId,
                     item?.Name ?? itemId,
-                    canRecord ? DescribeState(state) : "Not tracked",
+                    canRecord ? DescribeState(state) : PlanText.EventsNotTracked,
                     canRecord,
                     new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Safe, CancellationToken.None)),
                     new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Allergic, CancellationToken.None)),
@@ -536,24 +537,23 @@ public sealed class EventsPageViewModel : PageViewModel
             if (progress is { } counts)
             {
                 Progress =
-                    $"{counts.Safe} safe · {counts.Allergic} allergic · {counts.Tested} of {counts.Total} tested · " +
-                    $"{counts.Unknown} not yet recorded";
+                    PlanText.EventsProgress(counts.Safe, counts.Allergic, counts.Tested, counts.Total, counts.Unknown);
                 var unnamed = Items.Count(row => string.Equals(row.ItemName, row.ItemId, StringComparison.Ordinal));
                 Detail = unnamed == 0
-                    ? $"{definition.Name} · {Items.Count} items"
-                    : $"{definition.Name} · {Items.Count} items · {unnamed} shown by id";
+                    ? PlanText.EventsItems(definition.Name, Items.Count)
+                    : PlanText.EventsItemsShownById(definition.Name, Items.Count, unnamed);
             }
             else
             {
-                Progress = "Not registered with the tracker";
-                Detail = $"{definition.Name} is loaded but not registered with the tracker";
+                Progress = PlanText.EventsNotRegistered;
+                Detail = PlanText.EventsLoadedNotRegistered(definition.Name);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Items = [];
-            Progress = "No progress could be read.";
-            Detail = $"Unreadable · {exception.Message}";
+            Progress = PlanText.EventsNoProgress;
+            Detail = PlanText.EventsUnreadable(exception.Message);
         }
     }
 
@@ -588,7 +588,7 @@ public sealed class EventsPageViewModel : PageViewModel
     public bool CanUndo => _undo.CanUndo;
 
     public string UndoLabel => _undo.Last is { } last
-        ? $"Undo · {last.ItemName} back to {DescribeState(last.Previous)}"
+        ? PlanText.EventsUndoLabel(last.ItemName, DescribeState(last.Previous))
         : string.Empty;
 
     private void NotifyUndo()
@@ -612,11 +612,11 @@ public sealed class EventsPageViewModel : PageViewModel
                 await ShowEventAsync(selected, cancellationToken).ConfigureAwait(true);
             }
 
-            Detail = $"Undone · {change.ItemName} is {DescribeState(change.Previous)} again";
+            Detail = PlanText.EventsUndone(change.ItemName, DescribeState(change.Previous));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Detail = $"Not undone · {exception.Message}";
+            Detail = PlanText.EventsNotUndone(exception.Message);
         }
         finally
         {
@@ -635,7 +635,7 @@ public sealed class EventsPageViewModel : PageViewModel
         if (!_definitions.TryGetValue(eventId, out var definition) ||
             !definition.ApplicableItemIds.Contains(itemId))
         {
-            Detail = "That item is no longer in the definition · reload";
+            Detail = PlanText.EventsItemNoLongerInDefinition;
             return;
         }
 
@@ -650,16 +650,16 @@ public sealed class EventsPageViewModel : PageViewModel
                 await ShowEventAsync(selected, cancellationToken).ConfigureAwait(true);
             }
 
-            Detail = $"Recorded {DescribeState(state)} in {definition.Name}";
+            Detail = PlanText.EventsRecordedIn(DescribeState(state), definition.Name);
             NotifyUndo();
         }
         catch (KeyNotFoundException)
         {
-            Detail = $"Not recorded · {definition.Name} is not registered with the tracker";
+            Detail = PlanText.EventsNotRecordedUnregistered(definition.Name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Detail = $"Not recorded · {exception.Message}";
+            Detail = PlanText.EventsNotRecorded(exception.Message);
         }
     }
 
@@ -683,20 +683,20 @@ public sealed class EventsPageViewModel : PageViewModel
         var name = NewEventName.Trim();
         if (name.Length == 0)
         {
-            Status = "Type a name first";
+            Status = PlanText.EventsTypeANameFirst;
             return;
         }
 
         var id = Slug(name);
         if (id.Length == 0)
         {
-            Status = "That name has no letters or digits in it";
+            Status = PlanText.EventsNameHasNoLetters;
             return;
         }
 
         if (_definitions.ContainsKey(id))
         {
-            Status = $"{name} already exists";
+            Status = PlanText.EventsAlreadyExists(name);
             return;
         }
 
@@ -715,11 +715,11 @@ public sealed class EventsPageViewModel : PageViewModel
                 cancellationToken).ConfigureAwait(true);
             NewEventName = string.Empty;
             await LoadAsync(cancellationToken, id).ConfigureAwait(true);
-            Status = $"Created {name}";
+            Status = PlanText.EventsCreated(name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Not created · {exception.Message}";
+            Status = PlanText.EventsNotCreated(exception.Message);
         }
     }
 
@@ -754,7 +754,7 @@ public sealed class EventsPageViewModel : PageViewModel
         ScheduleEnd = definition.EndUtc is { } end ? LocalTime.SortableDate(end) : string.Empty;
         RenameTo = definition.Name;
         IsArchived = !definition.Active;
-        History = $"Last changed {Local(definition.Provenance.ObservedUtc)}";
+        History = PlanText.EventsLastChanged(Local(definition.Provenance.ObservedUtc));
         RefreshSchedulePreview();
         RuleEditor.Load(definition.RulesJson);
     }
@@ -799,11 +799,9 @@ public sealed class EventsPageViewModel : PageViewModel
 
         HasRulePreview = parsed.Rules.Effects.Count > 0;
         RulePreview = HasRulePreview
-            ? $"While active: {EventRuleText.Preview(parsed.Rules)}."
-            : "While active: no typed effects.";
-        RuleStatus = parsed.Rules.Effects.Count == 1
-            ? "1 effect validated"
-            : $"{parsed.Rules.Effects.Count} effects validated";
+            ? PlanText.EventsWhileActive(EventRuleText.Preview(parsed.Rules))
+            : PlanText.EventsNoTypedEffects;
+        RuleStatus = PlanText.EventsEffectsValidated(parsed.Rules.Effects.Count);
     }
 
     /// <summary>Says what the typed window would mean, before anything is written.</summary>
@@ -817,35 +815,35 @@ public sealed class EventsPageViewModel : PageViewModel
 
         if (!TryReadDate(ScheduleStart, out var start))
         {
-            SchedulePreview = "The first date is not a date.";
+            SchedulePreview = PlanText.EventsFirstDateNotDate;
             return;
         }
 
         if (!TryReadDate(ScheduleEnd, out var end))
         {
-            SchedulePreview = "The last date is not a date.";
+            SchedulePreview = PlanText.EventsLastDateNotDate;
             return;
         }
 
         if (start is { } from && end is { } until && until < from)
         {
-            SchedulePreview = "The last date is before the first.";
+            SchedulePreview = PlanText.EventsLastBeforeFirst;
             return;
         }
 
         var now = DateTimeOffset.UtcNow;
         SchedulePreview = IsArchived
-            ? "Archived · it will not be treated as in season whatever the dates say."
+            ? PlanText.EventsArchivedPreview
             : start is { } begins && begins > now
-                ? $"{DescribeWindow(start, end)} · starts in {Days(begins - now)}"
+                ? PlanText.EventsStartsIn(DescribeWindow(start, end), Days(begins - now))
                 : end is { } closes && closes < now
-                    ? $"{DescribeWindow(start, end)} · ended {Days(now - closes)} ago"
-                    : $"{DescribeWindow(start, end)} · in season now";
+                    ? PlanText.EventsEndedAgo(DescribeWindow(start, end), Days(now - closes))
+                    : PlanText.EventsInSeasonNow(DescribeWindow(start, end));
     }
 
     private static string Days(TimeSpan span) => span.TotalDays >= 1
-        ? $"{(int)span.TotalDays} day(s)"
-        : $"{Math.Max(1, (int)span.TotalHours)} hour(s)";
+        ? PlanText.EventsDays((int)span.TotalDays)
+        : PlanText.EventsHours(Math.Max(1, (int)span.TotalHours));
 
     /// <summary>
     /// Reads a typed date, treating empty as "the author did not say".
@@ -892,20 +890,20 @@ public sealed class EventsPageViewModel : PageViewModel
 
         if (!TryReadDate(ScheduleStart, out var start) || !TryReadDate(ScheduleEnd, out var end))
         {
-            ScheduleStatus = "Not saved · one of the dates is not a date.";
+            ScheduleStatus = PlanText.EventsNotSavedBadDate;
             return;
         }
 
         if (start is { } from && end is { } until && until < from)
         {
-            ScheduleStatus = "Not saved · the last date is before the first.";
+            ScheduleStatus = PlanText.EventsNotSavedLastBeforeFirst;
             return;
         }
 
         var name = RenameTo.Trim();
         if (name.Length == 0)
         {
-            ScheduleStatus = "Not saved · an event needs a name.";
+            ScheduleStatus = PlanText.EventsNotSavedNeedsName;
             return;
         }
 
@@ -916,7 +914,7 @@ public sealed class EventsPageViewModel : PageViewModel
         {
             if (!RuleEditor.IsValid)
             {
-                ScheduleStatus = "Not saved · fix the marked effects.";
+                ScheduleStatus = PlanText.EventsNotSavedFixEffects;
                 return;
             }
 
@@ -939,11 +937,11 @@ public sealed class EventsPageViewModel : PageViewModel
                 },
                 cancellationToken).ConfigureAwait(true);
             await LoadAsync(cancellationToken, definition.Id).ConfigureAwait(true);
-            ScheduleStatus = $"Saved {name}";
+            ScheduleStatus = PlanText.EventsSaved(name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ScheduleStatus = $"Not saved · {exception.Message}";
+            ScheduleStatus = PlanText.EventsNotSaved(exception.Message);
         }
     }
 
@@ -982,11 +980,11 @@ public sealed class EventsPageViewModel : PageViewModel
                 },
                 cancellationToken).ConfigureAwait(true);
             await LoadAsync(cancellationToken, id).ConfigureAwait(true);
-            Status = $"Created {name}";
+            Status = PlanText.EventsCreated(name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Not copied · {exception.Message}";
+            Status = PlanText.EventsNotCopied(exception.Message);
         }
     }
 
@@ -1009,7 +1007,7 @@ public sealed class EventsPageViewModel : PageViewModel
         if (!ConfirmingDelete)
         {
             ConfirmingDelete = true;
-            Detail = $"Press again to delete {summary.Name}";
+            Detail = PlanText.EventsPressAgainToDelete(summary.Name);
             return;
         }
 
@@ -1020,12 +1018,12 @@ public sealed class EventsPageViewModel : PageViewModel
             NotifyUndo();
             ConfirmingDelete = false;
             await LoadAsync(cancellationToken, null).ConfigureAwait(true);
-            Status = $"Deleted {summary.Name}";
+            Status = PlanText.EventsDeleted(summary.Name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             ConfirmingDelete = false;
-            Status = $"Not deleted · {exception.Message}";
+            Status = PlanText.EventsNotDeleted(exception.Message);
         }
     }
 
@@ -1038,7 +1036,7 @@ public sealed class EventsPageViewModel : PageViewModel
     {
         if (Selected is not { } summary || !_definitions.TryGetValue(summary.EventId, out var definition))
         {
-            SearchStatus = "Select an event first";
+            SearchStatus = PlanText.EventsSelectAnEventFirst;
             return;
         }
 
@@ -1062,21 +1060,21 @@ public sealed class EventsPageViewModel : PageViewModel
                 .ToArray();
             Matches = rows;
             SearchStatus = rows.Length == 0
-                ? $"Nothing to add for \"{query}\""
-                : $"{rows.Length} to add";
+                ? PlanText.EventsNothingToAdd(query)
+                : PlanText.EventsToAdd(rows.Length);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Matches = [];
-            SearchStatus = $"Search failed · {exception.Message}";
+            SearchStatus = PlanText.EventsSearchFailed(exception.Message);
         }
     }
 
     private Task AddItemAsync(string eventId, string itemId, CancellationToken cancellationToken) =>
-        ChangeItemsAsync(eventId, items => items.Add(itemId), "Added", cancellationToken);
+        ChangeItemsAsync(eventId, items => items.Add(itemId), PlanText.EventsAddedAction, cancellationToken);
 
     private Task RemoveItemAsync(string eventId, string itemId, CancellationToken cancellationToken) =>
-        ChangeItemsAsync(eventId, items => items.Remove(itemId), "Removed", cancellationToken);
+        ChangeItemsAsync(eventId, items => items.Remove(itemId), PlanText.EventsRemovedAction, cancellationToken);
 
     /// <summary>Rewrites one definition's item list and reloads onto it.</summary>
     /// <remarks>
@@ -1110,11 +1108,11 @@ public sealed class EventsPageViewModel : PageViewModel
             await LoadAsync(cancellationToken, eventId).ConfigureAwait(true);
             ItemQuery = query;
             await SearchAsync(cancellationToken).ConfigureAwait(true);
-            Detail = $"{what} · {items.Count} item(s) in {definition.Name}";
+            Detail = PlanText.EventsItemsChanged(what, items.Count, definition.Name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Detail = $"Not saved · {exception.Message}";
+            Detail = PlanText.EventsNotSaved(exception.Message);
         }
     }
 
@@ -1146,18 +1144,18 @@ public sealed class EventsPageViewModel : PageViewModel
     private static EventSummaryViewModel Describe(EventDefinition definition, DateTimeOffset now)
     {
         var season = !definition.Active
-            ? "Switched off in its definition file"
+            ? PlanText.EventsSwitchedOff
             : definition.StartUtc is { } start && start > now
-                ? $"Not started; begins {Local(start)}"
+                ? PlanText.EventsNotStarted(Local(start))
                 : definition.EndUtc is { } end && end < now
-                    ? $"Out of season; ended {Local(end)}"
-                    : "In season";
+                    ? PlanText.EventsOutOfSeason(Local(end))
+                    : PlanText.EventsInSeason;
 
         var window = DescribeWindow(definition.StartUtc, definition.EndUtc);
 
         var confidence = definition.Provenance.Confidence is { } value
             ? value.Value.ToString("0.00", CultureInfo.CurrentCulture)
-            : "unstated";
+            : PlanText.EventsUnstated;
 
         return new(
             definition.Id,
@@ -1165,11 +1163,9 @@ public sealed class EventsPageViewModel : PageViewModel
             season,
             window,
             definition.ApplicableItemIds.Count == 0
-                ? "No applicable items listed"
-                : definition.ApplicableItemIds.Count == 1
-                    ? "1 applicable item"
-                    : $"{definition.ApplicableItemIds.Count:N0} applicable items",
-            $"{definition.Provenance.Source} · confidence {confidence} · {definition.Provenance.Reference ?? "no reference given"}");
+                ? PlanText.EventsNoApplicableItemsListed
+                : PlanText.EventsApplicableItems(definition.ApplicableItemIds.Count),
+            PlanText.EventsProvenance(definition.Provenance.Source, confidence, definition.Provenance.Reference ?? PlanText.EventsNoReference));
     }
 
     /// <summary>States the dates a definition carries, with an open end left open.</summary>
@@ -1181,18 +1177,18 @@ public sealed class EventsPageViewModel : PageViewModel
     {
         if (startUtc is { } from)
         {
-            return endUtc is { } until ? $"{Local(from)} to {Local(until)}" : $"From {Local(from)}";
+            return endUtc is { } until ? PlanText.EventsWindow(Local(from), Local(until)) : PlanText.EventsFrom(Local(from));
         }
 
-        return endUtc is { } close ? $"Until {Local(close)}" : "No dates recorded";
+        return endUtc is { } close ? PlanText.EventsUntil(Local(close)) : PlanText.EventsNoDates;
     }
 
     private static string DescribeState(EventItemState state) => state switch
     {
-        EventItemState.Safe => "Safe",
-        EventItemState.Allergic => "Allergic",
-        EventItemState.Untested => "Untested",
-        _ => "Unknown",
+        EventItemState.Safe => PlanText.EventsSafe,
+        EventItemState.Allergic => PlanText.EventsAllergic,
+        EventItemState.Untested => PlanText.EventsUntested,
+        _ => PlanText.EventsUnknown,
     };
 
     private static string Local(DateTimeOffset timestamp) =>

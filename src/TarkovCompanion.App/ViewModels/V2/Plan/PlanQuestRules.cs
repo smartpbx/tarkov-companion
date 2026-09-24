@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Core.Domain.Planning;
@@ -97,7 +98,7 @@ public sealed record PlanRequirementRowViewModel(
         ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
         : string.Create(CultureInfo.CurrentCulture, $"? / {Need:N0}");
 
-    public string LearnReason => $"{HandlingLabel}: needed by this map's quests";
+    public string LearnReason => PlanText.LearnNeededByMap(HandlingLabel);
 }
 
 /// <summary>
@@ -108,15 +109,15 @@ public static class PlanQuestRules
 {
     public static string FilterLabel(PlanQuestFilter filter) => filter switch
     {
-        PlanQuestFilter.Active => "Active",
-        PlanQuestFilter.Current => "Current",
-        PlanQuestFilter.Available => "Next",
-        PlanQuestFilter.Locked => "Blocked",
-        PlanQuestFilter.Future => "Future",
-        PlanQuestFilter.Completed => "Completed",
-        PlanQuestFilter.Unknown => "Unknown",
-        PlanQuestFilter.Kappa => "Kappa",
-        _ => "All",
+        PlanQuestFilter.Active => PlanText.FilterActive,
+        PlanQuestFilter.Current => PlanText.FilterCurrent,
+        PlanQuestFilter.Available => PlanText.FilterNext,
+        PlanQuestFilter.Locked => PlanText.FilterBlocked,
+        PlanQuestFilter.Future => PlanText.FilterFuture,
+        PlanQuestFilter.Completed => PlanText.FilterCompleted,
+        PlanQuestFilter.Unknown => PlanText.FilterUnknown,
+        PlanQuestFilter.Kappa => PlanText.FilterKappa,
+        _ => PlanText.FilterAll,
     };
 
     /// <summary>Whether a quest belongs to a filter. The named state filters never overlap.</summary>
@@ -154,12 +155,12 @@ public static class PlanQuestRules
 
     public static string StateLabel(QuestPlanState state) => state switch
     {
-        QuestPlanState.Current => "Current",
-        QuestPlanState.Next => "Next",
-        QuestPlanState.Future => "Future",
-        QuestPlanState.Blocked => "Blocked",
-        QuestPlanState.Completed => "Completed",
-        _ => "Unknown",
+        QuestPlanState.Current => PlanText.FilterCurrent,
+        QuestPlanState.Next => PlanText.FilterNext,
+        QuestPlanState.Future => PlanText.FilterFuture,
+        QuestPlanState.Blocked => PlanText.FilterBlocked,
+        QuestPlanState.Completed => PlanText.FilterCompleted,
+        _ => PlanText.FilterUnknown,
     };
 
     public static string StateDetail(QuestStatePlan plan) => plan.Blockers.Count == 0
@@ -180,16 +181,16 @@ public static class PlanQuestRules
         return task.RecordedState switch
         {
             RecordedTaskState.Active => string.Empty,
-            RecordedTaskState.Completed => "Completed",
-            RecordedTaskState.Failed => "Failed",
+            RecordedTaskState.Completed => PlanText.StatusCompleted,
+            RecordedTaskState.Failed => PlanText.StatusFailed,
             _ => task.Eligibility.State switch
             {
-                QuestEligibilityState.Available => "Available now",
+                QuestEligibilityState.Available => PlanText.StatusAvailableNow,
                 // What opens it, not why it is shut (#288); the wording is QuestUnlockPlanner's.
                 QuestEligibilityState.Locked => task.Eligibility.Reasons.Count == 0
-                    ? "Locked"
-                    : $"Locked · {QuestUnlockPlanner.Summarise(QuestUnlockPlanner.Steps(task, nameOfTask ?? (static _ => null)))}",
-                QuestEligibilityState.Delayed => "Waiting on a timer",
+                    ? PlanText.StatusLocked
+                    : PlanText.LockedBy(QuestUnlockPlanner.Summarise(QuestUnlockPlanner.Steps(task, nameOfTask ?? (static _ => null)))),
+                QuestEligibilityState.Delayed => PlanText.StatusWaitingOnTimer,
                 _ => string.Empty,
             },
         };
@@ -198,17 +199,17 @@ public static class PlanQuestRules
     /// <summary>Why a filter and a search left nothing, so the empty column can say what to change.</summary>
     public static string DescribeEmpty(PlanQuestFilter filter, string query, bool hasTraderFilter) => (query.Length, hasTraderFilter, filter) switch
     {
-        (> 0, _, _) => $"No quest matches “{query}” in {FilterLabel(filter)}.",
-        (_, true, _) => $"No {FilterLabel(filter).ToLowerInvariant()} quest for this trader.",
-        (_, _, PlanQuestFilter.Active) => "No active quests. Try Next, or All.",
-        (_, _, PlanQuestFilter.Current) => "No quest is current.",
-        (_, _, PlanQuestFilter.Available) => "No quest is next right now.",
-        (_, _, PlanQuestFilter.Locked) => "No quest is blocked.",
-        (_, _, PlanQuestFilter.Future) => "No future quest is waiting on a timer.",
-        (_, _, PlanQuestFilter.Completed) => "No quest is recorded complete.",
-        (_, _, PlanQuestFilter.Unknown) => "No quest state is unknown.",
-        (_, _, PlanQuestFilter.Kappa) => "No Kappa quest is left, or the catalog does not say which are.",
-        _ => "No quests recorded yet.",
+        (> 0, _, _) => PlanText.NoQuestMatches(query, FilterLabel(filter)),
+        (_, true, _) => PlanText.NoQuestForTrader(FilterLabel(filter).ToLowerInvariant()),
+        (_, _, PlanQuestFilter.Active) => PlanText.EmptyActive,
+        (_, _, PlanQuestFilter.Current) => PlanText.EmptyCurrent,
+        (_, _, PlanQuestFilter.Available) => PlanText.EmptyNext,
+        (_, _, PlanQuestFilter.Locked) => PlanText.EmptyBlocked,
+        (_, _, PlanQuestFilter.Future) => PlanText.EmptyFuture,
+        (_, _, PlanQuestFilter.Completed) => PlanText.EmptyCompleted,
+        (_, _, PlanQuestFilter.Unknown) => PlanText.EmptyUnknown,
+        (_, _, PlanQuestFilter.Kappa) => PlanText.EmptyKappa,
+        _ => PlanText.EmptyAll,
     };
 
     /// <summary>
@@ -235,7 +236,7 @@ public static class PlanQuestRules
                     requirement.PrimaryItemId,
                     requirement.AlternativeCount == 0
                         ? nameOf(requirement.PrimaryItemId)
-                        : string.Create(CultureInfo.CurrentCulture, $"{nameOf(requirement.PrimaryItemId)} or {requirement.AlternativeCount:N0} more"),
+                        : PlanText.OrMore(nameOf(requirement.PrimaryItemId), requirement.AlternativeCount),
                     HandlingLabel(requirement.Handling),
                     requirement.Need,
                     requirement.Have)
@@ -272,16 +273,16 @@ public static class PlanQuestRules
         return (needed, unknown) switch
         {
             (0, 0) => string.Empty,
-            (_, 0) => $"{count(needed)} still needed",
-            (0, _) => $"{count(unknown)} to check",
-            _ => $"{count(needed)} still needed · {count(unknown)} to check",
+            (_, 0) => PlanText.StillNeeded(count(needed)),
+            (0, _) => PlanText.ToCheck(count(unknown)),
+            _ => PlanText.StillNeededAndToCheck(count(needed), count(unknown)),
         };
     }
 
     private static string HandlingLabel(RequirementHandling handling) => handling switch
     {
-        RequirementHandling.Bring => "Bring",
-        RequirementHandling.FindInRaid => "Find in raid",
-        _ => "Hand in",
+        RequirementHandling.Bring => PlanText.Bring,
+        RequirementHandling.FindInRaid => PlanText.FindInRaid,
+        _ => PlanText.HandIn,
     };
 }

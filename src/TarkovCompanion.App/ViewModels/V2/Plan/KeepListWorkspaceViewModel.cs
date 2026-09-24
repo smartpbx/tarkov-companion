@@ -1,5 +1,6 @@
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -48,12 +49,12 @@ public sealed record KeepListRowViewModel(
     /// <summary>The requirement engine's concrete needs behind the compact recommendation.</summary>
     public string LearnReason => Reasons.Count == 0
         ? ReasonSummary
-        : $"Keep: {string.Join("; ", Reasons.Take(2))}";
+        : PlanText.KeepLearnReason(string.Join("; ", Reasons.Take(2)));
 }
 
 public sealed record KeepListGroupViewModel(string Label, IReadOnlyList<KeepListRowViewModel> Items)
 {
-    public string Heading => $"{Label} ({Items.Count})";
+    public string Heading => PlanText.KeepGroupHeading(Label, Items.Count);
 }
 
 /// <summary>
@@ -70,15 +71,16 @@ public sealed record KeepListGroupViewModel(string Label, IReadOnlyList<KeepList
 /// </remarks>
 public sealed class KeepListWorkspaceViewModel : BindableViewModel
 {
-    private static readonly IReadOnlyDictionary<KeepGroupKind, string> GroupLabels =
-        new Dictionary<KeepGroupKind, string>
-        {
-            [KeepGroupKind.ActiveQuest] = "Quests you're on",
-            [KeepGroupKind.Quest] = "Quests ahead of you",
-            [KeepGroupKind.Hideout] = "Hideout upgrades",
-            [KeepGroupKind.Key] = "Keys worth keeping",
-            [KeepGroupKind.HighValue] = "High value",
-        };
+    // A switch rather than a static table: a table would read the strings once, before the culture is chosen.
+    private static string GroupLabel(KeepGroupKind kind) => kind switch
+    {
+        KeepGroupKind.ActiveQuest => PlanText.KeepGroupActiveQuest,
+        KeepGroupKind.Quest => PlanText.KeepGroupQuest,
+        KeepGroupKind.Hideout => PlanText.KeepGroupHideout,
+        KeepGroupKind.Key => PlanText.KeepGroupKey,
+        KeepGroupKind.HighValue => PlanText.KeepGroupHighValue,
+        _ => throw new KeyNotFoundException(kind.ToString()),
+    };
 
     private const int MaximumQuestReasons = 3;
 
@@ -86,7 +88,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
     private readonly IItemRecommendationAdvisor? _recommendations;
     private IReadOnlyList<KeepListGroupViewModel> _groups = [];
     private IReadOnlyList<object> _rows = [];
-    private string _status = "Loading the keep list…";
+    private string _status = PlanText.KeepLoading;
 
     public KeepListWorkspaceViewModel(
         IRequirementCatalog requirements,
@@ -172,22 +174,22 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             {
                 Groups = [];
                 Rows = [];
-                Status = "No keep-list data cached yet.";
+                Status = PlanText.KeepNoData;
                 return;
             }
 
             Groups = groups;
             Rows = [.. groups.SelectMany(group => group.Items.Cast<object>().Prepend(group))];
             Status = plan.Entries.Count == 0
-                ? "Nothing to keep right now — quests, hideout, and keys are all clear."
-                : $"{Count(plan.Entries.Count)} to keep";
+                ? PlanText.KeepNothingToKeep
+                : PlanText.KeepToKeep(Count(plan.Entries.Count));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Groups = [];
             Rows = [];
-            Status = "Keep-list data isn't available yet.";
-            LoadFault.Show("The keep list did not load", "Nothing is lost. Retry reads it again.");
+            Status = PlanText.KeepUnavailable;
+            LoadFault.Show(PlanText.KeepLoadFaultTitle, PlanText.KeepLoadFaultDetail);
             WorkspaceFault.Record("keep", "refresh", exception);
         }
     }
@@ -200,7 +202,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             .GroupBy(entry => entry.Group)
             .OrderBy(group => group.Key)
             .Select(group => new KeepListGroupViewModel(
-                GroupLabels[group.Key],
+                GroupLabel(group.Key),
                 group
                     .Select(entry => ToRow(entry, recommendations.GetValueOrDefault(entry.ItemId)))
                     .OrderBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase)
@@ -214,13 +216,13 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         // quests on the real catalog, and naming them all was six lines nobody reads.
         reasons.AddRange(entry.QuestNeeds
             .Take(MaximumQuestReasons)
-            .Select(need => $"{Count(need.Remaining)} for {need.TaskName}{FoundInRaidSuffix(need)}{AnyOfSuffix(need)}"));
+            .Select(need => PlanText.KeepForQuest(Count(need.Remaining), need.TaskName, FoundInRaidSuffix(need), AnyOfSuffix(need))));
         if (entry.QuestNeeds.Count > MaximumQuestReasons)
         {
-            reasons.Add($"+{Count(entry.QuestNeeds.Count - MaximumQuestReasons)} more quests");
+            reasons.Add(PlanText.KeepMoreQuests(Count(entry.QuestNeeds.Count - MaximumQuestReasons)));
         }
 
-        reasons.AddRange(entry.HideoutNeeds.Select(need => $"{Count(need.Required)} for {need.StationName}"));
+        reasons.AddRange(entry.HideoutNeeds.Select(need => PlanText.KeepForStation(Count(need.Required), need.StationName)));
         if (entry.KeyReason is not null)
         {
             reasons.Add(entry.KeyReason);
@@ -228,7 +230,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
 
         if (entry.IsHighValue)
         {
-            reasons.Add("high value");
+            reasons.Add(PlanText.KeepHighValue);
         }
 
         return new KeepListRowViewModel(entry.ItemId, entry.Name, entry.Item.Tier, entry.IsHighValue, reasons)
@@ -237,20 +239,20 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             RecommendationReason = recommendation?.Reason ?? string.Empty,
             QuestCountLabel = QuestCount(entry),
             HideoutCountLabel = HideoutCount(entry),
-            HeldLabel = entry.Held is { } held ? $"Held {Count(held)}" : "Held unknown",
+            HeldLabel = entry.Held is { } held ? PlanText.KeepHeld(Count(held)) : PlanText.KeepHeldUnknown,
         };
     }
 
     /// <summary>" · any of 5" where other items would do as well, so three is not read as three of each.</summary>
     private static string AnyOfSuffix(KeepQuestNeed need) =>
-        need.AnyOf > 1 ? $" · any of {Count(need.AnyOf)}" : string.Empty;
+        need.AnyOf > 1 ? PlanText.KeepAnyOfSuffix(Count(need.AnyOf)) : string.Empty;
 
     /// <summary>" (2 found in raid)", " (found in raid)" when all of it must be, or nothing when a purchase would do.</summary>
     private static string FoundInRaidSuffix(KeepQuestNeed need) => need.FoundInRaid switch
     {
         <= 0 => string.Empty,
-        var found when found >= need.Remaining => " (found in raid)",
-        var found => $" ({Count(found)} found in raid)",
+        var found when found >= need.Remaining => PlanText.KeepAllFoundInRaidSuffix,
+        var found => PlanText.KeepSomeFoundInRaidSuffix(Count(found)),
     };
 
     private static string QuestCount(KeepEntry entry)
@@ -265,19 +267,19 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         var total = entry.QuestRemaining;
         var now = entry.QuestRemainingTracked;
         var head = now > 0 && now < total
-            ? $"Quests {Count(now)} now, {Count(total - now)} later"
-            : $"Quests {Count(total)}";
+            ? PlanText.KeepQuestsNowLater(Count(now), Count(total - now))
+            : PlanText.KeepQuests(Count(total));
         if (entry.QuestTotal > total)
         {
-            head += $" of {Count(entry.QuestTotal)} overall";
+            head = PlanText.KeepOverall(head, Count(entry.QuestTotal));
         }
 
         var found = entry.QuestFoundInRaid;
         return found <= 0
             ? head
             : found >= total
-                ? $"{head} · all found in raid"
-                : $"{head} · {Count(found)} found in raid";
+                ? PlanText.KeepAllFoundInRaid(head)
+                : PlanText.KeepFoundInRaid(head, Count(found));
     }
 
     private static string HideoutCount(KeepEntry entry)
@@ -288,8 +290,8 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         }
 
         return entry.HideoutTotalBuild > entry.HideoutRemaining
-            ? $"Hideout {Count(entry.HideoutRemaining)} of {Count(entry.HideoutTotalBuild)} for the full build"
-            : $"Hideout {Count(entry.HideoutRemaining)}";
+            ? PlanText.KeepHideoutOfFullBuild(Count(entry.HideoutRemaining), Count(entry.HideoutTotalBuild))
+            : PlanText.KeepHideout(Count(entry.HideoutRemaining));
     }
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Planning;
@@ -16,14 +17,14 @@ public sealed class LoadoutSuggestionRowViewModel(LoadoutSuggestionRow row)
 {
     public string Kind => row.Suggestion.Kind switch
     {
-        LoadoutSuggestionKind.Key => "Key",
-        LoadoutSuggestionKind.Weapon => "Weapon",
-        LoadoutSuggestionKind.WeaponMod => "Mod",
-        LoadoutSuggestionKind.Wear => "Wear",
-        LoadoutSuggestionKind.LeaveBehind => "Leave",
-        LoadoutSuggestionKind.Range => "Range",
-        LoadoutSuggestionKind.Carry => "Carry",
-        _ => "Room",
+        LoadoutSuggestionKind.Key => PlanText.LoadoutKindKey,
+        LoadoutSuggestionKind.Weapon => PlanText.LoadoutKindWeapon,
+        LoadoutSuggestionKind.WeaponMod => PlanText.LoadoutKindMod,
+        LoadoutSuggestionKind.Wear => PlanText.LoadoutKindWear,
+        LoadoutSuggestionKind.LeaveBehind => PlanText.LoadoutKindLeave,
+        LoadoutSuggestionKind.Range => PlanText.LoadoutKindRange,
+        LoadoutSuggestionKind.Carry => PlanText.LoadoutKindCarry,
+        _ => PlanText.LoadoutKindRoom,
     };
 
     public string Title => row.Suggestion.Title;
@@ -32,8 +33,8 @@ public sealed class LoadoutSuggestionRowViewModel(LoadoutSuggestionRow row)
     public string Quest => row.Suggestion.Quests.Count switch
     {
         1 => row.Suggestion.Quests[0],
-        var count => string.Create(CultureInfo.CurrentCulture, $"{row.Suggestion.Quests[0]} +{count - 1}"),
-    } + (row.Suggestion.AnyMap ? " · any map" : string.Empty);
+        var count => PlanText.LoadoutQuestAndMore(row.Suggestion.Quests[0], count - 1),
+    } + (row.Suggestion.AnyMap ? PlanText.LoadoutAnyMapSuffix : string.Empty);
 
     public string Reason => row.Suggestion.Reason;
 
@@ -60,7 +61,7 @@ public sealed class LoadoutSuggestionsViewModel : BindableViewModel
     private IReadOnlyList<LoadoutSuggestionMapOption> _maps = [];
     private LoadoutSuggestionMapOption? _selectedMap;
     private IReadOnlyList<LoadoutSuggestionRowViewModel> _rows = [];
-    private string _status = "Reading your active quests…";
+    private string _status = PlanText.LoadoutReadingQuests;
     private bool _applying;
     private int _generation;
 
@@ -100,7 +101,7 @@ public sealed class LoadoutSuggestionsViewModel : BindableViewModel
         }
     }
 
-    public string Heading => SelectedMap is { } map ? $"For {map.Name} today" : "For your next raid";
+    public string Heading => SelectedMap is { } map ? PlanText.LoadoutForMapToday(map.Name) : PlanText.LoadoutForNextRaid;
 
     public IReadOnlyList<LoadoutSuggestionRowViewModel> Rows
     {
@@ -176,17 +177,17 @@ public sealed class LoadoutSuggestionsViewModel : BindableViewModel
             Rows = plan.Rows.Select(row => new LoadoutSuggestionRowViewModel(row)).ToArray();
             Status = plan.UnavailableReason
                 ?? (Maps.Count == 0
-                    ? "No active quest names a map. Mark quests active in Plan."
+                    ? PlanText.LoadoutNoQuestNamesMap
                     : Rows.Count == 0
-                        ? "Nothing on this map asks for gear."
-                        : string.Create(CultureInfo.CurrentCulture, $"{Rows.Count} changes from your active quests"));
+                        ? PlanText.LoadoutNothingOnMap
+                        : PlanText.LoadoutChangesFromQuests(Rows.Count));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             if (generation == _generation)
             {
                 Rows = [];
-                Status = "Suggestions unavailable · " + exception.Message;
+                Status = PlanText.LoadoutSuggestionsUnavailable(exception.Message);
             }
         }
     }

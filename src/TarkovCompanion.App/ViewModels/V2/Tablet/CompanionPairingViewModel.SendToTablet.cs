@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels;
 
@@ -67,7 +68,7 @@ public sealed partial class CompanionPairingViewModel
         }
 
         SendMapToTabletMessage = sent
-            ? "Sent this map view to your tablets."
-            : "Not sent. Open a map on Raid and check the relay.";
+            ? TeamText.SentToTablets
+            : TeamText.NotSent;
     }
 }

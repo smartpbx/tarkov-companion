@@ -1,5 +1,6 @@
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
@@ -54,33 +55,33 @@ public sealed class HideoutStationRowViewModel : BindableViewModel
     public int UnknownItemCount { get; init; }
 
     public string NextLevelSummary => !HasNextLevel
-        ? "Fully built."
+        ? PlanText.HideoutFullyBuilt
         : CanBuildNow
-            ? $"Level {NextLevel} · you have everything"
-            : $"Level {NextLevel} · {Shortfall}";
+            ? PlanText.HideoutLevelHaveEverything(NextLevel)
+            : PlanText.HideoutLevelShortfall(NextLevel, Shortfall);
 
     /// <summary>The short state chip on the station card: ready, how much is missing, or maxed.</summary>
     public string StateLabel => !HasNextLevel
-        ? "Max level"
+        ? PlanText.HideoutMaxLevel
         : CanBuildNow
-            ? "Ready"
+            ? PlanText.HideoutReady
             : Shortfall;
 
     /// <summary>"3 missing", "2 to check", or both. An item nobody counted is not said to be missing.</summary>
     private string Shortfall => (MissingItemCount, UnknownItemCount) switch
     {
-        (_, 0) => $"{MissingItemCount} missing",
-        (0, _) => $"{UnknownItemCount} to check",
-        _ => $"{MissingItemCount} missing · {UnknownItemCount} to check",
+        (_, 0) => PlanText.HideoutMissing(MissingItemCount),
+        (0, _) => PlanText.HideoutToCheck(UnknownItemCount),
+        _ => PlanText.HideoutMissingAndToCheck(MissingItemCount, UnknownItemCount),
     };
 
     public bool IsReady => HasNextLevel && CanBuildNow;
 
     public string LearnReason => !HasNextLevel
-        ? "Done: every catalog level is built"
+        ? PlanText.HideoutLearnDone
         : CanBuildNow
-            ? $"Build: level {NextLevel} has no recorded item shortage"
-            : $"Build: level {NextLevel} is waiting on {Shortfall}";
+            ? PlanText.HideoutLearnBuildReady(NextLevel)
+            : PlanText.HideoutLearnBuildWaiting(NextLevel, Shortfall);
 
     /// <summary>The level the profile says is built, which the stepper edits.</summary>
     public int BuiltLevel { get; init; }
@@ -147,8 +148,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     private IReadOnlyList<HideoutStationRowViewModel> _stations = [];
     private IReadOnlyList<HideoutRequirementRowViewModel> _items = [];
     private HideoutStationRowViewModel? _selected;
-    private string _status = "Loading the hideout catalog…";
-    private string _detail = "Pick a station";
+    private string _status = PlanText.HideoutLoading;
+    private string _detail = PlanText.HideoutPickAStation;
 
     public HideoutWorkspaceViewModel(
         IRequirementCatalog requirements,
@@ -249,18 +250,18 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         {
             var unknown = _rollup.Count(row => row.Have is null);
             var needed = _rollup.Count - unknown;
-            static string Items(int count) => count == 1 ? "1 item" : $"{count:N0} items";
+            static string Items(int count) => PlanText.HideoutItemCount(count);
             return (needed, unknown) switch
             {
-                (_, 0) => $"{Items(needed)} still needed",
-                (0, _) => $"{Items(unknown)} to check",
-                _ => $"{Items(needed)} still needed · {Items(unknown)} to check",
+                (_, 0) => PlanText.HideoutStillNeeded(Items(needed)),
+                (0, _) => PlanText.HideoutToCheck(Items(unknown)),
+                _ => PlanText.HideoutStillNeededAndToCheck(Items(needed), Items(unknown)),
             };
         }
     }
 
     /// <summary>"26 stations", the station list's heading figure.</summary>
-    public string StationCountLabel => Stations.Count == 1 ? "1 station" : $"{Stations.Count:N0} stations";
+    public string StationCountLabel => PlanText.HideoutStationCount(Stations.Count);
 
     public string Status
     {
@@ -297,7 +298,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 Rollup = [];
                 _selected = null;
                 OnPropertyChanged(nameof(HasSelection));
-                Status = "No hideout data cached yet.";
+                Status = PlanText.HideoutNoData;
                 return;
             }
 
@@ -319,7 +320,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 .ThenBy(station => station.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
             var buildable = Stations.Count(station => station.HasNextLevel && station.CanBuildNow);
-            Status = $"{StationCountLabel} · {buildable} ready to build now";
+            Status = PlanText.HideoutStatus(StationCountLabel, buildable);
             Rollup = rollup;
 
             // The detail pane is the page's primary content, so something is always selected
@@ -336,8 +337,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             // Raw exception text is diagnostics, not page copy; see PlanWorkspaceViewModel.
             Stations = [];
             Items = [];
-            Status = "Hideout data isn't available yet.";
-            LoadFault.Show("The hideout did not load", "Nothing is lost. Retry reads it again.");
+            Status = PlanText.HideoutUnavailable;
+            LoadFault.Show(PlanText.HideoutLoadFaultTitle, PlanText.HideoutLoadFaultDetail);
             WorkspaceFault.Record("hideout", "refresh", exception);
         }
     }
@@ -359,7 +360,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         if (!station.HasNextLevel)
         {
             Items = [];
-            Detail = "Already at its highest level.";
+            Detail = PlanText.HideoutAlreadyHighest;
             return;
         }
 
@@ -391,12 +392,12 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                             item?.Name ?? requirement.ItemId,
                             Count(requirement.Required),
                             owned is { } known ? Count(known) : "?",
-                            remaining == 0 ? "Complete" : Count(remaining),
+                            remaining == 0 ? PlanText.HideoutComplete : Count(remaining),
                             remaining == 0)
                         {
                             CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
                             IsHeldKnown = owned is not null,
-                            LearnReason = $"Keep: needed for {station.Name} level {station.NextLevel}",
+                            LearnReason = PlanText.HideoutLearnKeep(station.Name, station.NextLevel),
                         });
                     }
 
@@ -413,19 +414,19 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             var unknown = Items.Count(row => !row.IsHeldKnown);
             var outstanding = Items.Count(row => !row.IsSatisfied && row.IsHeldKnown);
             Detail = Items.Count == 0
-                ? $"Level {station.NextLevel} needs no items."
+                ? PlanText.HideoutLevelNeedsNoItems(station.NextLevel)
                 : (outstanding, unknown) switch
                 {
-                    (0, 0) => $"Level {station.NextLevel} · you have everything",
-                    (_, 0) => $"Level {station.NextLevel} · {outstanding} of {Items.Count} still needed",
-                    (0, _) => $"Level {station.NextLevel} · {unknown} of {Items.Count} to check",
-                    _ => $"Level {station.NextLevel} · {outstanding} still needed · {unknown} to check",
+                    (0, 0) => PlanText.HideoutLevelHaveEverything(station.NextLevel),
+                    (_, 0) => PlanText.HideoutLevelOfStillNeeded(station.NextLevel, outstanding, Items.Count),
+                    (0, _) => PlanText.HideoutLevelOfToCheck(station.NextLevel, unknown, Items.Count),
+                    _ => PlanText.HideoutLevelStillNeededAndToCheck(station.NextLevel, outstanding, unknown),
                 };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Items = [];
-            Detail = "Requirements aren't available yet.";
+            Detail = PlanText.HideoutRequirementsUnavailable;
             WorkspaceFault.Record("hideout", "read requirements", exception);
         }
     }
@@ -480,7 +481,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Station level not saved · {exception.Message}";
+            Status = PlanText.HideoutLevelNotSaved(exception.Message);
         }
     }
 
@@ -508,7 +509,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     private HideoutStationRowViewModel Describe(HideoutStationPlan plan) => new(
         plan.StationId,
         plan.Name,
-        plan.MaximumLevel == 0 ? $"Level {plan.BuiltLevel}" : $"Level {plan.BuiltLevel} of {plan.MaximumLevel}",
+        plan.MaximumLevel == 0 ? PlanText.HideoutLevel(plan.BuiltLevel) : PlanText.HideoutLevelOf(plan.BuiltLevel, plan.MaximumLevel),
         plan.HasNextLevel,
         plan.NextLevel,
         canBuildNow: plan.CanBuildNow,

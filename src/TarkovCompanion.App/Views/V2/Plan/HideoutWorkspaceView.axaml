@@ -2,6 +2,7 @@
              x:DataType="vm:HideoutWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
@@ -74,12 +75,12 @@
       <Grid RowDefinitions="Auto,*">
         <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
           <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Classes="v2-heading-2" Text="Hideout" AutomationProperties.HeadingLevel="2"
+            <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.HideoutTitle}" AutomationProperties.HeadingLevel="2"
                        VerticalAlignment="Center" />
             <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
                     VerticalAlignment="Center"
-                    AutomationProperties.AutomationId="v2-hideout-refresh" AutomationProperties.Name="Refresh"
-                    ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
+                    AutomationProperties.AutomationId="v2-hideout-refresh" AutomationProperties.Name="{x:Static l:PlanText.HideoutRefresh}"
+                    ToolTip.Tip="{x:Static l:PlanText.HideoutRefresh}" Command="{Binding RefreshCommand}">
               <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
             </Button>
           </Grid>
@@ -132,7 +133,7 @@
         <TextBlock Classes="v2-body" IsVisible="{Binding !HasSelection}" Opacity="0.8"
                    HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                    TextWrapping="Wrap" MaxWidth="420"
-                   Text="Hideout stations appear here once game data has loaded." />
+                   Text="{x:Static l:PlanText.HideoutEmpty}" />
         <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasSelection}" Margin="20,16,20,16">
           <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
             <StackPanel Spacing="2">
@@ -142,17 +143,17 @@
             <!-- What the profile says is built. The game never writes it down, so it is set here;
                  the requirements below are always for the level after this one. -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-              <TextBlock Classes="v2-label" Text="Built level" VerticalAlignment="Center" />
+              <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.HideoutBuiltLevel}" VerticalAlignment="Center" />
               <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanLowerLevel}"
                       Command="{Binding LowerLevelCommand}"
                       AutomationProperties.AutomationId="v2-hideout-level-down"
-                      AutomationProperties.Name="Lower the built level" ToolTip.Tip="Lower the built level">
+                      AutomationProperties.Name="{x:Static l:PlanText.HideoutLowerBuiltLevel}" ToolTip.Tip="{x:Static l:PlanText.HideoutLowerBuiltLevel}">
                 <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Minus}" />
               </Button>
               <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanRaiseLevel}"
                       Command="{Binding RaiseLevelCommand}"
                       AutomationProperties.AutomationId="v2-hideout-level-up"
-                      AutomationProperties.Name="Raise the built level" ToolTip.Tip="Raise the built level">
+                      AutomationProperties.Name="{x:Static l:PlanText.HideoutRaiseBuiltLevel}" ToolTip.Tip="{x:Static l:PlanText.HideoutRaiseBuiltLevel}">
                 <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Plus}" />
               </Button>
             </StackPanel>
@@ -167,7 +168,7 @@
           <StackPanel x:Name="HideoutNeedsColumn" Width="600" Spacing="16" VerticalAlignment="Top">
           <Border x:Name="HideoutNeedsSection" Classes="v2-hideout-section" VerticalAlignment="Top" Width="600">
             <StackPanel Spacing="10">
-              <TextBlock Classes="v2-heading-3" Text="Requirements" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.HideoutRequirements}" />
               <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
                          Foreground="{DynamicResource V2.Brush.TextSecondary}" />
               <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
@@ -209,17 +210,17 @@
                   <TextBlock Classes="v2-label" Text="{Binding PathSummary}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <TextBlock Classes="v2-label" Text="Target" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.HideoutTarget}" VerticalAlignment="Center" />
                   <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanLowerTarget}"
                           Command="{Binding LowerTargetCommand}"
                           AutomationProperties.AutomationId="v2-hideout-target-down"
-                          AutomationProperties.Name="Lower the target level" ToolTip.Tip="Lower the target level">
+                          AutomationProperties.Name="{x:Static l:PlanText.HideoutLowerTargetLevel}" ToolTip.Tip="{x:Static l:PlanText.HideoutLowerTargetLevel}">
                     <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Minus}" />
                   </Button>
                   <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanRaiseTarget}"
                           Command="{Binding RaiseTargetCommand}"
                           AutomationProperties.AutomationId="v2-hideout-target-up"
-                          AutomationProperties.Name="Raise the target level" ToolTip.Tip="Raise the target level">
+                          AutomationProperties.Name="{x:Static l:PlanText.HideoutRaiseTargetLevel}" ToolTip.Tip="{x:Static l:PlanText.HideoutRaiseTargetLevel}">
                     <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Plus}" />
                   </Button>
                 </StackPanel>
@@ -255,7 +256,7 @@
           <Border Classes="v2-hideout-card" Padding="16,12" IsVisible="{Binding HasNextUpgrades}"
                   AutomationProperties.AutomationId="v2-hideout-next">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="Next upgrades" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.HideoutNextUpgrades}" AutomationProperties.HeadingLevel="2" />
               <TextBlock Classes="v2-label" Text="{Binding NextSummary}" />
               <ItemsControl ItemsSource="{Binding NextUpgrades}">
                 <ItemsControl.ItemTemplate>

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Events;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Abstractions;
@@ -112,12 +113,12 @@ public sealed class EventEffectRowViewModel : BindableViewModel
 
     public string KindLabel => Kind switch
     {
-        EventEffectKind.TraderPriceMultiplier => "Trader prices",
-        EventEffectKind.FleaAvailability => "Flea market",
-        EventEffectKind.MapAvailability => "Map",
-        EventEffectKind.BossSpawnMultiplier => "Boss spawns",
-        EventEffectKind.QuestAvailabilityWindow => "Quest window",
-        _ => "Unknown effect",
+        EventEffectKind.TraderPriceMultiplier => PlanText.EventsKindTraderPrices,
+        EventEffectKind.FleaAvailability => PlanText.EventsKindFleaMarket,
+        EventEffectKind.MapAvailability => PlanText.EventsKindMap,
+        EventEffectKind.BossSpawnMultiplier => PlanText.EventsKindBossSpawns,
+        EventEffectKind.QuestAvailabilityWindow => PlanText.EventsKindQuestWindow,
+        _ => PlanText.EventsKindUnknown,
     };
 
     public IReadOnlyList<EventTargetChoice> Choices { get; }
@@ -132,10 +133,10 @@ public sealed class EventEffectRowViewModel : BindableViewModel
 
     public string TargetPlaceholder => Kind switch
     {
-        EventEffectKind.TraderPriceMultiplier => "Trader id",
-        EventEffectKind.MapAvailability => "Map id",
-        EventEffectKind.BossSpawnMultiplier => "Boss",
-        EventEffectKind.QuestAvailabilityWindow => "Quest id",
+        EventEffectKind.TraderPriceMultiplier => PlanText.EventsTraderIdPlaceholder,
+        EventEffectKind.MapAvailability => PlanText.EventsMapIdPlaceholder,
+        EventEffectKind.BossSpawnMultiplier => PlanText.EventsBossPlaceholder,
+        EventEffectKind.QuestAvailabilityWindow => PlanText.EventsQuestIdPlaceholder,
         _ => string.Empty,
     };
 
@@ -307,35 +308,35 @@ public sealed class EventEffectRowViewModel : BindableViewModel
             switch (field)
             {
                 case "traderId" or "mapId" or "bossId" or "questId":
-                    target = message.Contains("exceed", StringComparison.Ordinal) ? "Too long" : Kind switch
+                    target = message.Contains("exceed", StringComparison.Ordinal) ? PlanText.EventsTooLong : Kind switch
                     {
-                        EventEffectKind.TraderPriceMultiplier => "Pick a trader",
-                        EventEffectKind.MapAvailability => "Pick a map",
-                        EventEffectKind.BossSpawnMultiplier => "Name the boss",
-                        _ => "Name the quest",
+                        EventEffectKind.TraderPriceMultiplier => PlanText.EventsPickATrader,
+                        EventEffectKind.MapAvailability => PlanText.EventsPickAMap,
+                        EventEffectKind.BossSpawnMultiplier => PlanText.EventsNameTheBoss,
+                        _ => PlanText.EventsNameTheQuest,
                     };
                     break;
                 case "multiplier":
-                    value = "Above 0, at most 100";
+                    value = PlanText.EventsMultiplierRange;
                     break;
                 case "startUtc":
-                    value = "First day is not a date";
+                    value = PlanText.EventsFirstDayNotDate;
                     break;
                 case "endUtc":
-                    value = "Last day is not a date";
+                    value = PlanText.EventsLastDayNotDate;
                     break;
                 case "type":
-                    row = "Unknown type · remove it to save";
+                    row = PlanText.EventsUnknownType;
                     break;
                 case "":
                     row = message.Contains("before", StringComparison.Ordinal)
-                        ? "Last day is before the first"
+                        ? PlanText.EventsLastDayBeforeFirst
                         : message.Contains("requires", StringComparison.Ordinal)
-                            ? "Give a first or last day"
+                            ? PlanText.EventsGiveADay
                             : message;
                     break;
                 default:
-                    row = message.Contains("exceed", StringComparison.Ordinal) ? "A name is too long" : message;
+                    row = message.Contains("exceed", StringComparison.Ordinal) ? PlanText.EventsNameTooLong : message;
                     break;
             }
         }
@@ -464,9 +465,7 @@ public sealed class EventRuleEditorViewModel : BindableViewModel
             if (drafts is null)
             {
                 // The rows start empty and the parser's own words say what was wrong with the file.
-                GeneralError = "Stored rules did not read · " +
-                    string.Join(" · ", EventRuleParser.Parse(rulesJson).Issues.Take(2)) +
-                    " · saving replaces them";
+                GeneralError = PlanText.EventsStoredRulesUnread(string.Join(" · ", EventRuleParser.Parse(rulesJson).Issues.Take(2)));
             }
         }
         finally
@@ -519,14 +518,14 @@ public sealed class EventRuleEditorViewModel : BindableViewModel
         {
             Preview = string.Empty;
             var issues = _result.Parsed.Issues.Count;
-            Status = issues == 1 ? "1 issue · fix the marked field" : $"{issues} issues · fix the marked fields";
+            Status = PlanText.EventsIssuesToFix(issues);
         }
         else
         {
             Preview = effects > 0
-                ? $"While active: {EventRuleText.Preview(_result.Parsed.Rules)}."
-                : "While active: no typed effects.";
-            Status = effects == 1 ? "1 effect validated" : $"{effects} effects validated";
+                ? PlanText.EventsWhileActive(EventRuleText.Preview(_result.Parsed.Rules))
+                : PlanText.EventsNoTypedEffects;
+            Status = PlanText.EventsEffectsValidated(effects);
         }
 
         OnPropertyChanged(nameof(IsValid));
