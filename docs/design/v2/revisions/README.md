@@ -11,7 +11,7 @@ nine concept renders in `docs/design/v2/*.png` are untouched and remain the hist
 | New image2 revision set, originals preserved | **Not produced** | No image generation is available to the workers; the originals are untouched. |
 | Navigation applied only as #265's participant result supports | **Not applicable yet** | `validation/validation-report.md` still reads "Status: not yet run", and D-03 in `decision-log.md` ("what do revised concept images show for navigation?") is a proposed deferral. No participant decision exists to apply. The app ships Variant A (rail: Raid / Intel / Plan / Team / Debrief), judged against the original concepts, not against sessions. |
 | Degraded-state sheet | **Partly**: see below | One degraded state can be rendered (Setup › Diagnostics with a mix of working and not-working checks). It is not committed here (see the note under the table). |
-| High-contrast and 200%-scale variants | **Cannot be captured** | The running app has no such setting: `V2Appearance.Resolve` has no caller, `App.axaml` pins `RequestedThemeVariant="Dark"`, and there is no text-scale, density or motion preference (issues #266, #315). A capture would be a mock-up of a feature that does not exist. |
+| Light, high-contrast and 200%-text variants | **Done, at 1920x1080** (2026-09-24) | Setup › Accessibility sets them since #485; captured below from renders made for #774. (On 2026-09-19 this read "cannot be captured": nothing applied the preference then.) |
 | Narrow-window variant | **Done, at 1024x768** | Captured below, and it found real faults. |
 | Keyboard-focus and touch/tablet variants | **Not produced** | `tools/V2RenderPreview` cannot drive focus, and the tablet is a browser page served by the relay, not a window it renders. |
 | Correct render-audit findings RB-01 to RB-20 in the images | **Not done** | There is no revised set to correct; the findings stand in `validation/render-audit.md`. |
@@ -58,9 +58,35 @@ None of these was fixed here: this issue owns documentation only, and a layout f
 surface's own issue. They are the concrete input for the follow-up the sweep proposed
 ("capture degraded-state, high-contrast, 200%-text, narrow-width and tablet renders of the running V2").
 
+## Light, high contrast and 200% text, 1920x1080
+
+Rendered with `tools/V2RenderPreview --ui-shell v2-a --width 1920 --height 1080` on the seed catalog
+(public game data) with the tool's demo raid and demo squad (Geo, Riley, Sam are the tool's fixture
+names), for #774 on 2026-09-23. Each picture was opened and read before it was described here, and
+none shows a player name, profile or path.
+
+| Capture | Route | Alt text |
+| --- | --- | --- |
+| [setup-light](captures/appearance-1920x1080/setup-light.png) | `setup` › Accessibility | Light theme selected: white panels, dark text, the theme, status-colour, text-size and spacing choices, the live preview strip and the keyboard-shortcut list. |
+| [setup-high-contrast](captures/appearance-1920x1080/setup-high-contrast.png) | `setup` › Accessibility | High contrast selected: black background, white text, white-outlined buttons, cyan selection underline, blue Ready and red Failed chips. |
+| [setup-200](captures/appearance-1920x1080/setup-200.png) | `setup` › Accessibility | Dark theme, text at 200%: the Setup tabs wrap to two rows; every heading and choice is twice the size and still inside the panel. |
+| [raid-light](captures/appearance-1920x1080/raid-light.png) | `raid` (demo raid, Customs) | Light chrome around the Customs map with the modelled-traffic heat overlay, the route line, three squad members and the extract list. |
+| [raid-high-contrast](captures/appearance-1920x1080/raid-high-contrast.png) | `raid` (demo raid, Customs) | Black chrome with white-outlined cards around the same map; place labels read white over the heat overlay. |
+| [raid-200](captures/appearance-1920x1080/raid-200.png) | `raid` (demo raid, Customs) | Text at 200%: the Raid plan panel wraps each fact to two or three lines and the bottom map toolbar wraps its chips; the map keeps its size. |
+| [intel-light](captures/appearance-1920x1080/intel-light.png) | `intel` (demo results) | Light Intel: two results, Graphics card ₽322,222 and Graphics Card ₽1,200,000, with an empty detail pane. |
+| [intel-high-contrast](captures/appearance-1920x1080/intel-high-contrast.png) | `intel` (demo results) | The same two results in high contrast: white text on black, outlined filter and sort buttons. |
+| [intel-200](captures/appearance-1920x1080/intel-200.png) | `intel` (demo results) | The same results with text at 200%; the header, tabs, filters and rows all grow and nothing is clipped. |
+
+### What the appearance captures found
+
+1. **Light theme, Raid:** the place labels "Warehouse 17" and "Repair Shop" are pale text over the
+   light heat overlay and are close to unreadable. The dark and high-contrast labels read.
+2. **High contrast, Intel:** the result list and the detail pane lose their panel edges, so the list
+   floats on black with nothing marking where it ends.
+3. **200% text:** nothing is clipped on these three routes, but the Raid plan panel's facts wrap to
+   three lines each, so only half as many fit above the fold.
+
 ## What would unblock the rest
 - A decision on #265 (real participant sessions, or an explicit decision to proceed without them) so the
   navigation model can be applied or set aside.
-- The appearance preference record and its application (#266, #315), before high-contrast and 200%-scale
-  variants can be captured from the running app.
 - A person for the expert review, and for a tablet capture from a real paired tablet.
