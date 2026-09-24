@@ -2,6 +2,7 @@
              x:DataType="vm:StashScanWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v2="using:TarkovCompanion.App.Views.V2"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan">
   <UserControl.Resources>
     <!-- One reconstructed container, at a fixed square size, scaled down as a whole to fit. -->
@@ -202,7 +203,10 @@
        snapshot's known value, and the correction controls for a selected item. -->
   <Grid ColumnDefinitions="Auto,*,Auto">
     <!-- Guided capture. -->
-    <Border Grid.Column="0" Width="320" Classes="v2-pane" Margin="16,4,0,16">
+    <!-- [#832] Both side columns give way on a narrow page: at 200% on 1080p their fixed 320 and
+         420 left the reconstructed stash about 110 wide and its heading off the edge. -->
+    <Border Grid.Column="0" Width="320" Classes="v2-pane" Margin="16,4,0,16"
+            v2:SidePanelFit.MainMinimum="620" v2:SidePanelFit.Minimum="280">
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
         <StackPanel Spacing="4">
           <TextBlock Classes="v2-heading-2" Text="Guided capture" AutomationProperties.HeadingLevel="2" />
@@ -434,7 +438,8 @@
     </Grid>
 
     <!-- Sort plan. -->
-    <Border Grid.Column="2" Width="420" Classes="v2-context-panel">
+    <Border Grid.Column="2" Width="420" Classes="v2-context-panel"
+            v2:SidePanelFit.MainMinimum="640" v2:SidePanelFit.Minimum="260">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="16,20,16,16" Spacing="12">
           <TextBlock Classes="v2-heading-2" Text="Sort plan" AutomationProperties.HeadingLevel="2" />

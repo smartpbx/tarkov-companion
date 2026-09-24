@@ -2,6 +2,7 @@
              x:DataType="pages:LoadoutPageViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v2="using:TarkovCompanion.App.Views.V2"
              xmlns:pages="using:TarkovCompanion.App.ViewModels"
              xmlns:planVm="using:TarkovCompanion.App.ViewModels.V2.Plan">
   <UserControl.Styles>
@@ -31,6 +32,24 @@
     <Style Selector="Button.v2-loadout-tile.aimed">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <!-- [#832] On a narrow page (LoadoutWorkspaceView sets the class) the rules label and the map
+         picker take a line under the heading, which they had squeezed to one letter a line. The
+         columns are set here rather than on the elements, so the narrow style can outrank them. -->
+    <Style Selector="TextBlock.v2-loadout-rules">
+      <Setter Property="Grid.Column" Value="1" />
+    </Style>
+    <Style Selector="ComboBox.v2-loadout-map">
+      <Setter Property="Grid.Column" Value="2" />
+    </Style>
+    <Style Selector="Grid.v2-loadout-compact TextBlock.v2-loadout-rules">
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Grid.Column" Value="0" />
+      <Setter Property="Margin" Value="0,6,0,0" />
+    </Style>
+    <Style Selector="Grid.v2-loadout-compact ComboBox.v2-loadout-map">
+      <Setter Property="Grid.Row" Value="1" />
+      <Setter Property="Margin" Value="0,6,0,0" />
     </Style>
   </UserControl.Styles>
 
@@ -76,14 +95,14 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-loadout-suggestions">
         <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
-          <Grid ColumnDefinitions="*,Auto,220" ColumnSpacing="12">
+          <Grid x:Name="SuggestionsHeader" ColumnDefinitions="*,Auto,220" RowDefinitions="Auto,Auto" ColumnSpacing="12">
             <StackPanel Spacing="2" VerticalAlignment="Center">
               <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
               <TextBlock Classes="v2-label" Text="{Binding Status}" AutomationProperties.LiveSetting="Polite" />
             </StackPanel>
-            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding RulesLabel}" VerticalAlignment="Center"
+            <TextBlock Classes="v2-label v2-loadout-rules" Text="{Binding RulesLabel}" VerticalAlignment="Center"
                        AutomationProperties.AutomationId="v2-loadout-suggestions-rules" />
-            <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+            <ComboBox Classes="v2-loadout-map" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                       ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap, Mode=TwoWay}"
                       IsVisible="{Binding HasMaps}"
                       AutomationProperties.AutomationId="v2-loadout-suggestions-map"
@@ -160,8 +179,11 @@
       </Border>
     </Grid>
 
-    <!-- Context panel: the kit, and what evaluating it says. -->
+    <!-- Context panel: the kit, and what evaluating it says. [#832] It gives way to the search
+         column below a page of 1000 (200% on 1080p), where the fixed 520 left the search box about
+         120 wide beside the slot picker. -->
     <Border Grid.Column="1" Width="520" Classes="v2-intel-panel"
+            v2:SidePanelFit.MainMinimum="480" v2:SidePanelFit.Minimum="400"
             AutomationProperties.AccessibilityView="Control"
             AutomationProperties.LandmarkType="Complementary"
             AutomationProperties.AutomationId="v2-loadout-context">
