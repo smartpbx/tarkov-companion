@@ -19,9 +19,20 @@ namespace TarkovCompanion.Core.Common;
 public static class LocalTime
 {
     private static readonly AsyncLocal<TimeZoneInfo?> Pinned = new();
+    private static TimeZoneInfo? _profileZone;
 
-    /// <summary>The player's own zone, unless a test has pinned another for the current async flow.</summary>
-    public static TimeZoneInfo Zone => Pinned.Value ?? TimeZoneInfo.Local;
+    /// <summary>
+    /// The player's own zone: the one a test pinned for this async flow, else the active profile's
+    /// chosen zone (#269), else the machine's.
+    /// </summary>
+    public static TimeZoneInfo Zone => Pinned.Value ?? Volatile.Read(ref _profileZone) ?? TimeZoneInfo.Local;
+
+    /// <summary>
+    /// Sets the zone the active profile asks for, or null for the machine's. Called by the app when
+    /// the active profile changes; a test pins with <see cref="UseZone"/> instead, because this one
+    /// is process-wide and would race every other test.
+    /// </summary>
+    public static void UseProfileZone(TimeZoneInfo? zone) => Volatile.Write(ref _profileZone, zone);
 
     /// <summary>
     /// Pins <see cref="Zone"/> for the current async flow until the returned scope is disposed.

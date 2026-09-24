@@ -31,7 +31,7 @@ namespace TarkovCompanion.Infrastructure.Profile;
 /// profile the player has since moved to. With no active profile (a V1 launch, or before the first
 /// profile exists) everything goes to <c>profile.json</c> exactly as before.
 /// </remarks>
-public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, IPlayerProfileChangeSource, IDisposable
+public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, IPlayerProfileChangeSource, IProfileProgressReader, IDisposable
 {
     private readonly IPlayerProfileService _legacy;
     private readonly IProfileRuntimeContextService _context;
@@ -112,6 +112,30 @@ public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, I
         await target.Service.SaveAsync(pinned, cancellationToken).ConfigureAwait(false);
         PublishChanged(pinned);
         return pinned;
+    }
+
+    /// <summary>
+    /// [#269] Any profile's progress, for Setup's compare, without switching to it and without
+    /// writing anything: a profile whose file does not exist yet reads as its workspace record.
+    /// </summary>
+    public async Task<PlayerProfile> ReadAsync(ProfileRecord profile, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        var id = profile.Context.Identity.ProfileId;
+        _legacyProfileId ??= (await _legacy.GetActiveAsync(cancellationToken).ConfigureAwait(false)).Id;
+        if (id == _legacyProfileId)
+        {
+            return await _legacy.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var path = PathFor(id);
+        if (!File.Exists(path))
+        {
+            return SeedFrom(profile);
+        }
+
+        var file = _files.GetOrAdd(id, _ => _openFile(path));
+        return await file.GetActiveAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose()
