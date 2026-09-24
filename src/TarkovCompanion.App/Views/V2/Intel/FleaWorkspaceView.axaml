@@ -55,13 +55,21 @@
                        IsVisible="{Binding HasMarketDataNote}" />
           </StackPanel>
           <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding Rows}">
+            <!-- [#314] The rank column is as wide as its longest label, never under 78, and the
+                 same on every row: at a fixed 78 "#1 best buy" wrapped in a longer language. -->
+            <ItemsControl ItemsSource="{Binding Rows}" Grid.IsSharedSizeScope="True">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:FleaScanRowViewModel">
                   <Border Classes="v2-flea-scan-row" Padding="10,6" Margin="0,2"
                           AutomationProperties.AutomationId="{Binding AutomationId}">
-                    <Grid ColumnDefinitions="78,220,*,Auto" ColumnSpacing="14">
-                      <TextBlock Grid.Column="0" Classes="v2-label" FontWeight="SemiBold"
+                    <Grid ColumnSpacing="14">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" MinWidth="78" SharedSizeGroup="FleaScanRank" />
+                        <ColumnDefinition Width="220" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column="0" Classes="v2-label" FontWeight="SemiBold" TextWrapping="NoWrap"
                                  Text="{Binding RankLabel}" VerticalAlignment="Center" />
                       <StackPanel Grid.Column="1" Spacing="1">
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding PriceLabel}" />

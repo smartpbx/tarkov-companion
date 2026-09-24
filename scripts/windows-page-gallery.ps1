@@ -1628,6 +1628,15 @@ foreach ($Route in $V2AcceptanceRoutes) {
         # The ultrawide bound is the 1920 one with headroom: the same page has more window to
         # fill at 3840 and nothing new to fill it with, which is the deferred layout problem the
         # PR's route table describes rather than a regression to catch tonight.
+        # [#858 follow-up] The Raid page at 150% text was photographed before its side panel's
+        # cards had drawn (0.814% of the frame differed between two runs of the same build, run
+        # 36014770920): the larger text makes the staged panel take longer than the fixed
+        # responsiveness samples above. It now waits for the app's own "ready", as the scenes do;
+        # the "map" scene seeds nothing, so the picture is the same page, only finished.
+        if ($Route.key -eq "raid" -and $Size.suffix -eq "1920-text150") {
+            $Shot["galleryScene"] = "map"
+            $Shot["args"] = @("--ui-shell", "v2-a", "--map", "customs")
+        }
         $Headroom = if ($Size.width -ge 3840) { 0.15 } else { 0.0 }
         $EdgeBound = if ($Advisory) { -1 } else { [double](Get-InteractionProperty -Object $Route -Name "edge" -Default (-1)) }
         if ($EdgeBound -ge 0) {

@@ -872,7 +872,7 @@
                     <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.Marks}"
                                AutomationProperties.HeadingLevel="3" />
                     <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" HorizontalAlignment="Right"
-                               TextTrimming="CharacterEllipsis" Text="{Binding MarksSummary}" />
+                               TextWrapping="Wrap" TextAlignment="Right" Text="{Binding MarksSummary}" />
                   </Grid>
                 </Expander.Header>
                 <StackPanel Spacing="6">
@@ -898,9 +898,9 @@
                             <TextBlock Text="{Binding Number}" />
                           </Border>
                           <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
-                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="Wrap"
                                        Classes.v2-team-warning-text="{Binding IsQueued}" />
                           </StackPanel>
                           <Path Grid.Column="2" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
@@ -925,9 +925,9 @@
                                   Data="{DynamicResource V2.Icon.Target}" />
                           </Panel>
                           <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
-                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
-                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="Wrap"
                                        Classes.v2-team-warning-text="{Binding IsQueued}" />
                           </StackPanel>
                           <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
