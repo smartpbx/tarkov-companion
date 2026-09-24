@@ -22,6 +22,7 @@ public sealed class SetupReportTests
         var view = Build(() => $"report v{++builds}", sent);
 
         view.PreviewCommand.Execute(null);
+        view.Consented = true;
         Assert.Equal("report v1", view.ReportText);
         await ((AsyncDelegateCommand)view.SendCommand).ExecuteAsync();
 
@@ -53,18 +54,46 @@ public sealed class SetupReportTests
         var send = (AsyncDelegateCommand)view.SendCommand;
 
         view.PreviewCommand.Execute(null);
+        view.Consented = true;
         await send.ExecuteAsync();
+        view.Consented = true;
         await send.ExecuteAsync();
 
         Assert.Single(sent);
         Assert.False(view.HasPreview);
 
         view.PreviewCommand.Execute(null);
+        view.Consented = true;
         view.DiscardCommand.Execute(null);
         await send.ExecuteAsync();
 
         Assert.Single(sent);
         Assert.False(view.HasPreview);
+    }
+
+    [Fact]
+    public async Task NothingIsSentUntilTheBoxIsTickedAndEveryNewPreviewAsksAgain()
+    {
+        var sent = new List<string>();
+        var view = Build(() => "a report", sent);
+        var send = (AsyncDelegateCommand)view.SendCommand;
+
+        view.PreviewCommand.Execute(null);
+        await send.ExecuteAsync();
+        Assert.Empty(sent);
+        Assert.True(view.HasPreview);
+        Assert.Equal("Tick the box to agree before sending.", view.Status);
+
+        view.Consented = true;
+        view.PreviewCommand.Execute(null);
+        Assert.False(view.Consented);
+        await send.ExecuteAsync();
+        Assert.Empty(sent);
+
+        view.Consented = true;
+        await send.ExecuteAsync();
+        Assert.Equal(["a report"], sent);
+        Assert.False(view.Consented);
     }
 
     [Fact]
@@ -87,6 +116,7 @@ public sealed class SetupReportTests
         var view = new SetupReportViewModel(() => "a report", (_, _) => throw new InvalidOperationException("relay unreachable"));
 
         view.PreviewCommand.Execute(null);
+        view.Consented = true;
         await ((AsyncDelegateCommand)view.SendCommand).ExecuteAsync();
 
         Assert.Equal("Could not send: relay unreachable. Use Copy diagnostics instead.", view.Status);

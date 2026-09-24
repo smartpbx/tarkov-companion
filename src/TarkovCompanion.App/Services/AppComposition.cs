@@ -387,6 +387,11 @@ public static class AppComposition
         services.AddSingleton<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>();
         services.AddSingleton<GroupKitShare>();
         services.AddSingleton<GroupSessionService>();
+        // [#314] A consented problem report that found the relay unreachable waits here and is retried.
+        services.AddSingleton(provider => new TarkovCompanion.Application.Services.Feedback.ProblemReportOutbox(
+            new JsonFileProblemReportOutboxStore(Path.Combine(paths.Config, "problem-report-outbox.json")),
+            provider.GetRequiredService<GroupSessionService>().TrySendReportAsync,
+            timeProvider));
         // Keeping the game's screenshot folder from growing without limit. Composed here
         // rather than discovered because it is the other half of the application that touches
         // files it did not create, and that should be visible in one place.
@@ -1086,7 +1091,9 @@ public static class AppComposition
             // [#292/#309] The report a player reads before it is sent, and the send of exactly that text.
             new SetupReportViewModel(
                 () => provider.GetRequiredService<MainWindowViewModel>().Settings.BuildReport(),
-                (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token)),
+                (report, token) => provider.GetRequiredService<TarkovCompanion.Application.Services.Feedback.ProblemReportOutbox>().SendAsync(report, token),
+                () => ProblemReportPendingText.Describe(
+                    provider.GetRequiredService<TarkovCompanion.Application.Services.Feedback.ProblemReportOutbox>().Queued)),
             new SetupLootScanViewModel(
                 provider.GetService<IWorkspaceLayoutStore>(),
                 provider.GetService<ICaptureStageTimeline>(),
