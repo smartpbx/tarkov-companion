@@ -750,6 +750,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         Waypoints = marks.Where(mark => mark.Number is not null).ToArray();
         Pings = marks.Where(mark => mark.Number is null).ToArray();
         _group = group;
+        RefreshModeWarning(group);
 
         OnPropertyChanged(nameof(MyLoadout));
         OnPropertyChanged(nameof(MyProfile));

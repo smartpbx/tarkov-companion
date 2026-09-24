@@ -771,7 +771,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         var observed = _kits is null
             ? []
             : await _kits.GetAsync(cancellationToken).ConfigureAwait(false);
-        var payload = Describe(snapshot, settings, sharedQuests, observed, _clock.GetUtcNow());
+        // [#269] Sent whatever the quest switch says: a squadmate on another mode is told so even
+        // when nobody shares quests, and it is what keeps their quests apart when somebody does.
+        var ownMode = _quests is null ? null : await _quests.GameModeAsync(cancellationToken).ConfigureAwait(false);
+        var payload = Describe(snapshot, settings, sharedQuests, observed, _clock.GetUtcNow()) with { GameMode = ownMode };
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             new Uri(new Uri(settings.ServerUri!), Exchange(hold)))
@@ -831,9 +834,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             .ToArray();
         // Each member's kit, from whoever could see it. Their own report wins where they have
         // one; otherwise it comes from the people whose game named it.
-        var members = (room?.Members ?? [])
-            .Select(member => Fill(Read(member), seen))
-            .ToArray();
+        var members = GroupModeCheck.Separate(
+            ownMode,
+            [.. (room?.Members ?? []).Select(member => Fill(Read(member), seen))]);
         var mine = GroupKitMirror.FindAll(seen, settings.DisplayName);
         // Timed on the way in, before anything is drawn: this is the number that says whether
         // a squadmate's screenshot is reaching this map quickly, and it is the only honest way
@@ -855,13 +858,13 @@ public sealed class GroupSessionService : IAsyncDisposable
                 "Group publish {Count} succeeded as {Name}; {Members} other member(s) present.",
                 _published,
                 settings.DisplayName,
-                members.Length);
+                members.Count);
         }
 
         // Version skew is said on the same line the group is described on, because it is about
         // this exchange rather than about the application, and because a second place to look
         // is a place nobody looks.
-        var describe = DescribeSharing(settings.DisplayName, members.Length, snapshot);
+        var describe = DescribeSharing(settings.DisplayName, members.Count, snapshot);
         var published = new GroupSnapshot(
             true,
             members,
@@ -874,6 +877,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             MyLevel = mine?.Level,
             MySide = mine?.Side,
             MyScavLockedUntil = mine?.ScavLockedUntil,
+            MyGameMode = ownMode,
             // The server expires pings for us, so whatever comes back is current by
             // definition and the client needs no timer of its own.
             Waypoints = (room?.Waypoints ?? []).Select(w =>
@@ -1130,6 +1134,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.Quests ?? [])
     {
         QuestIds = member.QuestIds ?? [],
+        GameMode = GroupModeCheck.Normalize(member.GameMode),
         // [#780] Absent from a companion or relay that predates it, which reads as no objectives.
         Objectives = [.. (member.Objectives ?? [])
             .Where(objective => objective is { TaskId.Length: > 0, ObjectiveId.Length: > 0 })
@@ -1537,6 +1542,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         /// <summary>Which quests those are, so a receiver can place them on a map.</summary>
         [JsonPropertyName("questIds")]
         public IReadOnlyList<string>? QuestIds { get; init; }
+
+        /// <summary>[#269] "pvp", "pve" or "seasonal"; absent from clients and relays that predate it.</summary>
+        [JsonPropertyName("gameMode")]
+        public string? GameMode { get; init; }
 
         /// <summary>How high they were standing, absent from clients that predate it.</summary>
         [JsonPropertyName("y")]

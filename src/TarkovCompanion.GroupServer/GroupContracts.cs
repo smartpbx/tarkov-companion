@@ -134,6 +134,11 @@ public sealed record GroupMemberState(
             return "An objective list may carry at most sixty objectives, by ids of 64 characters or fewer.";
         }
 
+        if (GameMode is { Length: > 16 })
+        {
+            return "A game mode must be 16 characters or fewer.";
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
@@ -158,6 +163,14 @@ public sealed record GroupMemberState(
     /// </remarks>
     [JsonPropertyName("questIds")]
     public IReadOnlyList<string> QuestIds { get; init; } = [];
+
+    /// <summary>
+    /// [#269] The game mode the member's active profile plays: "pvp", "pve" or "seasonal". A
+    /// receiver on another mode keeps this member's quests apart from its own and says so once.
+    /// Optional, so a client that predates it still parses.
+    /// </summary>
+    [JsonPropertyName("gameMode")]
+    public string? GameMode { get; init; }
 
     /// <summary>
     /// [#780] The open objectives of this member's active quests, by id, with a count where kept.

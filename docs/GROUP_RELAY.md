@@ -80,6 +80,9 @@ previous entry rather than adding a second one.
   "<objective id>", "count": 2}]`, `count` optional. At most 60. Ids only, named and placed from
   the receiver's own catalog. A relay older than this field drops it; a client older than it
   ignores it.
+- `gameMode` — `"pvp"`, `"pve"` or `"seasonal"`, the sender's active profile (#269). At most 16
+  characters. A receiver on another mode drops that member's `quests`, `questIds` and
+  `objectives` and says so once on the Team page; absent means unknown, never "different".
 
 The reply is everyone else in the group:
 

@@ -93,6 +93,7 @@ public sealed class GroupQuestShare
     public void Invalidate()
     {
         _readUtc = DateTimeOffset.MinValue;
+        _modeReadUtc = DateTimeOffset.MinValue;
         Changed?.Invoke();
     }
 
@@ -159,6 +160,37 @@ public sealed class GroupQuestShare
         {
             _gate.Release();
         }
+    }
+
+    private string? _mode;
+    private DateTimeOffset _modeReadUtc = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// [#269] The active profile's game mode as the group sends it, re-read at most every
+    /// <see cref="RereadAfter"/>; null when the profile cannot be read, which no receiver treats
+    /// as a difference.
+    /// </summary>
+    public async Task<string?> GameModeAsync(CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow();
+        if (WallClockAge.IsWithin(now, _modeReadUtc, RereadAfter))
+        {
+            return _mode;
+        }
+
+        try
+        {
+            var profile = await profiles.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+            _mode = GroupModeCheck.Wire(profile.GameMode);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Said as "unknown", never guessed: a wrong mode would hide a squadmate's quests.
+            _mode = null;
+        }
+
+        _modeReadUtc = _timeProvider.GetUtcNow();
+        return _mode;
     }
 
     /// <summary>Pinned first, then active, in one order that both lists are cut from.</summary>

@@ -135,6 +135,40 @@ public sealed class ProfileBundleTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ImportAsync(preview, CancellationToken.None));
     }
 
+    /// <summary>
+    /// [#269] A raid played in another mode is refused on import and said so in the preview, even
+    /// inside a file whose own mode matches (a profile whose mode was corrected after it raided).
+    /// </summary>
+    [Fact]
+    public async Task RaidsFromAnotherModeAreNotImported()
+    {
+        var world = new World();
+        var source = world.Add("Main", ProfileGameMode.Pvp);
+        await world.Raids.StartAsync(new RaidHistoryEntry(Guid.NewGuid(), source, "customs", "Regular",
+            World.Now.AddHours(-3), World.Now.AddHours(-2.5), "Survived", null), CancellationToken.None);
+        await world.Raids.StartAsync(new RaidHistoryEntry(Guid.NewGuid(), source, "woods", "Pve",
+            World.Now.AddHours(-2), World.Now.AddHours(-1.5), "Killed", null), CancellationToken.None);
+        var service = world.Service();
+        var json = ProfileBundleCodec.Write(await service.ExportAsync(CancellationToken.None));
+
+        var preview = await service.PreviewAsync(json, ProfileBundleTarget.NewProfile, CancellationToken.None);
+
+        Assert.Contains(preview.Changes, change => change.Area == "Raids" && change.After == "1");
+        Assert.Contains(preview.Changes, change => change.Area == "Raids from another mode" && change.Now == "1");
+        await service.ImportAsync(preview, CancellationToken.None);
+        var target = world.Active;
+        var landed = (await world.Raids.ListAsync(CancellationToken.None)).Where(raid => raid.ProfileId == target).ToArray();
+        Assert.Equal("customs", Assert.Single(landed).MapId);
+    }
+
+    [Theory]
+    [InlineData("Regular", ProfileGameMode.Pvp)]
+    [InlineData("Pve", ProfileGameMode.Pve)]
+    [InlineData("PvpSeason", ProfileGameMode.Seasonal)]
+    [InlineData("something else", null)]
+    public void ARaidsRecordedModeIsReadAsAProfileMode(string recorded, ProfileGameMode? expected) =>
+        Assert.Equal(expected, ProfileBundleChanges.RaidMode(recorded));
+
     private sealed class World
     {
         public static readonly DateTimeOffset Now = new(2026, 9, 20, 12, 0, 0, TimeSpan.Zero);
