@@ -654,24 +654,50 @@ jobs:
             return $null
           }
 
+          function Get-FromInstall([string] $Name, [string] $Folder) {
+            @(Get-CimInstance Win32_Process -Filter "Name = '$Name'" -ErrorAction SilentlyContinue |
+              Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($Folder, [StringComparison]::OrdinalIgnoreCase) })
+          }
+
           # The updater gives up after ten one-second retries, so ninety seconds covers
           # extracting the package and either verdict.
+          #
+          # Velopack runs hooks from current\ too: "--veloapp-obsolete" on the old build before the
+          # swap and "--veloapp-updated" on the new one after it, each for about 100 ms. Any
+          # TarkovCompanion.exe in current\ used to count as "reopened", so a poll that landed on
+          # the obsolete hook read the old BUILD_INFO and failed a good update (run 35942209805),
+          # and one that landed on the updated hook ended the step before the real reopen, which
+          # then started on the same application data as the smoke's self-test (run 35964313245,
+          # self-test-exit 1). Reopened now means the new version is in place and a process that is
+          # not a hook is running from it.
           $Deadline = (Get-Date).AddSeconds(90)
           $Reopened = $null
+          $Applied = $null
+          $Seen = [System.Collections.Generic.List[string]]::new()
           while ((Get-Date) -lt $Deadline) {
-            $Reopened = Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
-              Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
-              Select-Object -First 1
-            if ($Reopened) { break }
-            Start-Sleep -Seconds 2
+            $Applied = Get-InstalledVersion
+            $Running = Get-FromInstall "TarkovCompanion.exe" $Current
+            foreach ($Process in $Running) {
+              $Line = "$Applied pid $($Process.ProcessId): $($Process.CommandLine)"
+              if (-not $Seen.Contains($Line)) { $Seen.Add($Line) }
+            }
+            $Reopened = $Running | Where-Object { $_.CommandLine -notmatch '--veloapp-' } | Select-Object -First 1
+            if ($Reopened -and $Applied -ceq $Next) { break }
+            Start-Sleep -Milliseconds 500
           }
           $Applied = Get-InstalledVersion
+          if ($Seen.Count -gt 0) { "Seen running from current\ (installed version, process):"; $Seen }
 
           # Tidy up before the verdict, so a failure does not leave a window and a ping behind
-          # for the steps that follow.
-          Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
-            Stop-Process -Force -ErrorAction SilentlyContinue
+          # for the steps that follow. The updater goes first: while it runs it can still start
+          # the application, after this step has ended.
+          $Root = Split-Path -Parent $Current
+          foreach ($Updater in Get-FromInstall "Update.exe" $Root) {
+            Wait-Process -Id $Updater.ProcessId -Timeout 30 -ErrorAction SilentlyContinue
+          }
+          $Leftover = Get-FromInstall "TarkovCompanion.exe" $Current
+          foreach ($Process in $Leftover) { Stop-Process -Id $Process.ProcessId -Force -ErrorAction SilentlyContinue }
+          foreach ($Process in $Leftover) { Wait-Process -Id $Process.ProcessId -Timeout 15 -ErrorAction SilentlyContinue }
           if (Test-Path -LiteralPath $Report) {
             $Bystander = (Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json).bystanderPid
             if ($Bystander) { Stop-Process -Id $Bystander -Force -ErrorAction SilentlyContinue }
