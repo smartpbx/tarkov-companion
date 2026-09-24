@@ -55,9 +55,9 @@ async function main() {
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
     // Full UnitTests runs every browser harness on a busy shared host; pairing normally takes a
-    // few seconds but the existing harness convention gives that first ceremony 30 seconds.
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 30000 });
-    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    // few seconds; the harness gives that first ceremony 45 seconds.
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     let current = await until(page, (value) => value.hasSurface && value.hasLive);
     check("the keyboard legend is visible", await page.locator("#keyboardHelp").isVisible());
 
@@ -108,6 +108,12 @@ async function main() {
   } catch (error) {
     console.error(`FAILURE: ${error && error.stack ? error.stack : error}`);
     console.error(consoleLog.join("\n"));
+    const pairingPage = await page.evaluate(() => ({
+      error: document.getElementById("pairingError")?.textContent || null,
+      shown: ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]
+        .filter((id) => document.getElementById(id) && document.getElementById(id).style.display !== "none"),
+    })).catch(() => null);
+    console.error(`PAIRING_PAGE: ${JSON.stringify(pairingPage)}`);
     process.exitCode = 1;
   } finally {
     await browser.close();

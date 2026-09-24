@@ -270,7 +270,7 @@ public sealed class TabletControlLatencyTests(ITestOutputHelper output) : RealBr
 
     private static async Task UntilAsync(Func<bool> condition, string what)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var deadline = DateTime.UtcNow.AddSeconds(90); // liveness: the browser starts with the rest of the suite running
         while (!condition())
         {
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for " + what + ".");

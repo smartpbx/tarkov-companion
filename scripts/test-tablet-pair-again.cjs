@@ -116,9 +116,9 @@ async function main() {
     await page.fill("#pairingCode", firstCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
     console.log("FIRST_PAIRING_ASKED");
-    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     console.log("INITIAL_PAIRED");
 
     // Leave the old remembered desktop in place but remove its live session. With no desktop
@@ -155,7 +155,7 @@ async function main() {
     console.log("READY_FOR_FRESH_CODE");
     const freshQrUrl = await nextInput();
     await page.goto(freshQrUrl, { waitUntil: "load" });
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
     if (await page.locator("#pairingCode").isVisible()) {
       throw new Error("the fresh QR fell back to code entry instead of starting pairing");
     }
