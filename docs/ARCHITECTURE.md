@@ -126,7 +126,10 @@ the view model's literals, and render it in both cultures. `scripts/sweep-prose.
 registry keys (`V2.Shell.Route.*` and the rest of the top bar) still pass through `V2ShellText.Get`, which reads a moved
 key from the table as `Shell.*`; the map renderer's `Map.*` words are in the table too. Setup's words are `Setup.*` (`SetupText`; a run-time key such as a section tab still reads
 `V2.Setup.*`/`V2.Home.*` through `V2ShellText.Get`), and Setup › Game & Profile › Language writes the preference file
-(shipped tables only; the pseudo-locale in developer mode), taking effect at the next start.
+(shipped tables only; the pseudo-locale in developer mode), taking effect at the next start. Where Core or Application decides
+something the player reads (the raid clock, a route's reasons, a key's verdict, a settings diff row), it returns a
+code and its numbers (`RaidClock`, `TrafficRouteReason`, `KeyReasonCode`, `SetupSettingsField`) and the App's accessor
+puts it into words; no App resource moves down a layer.
 
 ## Feature flags
 
