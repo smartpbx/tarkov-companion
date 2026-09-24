@@ -384,7 +384,7 @@ public sealed class LoadoutExplanationTests
         var finding = LoadoutPageViewModel.Finding(new LoadoutFinding(LoadoutFindingKind.PlateDoesNotFit, Item: "SAPI"));
 
         Assert.Equal("SAPI is not compatible with the selected armor.", finding.Message);
-        Assert.StartsWith("A body armor lists the plates", finding.Explanation, StringComparison.Ordinal);
+        Assert.StartsWith("The selected armor lists the plates", finding.Explanation, StringComparison.Ordinal);
     }
 
     private sealed class InvariantEnglish : IDisposable
