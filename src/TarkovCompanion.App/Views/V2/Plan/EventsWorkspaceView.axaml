@@ -2,7 +2,8 @@
              x:DataType="pages:EventsPageViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+             xmlns:pages="using:TarkovCompanion.App.ViewModels"
+             xmlns:l="using:TarkovCompanion.App.Localization">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
   </UserControl.Styles>
@@ -15,18 +16,18 @@
       <Border Grid.Row="0" Classes="v2-intel-search" IsVisible="{Binding CanEdit}" Width="640" HorizontalAlignment="Left">
         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
           <TextBox Classes="v2-intel-search-input" Text="{Binding NewEventName}"
-                   PlaceholderText="New event name"
+                   PlaceholderText="{x:Static l:PlanText.EventsNewEventName}"
                    AutomationProperties.AutomationId="v2-events-new-name"
-                   AutomationProperties.Name="New event name">
+                   AutomationProperties.Name="{x:Static l:PlanText.EventsNewEventName}">
             <TextBox.KeyBindings>
               <KeyBinding Gesture="Enter" Command="{Binding CreateCommand}" />
             </TextBox.KeyBindings>
           </TextBox>
-          <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Create" Command="{Binding CreateCommand}"
+          <Button Grid.Column="1" Classes="v2-target v2-outline" Content="{x:Static l:PlanText.EventsCreate}" Command="{Binding CreateCommand}"
                   VerticalAlignment="Center" AutomationProperties.AutomationId="v2-events-create" />
           <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
                   AutomationProperties.AutomationId="v2-events-reload"
-                  AutomationProperties.Name="Reload events" ToolTip.Tip="Reload"
+                  AutomationProperties.Name="{x:Static l:PlanText.EventsReloadEvents}" ToolTip.Tip="{x:Static l:PlanText.EventsReload}"
                   Command="{Binding RefreshCommand}">
             <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
           </Button>
@@ -40,7 +41,7 @@
     <Border Grid.Row="1" Classes="v2-intel-pane" Padding="24" IsVisible="{Binding HasNoEvents}"
             VerticalAlignment="Top" MaxWidth="640" HorizontalAlignment="Left">
       <StackPanel Spacing="8">
-        <TextBlock Classes="v2-heading-3" Text="No event is configured" AutomationProperties.HeadingLevel="2" />
+        <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.EventsNoEventConfigured}" AutomationProperties.HeadingLevel="2" />
         <TextBlock Classes="v2-body" Text="{Binding EmptyGuidance}" TextWrapping="Wrap" />
         <TextBlock Classes="v2-label" Text="{Binding DefinitionsDirectory}" TextWrapping="Wrap" />
       </StackPanel>
@@ -84,10 +85,10 @@
             </ScrollViewer.KeyBindings>
             <StackPanel Spacing="10" Margin="0,0,6,0">
               <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                <TextBlock Classes="v2-heading-2" Text="Event" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Duplicate" Command="{Binding DuplicateCommand}"
+                <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.EventsEvent}" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.EventsDuplicate}" Command="{Binding DuplicateCommand}"
                         IsVisible="{Binding CanEdit}" AutomationProperties.AutomationId="v2-events-duplicate"
-                        ToolTip.Tip="Copy rules and items under a new name" />
+                        ToolTip.Tip="{x:Static l:PlanText.EventsDuplicateTip}" />
                 <Button Grid.Column="2" Classes="v2-target v2-outline" Command="{Binding DeleteCommand}"
                         Content="{Binding DeleteLabel}" IsVisible="{Binding CanEdit}"
                         AutomationProperties.AutomationId="v2-events-delete" />
@@ -97,25 +98,25 @@
                    along with everything recorded against it; only Delete removes a definition. -->
               <StackPanel Spacing="8" IsVisible="{Binding CanEditSchedule}">
                 <TextBox Classes="v2-field-input" Text="{Binding RenameTo}"
-                         PlaceholderText="Event name"
+                         PlaceholderText="{x:Static l:PlanText.EventsEventName}"
                          AutomationProperties.AutomationId="v2-events-rename"
-                         AutomationProperties.Name="Event name" />
+                         AutomationProperties.Name="{x:Static l:PlanText.EventsEventName}" />
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                   <TextBox Classes="v2-field-input" Text="{Binding ScheduleStart}"
-                           PlaceholderText="First day, or blank"
+                           PlaceholderText="{x:Static l:PlanText.EventsFirstDayOrBlank}"
                            AutomationProperties.AutomationId="v2-events-start"
-                           AutomationProperties.Name="First day of the event" />
+                           AutomationProperties.Name="{x:Static l:PlanText.EventsFirstDayOfEvent}" />
                   <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding ScheduleEnd}"
-                           PlaceholderText="Last day, or blank"
+                           PlaceholderText="{x:Static l:PlanText.EventsLastDayOrBlank}"
                            AutomationProperties.AutomationId="v2-events-end"
-                           AutomationProperties.Name="Last day of the event" />
+                           AutomationProperties.Name="{x:Static l:PlanText.EventsLastDayOfEvent}" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding SchedulePreview}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="v2-events-schedule-preview"
                            AutomationProperties.LiveSetting="Polite" />
               </StackPanel>
 
-              <TextBlock Classes="v2-heading-3" Text="Effects" AutomationProperties.HeadingLevel="3" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.EventsEffects}" AutomationProperties.HeadingLevel="3" />
               <ItemsControl ItemsSource="{Binding RuleEditor.Rows}" IsVisible="{Binding CanEditSchedule}"
                             AutomationProperties.AutomationId="v2-events-effects">
                 <ItemsControl.ItemTemplate>
@@ -142,20 +143,20 @@
                         </StackPanel>
                         <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
                           <TextBox Classes="v2-field-input" Width="76" Text="{Binding Multiplier}" IsVisible="{Binding HasMultiplier}"
-                                   PlaceholderText="x1" ToolTip.Tip="Multiplier"
-                                   AutomationProperties.Name="Multiplier" />
-                          <CheckBox Content="Open" IsChecked="{Binding IsOpen, Mode=TwoWay}" IsVisible="{Binding HasOpenToggle}"
-                                    AutomationProperties.Name="Open while active" />
+                                   PlaceholderText="{x:Static l:PlanText.EventsMultiplierPlaceholder}" ToolTip.Tip="{x:Static l:PlanText.EventsMultiplier}"
+                                   AutomationProperties.Name="{x:Static l:PlanText.EventsMultiplier}" />
+                          <CheckBox Content="{x:Static l:PlanText.EventsOpen}" IsChecked="{Binding IsOpen, Mode=TwoWay}" IsVisible="{Binding HasOpenToggle}"
+                                    AutomationProperties.Name="{x:Static l:PlanText.EventsOpenWhileActive}" />
                           <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasWindow}">
-                            <TextBox Classes="v2-field-input" Width="112" Text="{Binding StartText}" PlaceholderText="First day"
-                                     AutomationProperties.Name="Quest first day" />
-                            <TextBox Classes="v2-field-input" Width="112" Text="{Binding EndText}" PlaceholderText="Last day"
-                                     AutomationProperties.Name="Quest last day" />
+                            <TextBox Classes="v2-field-input" Width="112" Text="{Binding StartText}" PlaceholderText="{x:Static l:PlanText.EventsFirstDay}"
+                                     AutomationProperties.Name="{x:Static l:PlanText.EventsQuestFirstDay}" />
+                            <TextBox Classes="v2-field-input" Width="112" Text="{Binding EndText}" PlaceholderText="{x:Static l:PlanText.EventsLastDay}"
+                                     AutomationProperties.Name="{x:Static l:PlanText.EventsQuestLastDay}" />
                           </StackPanel>
                         </StackPanel>
                         <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-intel-plain" VerticalAlignment="Center"
-                                Command="{Binding RemoveCommand}" ToolTip.Tip="Remove effect"
-                                AutomationProperties.Name="Remove effect">
+                                Command="{Binding RemoveCommand}" ToolTip.Tip="{x:Static l:PlanText.EventsRemoveEffect}"
+                                AutomationProperties.Name="{x:Static l:PlanText.EventsRemoveEffect}">
                           <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Close}" />
                         </Button>
                         <!-- Errors sit under the field they name, on their own line, so the inputs stay aligned. -->
@@ -174,15 +175,15 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
               <WrapPanel ItemSpacing="6" LineSpacing="6" IsVisible="{Binding CanEditSchedule}">
-                <Button Classes="v2-target v2-chip" Content="+ Trader price" Command="{Binding RuleEditor.AddTraderCommand}"
+                <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsAddTraderPrice}" Command="{Binding RuleEditor.AddTraderCommand}"
                         AutomationProperties.AutomationId="v2-events-add-trader" />
-                <Button Classes="v2-target v2-chip" Content="+ Flea" Command="{Binding RuleEditor.AddFleaCommand}"
+                <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsAddFlea}" Command="{Binding RuleEditor.AddFleaCommand}"
                         AutomationProperties.AutomationId="v2-events-add-flea" />
-                <Button Classes="v2-target v2-chip" Content="+ Map" Command="{Binding RuleEditor.AddMapCommand}"
+                <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsAddMap}" Command="{Binding RuleEditor.AddMapCommand}"
                         AutomationProperties.AutomationId="v2-events-add-map" />
-                <Button Classes="v2-target v2-chip" Content="+ Boss spawns" Command="{Binding RuleEditor.AddBossCommand}"
+                <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsAddBossSpawns}" Command="{Binding RuleEditor.AddBossCommand}"
                         AutomationProperties.AutomationId="v2-events-add-boss" />
-                <Button Classes="v2-target v2-chip" Content="+ Quest window" Command="{Binding RuleEditor.AddQuestCommand}"
+                <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsAddQuestWindow}" Command="{Binding RuleEditor.AddQuestCommand}"
                         AutomationProperties.AutomationId="v2-events-add-quest" />
               </WrapPanel>
 
@@ -207,8 +208,8 @@
 
               <StackPanel Spacing="6" IsVisible="{Binding CanEditSchedule}">
                 <WrapPanel ItemSpacing="8" LineSpacing="6">
-                  <Button Classes="v2-target v2-outline" Content="Save event"
-                          ToolTip.Tip="Save event (Ctrl+S)"
+                  <Button Classes="v2-target v2-outline" Content="{x:Static l:PlanText.EventsSaveEvent}"
+                          ToolTip.Tip="{x:Static l:PlanText.EventsSaveEventTip}"
                           AutomationProperties.AutomationId="v2-events-save-schedule"
                           Command="{Binding SaveScheduleCommand}" />
                   <Button Classes="v2-target v2-plain" Content="{Binding ArchiveLabel}"
@@ -225,7 +226,7 @@
           </ScrollViewer>
 
           <Grid x:Name="EventsItems" Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
-            <TextBlock Grid.Row="0" Classes="v2-heading-2" Text="Applicable items" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Grid.Row="0" Classes="v2-heading-2" Text="{x:Static l:PlanText.EventsApplicableItemsHeading}" AutomationProperties.HeadingLevel="2" />
             <StackPanel Grid.Row="1" Spacing="4">
               <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
                          Foreground="{DynamicResource V2.Brush.TextSecondary}" />
@@ -242,15 +243,15 @@
               <Border Classes="v2-intel-search">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                   <TextBox Classes="v2-intel-search-input" Text="{Binding ItemQuery}"
-                           PlaceholderText="Find an item to add"
+                           PlaceholderText="{x:Static l:PlanText.EventsFindItemToAdd}"
                            AutomationProperties.AutomationId="v2-events-item-search"
-                           AutomationProperties.Name="Find an item to add">
+                           AutomationProperties.Name="{x:Static l:PlanText.EventsFindItemToAdd}">
                     <TextBox.KeyBindings>
                       <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
                     </TextBox.KeyBindings>
                   </TextBox>
                   <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain"
-                          AutomationProperties.Name="Search" ToolTip.Tip="Search" Command="{Binding SearchCommand}">
+                          AutomationProperties.Name="{x:Static l:PlanText.EventsSearch}" ToolTip.Tip="{x:Static l:PlanText.EventsSearch}" Command="{Binding SearchCommand}">
                     <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
                   </Button>
                 </Grid>
@@ -262,7 +263,7 @@
                     <DataTemplate x:DataType="pages:EventItemMatchViewModel">
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
                         <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Add" Command="{Binding AddCommand}" />
+                        <Button Grid.Column="1" Classes="v2-target v2-outline" Content="{x:Static l:PlanText.EventsAdd}" Command="{Binding AddCommand}" />
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -279,15 +280,15 @@
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ItemName}" TextWrapping="Wrap"
                                    VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Spacing="1">
-                          <TextBlock Classes="v2-label" Text="Recorded" />
+                          <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.EventsRecorded}" />
                           <TextBlock Classes="v2-body" Text="{Binding StateLabel}" />
                         </StackPanel>
                         <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" ItemSpacing="6" LineSpacing="6">
-                          <Button Classes="v2-target v2-chip" Content="Safe" Command="{Binding MarkSafeCommand}" IsEnabled="{Binding CanRecord}" />
-                          <Button Classes="v2-target v2-chip" Content="Allergic" Command="{Binding MarkAllergicCommand}" IsEnabled="{Binding CanRecord}" />
-                          <Button Classes="v2-target v2-chip" Content="Untested" Command="{Binding MarkUntestedCommand}" IsEnabled="{Binding CanRecord}" />
-                          <Button Classes="v2-target v2-chip" Content="Unknown" Command="{Binding MarkUnknownCommand}" IsEnabled="{Binding CanRecord}" />
-                          <Button Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}" IsVisible="{Binding CanEdit}" />
+                          <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsSafe}" Command="{Binding MarkSafeCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsAllergic}" Command="{Binding MarkAllergicCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsUntested}" Command="{Binding MarkUntestedCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-chip" Content="{x:Static l:PlanText.EventsUnknown}" Command="{Binding MarkUnknownCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-plain" Content="{x:Static l:PlanText.EventsRemove}" Command="{Binding RemoveCommand}" IsVisible="{Binding CanEdit}" />
                         </WrapPanel>
                       </Grid>
                     </Border>

@@ -1,5 +1,6 @@
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services;
@@ -84,7 +85,7 @@ public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
     public string TaskName => Task.Name;
 
     public string TraderLabel => string.IsNullOrWhiteSpace(Task.TraderId)
-        ? "No trader"
+        ? PlanText.NoTrader
         : Task.TraderName ?? Task.TraderId;
 
     public string Description => Objective.Description;
@@ -131,7 +132,7 @@ public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
     public bool StateCameFromTheGame =>
         string.Equals(Task.ProgressSource, QuestProgressSources.GameLog, StringComparison.Ordinal);
 
-    public string StateSourceLabel => StateCameFromTheGame ? "from the game" : string.Empty;
+    public string StateSourceLabel => StateCameFromTheGame ? PlanText.FromTheGame : string.Empty;
 
     /// <summary>A bare recorded state ("Unknown") says nothing on the page; only counts are shown.</summary>
     public bool HasRemainingLabel => Objective.TargetCount is not null || Objective.RecordedCount is not null;
@@ -180,26 +181,26 @@ public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
         RouteReason = step?.Reason ?? string.Empty;
         RouteDistanceLabel = step is null
             ? string.Empty
-            : string.Create(CultureInfo.CurrentCulture, $"{step.LegDistanceMetres:N0} m");
+            : PlanText.Metres(step.LegDistanceMetres);
     }
 
     /// <summary>The engine's compact reason, shown only while the shared Learn Mode switch is on.</summary>
     public string LearnReason => StatusLabel.Length > 0
         ? StatusLabel
         : HasHandlingLabel
-            ? $"{HandlingLabel}: needed for {TaskName}"
-            : $"Quest: advances {TaskName}";
+            ? PlanText.LearnNeededFor(HandlingLabel, TaskName)
+            : PlanText.LearnAdvances(TaskName);
 
     /// <summary>The row's compact secondary facts, without constructing a hidden control for each possible fact.</summary>
     public string MetadataLabel => string.Join(" · ", new[]
     {
-        IsOptional ? "Optional" : string.Empty,
+        IsOptional ? PlanText.Optional : string.Empty,
         StatusLabel,
         StateSourceLabel,
         HandlingLabel,
         RemainingLabel,
-        ShowsNoMapPosition ? "No map position" : string.Empty,
-        IsUnsupported ? "Unsupported objective" : string.Empty,
+        ShowsNoMapPosition ? PlanText.NoMapPosition : string.Empty,
+        IsUnsupported ? PlanText.UnsupportedObjective : string.Empty,
     }.Where(value => value.Length > 0));
 
     public bool HasMetadataLabel => MetadataLabel.Length > 0;
@@ -213,9 +214,9 @@ public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool CanMarkQuestDone => Task.RecordedState != RecordedTaskState.Completed;
 
-    public string PinQuestLabel => Task.IsPinned ? "Unpin quest" : "Pin quest";
+    public string PinQuestLabel => Task.IsPinned ? PlanText.UnpinQuest : PlanText.PinQuest;
 
-    public string PinObjectiveLabel => Objective.IsPinned ? "Unpin objective" : "Pin objective";
+    public string PinObjectiveLabel => Objective.IsPinned ? PlanText.UnpinObjective : PlanText.PinObjective;
 
     /// <summary>Only an objective with a target has a count to step.</summary>
     public bool CanChangeCount => Objective.TargetCount is not null;
@@ -285,7 +286,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     private string _availabilityLabel = string.Empty;
     private IReadOnlyList<PlanObjectiveRowViewModel> _visitOrder;
     private ObjectiveRouteBundle? _route;
-    private string _routeHint = "Choose a spawn in Raid, or take a position screenshot, to order these objectives.";
+    private string _routeHint = PlanText.RouteNeedsOrigin;
     private string? _routeSignature;
     private int _unroutedObjectiveCount;
 
@@ -305,7 +306,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
             .Select(group => new PlanQuestSummaryViewModel(
                 group.First().TaskName,
                 group.First().TraderLabel,
-                PlanWorkspaceViewModel.CountLabel(group.Count(), "objective")))
+                PlanText.ObjectiveCount(group.Count())))
             .ToArray();
         FindInRaidCount = objectives.Count(row => row.Objective.FoundInRaidRequired == true);
         HandInCount = objectives.Count(row => row.Objective.FoundInRaidRequired == false);
@@ -328,7 +329,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public IReadOnlyList<PlanQuestSummaryViewModel> Quests { get; }
 
     /// <summary>"4 objectives · 3 quests", the bundle card's second line.</summary>
-    public string Summary => $"{PlanWorkspaceViewModel.CountLabel(Objectives.Count, "objective")} · {PlanWorkspaceViewModel.CountLabel(Quests.Count, "quest")}";
+    public string Summary => $"{PlanText.ObjectiveCount(Objectives.Count)} · {PlanText.QuestCount(Quests.Count)}";
 
     /// <summary>Objectives whose items must be found in raid, where the catalog says so.</summary>
     public int FindInRaidCount { get; }
@@ -339,7 +340,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public bool HasItemObjectives => FindInRaidCount + HandInCount > 0;
 
     /// <summary>"Objectives (4)", the context panel's list heading.</summary>
-    public string ObjectivesHeading => $"Objectives ({Objectives.Count})";
+    public string ObjectivesHeading => PlanText.ObjectivesHeading(Objectives.Count);
 
     public ObjectiveRouteBundle? Route => _route;
 
@@ -348,10 +349,10 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public string RouteSummary => Route is { } route
         ? string.Join(" · ", new[]
         {
-            string.Create(CultureInfo.CurrentCulture, $"{route.Steps.Count:N0} stops"),
-            string.Create(CultureInfo.CurrentCulture, $"{route.TotalDistanceMetres:N0} m from {route.StartLabel}"),
+            PlanText.Stops(route.Steps.Count),
+            PlanText.RouteFrom(route.TotalDistanceMetres, route.StartLabel),
             _unroutedObjectiveCount > 0
-                ? string.Create(CultureInfo.CurrentCulture, $"{_unroutedObjectiveCount:N0} without one exact position")
+                ? PlanText.WithoutExactPosition(_unroutedObjectiveCount)
                 : string.Empty,
             // #307: which rules ordered it, as a saved loot scan names its ruleset.
             route.PlannerVersion.Length > 0 ? PlannerVersions.Label(route.PlannerVersion) : string.Empty,
@@ -366,7 +367,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool HasRouteHint => !HasRoute && RouteHint.Length > 0;
 
-    public string RouteCaveat => "Straight-line visit order · walls, terrain, and safety are not modelled";
+    public string RouteCaveat => PlanText.RouteCaveat;
 
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
@@ -396,7 +397,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
                 .Distinct(StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
         IsAvailable = closures.Length == 0;
-        AvailabilityLabel = IsAvailable ? string.Empty : $"Closed · {string.Join(", ", closures)}";
+        AvailabilityLabel = IsAvailable ? string.Empty : PlanText.Closed(string.Join(", ", closures));
         OnPropertyChanged(nameof(HasAvailabilityLabel));
     }
 
@@ -464,7 +465,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool HasMoreObjectives => _visibleObjectiveLimit < Objectives.Count;
 
-    public string MoreObjectivesLabel => $"Show {Math.Min(ObjectivePageSize, Objectives.Count - _visibleObjectiveLimit):N0} more";
+    public string MoreObjectivesLabel => PlanText.ShowMore(Math.Min(ObjectivePageSize, Objectives.Count - _visibleObjectiveLimit));
 
     public ICommand ShowMoreObjectivesCommand => _showMoreObjectives ??= new DelegateCommand(() =>
     {
@@ -516,7 +517,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool HasMoreRequirements => _visibleRequirementLimit < Requirements.Count;
 
-    public string MoreRequirementsLabel => $"Show {Math.Min(RequirementPageSize, Requirements.Count - _visibleRequirementLimit):N0} more";
+    public string MoreRequirementsLabel => PlanText.ShowMore(Math.Min(RequirementPageSize, Requirements.Count - _visibleRequirementLimit));
 
     public ICommand ShowMoreRequirementsCommand => _showMoreRequirements ??= new DelegateCommand(() =>
     {
@@ -545,7 +546,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public string RequirementsSummary => !HasRequirements
         ? string.Empty
         : RequirementsReady
-            ? "All ready"
+            ? PlanText.AllReady
             : PlanQuestRules.SummariseUnmet(Requirements.Where(row => !row.IsSatisfied));
 
     public bool IsSelected
@@ -635,8 +636,8 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     private IReadOnlyDictionary<string, string> _allergyWarnings = new Dictionary<string, string>(StringComparer.Ordinal);
     private (QuestBoardReadModel Board, Dictionary<string, string> Names)? _taskNames;
     private QuestProfileScope? _scope;
-    private string _status = "Loading your quest board…";
-    private string _scopeLabel = "No profile loaded";
+    private string _status = PlanText.LoadingBoard;
+    private string _scopeLabel = PlanText.NoProfileLoaded;
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
     private readonly ReconciledList<PlanMapGroupViewModel> _visibleGroups = new();
     private int _visibleGroupTarget;
@@ -653,7 +654,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly HashSet<string> _missingItems = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, int> _ownedItems = new Dictionary<string, int>(StringComparer.Ordinal);
-    private static readonly PlanTraderOption AllTraders = new(null, "All traders");
+    private static readonly PlanTraderOption AllTraders = new(null, PlanText.AllTraders);
     private PlanQuestFilter _filter = PlanQuestFilter.Active;
     private IReadOnlyList<PlanFilterChipViewModel>? _filterChips;
     private string _searchText = string.Empty;
@@ -814,7 +815,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
     public bool HasMoreGroups => _visibleGroupLimit < Groups.Count;
 
-    public string MoreGroupsLabel => $"Show {Math.Min(GroupPageSize, Groups.Count - _visibleGroupLimit):N0} more maps";
+    public string MoreGroupsLabel => PlanText.ShowMoreMaps(Math.Min(GroupPageSize, Groups.Count - _visibleGroupLimit));
 
     public ICommand ShowMoreGroupsCommand => _showMoreGroups ??= new DelegateCommand(() =>
     {
@@ -1210,10 +1211,10 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
         ExportStatus = (copied, written) switch
         {
-            (true, { } path) => $"Copied, and saved to {path}",
-            (true, null) => "Copied to the clipboard",
-            (false, { } path) => $"Saved to {path}",
-            _ => "Nothing to export to: no clipboard and no writable folder.",
+            (true, { } path) => PlanText.CopiedAndSaved(path),
+            (true, null) => PlanText.CopiedToClipboard,
+            (false, { } path) => PlanText.SavedTo(path),
+            _ => PlanText.NothingToExportTo,
         };
     }
 
@@ -1267,7 +1268,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
                 _activeEventRules = eventRules.Active;
                 var summary = EventRuleText.ActiveSummary(_activeEventRules);
                 EventRuleSummary = eventRules.InvalidDefinitions.Count > 0
-                    ? string.Join(" · ", new[] { summary, $"{eventRules.InvalidDefinitions.Count} event rule file(s) need attention" }.Where(value => value.Length > 0))
+                    ? string.Join(" · ", new[] { summary, PlanText.EventRuleFilesNeedAttention(eventRules.InvalidDefinitions.Count) }.Where(value => value.Length > 0))
                     : summary;
             }
             else
@@ -1303,8 +1304,8 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             _board = null;
             Groups = [];
             SelectedGroup = null;
-            Status = "Quest data isn't available yet.";
-            LoadFault.Show("Quests did not load", "Nothing is lost. Retry reads them again.");
+            Status = PlanText.QuestDataUnavailable;
+            LoadFault.Show(PlanText.QuestsDidNotLoad, PlanText.NothingLostRetry);
             WorkspaceFault.Record("plan", "refresh", exception);
         }
     }
@@ -1338,26 +1339,26 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
         if (!reading.HeardAnything)
         {
-            GameLogStatus = "The game hasn't reported a quest yet this session.";
+            GameLogStatus = PlanText.GameNotReported;
             return;
         }
 
         var heard = reading.LastObservedUtc is { } observed
-            ? $"The game last reported a quest at {LocalTime.ShortTime(observed)}"
-            : "The game has reported quests";
+            ? PlanText.GameLastReported(LocalTime.ShortTime(observed))
+            : PlanText.GameReported;
         var what = reading.Recorded switch
         {
-            0 => "; none of them changed your board",
-            1 => "; 1 updated your board",
-            var many => $"; {many} updated your board",
+            0 => PlanText.NoneChangedBoard,
+            1 => PlanText.OneChangedBoard,
+            var many => PlanText.ManyChangedBoard(many),
         };
         var caveat = (reading.Unmatched, reading.Failed) switch
         {
-            (0, 0) => ".",
-            (> 0, 0) => $". {CountLabel(reading.Unmatched, "quest")} not in the loaded catalog.",
-            (0, > 0) => $". {CountLabel(reading.Failed, "quest")} couldn't be saved.",
+            (0, 0) => PlanText.SentenceEnd,
+            (> 0, 0) => PlanText.NotInLoadedCatalog(PlanText.QuestCount(reading.Unmatched)),
+            (0, > 0) => PlanText.CouldNotBeSaved(PlanText.QuestCount(reading.Failed)),
             var (unmatched, failed) =>
-                $". {CountLabel(unmatched, "quest")} not in the catalog, {CountLabel(failed, "quest")} couldn't be saved.",
+                PlanText.NotInCatalogOrSaved(PlanText.QuestCount(unmatched), PlanText.QuestCount(failed)),
         };
         GameLogStatus = heard + what + caveat;
     }
@@ -1438,7 +1439,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
     /// <summary>"Suggested: Shoreline · 3 quests", under the page heading where it cannot scroll away.</summary>
     public string SuggestedRaidLabel => _suggestedRaid is { } group
-        ? $"Suggested: {group.MapLabel} · {CountLabel(group.Quests.Count, "quest")}"
+        ? PlanText.Suggested(group.MapLabel, PlanText.QuestCount(group.Quests.Count))
         : string.Empty;
 
     public ICommand SelectSuggestedRaidCommand => _selectSuggestedRaid ??= new DelegateCommand(() =>
@@ -1632,7 +1633,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         _searchIndex = _board is null ? PlanSearchIndex.Empty : PlanSearchIndex.Build(_board.Tasks, NameOfMap);
 
     private void UpdateStatus() => Status = _board?.UnavailableReason ?? (HasGroups
-        ? $"{CountLabel(Groups.Sum(group => group.Objectives.Count), "objective")} across {CountLabel(Groups.Count, "map")}"
+        ? PlanText.AcrossMaps(PlanText.ObjectiveCount(Groups.Sum(group => group.Objectives.Count)), PlanText.MapCount(Groups.Count))
         : PlanQuestRules.DescribeEmpty(Filter, SearchText.Trim(), SelectedTrader.TraderId is not null));
 
     /// <summary>
@@ -1733,7 +1734,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             OnPropertyChanged(nameof(PlayerLevel));
-            Status = $"Level not saved · {exception.Message}";
+            Status = PlanText.LevelNotSaved(exception.Message);
         }
     }
 
@@ -1773,7 +1774,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Trader loyalty not saved · {exception.Message}";
+            Status = PlanText.LoyaltyNotSaved(exception.Message);
         }
     }
 
@@ -1835,7 +1836,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     /// </summary>
     private string NameOfItem(string itemId) => _itemNames.TryGetValue(itemId, out var name)
         ? name
-        : _missingItems.Contains(itemId) ? "Item not in the catalog" : itemId;
+        : _missingItems.Contains(itemId) ? PlanText.ItemNotInCatalog : itemId;
 
     /// <summary>Each unmet requirement counted once however many maps ask for it.</summary>
     private void UpdateRollup()
@@ -1843,7 +1844,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         var unmet = Groups
             .SelectMany(group => group.Requirements.Where(row => !row.IsSatisfied))
             .DistinctBy(row => (row.ItemName, row.HandlingLabel));
-        RequirementsRollup = PlanQuestRules.SummariseUnmet(unmet, value => CountLabel(value, "item"));
+        RequirementsRollup = PlanQuestRules.SummariseUnmet(unmet, value => PlanText.ItemCount(value));
     }
 
     /// <summary>
@@ -1913,10 +1914,6 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             UpdateRollup();
         }
     }
-
-    /// <summary>"1 objective", "3 quests": the plural is regular for every noun this page counts.</summary>
-    internal static string CountLabel(int count, string noun) =>
-        string.Create(CultureInfo.CurrentCulture, $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}");
 
     internal bool SelectMapForPreview(string map)
     {
@@ -2023,7 +2020,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
         try
         {
-            MapNote = "Loading map…";
+            MapNote = PlanText.LoadingMap;
             await _map.FollowRaidAsync(locationId).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -2043,15 +2040,15 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         var group = SelectedGroup;
         if (group is null || group.MapId is null)
         {
-            ClearMapPreview(group is null ? string.Empty : "These objectives can be done on any map.");
+            ClearMapPreview(group is null ? string.Empty : PlanText.AnyMapObjectives);
             return;
         }
 
         if (_raidCockpit is null || !ShowsGroupMap(group))
         {
             ClearMapPreview(_runtime?.Current.Raid.State == RaidLifecycleState.InRaid && _map.SelectedLocation is not null
-                ? "The map follows your raid. It shows here after the raid."
-                : "Loading map…");
+                ? PlanText.MapFollowsRaid
+                : PlanText.LoadingMap);
             return;
         }
 
@@ -2102,7 +2099,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             routeScene is null ? [] : [routeScene.Layer]);
         _mapPreviewSignature = preview is null ? null : signature;
         MapPreview = preview;
-        MapNote = preview is null ? "This map has no 2D plan yet." : string.Empty;
+        MapNote = preview is null ? PlanText.NoMapPlan : string.Empty;
     }
 
     private void ClearMapPreview(string note)
@@ -2112,7 +2109,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         MapNote = note;
         if (SelectedGroup is { } group)
         {
-            group.ApplyRoute(null, note.Length > 0 ? note : "A map and route origin are needed to order these objectives.");
+            group.ApplyRoute(null, note.Length > 0 ? note : PlanText.RouteNeedsMap);
             foreach (var row in group.Objectives)
             {
                 row.HasMapPosition = null;
@@ -2151,7 +2148,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     {
         if (_raidCockpit?.ObjectiveRouteOrigin() is not { } origin)
         {
-            group.ApplyRoute(null, "Choose a spawn in Raid, or take a position screenshot, to order these objectives.");
+            group.ApplyRoute(null, PlanText.RouteNeedsOrigin);
             return null;
         }
 
@@ -2190,7 +2187,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
         if (stops.Count == 0)
         {
-            group.ApplyRoute(null, "No objective on this map has one exact position to route.");
+            group.ApplyRoute(null, PlanText.RouteNoExactPosition);
             return null;
         }
 
@@ -2280,8 +2277,8 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     /// <summary>Hand-in versus find-in-raid, kept distinct only where the catalog says which.</summary>
     internal static string DescribeHandling(QuestObjectiveReadModel objective) => objective.FoundInRaidRequired switch
     {
-        true => "Find in raid",
-        false => "Hand in",
+        true => PlanText.FindInRaid,
+        false => PlanText.HandIn,
         null => string.Empty,
     };
 
@@ -2296,9 +2293,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
         var recorded = objective.RecordedCount ?? 0;
         var remaining = Math.Max(0, target - recorded);
-        return string.Create(
-            CultureInfo.CurrentCulture,
-            $"{remaining:0.##} remaining of {target:0.##}");
+        return PlanText.RemainingOf(remaining, target);
     }
 
     private async Task<Dictionary<string, string>> ResolveMapNamesAsync(
@@ -2365,7 +2360,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     {
         if (mapId.Length == 0)
         {
-            return "Any map";
+            return PlanText.AnyMap;
         }
 
         if (_mapNames.TryGetValue(mapId, out var synced))
@@ -2377,7 +2372,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             .FirstOrDefault(location =>
                 string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase))?.Name
-            ?? "Other map";
+            ?? PlanText.OtherMap;
     }
 
     internal bool TryOpenWiki(string? wikiUri) => _wikiOpener.TryOpen(wikiUri);
@@ -2428,7 +2423,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Could not switch the map: {exception.Message}";
+            Status = PlanText.CouldNotSwitchMap(exception.Message);
         }
     }
 
@@ -2436,7 +2431,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     {
         if (_scope is null)
         {
-            Status = "No profile loaded · nothing changed";
+            Status = PlanText.NoProfileNothingChanged;
             return;
         }
 
@@ -2447,7 +2442,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Not changed · {exception.Message}";
+            Status = PlanText.NotChanged(exception.Message);
         }
     }
 }

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
@@ -97,7 +98,7 @@ public sealed class SquadQuestFeed
                 if (_own is not null)
                 {
                     var own = await _own.GetAsync(CancellationToken.None).ConfigureAwait(false);
-                    input.Add(new("You", true, own.TaskIds, [.. own.Objectives.Select(objective =>
+                    input.Add(new(TeamText.You, true, own.TaskIds, [.. own.Objectives.Select(objective =>
                         new GroupObjectiveView(objective.TaskId, objective.ObjectiveId, objective.Count))]));
                 }
 

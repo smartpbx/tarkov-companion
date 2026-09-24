@@ -1,4 +1,4 @@
-using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
@@ -77,8 +77,8 @@ public sealed class SquadPageViewModel : PageViewModel
     private readonly IItemRepository _items;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private IReadOnlyList<SquadMemberViewModel> _members = [];
-    private string _status = "No party observed";
-    private string _queue = "Not queued";
+    private string _status = TeamText.PartyNone;
+    private string _queue = TeamText.NotQueued;
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
     private RaidLifecycleState _renderedState = RaidLifecycleState.Unknown;
 
@@ -139,17 +139,14 @@ public sealed class SquadPageViewModel : PageViewModel
         OnPropertyChanged(nameof(HasNoMembers));
         Status = squad.Members.Count switch
         {
-            0 => "No party observed",
-            1 => "1 member",
-            var count => string.Create(CultureInfo.CurrentCulture, $"{count} members"),
+            0 => TeamText.PartyNone,
+            var count => TeamText.MemberCount(count),
         };
         Queue = squad.MatchStartedUtc is { } queued
             ? squad.QueueEstimate is { } estimate
-                ? string.Create(
-                    CultureInfo.CurrentCulture,
-                    $"Queued {LocalTime.Time(queued)} · game estimated {estimate.TotalSeconds:F0}s")
-                : string.Create(CultureInfo.CurrentCulture, $"Queued {LocalTime.Time(queued)}")
-            : "Not queued";
+                ? TeamText.QueuedWithEstimate(LocalTime.Time(queued), estimate.TotalSeconds)
+                : TeamText.Queued(LocalTime.Time(queued))
+            : TeamText.NotQueued;
         // A party that has never been observed has no update time, and printing the epoch as
         // one showed "updated 12:00:00 AM" on a page that had seen nothing at all.
         // Saying why it is not changing is the difference between a page that looks broken and
@@ -157,37 +154,37 @@ public sealed class SquadPageViewModel : PageViewModel
         // changes in the lobby and stops dead when a raid starts, which from inside a raid is
         // indistinguishable from the feature having failed.
         Evidence = squad.UpdatedUtc == DateTimeOffset.UnixEpoch
-            ? "Nothing observed yet"
+            ? TeamText.NothingObservedYet
             : snapshot.Raid.State == RaidLifecycleState.InRaid
-                ? $"Lobby, {LocalTime.ShortTime(squad.UpdatedUtc)} · the game stops publishing in raid"
-                : $"Updated {LocalTime.Time(squad.UpdatedUtc)}";
+                ? TeamText.LobbyStopsInRaid(LocalTime.ShortTime(squad.UpdatedUtc))
+                : TeamText.Updated(LocalTime.Time(squad.UpdatedUtc));
         _ = ResolveGearNamesAsync(squad);
     }
 
     private SquadMemberViewModel Describe(GroupMember member) => new(
-        member.Nickname ?? "Unnamed",
+        member.Nickname ?? TeamText.Unnamed,
         member.IsLeader == true
-            ? member.Side is { } leaderSide ? $"Party leader · {leaderSide}" : "Party leader"
-            : member.Side ?? "Party member",
+            ? member.Side is { } leaderSide ? TeamText.PartyLeaderSide(leaderSide) : TeamText.PartyLeader
+            : member.Side ?? TeamText.PartyMember,
         member.Level is { } level
-            ? string.Create(CultureInfo.CurrentCulture, $"Level {level}")
-            : "Level unknown",
+            ? TeamText.Level(level)
+            : TeamText.LevelUnknown,
         member.IsReady switch
         {
-            true => "Ready",
-            false => "Not ready",
-            null => "Readiness unknown",
+            true => TeamText.Ready,
+            false => TeamText.NotReady,
+            null => TeamText.ReadinessUnknown,
         },
         member.ScavLockedUntil is { } until
-            ? string.Create(CultureInfo.CurrentCulture, $"Scav {LocalTime.ShortTime(until)}")
-            : "Scav timer unknown",
+            ? TeamText.Scav(LocalTime.ShortTime(until))
+            : TeamText.ScavTimerUnknown,
         DescribeGear(member),
         member.IsReady);
 
     private IReadOnlyList<SquadGearViewModel> DescribeGear(GroupMember member) => member.Equipment
         .Where(item => item.SlotId is not null && GearSlots.Contains(item.SlotId, StringComparer.Ordinal))
         .OrderBy(item => Array.IndexOf(GearSlots, item.SlotId!))
-        .Select(item => new SquadGearViewModel($"{Humanise(item.SlotId!)}: {Name(item.TemplateId)}"))
+        .Select(item => new SquadGearViewModel(TeamText.GearLine(Humanise(item.SlotId!), Name(item.TemplateId))))
         .ToArray();
 
     /// <summary>
@@ -199,15 +196,15 @@ public sealed class SquadPageViewModel : PageViewModel
     /// rather than as a raw id, which would read like a bug.
     /// </remarks>
     private string Name(string templateId) =>
-        _itemNames.TryGetValue(templateId, out var name) ? name : "not in the synced catalog";
+        _itemNames.TryGetValue(templateId, out var name) ? name : TeamText.NotInCatalog;
 
     private static string Humanise(string slotId) => slotId switch
     {
-        "FirstPrimaryWeapon" => "Primary",
-        "SecondPrimaryWeapon" => "Secondary",
-        "Holster" => "Sidearm",
-        "ArmorVest" => "Armour",
-        "TacticalVest" => "Rig",
+        "FirstPrimaryWeapon" => TeamText.SlotPrimary,
+        "SecondPrimaryWeapon" => TeamText.SlotSecondary,
+        "Holster" => TeamText.SlotSidearm,
+        "ArmorVest" => TeamText.SlotArmour,
+        "TacticalVest" => TeamText.SlotRig,
         _ => slotId,
     };
 

@@ -1,4 +1,4 @@
-using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Windows.Input;
@@ -84,7 +84,7 @@ public sealed class PairedDeviceRowViewModel : BindableViewModel
     /// </summary>
     public bool IsPairingOutOfDate { get; }
 
-    public string PairingOutOfDateLabel => "Out of date · pair again";
+    public string PairingOutOfDateLabel => TeamText.PairingOutOfDate;
 
     /// <summary>Whether the next press revokes, rather than asks.</summary>
     public bool Confirming
@@ -100,11 +100,11 @@ public sealed class PairedDeviceRowViewModel : BindableViewModel
         }
     }
 
-    public string RevokeLabel => Confirming ? "Confirm revoke" : "Revoke";
+    public string RevokeLabel => Confirming ? TeamText.ConfirmRevoke : TeamText.Revoke;
 
     /// <summary>What the second press will do, said before it is pressed.</summary>
     public string RevokeWarning => Confirming
-        ? $"{DisplayName} will have to be paired again. This cannot be undone."
+        ? TeamText.RevokeWarning(DisplayName)
         : string.Empty;
 
     /// <summary>Puts the row back to asking, for a selection change or a reload.</summary>
@@ -310,7 +310,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     public bool HasControlRequest => !string.IsNullOrEmpty(ControlRequestMessage);
 
     /// <summary>[#553] What a desktop with no group key is told: that is all registering needs.</summary>
-    public const string GroupKeyNeededMessage = "Set a group key in Team > Group first.";
+    public static string GroupKeyNeededMessage => TeamText.GroupKeyNeeded;
 
     /// <summary>Whether starting a pairing ceremony can succeed, as last known from this desktop.</summary>
     /// <remarks>
@@ -434,17 +434,17 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         ArgumentNullException.ThrowIfNull(state);
         var modes = state.DeviceModes;
         ControlRequestMessage = modes.PendingControl is { } pending
-            ? $"{NameOf(pending.DeviceId)} is asking to control this desktop."
+            ? TeamText.AskingForControl(NameOf(pending.DeviceId))
             : null;
         ControlHolderMessage = modes.ControlLease is { } lease
-            ? $"{NameOf(lease.DeviceId)} is controlling this desktop."
+            ? TeamText.ControllingDesktop(NameOf(lease.DeviceId))
             : null;
         RefreshDevices();
     }
 
     private string NameOf(CompanionDeviceId deviceId) =>
         _authority.Snapshot.Devices.FirstOrDefault(device => device.DeviceId == deviceId)?.DisplayName
-            ?? "A paired device";
+            ?? TeamText.APairedDevice;
 
     private async Task ResolveControlAsync(bool approved)
     {
@@ -500,7 +500,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
 
     public string UnavailableReason => CanPair
         ? string.Empty
-        : "Pairing needs Windows and a group relay configured with an https address (Settings > Group).";
+        : TeamText.PairingNeedsWindows;
 
     public IReadOnlyList<PairedDeviceRowViewModel> Devices { get; private set; } = [];
 
@@ -601,10 +601,10 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     /// which somebody decides whether to start over rather than keep typing.
     /// </remarks>
     internal static string DescribeExpiry(TimeSpan left) => left <= TimeSpan.Zero
-        ? "This code has expired. Start pairing again."
+        ? TeamText.CodeExpired
         : left.TotalMinutes >= 1
-            ? string.Create(CultureInfo.CurrentCulture, $"Expires in {(int)left.TotalMinutes}m {left.Seconds:00}s")
-            : string.Create(CultureInfo.CurrentCulture, $"Expires in {(int)left.TotalSeconds}s");
+            ? TeamText.ExpiresInMinutes((int)left.TotalMinutes, left.Seconds)
+            : TeamText.ExpiresInSeconds((int)left.TotalSeconds);
 
     /// <summary>Whether the code has run out, which is when the panel stops offering it.</summary>
     public bool IsCodeExpired
@@ -717,8 +717,8 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     /// a restart — where nothing was attempted — showed as an empty row.
     /// </remarks>
     public string ClaimedSummary => _relayOrigin is { } origin
-        ? $"Connected to the relay at {origin.Host}."
-        : "Connected to the relay.";
+        ? TeamText.ConnectedToRelayAt(origin.Host)
+        : TeamText.ConnectedToRelay;
 
     /// <summary>
     /// The relay's tablet page, as an absolute URL with no fragment. Shown as plain text so it can
@@ -773,31 +773,30 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         RelayOwnerClaimState current) => result.Outcome switch
     {
         RelayClaimOutcome.Claimed =>
-            (RelayOwnerClaimState.ClaimedByThisDesktop, "Connected to the relay."),
+            (RelayOwnerClaimState.ClaimedByThisDesktop, TeamText.ConnectedToRelay),
         _ when result is { Code: "clock-skew", ClockOffsetSeconds: { } offset } =>
             (current, DescribeClockSkew(offset)),
         RelayClaimOutcome.GroupKeyRefused =>
-            (RelayOwnerClaimState.NotClaimed, "This relay did not accept your group key."),
+            (RelayOwnerClaimState.NotClaimed, TeamText.GroupKeyRefused),
         // [#553] Only a relay from before desktops registered themselves leaves a desktop that
         // has a group key unrecognised: it has no such route, and nobody claimed it from here.
-        RelayClaimOutcome.KeyNotRecognised => (current, "This relay must be updated before it can pair tablets."),
-        RelayClaimOutcome.RateLimited => (current, "Too many attempts. Try again in a minute."),
-        RelayClaimOutcome.Unreachable => (current, "Could not reach the group relay."),
-        _ when result.Code == "room-full" => (current, "This group already has as many desktops as the relay allows."),
-        _ when result.Code == "relay-full" => (current, "This relay has no room for another desktop."),
+        RelayClaimOutcome.KeyNotRecognised => (current, TeamText.RelayNeedsUpdate),
+        RelayClaimOutcome.RateLimited => (current, TeamText.TooManyAttempts),
+        RelayClaimOutcome.Unreachable => (current, TeamText.RelayUnreachable),
+        _ when result.Code == "room-full" => (current, TeamText.RoomFull),
+        _ when result.Code == "relay-full" => (current, TeamText.RelayFull),
         _ => (current, result.Code is { Length: > 0 } code
-            ? $"The relay refused this desktop: {code}."
-            : "The relay refused this desktop."),
+            ? TeamText.RelayRefusedCode(code)
+            : TeamText.RelayRefused),
     };
 
     internal static string DescribeClockSkew(long offsetSeconds)
     {
         var absoluteSeconds = offsetSeconds < 0 ? -(decimal)offsetSeconds : offsetSeconds;
         var amount = absoluteSeconds >= 60 * 60
-            ? $"{Math.Max(1, (long)Math.Round(absoluteSeconds / 3600m, MidpointRounding.AwayFromZero))} h"
-            : $"{Math.Max(1, (long)Math.Round(absoluteSeconds / 60m, MidpointRounding.AwayFromZero))} min";
-        var direction = offsetSeconds < 0 ? "ahead of" : "behind";
-        return $"Your PC clock is {amount} {direction} real time. Pairing won't work until it's fixed.";
+            ? TeamText.ClockHours(Math.Max(1, (long)Math.Round(absoluteSeconds / 3600m, MidpointRounding.AwayFromZero)))
+            : TeamText.ClockMinutes(Math.Max(1, (long)Math.Round(absoluteSeconds / 60m, MidpointRounding.AwayFromZero)));
+        return offsetSeconds < 0 ? TeamText.ClockAhead(amount) : TeamText.ClockBehind(amount);
     }
 
     /// <summary>Completes once the kept claim has been looked for; a test waits on it.</summary>
@@ -946,13 +945,13 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
                 RelayClaimState = RelayOwnerClaimState.NotClaimed;
                 // [#553] Reached only after registering again was refused too, and that refusal's
                 // own words are already showing; this is what is said when there were none.
-                RelayClaimMessage ??= "The relay refused this desktop. Check the group key in Team > Group.";
+                RelayClaimMessage ??= TeamText.RelayRefusedCheckKey;
                 _ = _registrationRetry?.StartAsync(_lifetime.Token);
                 break;
         }
     }
 
-    private const string UnreachableClaimMessage = "Could not reach the group relay. Still trying.";
+    private static string UnreachableClaimMessage => TeamText.RelayUnreachableRetrying;
 
     public void Dispose()
     {
@@ -1041,7 +1040,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
-            StatusMessage = "Could not reach the group relay.";
+            StatusMessage = TeamText.RelayUnreachable;
             Stage = CompanionPairingStage.Idle;
         }
         finally
@@ -1101,7 +1100,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            StatusMessage = "The tablet's pairing request could not be bound. Start over.";
+            StatusMessage = TeamText.RequestNotBound;
             Stage = CompanionPairingStage.Idle;
         }
     }
@@ -1131,7 +1130,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            StatusMessage = "Approval failed.";
+            StatusMessage = TeamText.ApprovalFailed;
             Stage = CompanionPairingStage.Idle;
         }
         finally
@@ -1202,21 +1201,21 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
             // A pairing the relay would not register is a tablet that pairs and then shows
             // nothing, which used to be reported as a plain success.
             StatusMessage = registration is { Registered: false } refused
-                ? $"Paired \"{RequestedDisplayName}\", but the relay would not carry it ({refused.Code}). Update the relay."
-                : $"Paired \"{RequestedDisplayName}\".";
+                ? TeamText.PairedButNotCarried(RequestedDisplayName ?? string.Empty, refused.Code)
+                : TeamText.Paired(RequestedDisplayName ?? string.Empty);
             RefreshDevices();
             ResetCeremony();
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = "The tablet's device-key proof did not verify. It was not paired.";
+            StatusMessage = TeamText.ProofFailed;
             ResetCeremony();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not OperationCanceledException)
         {
             // This runs from a poll nobody awaits, so anything that escaped here left the panel on
             // "Completing" for good while the tablet timed out on its own.
-            StatusMessage = "Pairing could not be completed. Start pairing again.";
+            StatusMessage = TeamText.PairingIncomplete;
             RefreshDevices();
             ResetCeremony();
         }
@@ -1241,7 +1240,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
         finally
         {
-            StatusMessage = "Declined.";
+            StatusMessage = TeamText.Declined;
             ResetCeremony();
         }
     }
@@ -1265,7 +1264,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            StatusMessage = $"Could not revoke \"{row.DisplayName}\".";
+            StatusMessage = TeamText.CouldNotRevoke(row.DisplayName);
         }
     }
 
@@ -1355,28 +1354,26 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     internal static string DescribeOfferRefusal(RelayRefusal refusal) => refusal.Status switch
     {
         HttpStatusCode.TooManyRequests =>
-            "The relay is rate-limiting pairing attempts. Try again in a minute.",
+            TeamText.RelayRateLimiting,
         _ => refusal.Code switch
         {
             "offer-future-dated" or "offer-expired" =>
-                "This desktop's clock and the relay's disagree by too much to pair. Check the time " +
-                "on both, then start pairing again.",
+                TeamText.ClockDisagree,
             "pairing-code-malformed" =>
                 "The relay could not read the pairing code this desktop generated. This desktop and " +
                 "the relay are probably different builds; update the relay.",
             "attempt-duplicate" =>
-                "That invitation already exists on the relay. Press Start pairing to make a new one.",
+                TeamText.InvitationExists,
             "invitation-limit" =>
                 "The relay is already holding as many pairing invitations as it allows. Wait for " +
                 "them to expire, or revoke a device, then start pairing again.",
             "" =>
-                "The relay refused the invitation without saying why.",
+                TeamText.RefusedNoReason,
             var code when code.Contains(' ', StringComparison.Ordinal) =>
                 // A sentence rather than a code: the relay could not read the invitation at all,
                 // which is what a relay older than this desktop looks like.
-                $"The relay could not read this invitation ({code}) — it is probably an older build " +
-                "than this desktop. Update the relay.",
-            var code => $"The relay refused the invitation: {code}.",
+                TeamText.OlderRelay(code),
+            var code => TeamText.RefusedInvitation(code),
         },
     };
 

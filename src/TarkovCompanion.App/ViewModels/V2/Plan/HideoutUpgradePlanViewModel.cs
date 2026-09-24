@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
@@ -15,7 +16,7 @@ public sealed record HideoutUpgradeStepRowViewModel(string Order, string Title, 
 {
     public bool HasAlsoNeeds => AlsoNeeds.Length > 0;
 
-    public string GateLabel => HasAlsoNeeds ? $"Gate · {AlsoNeeds}" : string.Empty;
+    public string GateLabel => HasAlsoNeeds ? PlanText.HideoutGate(AlsoNeeds) : string.Empty;
 
     public string MissingItems { get; init; } = string.Empty;
 
@@ -24,29 +25,29 @@ public sealed record HideoutUpgradeStepRowViewModel(string Order, string Title, 
     public TimeSpan? ConstructionTime { get; init; }
 
     public string DurationLabel => ConstructionTime is { } duration
-        ? $"Build time · {FormatDuration(duration)}"
-        : "Build time unavailable";
+        ? PlanText.HideoutBuildTime(FormatDuration(duration))
+        : PlanText.HideoutBuildTimeUnavailable;
 
-    public string LearnReason => HasAlsoNeeds ? $"Gate: {AlsoNeeds}" : $"Items: {State}";
+    public string LearnReason => HasAlsoNeeds ? PlanText.HideoutLearnGate(AlsoNeeds) : PlanText.HideoutLearnItems(State);
 
     internal static string FormatDuration(TimeSpan duration)
     {
         if (duration <= TimeSpan.Zero)
         {
-            return "instant";
+            return PlanText.HideoutInstant;
         }
 
         if (duration.Days > 0)
         {
-            return duration.Hours > 0 ? $"{duration.Days}d {duration.Hours}h" : $"{duration.Days}d";
+            return duration.Hours > 0 ? PlanText.HideoutDaysHours(duration.Days, duration.Hours) : PlanText.HideoutDays(duration.Days);
         }
 
         if (duration.Hours > 0)
         {
-            return duration.Minutes > 0 ? $"{duration.Hours}h {duration.Minutes}m" : $"{duration.Hours}h";
+            return duration.Minutes > 0 ? PlanText.HideoutHoursMinutes(duration.Hours, duration.Minutes) : PlanText.HideoutHours(duration.Hours);
         }
 
-        return duration.Minutes > 0 ? $"{duration.Minutes}m" : $"{Math.Max(1, duration.Seconds)}s";
+        return duration.Minutes > 0 ? PlanText.HideoutMinutes(duration.Minutes) : PlanText.HideoutSeconds(Math.Max(1, duration.Seconds));
     }
 }
 
@@ -124,11 +125,11 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         _prerequisiteCatalog = prerequisites;
         Scopes =
         [
-            new(3, "Next 3", SelectScope),
-            new(5, "Next 5", SelectScope),
-            new(10, "Next 10", SelectScope),
-            new(0, "Path", SelectScope),
-            new(EveryStation, "Every station", SelectScope),
+            new(3, PlanText.HideoutNextCount(3), SelectScope),
+            new(5, PlanText.HideoutNextCount(5), SelectScope),
+            new(10, PlanText.HideoutNextCount(10), SelectScope),
+            new(0, PlanText.HideoutPath, SelectScope),
+            new(EveryStation, PlanText.HideoutEveryStation, SelectScope),
         ];
         Scopes[1].IsSelected = true;
         RaiseTargetCommand = new DelegateCommand(() => MoveTarget(1));
@@ -173,12 +174,12 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
     public bool HasPath => _target is not null && _targetLevel > 0;
 
     public string PathHeading => _target is null || _targetLevel == 0
-        ? "Path"
-        : $"Path to level {_targetLevel}";
+        ? PlanText.HideoutPath
+        : PlanText.HideoutPathToLevel(_targetLevel);
 
     public string PathSummary => _path.Count == 0
-        ? "Already built."
-        : DurationSummary(_path) + " · in this order · " + PlannerVersions.Label(PlannerVersions.HideoutPath);
+        ? PlanText.HideoutAlreadyBuilt
+        : PlanText.HideoutPathSummary(DurationSummary(_path), PlannerVersions.Label(PlannerVersions.HideoutPath));
 
     public bool CanRaiseTarget => _target is not null && _target.Levels.Any(level => level > _targetLevel);
 
@@ -324,15 +325,15 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
                         rows.Add((new(
                             itemName,
                             line.Have is { } have ? $"{Count(have)} / {Count(line.Need)}" : $"? / {Count(line.Need)}",
-                            isRoubles ? "Cash" : each is { } priced ? $"{Roubles(priced)} each" : "No flea price",
+                            isRoubles ? PlanText.HideoutCash : each is { } priced ? PlanText.HideoutEach(Roubles(priced)) : PlanText.HideoutNoFleaPrice,
                             each is null ? string.Empty : Roubles(cost)), cost, line.Remaining));
                     }
 
                     var anyUnknown = lines.Any(line => line.Have is null);
+                    var toBuy = anyUnknown ? PlanText.HideoutUpToToBuy(Roubles(total)) : PlanText.HideoutAboutToBuy(Roubles(total));
                     var totalLabel = lines.Count == 0
-                        ? "Nothing left to buy or find."
-                        : (anyUnknown ? "Up to " : "About ") + Roubles(total) + " to buy" +
-                          (unpriced > 0 ? $" · {unpriced} without a price" : string.Empty);
+                        ? PlanText.HideoutNothingLeftToBuy
+                        : unpriced > 0 ? PlanText.HideoutTotalUnpriced(toBuy, unpriced) : toBuy;
                     return (
                         Next: nextRows,
                         Path: pathRows,
@@ -354,9 +355,9 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
             ShoppingTotal = result.Total;
             ShoppingHeading = scope.Count switch
             {
-                0 => target is null ? "Shopping list" : $"Shopping list · {target.Name} level {targetLevel}",
-                EveryStation => "Shopping list · every station's next level",
-                _ => $"Shopping list · next {result.Next.Count} upgrades",
+                0 => target is null ? PlanText.HideoutShoppingList : PlanText.HideoutShoppingListFor(target.Name, targetLevel),
+                EveryStation => PlanText.HideoutShoppingListEveryStation,
+                _ => PlanText.HideoutShoppingListNext(result.Next.Count),
             };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -392,32 +393,32 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
                     if (remaining > 0)
                     {
                         missingCount++;
-                        missing.Add($"{name} ×{Count(remaining)}");
+                        missing.Add(PlanText.HideoutMissingItem(name, Count(remaining)));
                     }
                 }
                 else
                 {
                     unknownCount++;
                     available[need.ItemId] = null;
-                    missing.Add($"{name} ×{Count(need.Required)} to check");
+                    missing.Add(PlanText.HideoutMissingItemToCheck(name, Count(need.Required)));
                 }
             }
 
             rows.Add(new(
                 (rows.Count + 1).ToString(CultureInfo.CurrentCulture),
-                $"{step.Name} · level {step.Level}",
+                PlanText.HideoutStepTitle(step.Name, step.Level),
                 (missingCount, unknownCount) switch
                 {
-                    (0, 0) => step.Needs.Count == 0 ? "No items" : "Have it all",
-                    (var shortCount, 0) => $"{shortCount} short",
-                    (0, var unknown) => $"{unknown} to check",
-                    var (shortCount, unknown) => $"{shortCount} short · {unknown} to check",
+                    (0, 0) => step.Needs.Count == 0 ? PlanText.HideoutNoItems : PlanText.HideoutHaveItAll,
+                    (var shortCount, 0) => PlanText.HideoutShort(shortCount),
+                    (0, var unknown) => PlanText.HideoutToCheck(unknown),
+                    var (shortCount, unknown) => PlanText.HideoutShortAndToCheck(shortCount, unknown),
                 },
                 string.Join(" · ", step.AlsoNeeds),
                 missingCount == 0 && unknownCount == 0)
             {
                 ConstructionTime = step.ConstructionTime,
-                MissingItems = missing.Count == 0 ? string.Empty : "Missing · " + string.Join(", ", missing),
+                MissingItems = missing.Count == 0 ? string.Empty : PlanText.HideoutMissingList(string.Join(", ", missing)),
             });
         }
 
@@ -442,14 +443,14 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
 
     private static string DurationSummary(IReadOnlyList<HideoutUpgradeStepRowViewModel> rows)
     {
-        var count = rows.Count == 1 ? "1 upgrade" : $"{rows.Count} upgrades";
+        var count = PlanText.HideoutUpgradeCount(rows.Count);
         var known = TimeSpan.FromTicks(rows.Sum(row => row.ConstructionTime?.Ticks ?? 0));
         var unknown = rows.Count(row => row.ConstructionTime is null);
         return unknown switch
         {
-            0 => $"{count} · {HideoutUpgradeStepRowViewModel.FormatDuration(known)} total",
-            _ when known == TimeSpan.Zero => $"{count} · {unknown} build {(unknown == 1 ? "time" : "times")} unavailable",
-            _ => $"{count} · {HideoutUpgradeStepRowViewModel.FormatDuration(known)} known · {unknown} unavailable",
+            0 => PlanText.HideoutDurationTotal(count, HideoutUpgradeStepRowViewModel.FormatDuration(known)),
+            _ when known == TimeSpan.Zero => PlanText.HideoutBuildTimesUnavailable(unknown, count),
+            _ => PlanText.HideoutDurationKnown(count, HideoutUpgradeStepRowViewModel.FormatDuration(known), unknown),
         };
     }
 

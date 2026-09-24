@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
@@ -275,7 +276,7 @@ public sealed class GroupPageViewModel : PageViewModel
         var parts = new List<string>(3);
         if (group.MyLevel is { } level)
         {
-            parts.Add($"Level {level}");
+            parts.Add(TeamText.Level(level));
         }
 
         if (group.MySide is { Length: > 0 } side)
@@ -285,7 +286,7 @@ public sealed class GroupPageViewModel : PageViewModel
 
         if (group.MyScavLockedUntil is { } until && until > DateTimeOffset.UtcNow)
         {
-            parts.Add($"Scav available at {LocalTime.ShortTime(until)}");
+            parts.Add(TeamText.ScavAvailableAt(LocalTime.ShortTime(until)));
         }
 
         return parts.Count == 0 ? string.Empty : string.Join(" · ", parts);
@@ -308,9 +309,10 @@ public sealed class GroupPageViewModel : PageViewModel
             : "Nothing else shared.",
         member.RaidState == Core.Domain.Raids.RaidLifecycleState.InRaid);
 
+    // [#314] Shared with Team's "who else is here", so it reads from Team's table.
     internal static string Age(TimeSpan? age) => age is not { } value
-        ? "at an unknown time"
+        ? TeamText.AtAnUnknownTime
         : value < TimeSpan.FromMinutes(1)
-            ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
-            : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
+            ? TeamText.SecondsAgo(Math.Max(0, (int)value.TotalSeconds))
+            : TeamText.MinutesAgo((int)value.TotalMinutes);
 }

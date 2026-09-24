@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 
@@ -276,19 +277,19 @@ public sealed partial class PlanWorkspaceView : UserControl
         }
 
         var menu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedRight };
-        menu.Items.Add(Action("Start quest", row.StartQuestCommand, row.CanStartQuest));
-        menu.Items.Add(Action("Mark quest done", row.MarkQuestDoneCommand, row.CanMarkQuestDone));
-        menu.Items.Add(Action("Mark quest failed", row.FailQuestCommand, row.CanFailQuest));
-        menu.Items.Add(Action("Reset quest", row.ResetQuestCommand, row.CanResetQuest));
+        menu.Items.Add(Action(PlanText.StartQuest, row.StartQuestCommand, row.CanStartQuest));
+        menu.Items.Add(Action(PlanText.MarkQuestDone, row.MarkQuestDoneCommand, row.CanMarkQuestDone));
+        menu.Items.Add(Action(PlanText.MarkQuestFailed, row.FailQuestCommand, row.CanFailQuest));
+        menu.Items.Add(Action(PlanText.ResetQuest, row.ResetQuestCommand, row.CanResetQuest));
         menu.Items.Add(Action(row.PinQuestLabel, row.TogglePinQuestCommand));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Action("One more", row.IncrementCountCommand, row.CanChangeCount));
-        menu.Items.Add(Action("One fewer", row.DecrementCountCommand, row.CanChangeCount));
-        menu.Items.Add(Action("Reset objective", row.ResetObjectiveCommand, row.CanResetObjective));
+        menu.Items.Add(Action(PlanText.OneMore, row.IncrementCountCommand, row.CanChangeCount));
+        menu.Items.Add(Action(PlanText.OneFewer, row.DecrementCountCommand, row.CanChangeCount));
+        menu.Items.Add(Action(PlanText.ResetObjective, row.ResetObjectiveCommand, row.CanResetObjective));
         menu.Items.Add(Action(row.PinObjectiveLabel, row.TogglePinObjectiveCommand));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Action("Show on map", row.ShowOnMapCommand, row.CanShowOnMap));
-        menu.Items.Add(Action("Open wiki", row.OpenWikiCommand, row.HasWikiLink));
+        menu.Items.Add(Action(PlanText.ShowOnMap, row.ShowOnMapCommand, row.CanShowOnMap));
+        menu.Items.Add(Action(PlanText.OpenWiki, row.OpenWikiCommand, row.HasWikiLink));
         menu.ShowAt(button);
 
         static MenuItem Action(string header, System.Windows.Input.ICommand command, bool visible = true) => new()

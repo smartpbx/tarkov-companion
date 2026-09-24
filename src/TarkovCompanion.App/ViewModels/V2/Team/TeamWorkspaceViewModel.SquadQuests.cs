@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using Avalonia.Media;
 using TarkovCompanion.Application.Services.Group;
 
@@ -51,7 +52,7 @@ public sealed partial class TeamWorkspaceViewModel
         }
 
         SquadQuests = BuildSquadQuests(feed.Picture, name => _raidCockpit?.SquadColorFor(name));
-        SquadQuestsSummary = feed.Picture.SharedTaskIds.Count == 0 ? string.Empty : $"{feed.Picture.SharedTaskIds.Count} shared";
+        SquadQuestsSummary = feed.Picture.SharedTaskIds.Count == 0 ? string.Empty : TeamText.SharedQuestCount(feed.Picture.SharedTaskIds.Count);
         OnPropertyChanged(nameof(SquadQuests));
         OnPropertyChanged(nameof(HasSquadQuests));
         OnPropertyChanged(nameof(SquadQuestsSummary));
@@ -73,7 +74,7 @@ public sealed partial class TeamWorkspaceViewModel
                     member.IsSelf || colourFor(member.Name) is not { } hex || !Color.TryParse(hex, out var colour)
                         ? null
                         : new SolidColorBrush(colour),
-                    member.Quests.Count == 1 ? "1 quest" : $"{member.Quests.Count} quests",
+                    TeamText.QuestCount(member.Quests.Count),
                     [
                         .. member.Quests
                             .OrderBy(quest => picture.SharedTaskIds.Contains(quest.TaskId) ? 0 : 1)
@@ -94,5 +95,5 @@ public sealed partial class TeamWorkspaceViewModel
     internal static string Progress(SquadQuest quest) =>
         !quest.ReportsObjectives || quest.ObjectiveCount == 0 || quest.OpenCount == 0
             ? string.Empty
-            : $"{quest.DoneCount}/{quest.ObjectiveCount} done";
+            : TeamText.QuestProgress(quest.DoneCount, quest.ObjectiveCount);
 }

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Group;
 
@@ -8,8 +9,8 @@ public sealed record TeamSquadStatusRowViewModel(string Name, bool? Ready, strin
 {
     public string ReadyLabel => Ready switch
     {
-        true => "Ready",
-        false => "Not ready",
+        true => TeamText.Ready,
+        false => TeamText.NotReady,
         null => string.Empty,
     };
 
@@ -19,7 +20,7 @@ public sealed record TeamSquadStatusRowViewModel(string Name, bool? Ready, strin
 
     public bool HasReady => Ready is not null;
 
-    public string ExtractLabel => Extract is { Length: > 0 } extract ? $"Extract · {extract}" : string.Empty;
+    public string ExtractLabel => Extract is { Length: > 0 } extract ? TeamText.ExtractNamed(extract) : string.Empty;
 
     public bool HasExtract => ExtractLabel.Length > 0;
 
@@ -38,7 +39,7 @@ public sealed record TeamSquadStatusRowViewModel(string Name, bool? Ready, strin
 public sealed partial class TeamWorkspaceViewModel
 {
     /// <summary>The extract picker's first entry, which clears the choice.</summary>
-    public const string NoExtract = "No extract";
+    public static string NoExtract => TeamText.NoExtract;
 
     private GroupSquadStatus? _squadStatus;
     private string _noteDraft = string.Empty;
@@ -109,7 +110,7 @@ public sealed partial class TeamWorkspaceViewModel
     public ICommand ShareNoteCommand => _shareNoteCommand ??= new DelegateCommand(ShareNote);
 
     /// <summary>"Your note · meet at dorms", or empty when none is shared.</summary>
-    public string SharedNoteLabel => MyStatus.Note is { } note ? $"Shared · {note}" : string.Empty;
+    public string SharedNoteLabel => MyStatus.Note is { } note ? TeamText.SharedNote(note) : string.Empty;
 
     public bool HasSharedNote => SharedNoteLabel.Length > 0;
 
@@ -238,7 +239,7 @@ public sealed partial class TeamWorkspaceViewModel
         }
 
         var ready = (mine == true ? 1 : 0) + members.Count(member => member.Ready == true);
-        return $"{ready} of {members.Count + 1} ready";
+        return TeamText.ReadyOf(ready, members.Count + 1);
     }
 
     /// <summary>"Ready · Extract · ZB-1011 · meet at dorms" for the member lists; empty when unsaid.</summary>

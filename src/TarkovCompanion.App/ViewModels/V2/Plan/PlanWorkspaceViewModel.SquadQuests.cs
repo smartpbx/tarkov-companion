@@ -1,4 +1,5 @@
 using TarkovCompanion.App.ViewModels.V2.Team;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
 
@@ -40,6 +41,6 @@ public sealed partial class PlanWorkspaceViewModel
     /// <summary>"Squad has it too · Geo, Riley", or empty when no squadmate has the quest active.</summary>
     internal string SquadLabelFor(string taskId) =>
         _squadQuests?.SquadmatesOn(taskId) is { Count: > 0 } names
-            ? $"Squad has it too · {string.Join(", ", names)}"
+            ? PlanText.SquadHasIt(string.Join(", ", names))
             : string.Empty;
 }

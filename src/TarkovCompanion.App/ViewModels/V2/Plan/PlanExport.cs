@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
@@ -62,21 +63,21 @@ public sealed record PlanExportDocument(
     {
         ArgumentNullException.ThrowIfNull(culture);
         var text = new StringBuilder();
-        text.Append("# Next raid plan\n\n");
+        text.Append("# ").Append(PlanText.ExportTitle).Append("\n\n");
         // Local time, not UTC: this line is read by a person deciding whether the plan is stale,
         // and every other user-facing timestamp in the application is their own clock.
-        text.Append(CultureInfo.InvariantCulture, $"Generated {LocalTime.ToLocal(GeneratedUtc).ToString("f", culture)}");
-        text.Append(CultureInfo.InvariantCulture, $" · {Scope} · showing {Filter}");
+        text.AppendFormat(CultureInfo.InvariantCulture, PlanText.ExportGeneratedPattern, LocalTime.ToLocal(GeneratedUtc).ToString("f", culture));
+        text.AppendFormat(CultureInfo.InvariantCulture, PlanText.ExportScopePattern, Scope, Filter);
         if (!string.IsNullOrWhiteSpace(Search))
         {
-            text.Append(CultureInfo.InvariantCulture, $" · search \"{Search}\"");
+            text.AppendFormat(CultureInfo.InvariantCulture, PlanText.ExportSearchPattern, Search);
         }
 
         text.Append("\n\n");
 
         if (Groups.Count == 0)
         {
-            text.Append("Nothing is planned. Mark a quest active, or widen the filter.\n");
+            text.Append(PlanText.ExportNothingPlanned).Append('\n');
             return text.ToString();
         }
 
@@ -97,7 +98,7 @@ public sealed record PlanExportDocument(
 
             if (group.StillNeeded.Count > 0)
             {
-                text.Append("\n   Still needed here: ");
+                text.Append("\n   ").Append(PlanText.ExportStillNeeded).Append(' ');
                 text.Append(string.Join(", ", group.StillNeeded));
                 text.Append('\n');
             }
@@ -107,7 +108,7 @@ public sealed record PlanExportDocument(
 
         if (ShoppingList.Count > 0)
         {
-            text.Append("## Shopping list\n\n");
+            text.Append("## ").Append(PlanText.ExportShoppingList).Append("\n\n");
             foreach (var item in ShoppingList)
             {
                 text.Append(CultureInfo.InvariantCulture, $"- {item.Short:N0}x {item.ItemName} ({item.Handling.ToLower(culture)})");
@@ -115,11 +116,11 @@ public sealed record PlanExportDocument(
                 {
                     // The full need is listed because nothing is known that would make it less, and
                     // the line says so: read without it, "5x" claims the player holds none.
-                    text.Append(" · held unknown");
+                    text.Append(" · ").Append(PlanText.ExportHeldUnknown);
                 }
                 else if (item.Have > 0)
                 {
-                    text.Append(CultureInfo.InvariantCulture, $" · {item.Have:N0} of {item.Need:N0} already held");
+                    text.Append(" · ").AppendFormat(CultureInfo.InvariantCulture, PlanText.ExportAlreadyHeldPattern, item.Have, item.Need);
                 }
 
                 text.Append('\n');
@@ -130,7 +131,7 @@ public sealed record PlanExportDocument(
 
         if (CriticalPath.Count > 0)
         {
-            text.Append("## What is in the way\n\n");
+            text.Append("## ").Append(PlanText.ExportInTheWay).Append("\n\n");
             foreach (var blocked in CriticalPath)
             {
                 text.Append(CultureInfo.InvariantCulture, $"- **{blocked.Quest}** — {Describe(blocked, culture)}\n");
@@ -145,11 +146,9 @@ public sealed record PlanExportDocument(
 
     private static string Describe(PlanExportBlocked blocked, CultureInfo culture) => blocked.Depth switch
     {
-        0 => "nothing in the way; this can be started now",
-        1 => $"waiting on {string.Join(", ", blocked.WaitingOn)}",
-        var depth => string.Create(
-            culture,
-            $"{depth:N0} quests deep · waiting on {string.Join(", ", blocked.WaitingOn)}"),
+        0 => PlanText.ExportNothingInTheWay,
+        1 => string.Format(culture, PlanText.ExportWaitingOnPattern, string.Join(", ", blocked.WaitingOn)),
+        var depth => string.Format(culture, PlanText.ExportQuestsDeepPattern, depth, string.Join(", ", blocked.WaitingOn)),
     };
 }
 

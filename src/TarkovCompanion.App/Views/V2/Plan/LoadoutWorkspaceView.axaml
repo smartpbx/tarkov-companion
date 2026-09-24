@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:v2="using:TarkovCompanion.App.Views.V2"
              xmlns:pages="using:TarkovCompanion.App.ViewModels"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:planVm="using:TarkovCompanion.App.ViewModels.V2.Plan">
   <UserControl.Styles>
     <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
@@ -63,7 +64,7 @@
           <ComboBox VerticalAlignment="Center" HorizontalAlignment="Stretch"
                     ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot, Mode=TwoWay}"
                     AutomationProperties.AutomationId="v2-loadout-slot"
-                    AutomationProperties.Name="Slot">
+                    AutomationProperties.Name="{x:Static l:PlanText.LoadoutSlot}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="pages:LoadoutSlotOption">
                 <TextBlock Text="{Binding Name}" />
@@ -71,16 +72,16 @@
             </ComboBox.ItemTemplate>
           </ComboBox>
           <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchQuery}"
-                   PlaceholderText="Search by item name or short name"
+                   PlaceholderText="{x:Static l:PlanText.LoadoutSearchPlaceholder}"
                    AutomationProperties.AutomationId="v2-loadout-search"
-                   AutomationProperties.Name="Search items for this slot">
+                   AutomationProperties.Name="{x:Static l:PlanText.LoadoutSearchName}">
             <TextBox.KeyBindings>
               <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
             </TextBox.KeyBindings>
           </TextBox>
           <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
                   AutomationProperties.AutomationId="v2-loadout-search-go"
-                  AutomationProperties.Name="Search" ToolTip.Tip="Search"
+                  AutomationProperties.Name="{x:Static l:PlanText.LoadoutSearch}" ToolTip.Tip="{x:Static l:PlanText.LoadoutSearch}"
                   Command="{Binding SearchCommand}">
             <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
           </Button>
@@ -106,7 +107,7 @@
                       ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap, Mode=TwoWay}"
                       IsVisible="{Binding HasMaps}"
                       AutomationProperties.AutomationId="v2-loadout-suggestions-map"
-                      AutomationProperties.Name="Map to pack for">
+                      AutomationProperties.Name="{x:Static l:PlanText.LoadoutMapToPackFor}">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="planVm:LoadoutSuggestionMapOption">
                   <TextBlock Text="{Binding Label}" />
@@ -167,7 +168,7 @@
                           <Run Text="{Binding Cost}" /><Run Text=" · " /><Run Text="{Binding Weight}" /><Run Text=" · " /><Run Text="{Binding Caliber}" />
                         </TextBlock>
                       </StackPanel>
-                      <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Assign" Command="{Binding AssignCommand}"
+                      <Button Grid.Column="1" Classes="v2-target v2-outline" Content="{x:Static l:PlanText.LoadoutAssign}" Command="{Binding AssignCommand}"
                               VerticalAlignment="Center" />
                     </Grid>
                   </Border>
@@ -193,8 +194,8 @@
             <Border Classes="v2-intel-section">
               <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Classes="v2-heading-2" Text="The kit" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
-                  <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Empty the kit" Command="{Binding ClearCommand}"
+                  <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.LoadoutTheKit}" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.LoadoutEmptyTheKit}" Command="{Binding ClearCommand}"
                           AutomationProperties.AutomationId="v2-loadout-clear" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding SlotBoardSummary}" AutomationProperties.LiveSetting="Polite" />
@@ -219,9 +220,9 @@
                               Command="{Binding SelectCommand}">
                         <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                           <TextBlock Classes="v2-label" Text="{Binding Name}" />
-                          <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Clear" Padding="6,0"
+                          <Button Grid.Column="1" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.LoadoutClear}" Padding="6,0"
                                   IsVisible="{Binding IsFilled}" Command="{Binding ClearSlotCommand}"
-                                  AutomationProperties.Name="Clear this slot" />
+                                  AutomationProperties.Name="{x:Static l:PlanText.LoadoutClearThisSlot}" />
                           <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="v2-body" TextWrapping="Wrap"
                                      TextTrimming="CharacterEllipsis" MaxLines="2" Text="{Binding Summary}" />
                         </Grid>
@@ -244,7 +245,7 @@
                                        IsVisible="{Binding HasAllergyWarning}"
                                        AutomationProperties.AutomationId="v2-loadout-allergy" />
                           </StackPanel>
-                          <Button Grid.Column="2" Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}"
+                          <Button Grid.Column="2" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.LoadoutRemove}" Command="{Binding RemoveCommand}"
                                   VerticalAlignment="Center" />
                         </Grid>
                       </Border>
@@ -257,7 +258,7 @@
 
           <Border Classes="v2-intel-section" AutomationProperties.AutomationId="v2-loadout-alternatives">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="Alternatives" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LoadoutAlternatives}" AutomationProperties.HeadingLevel="2" />
               <TextBlock Classes="v2-label" Text="{Binding AlternativesStatus}" TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding Alternatives}" IsVisible="{Binding HasAlternatives}">
                 <ItemsControl.ItemTemplate>
@@ -271,7 +272,7 @@
                           <TextBlock Classes="v2-label" Text="{Binding Source}" />
                           <TextBlock Classes="v2-label" Text="{Binding Requirement}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Use"
+                        <Button Grid.Column="1" Classes="v2-target v2-outline" Content="{x:Static l:PlanText.LoadoutUse}"
                                 Command="{Binding ChooseCommand}" VerticalAlignment="Center" />
                       </Grid>
                     </Border>
@@ -284,23 +285,23 @@
           <Border Classes="v2-intel-section">
             <StackPanel Spacing="10">
               <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="v2-heading-3" Text="Evaluation" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Classes="v2-target v2-primary" Content="Evaluate" Command="{Binding EvaluateCommand}"
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LoadoutEvaluation}" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-primary" Content="{x:Static l:PlanText.LoadoutEvaluate}" Command="{Binding EvaluateCommand}"
                         AutomationProperties.AutomationId="v2-loadout-evaluate" />
               </Grid>
               <TextBlock Classes="v2-label" Text="{Binding EvaluationStatus}" TextWrapping="Wrap"
                          AutomationProperties.LiveSetting="Polite" />
               <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
                 <StackPanel Spacing="2">
-                  <TextBlock Classes="v2-label" Text="Approximate cost" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.LoadoutApproximateCost}" />
                   <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding CostSummary}" TextWrapping="Wrap" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="2">
-                  <TextBlock Classes="v2-label" Text="Total weight" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.LoadoutTotalWeight}" />
                   <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding WeightSummary}" TextWrapping="Wrap" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Spacing="2">
-                  <TextBlock Classes="v2-label" Text="Ammo tier" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.LoadoutAmmoTier}" />
                   <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding AmmoTierSummary}" TextWrapping="Wrap" />
                 </StackPanel>
               </Grid>
@@ -309,33 +310,33 @@
                    a missing price as zero and are floors, so a figure that moved while items were
                    being added would quote a number the page had not computed. -->
               <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                <TextBlock Classes="v2-label" Text="Budget" VerticalAlignment="Center" />
+                <TextBlock Classes="v2-label" Text="{x:Static l:PlanText.LoadoutBudget}" VerticalAlignment="Center" />
                 <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding BudgetInput}"
-                         PlaceholderText="What you will spend, e.g. 250k"
+                         PlaceholderText="{x:Static l:PlanText.LoadoutBudgetPlaceholder}"
                          AutomationProperties.AutomationId="v2-loadout-budget"
-                         AutomationProperties.Name="Kit budget in roubles" />
+                         AutomationProperties.Name="{x:Static l:PlanText.LoadoutBudgetName}" />
               </Grid>
               <TextBlock Classes="v2-body" Text="{Binding BudgetSummary}" TextWrapping="Wrap"
                          AutomationProperties.AutomationId="v2-loadout-budget-summary"
                          AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label v2-intel-poor" IsVisible="{Binding IsOverBudget}"
-                         Text="Over the budget." TextWrapping="Wrap" />
+                         Text="{x:Static l:PlanText.LoadoutOverBudget}" TextWrapping="Wrap" />
             </StackPanel>
           </Border>
 
           <Border Classes="v2-intel-section" IsVisible="{Binding CanSavePresets}">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="Saved kits" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LoadoutSavedKits}" AutomationProperties.HeadingLevel="2" />
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Classes="v2-field-input" Text="{Binding PresetName}"
-                         PlaceholderText="Name this kit"
+                         PlaceholderText="{x:Static l:PlanText.LoadoutNameThisKit}"
                          AutomationProperties.AutomationId="v2-loadout-preset-name"
-                         AutomationProperties.Name="Name for the saved kit">
+                         AutomationProperties.Name="{x:Static l:PlanText.LoadoutNameForSavedKit}">
                   <TextBox.KeyBindings>
                     <KeyBinding Gesture="Enter" Command="{Binding SavePresetCommand}" />
                   </TextBox.KeyBindings>
                 </TextBox>
-                <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Save"
+                <Button Grid.Column="1" Classes="v2-target v2-outline" Content="{x:Static l:PlanText.LoadoutSave}"
                         AutomationProperties.AutomationId="v2-loadout-preset-save"
                         Command="{Binding SavePresetCommand}" />
               </Grid>
@@ -350,11 +351,11 @@
                           <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                           <TextBlock Classes="v2-label" Text="{Binding Detail}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Load" Command="{Binding LoadCommand}"
+                        <Button Grid.Column="1" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.LoadoutLoad}" Command="{Binding LoadCommand}"
                                 VerticalAlignment="Center" />
                         <Button Grid.Column="2" Classes="v2-target v2-plain" Command="{Binding CompareCommand}"
                                 VerticalAlignment="Center" Content="{Binding CompareLabel}" />
-                        <Button Grid.Column="3" Classes="v2-target v2-plain" Content="Delete" Command="{Binding DeleteCommand}"
+                        <Button Grid.Column="3" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.LoadoutDelete}" Command="{Binding DeleteCommand}"
                                 VerticalAlignment="Center" />
                       </Grid>
                     </Border>
@@ -370,8 +371,8 @@
           <Border Classes="v2-intel-section" IsVisible="{Binding HasComparison}">
             <StackPanel Spacing="8">
               <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Classes="v2-heading-3" Text="Compared" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Stop comparing"
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LoadoutCompared}" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-plain" Content="{x:Static l:PlanText.LoadoutStopComparing}"
                         Command="{Binding ClearComparisonCommand}" />
               </Grid>
               <ItemsControl ItemsSource="{Binding Comparison}" AutomationProperties.AutomationId="v2-loadout-comparison">
@@ -392,7 +393,7 @@
           <!-- Issues and warnings stay apart: one is a contradiction in the data, the other a judgement call. -->
           <Border Classes="v2-intel-section">
             <StackPanel Spacing="6">
-              <TextBlock Classes="v2-heading-3" Text="Compatibility issues" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LoadoutCompatibilityIssues}" AutomationProperties.HeadingLevel="2" />
               <TextBlock Classes="v2-label" Text="{Binding IssuesStatus}" TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding Issues}">
                 <ItemsControl.ItemTemplate>
@@ -410,7 +411,7 @@
           </Border>
           <Border Classes="v2-intel-section">
             <StackPanel Spacing="6">
-              <TextBlock Classes="v2-heading-3" Text="Warnings" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LoadoutWarnings}" AutomationProperties.HeadingLevel="2" />
               <TextBlock Classes="v2-label" Text="{Binding WarningsStatus}" TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding Warnings}">
                 <ItemsControl.ItemTemplate>

@@ -1,4 +1,5 @@
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Planning;
 using System.Globalization;
@@ -105,7 +106,7 @@ public sealed record LoadoutPresetViewModel(
     ICommand DeleteCommand)
 {
     /// <summary>What the compare button will do, said on the button rather than by its state.</summary>
-    public string CompareLabel => IsComparing ? "Comparing" : "Compare";
+    public string CompareLabel => IsComparing ? PlanText.LoadoutComparing : PlanText.LoadoutCompare;
 }
 
 /// <summary>One row of the side-by-side comparison: a measure, both values, and the difference.</summary>
@@ -155,25 +156,25 @@ public sealed class LoadoutPageViewModel : PageViewModel
     /// and the order the price falls back through. Both totals still count a missing figure as
     /// zero, so both are floors; that is the part a player acts on and all that is left here.
     /// </remarks>
-    private const string ChecksNote = "Caliber, slot category and plate fit are checked. Magazine fit is not.";
+    private static string ChecksNote => PlanText.LoadoutChecksNote;
 
-    private const string DataNote = "A total with a missing price or weight is a floor, and says how many items it covers.";
+    private static string DataNote => PlanText.LoadoutDataNote;
 
     /// <summary>What the budget line says before anybody has typed one.</summary>
-    private const string NoBudget = "No budget set. Type one to see what a kit leaves you.";
+    private static string NoBudget => PlanText.LoadoutNoBudget;
 
     private static readonly IReadOnlyList<LoadoutSlotOption> SlotOptions =
     [
-        new(LoadoutSlot.Weapon, "Weapon", false, "One weapon. Its caliber is what the ammunition is checked against."),
-        new(LoadoutSlot.Ammunition, "Ammunition", false, "One round. Sets the ammo tier."),
-        new(LoadoutSlot.Magazine, "Magazines", true, "Fit is not checked."),
-        new(LoadoutSlot.Armor, "Body armor", false, "One armor rig or vest."),
-        new(LoadoutSlot.Plate, "Plates", true, "Checked against the armor's plate slots."),
-        new(LoadoutSlot.Helmet, "Helmet", false, "One helmet."),
-        new(LoadoutSlot.Headset, "Headset", false, "One headset."),
-        new(LoadoutSlot.Rig, "Rig", false, "One chest rig."),
-        new(LoadoutSlot.Backpack, "Backpack", false, "One backpack."),
-        new(LoadoutSlot.Medical, "Medical", true, "Any number of medical items."),
+        new(LoadoutSlot.Weapon, PlanText.LoadoutSlotWeapon, false, PlanText.LoadoutHintWeapon),
+        new(LoadoutSlot.Ammunition, PlanText.LoadoutSlotAmmunition, false, PlanText.LoadoutHintAmmunition),
+        new(LoadoutSlot.Magazine, PlanText.LoadoutSlotMagazines, true, PlanText.LoadoutHintMagazine),
+        new(LoadoutSlot.Armor, PlanText.LoadoutSlotBodyArmor, false, PlanText.LoadoutHintArmor),
+        new(LoadoutSlot.Plate, PlanText.LoadoutSlotPlates, true, PlanText.LoadoutHintPlate),
+        new(LoadoutSlot.Helmet, PlanText.LoadoutSlotHelmet, false, PlanText.LoadoutHintHelmet),
+        new(LoadoutSlot.Headset, PlanText.LoadoutSlotHeadset, false, PlanText.LoadoutHintHeadset),
+        new(LoadoutSlot.Rig, PlanText.LoadoutSlotRig, false, PlanText.LoadoutHintRig),
+        new(LoadoutSlot.Backpack, PlanText.LoadoutSlotBackpack, false, PlanText.LoadoutHintBackpack),
+        new(LoadoutSlot.Medical, PlanText.LoadoutSlotMedical, true, PlanText.LoadoutHintMedical),
     ];
 
     private static readonly IReadOnlyDictionary<string, LoadoutItemFacts> NoFacts =
@@ -201,17 +202,17 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private LoadoutSlotOption _selectedSlot = SlotOptions[0];
     private string _searchQuery = string.Empty;
     /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
-    private const string ReadyToSearch = "Pick a slot, search an item, and assign it.";
+    private static string ReadyToSearch => PlanText.LoadoutReadyToSearch;
 
     private bool _showingNoData;
     private string _searchStatus = ReadyToSearch;
-    private string _assignmentStatus = "Nothing is assigned yet.";
-    private string _evaluationStatus = "Assign at least one item, then evaluate.";
-    private string _costSummary = "No cost yet.";
-    private string _weightSummary = "No weight yet.";
-    private string _ammoTierSummary = "No ammunition assigned.";
-    private string _issuesStatus = "Not evaluated yet.";
-    private string _warningsStatus = "Not evaluated yet.";
+    private string _assignmentStatus = PlanText.LoadoutNothingAssigned;
+    private string _evaluationStatus = PlanText.LoadoutAssignThenEvaluate;
+    private string _costSummary = PlanText.LoadoutNoCostYet;
+    private string _weightSummary = PlanText.LoadoutNoWeightYet;
+    private string _ammoTierSummary = PlanText.LoadoutNoAmmunitionAssigned;
+    private string _issuesStatus = PlanText.LoadoutNotEvaluatedYet;
+    private string _warningsStatus = PlanText.LoadoutNotEvaluatedYet;
     private IReadOnlyList<LoadoutSearchResultViewModel> _results = [];
     private IReadOnlyList<LoadoutAssignmentViewModel> _assignments = [];
     private IReadOnlyList<LoadoutFindingViewModel> _issues = [];
@@ -221,9 +222,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private IReadOnlyList<LoadoutPresetViewModel> _presetRows = [];
     private IReadOnlyList<LoadoutComparisonRowViewModel> _comparison = [];
     private IReadOnlyList<LoadoutAlternativeViewModel> _alternatives = [];
-    private string _alternativesStatus = "Assign an item to see obtainable alternatives.";
+    private string _alternativesStatus = PlanText.LoadoutAssignForAlternatives;
     private string _presetName = string.Empty;
-    private string _presetStatus = "No kit saved yet.";
+    private string _presetStatus = PlanText.LoadoutNoKitSaved;
     private string _budgetInput = string.Empty;
     private string _budgetSummary = NoBudget;
     private bool _isOverBudget;
@@ -406,7 +407,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     /// <summary>How many of the ten have something in them, for the board's heading.</summary>
     public string SlotBoardSummary =>
-        $"{SlotBoard.Count(tile => tile.IsFilled)} of {SlotOptions.Count} slots filled";
+        PlanText.LoadoutSlotsFilled(SlotBoard.Count(tile => tile.IsFilled), SlotOptions.Count);
 
     public IReadOnlyList<LoadoutPresetViewModel> Presets
     {
@@ -538,20 +539,20 @@ public sealed class LoadoutPageViewModel : PageViewModel
         if (_snapshot?.Data.ItemCount is null or 0)
         {
             Results = [];
-            SearchStatus = _snapshot?.Data.Detail ?? "Runtime state is not loaded.";
+            SearchStatus = _snapshot?.Data.Detail ?? PlanText.LoadoutRuntimeNotLoaded;
             return;
         }
 
         if (string.IsNullOrWhiteSpace(SearchQuery))
         {
             Results = [];
-            SearchStatus = "Enter an item name or short name.";
+            SearchStatus = PlanText.LoadoutEnterItemName;
             return;
         }
 
         try
         {
-            SearchStatus = "Searching the local item cache…";
+            SearchStatus = PlanText.LoadoutSearching;
             var facts = await EnsureFactsAsync(cancellationToken).ConfigureAwait(true);
             // Only what the chosen slot takes, what the catalog is sure about first. More is read
             // than is shown because "bp" is mostly rounds and the slot may be Weapon.
@@ -565,15 +566,15 @@ public sealed class LoadoutPageViewModel : PageViewModel
             Results = fitting.Select(hit => Describe(hit.Item, facts)).ToArray();
             SearchStatus = (Results.Count, hits.Count) switch
             {
-                (0, 0) => "No local item matched that query.",
-                (0, _) => $"Nothing for {slot.Name} matched · pick another slot",
-                _ => $"{Results.Count} results for {slot.Name}",
+                (0, 0) => PlanText.LoadoutNoLocalMatch,
+                (0, _) => PlanText.LoadoutNothingForSlot(slot.Name),
+                _ => PlanText.LoadoutResultsForSlot(Results.Count, slot.Name),
             };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Results = [];
-            SearchStatus = $"Item search failed: {exception.Message}";
+            SearchStatus = PlanText.LoadoutSearchFailed(exception.Message);
         }
     }
 
@@ -584,13 +585,13 @@ public sealed class LoadoutPageViewModel : PageViewModel
         var selectedIds = SelectedItemIds();
         if (selectedIds.Count == 0)
         {
-            ResetEvaluation("Assign at least one item, then evaluate.");
+            ResetEvaluation(PlanText.LoadoutAssignThenEvaluate);
             return;
         }
 
         try
         {
-            EvaluationStatus = "Evaluating the assigned kit…";
+            EvaluationStatus = PlanText.LoadoutEvaluating;
             var service = await EnsureServiceAsync(cancellationToken).ConfigureAwait(true);
             var evaluation = await service
                 .EvaluateAsync(BuildSelection(), profile: null, cancellationToken)
@@ -610,16 +611,16 @@ public sealed class LoadoutPageViewModel : PageViewModel
             // IsCompatible is "no issue was raised", and three of the five checks cannot raise
             // one, so it must never be rendered as a verdict of compatible.
             IssuesStatus = Issues.Count == 0
-                ? "No issues"
-                : $"{Issues.Count} issues";
+                ? PlanText.LoadoutNoIssues
+                : PlanText.LoadoutIssueCount(Issues.Count);
             WarningsStatus = Warnings.Count == 0
-                ? "No warnings"
-                : $"{Warnings.Count} warnings · judgement calls, not failures";
-            EvaluationStatus = $"{selectedIds.Count} items evaluated";
+                ? PlanText.LoadoutNoWarnings
+                : PlanText.LoadoutWarningCount(Warnings.Count);
+            EvaluationStatus = PlanText.LoadoutItemsEvaluated(selectedIds.Count);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ResetEvaluation($"Unreadable · {exception.Message}");
+            ResetEvaluation(PlanText.LoadoutUnreadable(exception.Message));
         }
     }
 
@@ -628,7 +629,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
     {
         _selection.Clear();
         RefreshAssignments();
-        ResetEvaluation("Assign at least one item, then evaluate.");
+        ResetEvaluation(PlanText.LoadoutAssignThenEvaluate);
     }
 
     /// <summary>Replaces the board with catalog items identified in a screenshot.</summary>
@@ -673,11 +674,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
         await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
         RefreshAssignments();
         ResetEvaluation(Assignments.Count == 0
-            ? "No recognized equipment maps to a loadout slot."
-            : "Recognized equipment loaded. Evaluate when ready.");
+            ? PlanText.LoadoutNoRecognizedSlot
+            : PlanText.LoadoutRecognizedLoaded);
         AssignmentStatus = Assignments.Count == 0
-            ? "No recognized equipment was assigned."
-            : $"{Assignments.Count} recognized items assigned.";
+            ? PlanText.LoadoutNoRecognizedAssigned
+            : PlanText.LoadoutRecognizedCount(Assignments.Count);
         await RefreshAlternativesAsync(cancellationToken).ConfigureAwait(true);
         return Assignments.Count;
     }
@@ -713,13 +714,13 @@ public sealed class LoadoutPageViewModel : PageViewModel
             var saved = await _presets.GetAsync(cancellationToken).ConfigureAwait(true);
             Presets = [.. saved.Select(Describe)];
             PresetStatus = Presets.Count == 0
-                ? "No kit saved yet."
-                : $"{Presets.Count} saved";
+                ? PlanText.LoadoutNoKitSaved
+                : PlanText.LoadoutPresetCount(Presets.Count);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Presets = [];
-            PresetStatus = $"Saved kits unreadable · {exception.Message}";
+            PresetStatus = PlanText.LoadoutPresetsUnreadable(exception.Message);
         }
     }
 
@@ -733,7 +734,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
         if (!LoadoutPreset.IsUsableName(PresetName))
         {
-            PresetStatus = "Give the kit a name first, up to 64 characters.";
+            PresetStatus = PlanText.LoadoutNameKitFirst;
             return;
         }
 
@@ -744,7 +745,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             .ToArray();
         if (items.Length == 0)
         {
-            PresetStatus = "Assign something before saving a kit.";
+            PresetStatus = PlanText.LoadoutAssignBeforeSaving;
             return;
         }
 
@@ -756,11 +757,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
                 .ConfigureAwait(true);
             PresetName = string.Empty;
             await LoadPresetsAsync(cancellationToken).ConfigureAwait(true);
-            PresetStatus = $"Saved {name}";
+            PresetStatus = PlanText.LoadoutSavedPreset(name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            PresetStatus = $"Not saved · {exception.Message}";
+            PresetStatus = PlanText.LoadoutNotSaved(exception.Message);
         }
     }
 
@@ -780,7 +781,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             .FirstOrDefault(preset => string.Equals(preset.Name, name, StringComparison.OrdinalIgnoreCase));
         if (saved is null)
         {
-            PresetStatus = $"{name} is no longer saved.";
+            PresetStatus = PlanText.LoadoutNoLongerSaved(name);
             await LoadPresetsAsync(cancellationToken).ConfigureAwait(true);
             return;
         }
@@ -804,8 +805,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
         await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
         RefreshAssignments();
-        ResetEvaluation("Loaded. Evaluate to price and weigh it.");
-        PresetStatus = $"Loaded {saved.Name}";
+        ResetEvaluation(PlanText.LoadoutLoadedEvaluate);
+        PresetStatus = PlanText.LoadoutLoadedPreset(saved.Name);
     }
 
     /// <summary>Picks the saved kit the current one is measured against, or none.</summary>
@@ -843,11 +844,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
             }
 
             await LoadPresetsAsync(cancellationToken).ConfigureAwait(true);
-            PresetStatus = $"Deleted {name}";
+            PresetStatus = PlanText.LoadoutDeletedPreset(name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            PresetStatus = $"Not deleted · {exception.Message}";
+            PresetStatus = PlanText.LoadoutNotDeleted(exception.Message);
         }
     }
 
@@ -856,7 +857,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         var name = preset.Name;
         return new(
             name,
-            $"{preset.Items.Count} items · saved {LocalTime.ToLocal(preset.SavedUtc).ToString("d MMM HH:mm", CultureInfo.CurrentCulture)}",
+            PlanText.LoadoutPresetDetail(preset.Items.Count, LocalTime.ToLocal(preset.SavedUtc).ToString("d MMM HH:mm", CultureInfo.CurrentCulture)),
             string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase),
             new AsyncDelegateCommand(() => LoadPresetAsync(name, CancellationToken.None)),
             new DelegateCommand(() => Compare(string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase) ? null : name)),
@@ -896,23 +897,23 @@ public sealed class LoadoutPageViewModel : PageViewModel
             Comparison =
             [
                 new(
-                    "Approximate cost",
+                    PlanText.LoadoutApproximateCost,
                     Roubles(_evaluatedCost),
                     Roubles(other.ApproximateCostRoubles),
                     Difference(_evaluatedCost, other.ApproximateCostRoubles)),
                 new(
-                    "Total weight",
+                    PlanText.LoadoutTotalWeight,
                     Kilograms(_evaluatedWeight),
                     Kilograms(other.ApproximateWeightKg),
                     Difference(_evaluatedWeight, other.ApproximateWeightKg)),
-                new("Ammo tier", _evaluatedAmmoTier, other.AmmoTier, string.Empty),
+                new(PlanText.LoadoutAmmoTier, _evaluatedAmmoTier, other.AmmoTier, string.Empty),
                 new(
-                    "Slots filled",
+                    PlanText.LoadoutSlotsFilledMeasure,
                     _selection.Count.ToString(CultureInfo.CurrentCulture),
                     saved.Items.Select(item => item.Slot).Distinct(StringComparer.Ordinal).Count().ToString(CultureInfo.CurrentCulture),
                     string.Empty),
                 new(
-                    "Compatibility issues",
+                    PlanText.LoadoutCompatibilityIssues,
                     Issues.Count.ToString(CultureInfo.CurrentCulture),
                     other.CompatibilityIssues.Count.ToString(CultureInfo.CurrentCulture),
                     string.Empty),
@@ -921,7 +922,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Comparison = [];
-            PresetStatus = $"Not compared · {exception.Message}";
+            PresetStatus = PlanText.LoadoutNotCompared(exception.Message);
         }
     }
 
@@ -949,10 +950,10 @@ public sealed class LoadoutPageViewModel : PageViewModel
     }
 
     private static string Roubles(long? value) =>
-        value is { } amount ? amount.ToString("N0", CultureInfo.CurrentCulture) + " \u20bd" : "unknown";
+        value is { } amount ? amount.ToString("N0", CultureInfo.CurrentCulture) + " \u20bd" : PlanText.LoadoutUnknownValue;
 
     private static string Kilograms(double? value) =>
-        value is { } weight ? weight.ToString("0.##", CultureInfo.CurrentCulture) + " kg" : "unknown";
+        value is { } weight ? weight.ToString("0.##", CultureInfo.CurrentCulture) + " kg" : PlanText.LoadoutUnknownValue;
 
     private static string Difference(long? current, long? other) =>
         current is { } left && other is { } right
@@ -981,22 +982,22 @@ public sealed class LoadoutPageViewModel : PageViewModel
             IsOverBudget = false;
             BudgetSummary = BudgetInput.Trim().Length == 0
                 ? NoBudget
-                : "That is not a number of roubles.";
+                : PlanText.LoadoutNotRoubles;
             return;
         }
 
         if (_evaluatedCost is not { } cost)
         {
             IsOverBudget = false;
-            BudgetSummary = $"Budget {Roubles(budget)}. Evaluate a kit to compare it.";
+            BudgetSummary = PlanText.LoadoutBudgetSet(Roubles(budget));
             return;
         }
 
         var difference = budget - cost;
         IsOverBudget = difference < 0;
         BudgetSummary = difference >= 0
-            ? $"{Roubles(cost)} of {Roubles(budget)} · {Roubles(difference)} left"
-            : $"{Roubles(cost)} of {Roubles(budget)} · over by {Roubles(-difference)}";
+            ? PlanText.LoadoutBudgetLeft(Roubles(cost), Roubles(budget), Roubles(difference))
+            : PlanText.LoadoutBudgetOver(Roubles(cost), Roubles(budget), Roubles(-difference));
     }
 
     /// <summary>Reads a typed budget, accepting separators and a trailing k or m.</summary>
@@ -1052,7 +1053,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
                     option.Name,
                     option.Hint,
                     items.Count > 0,
-                    items.Count == 0 ? "Empty" : string.Join(", ", items.Select(item => item.Name)),
+                    items.Count == 0 ? PlanText.LoadoutEmpty : string.Join(", ", items.Select(item => item.Name)),
                     items.Count == 0 ? option.Hint : items[0].Detail,
                     SelectedSlot.Slot == slot,
                     $"v2-loadout-slot-{slot.ToString().ToLowerInvariant()}",
@@ -1071,7 +1072,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         }
 
         RefreshAssignments();
-        AssignmentStatus = $"{SlotOptions.First(option => option.Slot == slot).Name} is empty again.";
+        AssignmentStatus = PlanText.LoadoutSlotEmptyAgain(SlotOptions.First(option => option.Slot == slot).Name);
         _ = RefreshAlternativesAsync(CancellationToken.None);
     }
 
@@ -1111,12 +1112,12 @@ public sealed class LoadoutPageViewModel : PageViewModel
             RefreshAssignments();
             await RefreshAlternativesAsync(cancellationToken).ConfigureAwait(true);
             AssignmentStatus = slot.AllowsMany
-                ? $"Added {name} to {slot.Name}."
-                : $"{slot.Name} is now {name}.";
+                ? PlanText.LoadoutAddedToSlot(name, slot.Name)
+                : PlanText.LoadoutSlotIsNow(slot.Name, name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            AssignmentStatus = $"Not assigned · {exception.Message}";
+            AssignmentStatus = PlanText.LoadoutNotAssigned(exception.Message);
         }
     }
 
@@ -1159,7 +1160,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         }
 
         RefreshAssignments();
-        AssignmentStatus = $"Removed {removed.Name}.";
+        AssignmentStatus = PlanText.LoadoutRemovedItem(removed.Name);
         _ = RefreshAlternativesAsync(CancellationToken.None);
     }
 
@@ -1168,7 +1169,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         if (_acquisitions is null)
         {
             Alternatives = [];
-            AlternativesStatus = "No acquisition catalog is available.";
+            AlternativesStatus = PlanText.LoadoutNoAcquisitionCatalog;
             return;
         }
 
@@ -1181,7 +1182,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             if (assigned.Count == 0)
             {
                 Alternatives = [];
-                AlternativesStatus = "Assign an item to see obtainable alternatives.";
+                AlternativesStatus = PlanText.LoadoutAssignForAlternatives;
                 return;
             }
 
@@ -1206,7 +1207,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
                     var fact = byId[row.Offer.ItemId];
                     var source = row.Offer.Kind == ItemAcquisitionKind.Cash && row.Offer.PriceRoubles is { } price
                         ? $"{row.Offer.TraderName} · {Roubles(price)}"
-                        : $"{row.Offer.TraderName} · barter";
+                        : PlanText.LoadoutTraderBarter(row.Offer.TraderName);
                     return new LoadoutAlternativeViewModel(
                         fact.Name,
                         $"{DescribeCost(fact)} · {DescribeWeight(fact)}{DescribeGear(fact)}",
@@ -1217,13 +1218,13 @@ public sealed class LoadoutPageViewModel : PageViewModel
                 })
                 .ToArray();
             AlternativesStatus = Alternatives.Count == 0
-                ? "No trader alternatives are recorded for this slot."
-                : $"{Alternatives.Count} alternatives · available now first";
+                ? PlanText.LoadoutNoTraderAlternatives
+                : PlanText.LoadoutAlternativeCount(Alternatives.Count);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Alternatives = [];
-            AlternativesStatus = $"Alternatives unavailable · {exception.Message}";
+            AlternativesStatus = PlanText.LoadoutAlternativesUnavailable(exception.Message);
         }
     }
 
@@ -1261,7 +1262,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         RefreshSlotBoard();
         if (rows.Count == 0)
         {
-            AssignmentStatus = "Nothing is assigned yet.";
+            AssignmentStatus = PlanText.LoadoutNothingAssigned;
         }
     }
 
@@ -1391,8 +1392,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
         // many of the kit it is a floor of, so a kit missing one price no longer reads as one missing all.
         var coverage = evaluation.CostCoverage;
         return evaluation.KnownCostRoubles is { } known
-            ? $"At least {Roubles(known)} · {coverage.Known} of {coverage.Total} priced"
-            : $"No total · {coverage.Known} of {coverage.Total} priced";
+            ? PlanText.LoadoutCostAtLeast(Roubles(known), coverage.Known, coverage.Total)
+            : PlanText.LoadoutCostNoTotal(coverage.Known, coverage.Total);
     }
 
     internal static string DescribeWeight(LoadoutEvaluation evaluation)
@@ -1404,8 +1405,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
         var coverage = evaluation.WeightCoverage;
         return evaluation.KnownWeightKg is { } known
-            ? $"At least {Kilograms(known)} · {coverage.Known} of {coverage.Total} weighed"
-            : $"No total · {coverage.Known} of {coverage.Total} weighed";
+            ? PlanText.LoadoutWeightAtLeast(Kilograms(known), coverage.Known, coverage.Total)
+            : PlanText.LoadoutWeightNoTotal(coverage.Known, coverage.Total);
     }
 
     private readonly IPlayerProfileService? _profiles;
@@ -1423,21 +1424,24 @@ public sealed class LoadoutPageViewModel : PageViewModel
         var profile = await _profiles.GetActiveAsync(cancellationToken).ConfigureAwait(true);
         return new OwnedAmmo(profile.OwnedItemCounts, packs).RoundsOf(round) switch
         {
-            null => " · owned not scanned",
+            null => PlanText.LoadoutOwnedNotScanned,
             var count => " · " + OwnedAmmo.Short(count).ToLower(CultureInfo.CurrentCulture),
         };
     }
 
+    // The evaluator's own word for no tier, compared, not shown; the shown text is PlanText's.
+    private const string UnknownTier = "Unknown";
+
     private static string DescribeAmmoTier(LoadoutEvaluation evaluation) =>
-        string.Equals(evaluation.AmmoTier, "Unknown", StringComparison.Ordinal)
-            ? "Unknown · no round assigned, or no ballistic row for it"
-            : $"Tier {evaluation.AmmoTier} in its caliber";
+        string.Equals(evaluation.AmmoTier, UnknownTier, StringComparison.Ordinal)
+            ? PlanText.LoadoutAmmoTierUnknown
+            : PlanText.LoadoutAmmoTierIn(evaluation.AmmoTier);
 
     private static string DescribeCost(LoadoutItemFacts? facts) =>
-        facts?.ApproximateCostRoubles is { } cost ? Roubles(cost) : "no price";
+        facts?.ApproximateCostRoubles is { } cost ? Roubles(cost) : PlanText.LoadoutNoPrice;
 
     private static string DescribeWeight(LoadoutItemFacts? facts) =>
-        facts?.WeightKg is { } weight ? Kilograms(weight) : "no weight";
+        facts?.WeightKg is { } weight ? Kilograms(weight) : PlanText.LoadoutNoWeightValue;
 
     // The figures the catalog states for a piece of gear, such as "Class 6 · Ceramic · 60 durability".
     private static string DescribeGear(LoadoutItemFacts? facts) =>
@@ -1447,18 +1451,18 @@ public sealed class LoadoutPageViewModel : PageViewModel
         facts?.Caliber is { } caliber
             ? CaliberText.Describe(caliber, facts.Name)
             : facts?.Gear is { } gear
-                ? GearFactsReader.Summarize(gear) ?? "No figures recorded"
-                : "No caliber recorded";
+                ? GearFactsReader.Summarize(gear) ?? PlanText.LoadoutNoFigures
+                : PlanText.LoadoutNoCaliber;
 
     private void ResetEvaluation(string status)
     {
         Issues = [];
         Warnings = [];
-        CostSummary = "No cost yet.";
-        WeightSummary = "No weight yet.";
-        AmmoTierSummary = "No ammunition assigned.";
-        IssuesStatus = "Not evaluated yet.";
-        WarningsStatus = "Not evaluated yet.";
+        CostSummary = PlanText.LoadoutNoCostYet;
+        WeightSummary = PlanText.LoadoutNoWeightYet;
+        AmmoTierSummary = PlanText.LoadoutNoAmmunitionAssigned;
+        IssuesStatus = PlanText.LoadoutNotEvaluatedYet;
+        WarningsStatus = PlanText.LoadoutNotEvaluatedYet;
         EvaluationStatus = status;
     }
 

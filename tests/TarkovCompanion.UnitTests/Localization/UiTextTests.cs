@@ -162,6 +162,35 @@ public sealed class UiTextTests
         Assert.Empty(log);
     }
 
+    // [#314] Plan and Team followed Debrief onto the table. An accessor whose key is missing
+    // from en.json would show the key itself in the running app; this catches it here instead.
+    [Theory]
+    [InlineData(typeof(PlanText), 150)]
+    [InlineData(typeof(TeamText), 60)]
+    public void Every_label_a_workspace_accessor_offers_has_an_English_value(Type accessor, int atLeast)
+    {
+        var log = new List<string>();
+        using var scope = UiText.Scope(UiText.Create("en", log.Add));
+
+        var members = accessor.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(method => method.ReturnType == typeof(string))
+            .ToArray();
+        Assert.True(members.Length > atLeast, $"only {members.Length} accessors");
+        foreach (var member in members)
+        {
+            var arguments = member.GetParameters().Select(parameter => parameter.ParameterType switch
+            {
+                var type when type == typeof(string) || type == typeof(object) => (object)"x",
+                var type when type.IsEnum => Enum.GetValues(type).GetValue(0)!,
+                var type => Activator.CreateInstance(type)!,
+            }).ToArray();
+            var text = (string)member.Invoke(null, arguments)!;
+            Assert.False(string.IsNullOrWhiteSpace(text), member.Name);
+        }
+
+        Assert.Empty(log);
+    }
+
     [Fact]
     public void A_scoped_table_does_not_leak_into_another_flow()
     {

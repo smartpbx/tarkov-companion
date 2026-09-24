@@ -3,6 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Team"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
@@ -272,7 +273,7 @@
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
             <Ellipse Classes="v2-team-dot" />
             <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center"
-                       Text="Nobody else is sharing right now." />
+                       Text="{x:Static l:TeamText.NobodySharing}" />
           </Grid>
         </Border>
 
@@ -308,7 +309,7 @@
               <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
                          Text="{Binding MapNote}" />
               <Button Classes="v2-team-outline" HorizontalAlignment="Center" Margin="0,6,0,0"
-                      Content="Open Raid map" Command="{Binding OpenSharedPlanCommand}" />
+                      Content="{x:Static l:TeamText.OpenRaidMap}" Command="{Binding OpenSharedPlanCommand}" />
             </StackPanel>
 
             <!-- Bottom-left: the renderer's own presentation pill owns the top-left corner and its
@@ -317,9 +318,9 @@
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Pin}" />
                 <TextBlock Classes="v2-body v2-team-strong" VerticalAlignment="Center"
-                           Text="Shared plan · manual waypoints" AutomationProperties.HeadingLevel="2" />
+                           Text="{x:Static l:TeamText.SharedPlanHeading}" AutomationProperties.HeadingLevel="2" />
                 <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="·" IsVisible="{Binding !HasMarks}" />
-                <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="none yet" IsVisible="{Binding !HasMarks}" />
+                <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:TeamText.NoneYetLower}" IsVisible="{Binding !HasMarks}" />
               </StackPanel>
             </Border>
           </Grid>
@@ -337,7 +338,7 @@
               <StackPanel Margin="28,22,28,28" Spacing="18">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
                   <StackPanel Spacing="4">
-                    <TextBlock Classes="v2-heading-2" Text="Group sharing" AutomationProperties.HeadingLevel="2" />
+                    <TextBlock Classes="v2-heading-2" Text="{x:Static l:TeamText.GroupSharing}" AutomationProperties.HeadingLevel="2" />
                     <StackPanel Orientation="Horizontal" Spacing="10">
                       <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
                                  VerticalAlignment="Center"
@@ -345,54 +346,54 @@
                                  AutomationProperties.LiveSetting="Polite" />
                       <!-- Every other workspace has a Reload. Without one, a Team pane whose
                            settings would not read had no way back short of restarting. -->
-                      <Button Classes="v2-plain v2-target v2-touch-target" Content="Reload"
+                      <Button Classes="v2-plain v2-target v2-touch-target" Content="{x:Static l:TeamText.Reload}"
                               Command="{Binding ReloadCommand}"
                               AutomationProperties.AutomationId="v2-team-reload"
-                              AutomationProperties.Name="Reload sharing settings" />
+                              AutomationProperties.Name="{x:Static l:TeamText.ReloadSharingSettings}" />
                     </StackPanel>
                   </StackPanel>
                   <ToggleSwitch Grid.Column="1" Classes="v2-team-switch" VerticalAlignment="Center"
                                 IsChecked="{Binding IsEnabled, Mode=TwoWay}"
-                                OnContent="Share this session" OffContent="Share this session"
-                                AutomationProperties.Name="Share this session" />
+                                OnContent="{x:Static l:TeamText.ShareThisSession}" OffContent="{x:Static l:TeamText.ShareThisSession}"
+                                AutomationProperties.Name="{x:Static l:TeamText.ShareThisSession}" />
                 </Grid>
 
                 <StackPanel Spacing="6">
-                  <TextBlock Classes="v2-label" Text="Server address" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.ServerAddress}" />
                   <TextBox Classes="v2-field-input" Text="{Binding ServerUri, Mode=TwoWay}"
-                           Watermark="https://relay.example" AutomationProperties.Name="Server address"
+                           Watermark="https://relay.example" AutomationProperties.Name="{x:Static l:TeamText.ServerAddress}"
                            AutomationProperties.AutomationId="v2-team-server-input" />
                 </StackPanel>
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
                   <StackPanel Spacing="6">
-                    <TextBlock Classes="v2-label" Text="Display name" />
+                    <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.DisplayName}" />
                     <TextBox Classes="v2-field-input" Text="{Binding DisplayName, Mode=TwoWay}"
-                             AutomationProperties.Name="Display name"
+                             AutomationProperties.Name="{x:Static l:TeamText.DisplayName}"
                              AutomationProperties.AutomationId="v2-team-name-input" />
                   </StackPanel>
                   <StackPanel Grid.Column="1" Spacing="6">
-                    <TextBlock Classes="v2-label" Text="Group key" />
+                    <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.GroupKey}" />
                     <TextBox Classes="v2-field-input" Text="{Binding Key, Mode=TwoWay}" PasswordChar="•"
-                             AutomationProperties.Name="Group key"
+                             AutomationProperties.Name="{x:Static l:TeamText.GroupKey}"
                              AutomationProperties.AutomationId="v2-team-key-input" />
                   </StackPanel>
                 </Grid>
                 <TextBlock Classes="v2-label" Margin="0,-10,0,0" TextWrapping="Wrap"
-                           Text="At least eight characters. A new key creates a group; an existing key joins it." />
+                           Text="{x:Static l:TeamText.GroupKeyHint}" />
 
                 <StackPanel Spacing="6">
-                  <TextBlock Classes="v2-heading-3" Text="What you share" AutomationProperties.HeadingLevel="3" />
+                  <TextBlock Classes="v2-heading-3" Text="{x:Static l:TeamText.WhatYouShare}" AutomationProperties.HeadingLevel="3" />
                   <ToggleSwitch Classes="v2-team-switch" IsChecked="{Binding SharesLoadout, Mode=TwoWay}"
-                                OnContent="My loadout" OffContent="My loadout" AutomationProperties.Name="Share my loadout" />
+                                OnContent="{x:Static l:TeamText.MyLoadoutToggle}" OffContent="{x:Static l:TeamText.MyLoadoutToggle}" AutomationProperties.Name="{x:Static l:TeamText.ShareMyLoadout}" />
                   <ToggleSwitch Classes="v2-team-switch" IsChecked="{Binding SharesQuests, Mode=TwoWay}"
-                                OnContent="My quest progress" OffContent="My quest progress"
-                                AutomationProperties.Name="Share my quest progress" />
-                  <TextBlock Classes="v2-label" Text="Active quests and open objectives, by id." />
+                                OnContent="{x:Static l:TeamText.MyQuestProgressToggle}" OffContent="{x:Static l:TeamText.MyQuestProgressToggle}"
+                                AutomationProperties.Name="{x:Static l:TeamText.ShareMyQuestProgress}" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.ShareQuestsHint}" />
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" Spacing="12">
                   <Button Classes="v2-team-primary" MinWidth="140" AutomationProperties.AutomationId="v2-team-save"
-                          Content="Save" Command="{Binding SaveCommand}" />
+                          Content="{x:Static l:TeamText.Save}" Command="{Binding SaveCommand}" />
                   <Button Classes="v2-team-plain" AutomationProperties.AutomationId="v2-team-leave"
                           Content="{Binding LeaveLabel}" Command="{Binding LeaveCommand}" />
                 </StackPanel>
@@ -400,17 +401,17 @@
                 <!-- Package 29 (parity): V1's Group page said what your own game never tells you —
                      your kit, level, side and scav timer — because a squadmate's game wrote them down. -->
                 <StackPanel Spacing="6" AutomationProperties.AutomationId="v2-team-about-you">
-                  <TextBlock Classes="v2-heading-3" Text="What your group knows about you"
+                  <TextBlock Classes="v2-heading-3" Text="{x:Static l:TeamText.WhatGroupKnows}"
                              AutomationProperties.HeadingLevel="3" />
                   <TextBlock Classes="v2-body" Text="{Binding MyLoadout}" TextWrapping="Wrap" />
                   <TextBlock Classes="v2-body" Text="{Binding MyProfile}" TextWrapping="Wrap"
                              IsVisible="{Binding HasMyProfile}" />
                   <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                             Text="Read off a squadmate's game, not yours · matched on your in-game nickname." />
+                             Text="{x:Static l:TeamText.WhatGroupKnowsHint}" />
                 </StackPanel>
 
                 <StackPanel Spacing="8" IsVisible="{Binding HasPresence}" AutomationProperties.AutomationId="v2-team-members">
-                  <TextBlock Classes="v2-heading-3" Text="Who else is here" AutomationProperties.HeadingLevel="3" />
+                  <TextBlock Classes="v2-heading-3" Text="{x:Static l:TeamText.WhoElseIsHere}" AutomationProperties.HeadingLevel="3" />
                   <ItemsControl ItemsSource="{Binding Presence}">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
@@ -449,7 +450,7 @@
               <StackPanel Margin="28,22,28,28" Spacing="16">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
                   <StackPanel Spacing="4">
-                    <TextBlock Classes="v2-heading-2" Text="Your devices" AutomationProperties.HeadingLevel="2" />
+                    <TextBlock Classes="v2-heading-2" Text="{x:Static l:TeamText.YourDevices}" AutomationProperties.HeadingLevel="2" />
                     <TextBlock Classes="v2-label" Text="{Binding DevicesSummary}" />
                   </StackPanel>
                   <!-- Kept for the automation id that used to open the window; inside this
@@ -457,7 +458,7 @@
                   <Button Grid.Column="1" Classes="v2-team-primary" VerticalAlignment="Center"
                           AutomationProperties.AutomationId="v2-team-pair-tablet"
                           ToolTip.Tip="{Binding PairTabletTooltip}" ToolTip.ShowOnDisabled="True"
-                          Content="Pair a tablet" Command="{Binding Pairing.StartPairingCommand}"
+                          Content="{x:Static l:TeamText.PairATablet}" Command="{Binding Pairing.StartPairingCommand}"
                           IsEnabled="{Binding Pairing.CanStartPairing}" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
@@ -488,14 +489,14 @@
 
                 <Border Classes="v2-team-row" IsVisible="{Binding CanPairDevice}">
                   <StackPanel Spacing="10">
-                    <TextBlock Classes="v2-body v2-team-strong" Text="Add a device" />
+                    <TextBlock Classes="v2-body v2-team-strong" Text="{x:Static l:TeamText.AddADevice}" />
 
                     <StackPanel Spacing="8" IsVisible="{Binding Pairing.IsIdle}">
                       <TextBlock Classes="v2-label" TextWrapping="Wrap"
                                  AutomationProperties.AutomationId="v2-team-pairing-blocked"
                                  Text="{Binding Pairing.StartPairingBlockedReason}"
                                  IsVisible="{Binding !Pairing.CanStartPairing}" />
-                      <Button Classes="v2-team-primary" HorizontalAlignment="Left" Content="Start pairing"
+                      <Button Classes="v2-team-primary" HorizontalAlignment="Left" Content="{x:Static l:TeamText.StartPairing}"
                               AutomationProperties.AutomationId="v2-team-start-pairing"
                               Command="{Binding Pairing.StartPairingCommand}"
                               IsEnabled="{Binding Pairing.CanStartPairing}" />
@@ -503,7 +504,7 @@
 
                     <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingTablet}">
                       <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                                 Text="Scan this with the tablet's camera, or open the address below and type the code:" />
+                                 Text="{x:Static l:TeamText.ScanThis}" />
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18">
                         <!-- [V2 rough package 60 — Team] #289: the payload has always existed and
                              was never drawn, so the only way onto a tablet was to type. White
@@ -535,7 +536,7 @@
                                      AutomationProperties.LiveSetting="Polite"
                                      IsVisible="{Binding Pairing.HasCodeExpiry}"
                                      Text="{Binding Pairing.CodeExpiry}" />
-                          <TextBlock Classes="v2-label" Text="Waiting for the tablet…"
+                          <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.WaitingForTablet}"
                                      IsVisible="{Binding !Pairing.IsCodeExpired}" />
                         </StackPanel>
                       </Grid>
@@ -543,16 +544,16 @@
 
                     <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingApproval}">
                       <TextBlock Classes="v2-label" TextWrapping="Wrap">
-                        <Run Text="{Binding Pairing.RequestedDisplayName}" /><Run Text=" wants to pair. Approve it only if the tablet shows this code:" />
+                        <Run Text="{Binding Pairing.RequestedDisplayName}" /><Run Text="{x:Static l:TeamText.WantsToPair}" />
                       </TextBlock>
                       <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="{DynamicResource V2.Type.Display.Size}"
                                  AutomationProperties.AutomationId="v2-team-verification-code"
                                  Text="{Binding Pairing.VerificationCode}" />
                       <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Classes="v2-team-primary" Content="Approve"
+                        <Button Classes="v2-team-primary" Content="{x:Static l:TeamText.Approve}"
                                 AutomationProperties.AutomationId="v2-team-approve-pairing"
                                 Command="{Binding Pairing.ApproveCommand}" IsEnabled="{Binding !Pairing.IsBusy}" />
-                        <Button Classes="v2-team-plain" Content="Deny"
+                        <Button Classes="v2-team-plain" Content="{x:Static l:TeamText.Deny}"
                                 AutomationProperties.AutomationId="v2-team-deny-pairing"
                                 Command="{Binding Pairing.DenyCommand}" IsEnabled="{Binding !Pairing.IsBusy}" />
                       </StackPanel>
@@ -571,10 +572,10 @@
                   <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
                     <TextBlock Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap"
                                Text="{Binding ControlRequestMessage}" />
-                    <Button Grid.Column="1" Classes="v2-team-primary" Content="Allow"
+                    <Button Grid.Column="1" Classes="v2-team-primary" Content="{x:Static l:TeamText.Allow}"
                             AutomationProperties.AutomationId="v2-team-allow-control"
                             Command="{Binding AllowControlCommand}" />
-                    <Button Grid.Column="2" Classes="v2-team-plain" Content="Deny"
+                    <Button Grid.Column="2" Classes="v2-team-plain" Content="{x:Static l:TeamText.Deny}"
                             AutomationProperties.AutomationId="v2-team-deny-control"
                             Command="{Binding DenyControlCommand}" />
                   </Grid>
@@ -584,7 +585,7 @@
                   <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <TextBlock Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap"
                                Text="{Binding ControlHolderMessage}" />
-                    <Button Grid.Column="1" Classes="v2-team-primary" Content="Take back control"
+                    <Button Grid.Column="1" Classes="v2-team-primary" Content="{x:Static l:TeamText.TakeBackControl}"
                             AutomationProperties.AutomationId="v2-team-take-back-control"
                             Command="{Binding TakeBackControlCommand}" />
                   </Grid>
@@ -594,12 +595,12 @@
                 <Border Classes="v2-team-row" IsVisible="{Binding !HasNoDevices}">
                   <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <StackPanel Spacing="1" VerticalAlignment="Center">
-                      <TextBlock Classes="v2-body" Text="Show the Raid map's current view on your tablets." TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-body" Text="{x:Static l:TeamText.ShowMapOnTablets}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" TextWrapping="Wrap"
                                  AutomationProperties.AutomationId="v2-team-send-to-tablet-status"
                                  IsVisible="{Binding Pairing.HasSendMapToTabletMessage}" Text="{Binding Pairing.SendMapToTabletMessage}" />
                     </StackPanel>
-                    <Button Grid.Column="1" Classes="v2-team-outline" Content="Send to tablet"
+                    <Button Grid.Column="1" Classes="v2-team-outline" Content="{x:Static l:TeamText.SendToTablet}"
                             AutomationProperties.AutomationId="v2-team-send-to-tablet"
                             IsEnabled="{Binding Pairing.CanSendMapToTablet}"
                             Command="{Binding Pairing.SendMapToTabletCommand}" />
@@ -647,9 +648,9 @@
                   <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
                     <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Tablet}" />
                   </Viewbox>
-                  <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="No paired devices yet" />
+                  <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="{x:Static l:TeamText.NoPairedDevicesYet}" />
                   <TextBlock Classes="v2-label" TextWrapping="Wrap" TextAlignment="Center"
-                             Text="Pair a tablet to follow the raid on a second screen." />
+                             Text="{x:Static l:TeamText.PairHint}" />
                 </StackPanel>
               </StackPanel>
             </Grid>
@@ -664,7 +665,7 @@
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,12,16,16">
             <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="v2-heading-2" Text="Team" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-heading-2" Text="{x:Static l:TeamText.Heading}" AutomationProperties.HeadingLevel="2" />
               <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding MemberCountLabel}" />
             </Grid>
 
@@ -674,7 +675,7 @@
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                 <TextBlock Classes="v2-label" TextWrapping="Wrap" VerticalAlignment="Center"
                            Foreground="{DynamicResource V2.Brush.Warning}" Text="{Binding ModeWarning}" />
-                <Button Grid.Column="1" Classes="v2-target" Content="OK" VerticalAlignment="Center"
+                <Button Grid.Column="1" Classes="v2-target" Content="{x:Static l:TeamText.Ok}" VerticalAlignment="Center"
                         AutomationProperties.AutomationId="v2-team-mode-warning-dismiss"
                         Command="{Binding DismissModeWarningCommand}" />
               </Grid>
@@ -687,33 +688,33 @@
               <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Check}" />
-                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Ready check"
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.ReadyCheck}"
                              AutomationProperties.HeadingLevel="3" />
                   <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding ReadySummary}" />
                 </Grid>
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                  <Button Classes="v2-team-outline" HorizontalAlignment="Stretch" Content="Ready"
+                  <Button Classes="v2-team-outline" HorizontalAlignment="Stretch" Content="{x:Static l:TeamText.Ready}"
                           Classes.v2-team-on="{Binding IsReady}"
                           AutomationProperties.AutomationId="v2-team-ready"
                           Command="{Binding ReadyCommand}" />
-                  <Button Grid.Column="1" Classes="v2-team-outline" HorizontalAlignment="Stretch" Content="Not ready"
+                  <Button Grid.Column="1" Classes="v2-team-outline" HorizontalAlignment="Stretch" Content="{x:Static l:TeamText.NotReady}"
                           Classes.v2-team-hold="{Binding IsNotReady}"
                           AutomationProperties.AutomationId="v2-team-not-ready"
                           Command="{Binding NotReadyCommand}" />
                 </Grid>
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                  <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="Extract" />
+                  <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:TeamText.Extract}" />
                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                             AutomationProperties.AutomationId="v2-team-extract"
-                            AutomationProperties.Name="Extract to share"
+                            AutomationProperties.Name="{x:Static l:TeamText.ExtractToShare}"
                             ItemsSource="{Binding ExtractOptions}" SelectedItem="{Binding SelectedExtract, Mode=TwoWay}" />
                 </Grid>
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                   <TextBox Classes="v2-field-input" Text="{Binding NoteDraft, Mode=TwoWay}" MaxLength="{Binding NoteLimit}"
-                           Watermark="Note for the squad"
+                           Watermark="{x:Static l:TeamText.NoteForSquad}"
                            AutomationProperties.AutomationId="v2-team-note"
-                           AutomationProperties.Name="Note for the squad" />
-                  <Button Grid.Column="1" Classes="v2-team-outline" Content="Share"
+                           AutomationProperties.Name="{x:Static l:TeamText.NoteForSquad}" />
+                  <Button Grid.Column="1" Classes="v2-team-outline" Content="{x:Static l:TeamText.Share}"
                           AutomationProperties.AutomationId="v2-team-share-note"
                           IsEnabled="{Binding CanShareNote}" Command="{Binding ShareNoteCommand}" />
                 </Grid>
@@ -751,7 +752,7 @@
               <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Target}" />
-                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Squad quests"
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.SquadQuests}"
                              AutomationProperties.HeadingLevel="3" />
                   <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding SquadQuestsSummary}" />
                 </Grid>
@@ -776,7 +777,7 @@
                               <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="20,0,0,0">
                                 <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                 <Border Grid.Column="1" Classes="v2-team-chip" IsVisible="{Binding IsShared}">
-                                  <TextBlock Classes="v2-label" Text="Shared" />
+                                  <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.Shared}" />
                                 </Border>
                                 <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center"
                                            Text="{Binding Progress}" IsVisible="{Binding HasProgress}" />
@@ -795,11 +796,11 @@
               <StackPanel Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Target}" />
-                  <TextBlock Classes="v2-heading-3" VerticalAlignment="Center" Text="Team quests"
+                  <TextBlock Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.TeamQuests}"
                              AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-label" IsVisible="{Binding !HasTeamQuests}" TextWrapping="Wrap"
-                           Text="No shared quests yet." />
+                           Text="{x:Static l:TeamText.NoSharedQuests}" />
                 <ItemsControl ItemsSource="{Binding TeamQuests}" IsVisible="{Binding HasTeamQuests}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -823,13 +824,13 @@
               <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.People}" />
-                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Party"
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.Party}"
                              AutomationProperties.HeadingLevel="3" />
                   <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding Party.Status}" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding Party.Queue}" TextWrapping="Wrap" />
                 <TextBlock Classes="v2-label" IsVisible="{Binding Party.HasNoMembers}" TextWrapping="Wrap"
-                           Text="It fills in when you queue with somebody. A party formed before this started appears at its next change." />
+                           Text="{x:Static l:TeamText.PartyHint}" />
                 <ItemsControl ItemsSource="{Binding Party.Members}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
@@ -864,16 +865,19 @@
             <Border Classes="v2-team-section" Padding="6,4" AutomationProperties.AutomationId="v2-team-marks">
               <Expander Classes="v2-team-expander" HorizontalAlignment="Stretch" IsExpanded="True">
                 <Expander.Header>
-                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <!-- [#314] The heading keeps its width and the summary gives way: a longer
+                       language squeezed "Marks" to one letter a line when the summary was Auto. -->
+                  <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
                     <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Pin}" />
-                    <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Marks"
+                    <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.Marks}"
                                AutomationProperties.HeadingLevel="3" />
-                    <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding MarksSummary}" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" HorizontalAlignment="Right"
+                               TextTrimming="CharacterEllipsis" Text="{Binding MarksSummary}" />
                   </Grid>
                 </Expander.Header>
                 <StackPanel Spacing="6">
                   <TextBlock Classes="v2-label" IsVisible="{Binding HasNoMarks}" TextWrapping="Wrap"
-                             Text="Waypoints your group places on the Raid map appear here." />
+                             Text="{x:Static l:TeamText.MarksHint}" />
                   <!-- [V2 rough package 60 — Team] #289: undo rather than confirm. A dialog on
                        every removed ping would be in the way constantly, and putting one back
                        costs nothing; revoking a device is the opposite case and is confirmed. -->
@@ -902,7 +906,7 @@
                           <Path Grid.Column="2" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
                                 Data="{DynamicResource V2.Icon.Check}" IsVisible="{Binding IsReached}" />
                           <Button Grid.Column="3" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
-                                  AutomationProperties.Name="Remove waypoint" ToolTip.Tip="Remove">
+                                  AutomationProperties.Name="{x:Static l:TeamText.RemoveWaypoint}" ToolTip.Tip="{x:Static l:TeamText.Remove}">
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
                           </Button>
                         </Grid>
@@ -927,7 +931,7 @@
                                        Classes.v2-team-warning-text="{Binding IsQueued}" />
                           </StackPanel>
                           <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
-                                  AutomationProperties.Name="Remove ping" ToolTip.Tip="Remove">
+                                  AutomationProperties.Name="{x:Static l:TeamText.RemovePing}" ToolTip.Tip="{x:Static l:TeamText.Remove}">
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
                           </Button>
                         </Grid>
@@ -942,7 +946,7 @@
               <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.People}" />
-                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Group"
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.Group}"
                              AutomationProperties.HeadingLevel="3" />
                   <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Ellipse Classes="v2-team-dot" Width="8" Height="8"
@@ -953,7 +957,7 @@
                 <TextBlock Classes="v2-label" Text="{Binding ConnectionDetail}" TextWrapping="Wrap"
                            IsVisible="{Binding ConnectionDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <Button Classes="v2-team-outline" HorizontalAlignment="Stretch" Margin="0,4,0,0"
-                        Content="Manage group" Command="{Binding ManageGroupCommand}"
+                        Content="{x:Static l:TeamText.ManageGroup}" Command="{Binding ManageGroupCommand}"
                         IsVisible="{Binding !IsGroupSection}" />
               </StackPanel>
             </Border>
@@ -962,7 +966,7 @@
               <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.PersonAdd}" />
-                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Devices"
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="{x:Static l:TeamText.Devices}"
                              AutomationProperties.HeadingLevel="3" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding DevicesSummary}" />
@@ -970,9 +974,9 @@
                   <Button Classes="v2-team-outline" HorizontalAlignment="Stretch"
                           AutomationProperties.AutomationId="v2-team-panel-pair-tablet"
                           ToolTip.Tip="{Binding PairTabletTooltip}" ToolTip.ShowOnDisabled="True"
-                          Content="Pair a tablet" Command="{Binding PairTabletCommand}"
+                          Content="{x:Static l:TeamText.PairATablet}" Command="{Binding PairTabletCommand}"
                           IsEnabled="{Binding CanPairDevice}" />
-                  <Button Grid.Column="1" Classes="v2-team-plain" Content="Manage"
+                  <Button Grid.Column="1" Classes="v2-team-plain" Content="{x:Static l:TeamText.Manage}"
                           Command="{Binding ManageDevicesCommand}" IsVisible="{Binding !IsDevicesSection}" />
                 </Grid>
               </StackPanel>
@@ -985,7 +989,7 @@
                 AutomationProperties.AutomationId="v2-team-open-shared-plan">
           <StackPanel Orientation="Horizontal" Spacing="12">
             <Path Classes="v2-icon" Stroke="{DynamicResource V2.Brush.Canvas}" Data="{DynamicResource V2.Icon.Map}" />
-            <TextBlock Text="Open shared plan" VerticalAlignment="Center" />
+            <TextBlock Text="{x:Static l:TeamText.OpenSharedPlan}" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
       </Grid>

@@ -2,6 +2,7 @@
              x:DataType="vm:KeepListWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
@@ -37,12 +38,12 @@
     <Grid RowDefinitions="Auto,*">
       <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
         <Grid ColumnDefinitions="*,Auto">
-          <TextBlock Classes="v2-heading-2" Text="Keep list" AutomationProperties.HeadingLevel="2"
+          <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.KeepListTitle}" AutomationProperties.HeadingLevel="2"
                      VerticalAlignment="Center" />
           <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
                   VerticalAlignment="Center"
-                  AutomationProperties.AutomationId="v2-keep-refresh" AutomationProperties.Name="Refresh"
-                  ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
+                  AutomationProperties.AutomationId="v2-keep-refresh" AutomationProperties.Name="{x:Static l:PlanText.KeepRefresh}"
+                  ToolTip.Tip="{x:Static l:PlanText.KeepRefresh}" Command="{Binding RefreshCommand}">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
           </Button>
         </Grid>
@@ -56,7 +57,7 @@
         <TextBlock IsVisible="{Binding !HasGroups}" Classes="v2-body" Opacity="0.8"
                    HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                    TextWrapping="Wrap" MaxWidth="420"
-                   Text="Nothing to keep yet — this fills in once quests, hideout requirements, and key prices have synced." />
+                   Text="{x:Static l:PlanText.KeepEmpty}" />
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasGroups}">
           <!-- One flat, virtualised list: a heading, its rows, the next heading. See Rows. -->
           <ItemsControl ItemsSource="{Binding Rows}" Margin="16,0,16,12"
