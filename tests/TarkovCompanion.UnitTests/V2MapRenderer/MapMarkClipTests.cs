@@ -159,7 +159,7 @@ public sealed class MapMarkClipTests
 
     private static void Run(Action<MapSceneRendererView> body)
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(MarkClipApp));
+        using var session = HeadlessSessions.StartNew(typeof(MarkClipApp));
         session.Dispatch(
             () =>
             {

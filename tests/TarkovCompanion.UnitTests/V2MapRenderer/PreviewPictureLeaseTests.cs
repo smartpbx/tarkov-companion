@@ -30,7 +30,7 @@ public sealed class PreviewPictureLeaseTests
     [Fact]
     public async Task A_preview_not_re_presented_keeps_its_picture_alive_until_it_moves_off_it()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(MapMarkClipTests.MarkClipApp));
+        using var session = HeadlessSessions.StartNew(typeof(MapMarkClipTests.MarkClipApp));
         await session.Dispatch(
             () =>
             {
@@ -76,7 +76,7 @@ public sealed class PreviewPictureLeaseTests
     [Fact]
     public async Task A_picture_already_retired_is_not_shown()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(MapMarkClipTests.MarkClipApp));
+        using var session = HeadlessSessions.StartNew(typeof(MapMarkClipTests.MarkClipApp));
         await session.Dispatch(
             () =>
             {

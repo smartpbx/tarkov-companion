@@ -14,7 +14,7 @@ public sealed class V2AppearanceApplierTests
     [Fact]
     public async Task Platform_change_rereads_system_theme_and_contrast_while_the_app_is_running()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(AppearanceApp));
+        using var session = HeadlessSessions.StartNew(typeof(AppearanceApp));
         await session.Dispatch(
             () =>
             {
