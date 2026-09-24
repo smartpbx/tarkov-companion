@@ -700,13 +700,27 @@ jobs:
           $Current = Split-Path -Parent $env:TC_INSTALLED
           $Report = Join-Path $env:GITHUB_WORKSPACE "verification/rollback-applies.json"
           $env:TARKOV_UPDATE_FEED = Join-Path $env:RUNNER_TEMP "rough-channel-next"
+          $ProbeErr = Join-Path $env:RUNNER_TEMP "rollback-probe-stderr.txt"
+          $ProbeOut = Join-Path $env:RUNNER_TEMP "rollback-probe-stdout.txt"
           $Probe = Start-Process -FilePath $env:TC_INSTALLED -WorkingDirectory $Current -PassThru `
+            -RedirectStandardError $ProbeErr -RedirectStandardOutput $ProbeOut `
             -ArgumentList @("--roll-back-and-exit", "--output", $Report)
           if (-not $Probe.WaitForExit(120000)) {
             Stop-Process -Id $Probe.Id -Force -ErrorAction SilentlyContinue
             throw "The application was still running two minutes after it was asked to go back."
           }
           if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report }
+          else {
+            # No report means the probe never reached its own error handling: say what it did say.
+            "No report. Probe exit code: $($Probe.ExitCode)"
+            foreach ($File in @($ProbeOut, $ProbeErr)) { if (Test-Path -LiteralPath $File) { Get-Content -LiteralPath $File -Tail 40 } }
+            $Logs = Join-Path $env:LOCALAPPDATA "TarkovCompanion/Logs"
+            Get-ChildItem -LiteralPath $Logs -Filter "startup.log" -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1 |
+              ForEach-Object { Get-Content -LiteralPath $_.FullName -Tail 40 }
+          }
+          Get-ChildItem -LiteralPath (Join-Path (Split-Path -Parent $Current) "packages") -ErrorAction SilentlyContinue | Select-Object Name, Length
+          Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA "TarkovCompanion/Updates") -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
 
           function Get-InstalledVersion {
             $Path = Join-Path $Current "BUILD_INFO.txt"
