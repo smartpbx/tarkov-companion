@@ -490,7 +490,9 @@ public sealed class PublicationAndPerformanceTests
         }
 
         var plans = await new SqliteQueryPlanAuditor(database.Factory).CaptureAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(["item", "quest", "price", "map", "history", "profile", "craft"], plans.Select(plan => plan.Path));
+        Assert.Equal(
+            ["item", "quest", "price", "map", "history", "profile", "craft", "quest-progress", "requirements", "item-search"],
+            plans.Select(plan => plan.Path));
         Assert.All(plans, plan =>
         {
             Assert.NotEmpty(plan.ReaderPath);
@@ -503,7 +505,10 @@ public sealed class PublicationAndPerformanceTests
                     $"{plan.Path}/{statement.Name}: {string.Join(" | ", statement.Steps)}"));
         });
         Assert.Equal(
-            ["map/catalog-scan", "history/history-list", "profile/profile-contexts"],
+            [
+                "map/catalog-scan", "history/history-list", "profile/profile-contexts",
+                "requirements/quest-items", "requirements/hideout-items", "item-search/full-text", "item-search/fuzzy-names",
+            ],
             plans.SelectMany(plan => plan.Statements
                 .Where(statement => !statement.IndexRequired)
                 .Select(statement => $"{plan.Path}/{statement.Name}")));

@@ -35,6 +35,22 @@ public sealed class SqliteRequirementCatalog(SqliteConnectionFactory connectionF
     private IReadOnlyList<HideoutStationSummary>? _stations;
     private int _generation;
 
+    internal const string HideoutItemRequirementsSql = """
+        SELECT station_id, level, item_id, count
+        FROM hideout_requirements
+        WHERE requirement_type = 'item' AND item_id IS NOT NULL;
+        """;
+
+    internal const string QuestItemRequirementsSql = """
+        SELECT item.task_id, item.objective_id, item.item_id,
+               item.count, item.found_in_raid_required
+        FROM task_objective_items AS item
+        JOIN task_objectives AS objective
+            ON objective.task_id = item.task_id AND objective.id = item.objective_id
+        ORDER BY item.task_id COLLATE BINARY, item.objective_id COLLATE BINARY,
+                 item.item_id COLLATE BINARY;
+        """;
+
     /// <summary>Every outstanding hideout item requirement, one per station level and item.</summary>
     /// <remarks>
     /// Only the <c>item</c> requirement kind is returned; the <c>station</c>, <c>trader</c> and
@@ -111,11 +127,7 @@ public sealed class SqliteRequirementCatalog(SqliteConnectionFactory connectionF
         }
 
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT station_id, level, item_id, count
-            FROM hideout_requirements
-            WHERE requirement_type = 'item' AND item_id IS NOT NULL;
-            """;
+        command.CommandText = HideoutItemRequirementsSql;
 
         // A repeated (station, level, item) is collapsed rather than summed. The refresh deletes
         // the whole table and reinserts it inside one transaction, so duplicates cannot survive
@@ -172,15 +184,7 @@ public sealed class SqliteRequirementCatalog(SqliteConnectionFactory connectionF
         // they must stay separate — the aggregation service counts each against its own item id,
         // so merging them would erase a need rather than double one.
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT item.task_id, item.objective_id, item.item_id,
-                   item.count, item.found_in_raid_required
-            FROM task_objective_items AS item
-            JOIN task_objectives AS objective
-                ON objective.task_id = item.task_id AND objective.id = item.objective_id
-            ORDER BY item.task_id COLLATE BINARY, item.objective_id COLLATE BINARY,
-                     item.item_id COLLATE BINARY;
-            """;
+        command.CommandText = QuestItemRequirementsSql;
         var requirements = new List<QuestItemRequirement>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
