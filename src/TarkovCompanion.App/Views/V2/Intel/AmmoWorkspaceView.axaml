@@ -2,6 +2,7 @@
              x:DataType="vm:AmmoWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
              xmlns:pages="using:TarkovCompanion.App.ViewModels">
   <UserControl.Styles>
@@ -38,12 +39,12 @@
           <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
                 Data="{DynamicResource V2.Icon.Search}" />
           <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchQuery}"
-                   PlaceholderText="Filter calibers"
+                   PlaceholderText="{x:Static l:IntelText.AmmoFilterCalibers}"
                    AutomationProperties.AutomationId="v2-ammo-search"
-                   AutomationProperties.Name="Filter calibers" />
+                   AutomationProperties.Name="{x:Static l:IntelText.AmmoFilterCalibers}" />
           <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
                   AutomationProperties.AutomationId="v2-ammo-reload"
-                  AutomationProperties.Name="Reload ammunition" ToolTip.Tip="Reload"
+                  AutomationProperties.Name="{x:Static l:IntelText.AmmoReloadAmmunition}" ToolTip.Tip="{x:Static l:IntelText.AmmoReload}"
                   Command="{Binding RefreshCommand}">
             <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
           </Button>
@@ -66,7 +67,7 @@
             <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
               <StackPanel Spacing="4">
                 <TextBlock Classes="v2-label" IsVisible="{Binding !HasCalibers}" Margin="2,4"
-                           Text="No calibers to show." />
+                           Text="{x:Static l:IntelText.AmmoNoCalibers}" />
                 <ItemsControl ItemsSource="{Binding Calibers}" IsVisible="{Binding HasCalibers}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:AmmoCaliberRowViewModel">
@@ -95,7 +96,7 @@
                 AutomationProperties.AutomationId="v2-ammo-rounds">
           <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
             <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
-              <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="Beats" />
+              <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:IntelText.AmmoBeats}" />
               <ItemsControl Grid.Column="1" ItemsSource="{Binding ArmorFilters}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
@@ -111,7 +112,7 @@
               </ItemsControl>
             </Grid>
             <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
-              <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="Order" />
+              <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:IntelText.AmmoOrder}" />
               <ItemsControl Grid.Column="1" ItemsSource="{Binding Sorts}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
@@ -130,13 +131,13 @@
 
             <Border Grid.Row="3" Classes="v2-intel-headrow" IsVisible="{Binding HasRounds}">
               <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" ColumnSpacing="10">
-                <TextBlock Grid.Column="0" Classes="v2-intel-head" Text="ROUND" />
-                <TextBlock Grid.Column="1" Classes="v2-intel-head v2-intel-num" Text="DAMAGE" />
-                <TextBlock Grid.Column="2" Classes="v2-intel-head v2-intel-num" Text="PEN" />
-                <TextBlock Grid.Column="3" Classes="v2-intel-head v2-intel-num" Text="ARMOR DMG" />
-                <TextBlock Grid.Column="4" Classes="v2-intel-head v2-intel-num" Text="FRAG" />
-                <TextBlock Grid.Column="5" Classes="v2-intel-head" Text="TIER" />
-                <TextBlock Grid.Column="6" Classes="v2-intel-head v2-ammo-classes-head" Text="CLASS 1–6" Width="204" />
+                <TextBlock Grid.Column="0" Classes="v2-intel-head" Text="{x:Static l:IntelText.AmmoHeadRound}" />
+                <TextBlock Grid.Column="1" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadDamage}" />
+                <TextBlock Grid.Column="2" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadPen}" />
+                <TextBlock Grid.Column="3" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadArmorDamage}" />
+                <TextBlock Grid.Column="4" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadFrag}" />
+                <TextBlock Grid.Column="5" Classes="v2-intel-head" Text="{x:Static l:IntelText.AmmoHeadTier}" />
+                <TextBlock Grid.Column="6" Classes="v2-intel-head v2-ammo-classes-head" Text="{x:Static l:IntelText.AmmoHeadClasses}" Width="204" />
               </Grid>
             </Border>
 
@@ -226,11 +227,11 @@
                 <Button Classes="v2-target v2-intel-secondary" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center" Margin="0,6,0,0"
                         AutomationProperties.AutomationId="v2-ammo-open-intel"
-                        AutomationProperties.Name="Open in Intel"
+                        AutomationProperties.Name="{x:Static l:IntelText.AmmoOpenInIntel}"
                         Command="{Binding OpenInIntelCommand}">
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Link}" />
-                    <TextBlock VerticalAlignment="Center" Text="Prices and needs" />
+                    <TextBlock VerticalAlignment="Center" Text="{x:Static l:IntelText.AmmoPricesAndNeeds}" />
                   </StackPanel>
                 </Button>
               </StackPanel>
@@ -239,7 +240,7 @@
 
           <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedRound}">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Against armor" />
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{x:Static l:IntelText.AmmoAgainstArmor}" />
               <ItemsControl ItemsSource="{Binding SelectedArmorClasses}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="pages:AmmoArmorRatingViewModel">
@@ -259,9 +260,9 @@
 
           <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedRound}">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Round" />
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{x:Static l:IntelText.AmmoRound}" />
               <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                <TextBlock Grid.Column="0" Classes="v2-label" Text="Tier" />
+                <TextBlock Grid.Column="0" Classes="v2-label" Text="{x:Static l:IntelText.AmmoTier}" />
                 <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding SelectedTier}" />
               </Grid>
               <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding SelectedTraits}" />

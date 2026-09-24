@@ -2,6 +2,7 @@
              x:DataType="vm:CraftsBartersWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
              xmlns:intel="using:TarkovCompanion.App.Views.V2.Intel">
   <UserControl.Styles>
@@ -116,7 +117,7 @@
                                Text="{Binding ProfitLabel}" />
                     <Button Classes="v2-target v2-intel-chip v2-intel-chip-small"
                             Content="{Binding ChainLabel}" Command="{Binding OpenChainCommand}"
-                            AutomationProperties.Name="Show cheapest acquisition chain" />
+                            AutomationProperties.Name="{x:Static l:IntelText.CraftsShowChain}" />
                   </StackPanel>
                 </Grid>
               </Border>

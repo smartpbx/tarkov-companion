@@ -2,6 +2,7 @@
              x:DataType="vm:V2ShellViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
              xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
              xmlns:intel="using:TarkovCompanion.App.Views.V2.Intel">
@@ -572,7 +573,7 @@
               <StackPanel Spacing="8" IsVisible="{Binding IntelHasAmmoFacts}">
                 <StackPanel Spacing="2">
                   <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoCaliber}" />
-                  <TextBlock Classes="v2-label" Text="Caliber" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:IntelText.Caliber}" />
                 </StackPanel>
                 <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
                   <StackPanel Grid.Column="0" Spacing="2">
@@ -596,7 +597,7 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:V2IntelArmorClassViewModel">
                       <Grid ColumnDefinitions="*,Auto" Margin="0,2">
-                        <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding ClassLabel, StringFormat='Class {0}'}" />
+                        <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding ClassLabel, StringFormat={x:Static l:IntelText.ArmorClassFormat}}" />
                         <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
                                    Classes.v2-intel-good="{Binding IsStrong}"
                                    Classes.v2-intel-fair="{Binding IsMarginal}"

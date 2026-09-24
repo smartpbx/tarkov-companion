@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Windows.Input;
 
@@ -124,11 +125,11 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         _openItem = openItem;
         VerdictFilters =
         [
-            new(KeyVerdictFilter.All, "All", SelectFilter),
-            new(KeyVerdictFilter.Keep, "Keep", SelectFilter),
-            new(KeyVerdictFilter.KeepForLater, "Keep for later", SelectFilter),
-            new(KeyVerdictFilter.Sell, "Sell", SelectFilter),
-            new(KeyVerdictFilter.Owned, "You own", SelectFilter),
+            new(KeyVerdictFilter.All, IntelText.KeysFilterAll, SelectFilter),
+            new(KeyVerdictFilter.Keep, IntelText.KeysFilterKeep, SelectFilter),
+            new(KeyVerdictFilter.KeepForLater, IntelText.KeysFilterKeepForLater, SelectFilter),
+            new(KeyVerdictFilter.Sell, IntelText.KeysFilterSell, SelectFilter),
+            new(KeyVerdictFilter.Owned, IntelText.KeysFilterOwned, SelectFilter),
         ];
         MarkChips();
         OpenInIntelCommand = new DelegateCommand(() =>
@@ -207,7 +208,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
 
     /// <summary>Why the list is empty, in the terms of whichever of the page and the chip emptied it.</summary>
     public string NoKeysLabel => _page.Keys.Count > 0
-        ? "No key matches this filter."
+        ? IntelText.KeysNoMatch
         : _page.Status;
 
     /// <summary>"12 keys", or "3 of 12 keys" while a verdict chip hides some.</summary>
@@ -218,8 +219,8 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
             var shown = Keys.Count;
             var total = _page.Keys.Count;
             return shown == total
-                ? $"{total:N0} key{(total == 1 ? string.Empty : "s")}"
-                : $"{shown:N0} of {total:N0} keys";
+                ? IntelText.KeysCount(total)
+                : IntelText.KeysShownOf(shown, total);
         }
     }
 
@@ -236,7 +237,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     public string SelectedVerdict => _page.Selected switch
     {
         null => string.Empty,
-        { IsKeep: false, IsKeepForLater: false, IsSell: false } => "No call",
+        { IsKeep: false, IsKeepForLater: false, IsSell: false } => IntelText.KeysNoCall,
         var key => key.VerdictLabel,
     };
 
@@ -267,8 +268,8 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     /// <summary>Whether the player has the chosen key, or how to find out.</summary>
     public string SelectedOwned => _page.Selected is { } key && _page.TracksOwnership
         ? _page.Owned.TryGetValue(key.ItemId, out var count)
-            ? count > 0 ? $"You own {(count == 1 ? "it" : $"{count:N0}")}." : "You don't own it."
-            : "Owned: not scanned. Stash › Key cases."
+            ? count > 0 ? count == 1 ? IntelText.KeysYouOwnIt : IntelText.KeysYouOwnCount(count) : IntelText.KeysYouDontOwnIt
+            : IntelText.KeysOwnedNotScanned
         : string.Empty;
 
     public bool HasSelectedOwned => SelectedOwned.Length > 0;
@@ -279,8 +280,8 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     internal static string OwnedLabel(int count) => count switch
     {
         <= 0 => string.Empty,
-        1 => "Owned",
-        _ => $"Owned ×{count:N0}",
+        1 => IntelText.KeysOwned,
+        _ => IntelText.KeysOwnedCount(count),
     };
 
     /// <summary>Keeps the rows a verdict chip asks for. A key the page could not judge belongs to no chip but All.</summary>

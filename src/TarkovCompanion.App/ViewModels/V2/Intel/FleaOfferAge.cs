@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Intel;
@@ -20,7 +21,7 @@ public static class FleaOfferAge
     public static string Describe(DateTimeOffset observedUtc, DateTimeOffset now, CultureInfo? culture = null)
     {
         var format = culture ?? CultureInfo.CurrentCulture;
-        var seen = $"Offers as seen at {LocalTime.ShortTime(observedUtc, format)}";
+        var seen = IntelText.FleaSeenAt(LocalTime.ShortTime(observedUtc, format));
         if (!IsStale(observedUtc, now))
         {
             return seen;
@@ -28,10 +29,10 @@ public static class FleaOfferAge
 
         var age = now - observedUtc;
         var ago = age < TimeSpan.FromHours(1)
-            ? $"{((int)age.TotalMinutes).ToString(format)} min ago"
+            ? IntelText.FleaMinutesAgo(((int)age.TotalMinutes).ToString(format))
             : age < TimeSpan.FromDays(1)
-                ? $"{((int)age.TotalHours).ToString(format)} h ago"
-                : $"on {LocalTime.Date(observedUtc, format)}";
-        return $"{seen} · {ago}, may be gone";
+                ? IntelText.FleaHoursAgo(((int)age.TotalHours).ToString(format))
+                : IntelText.FleaOnDate(LocalTime.Date(observedUtc, format));
+        return IntelText.FleaMayBeGone(seen, ago);
     }
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
@@ -37,15 +38,14 @@ public sealed class FleaScanRowViewModel
         ArgumentNullException.ThrowIfNull(row);
         ArgumentNullException.ThrowIfNull(scan);
         AutomationId = $"v2-flea-scan-row-{rank.ToString(CultureInfo.InvariantCulture)}";
-        RankLabel = rank == 1 ? "#1 best buy" : $"#{rank.ToString(culture)}";
+        RankLabel = rank == 1 ? IntelText.FleaRowBestBuy : IntelText.FleaRowRank(rank.ToString(culture));
         PriceLabel = row.CurrencyCode == "RUB"
-            ? $"{Roubles(row.PriceRoubles, culture)} each"
-            : $"{OriginalPrice(row, culture)} · {Roubles(row.PriceRoubles, culture)} each";
+            ? IntelText.FleaRowEach(Roubles(row.PriceRoubles, culture))
+            : IntelText.FleaRowEachConverted(OriginalPrice(row, culture), Roubles(row.PriceRoubles, culture));
         StackLabel = row.Quantity switch
         {
-            null => "count not read",
-            1 => "1 unit",
-            { } count => $"{count.ToString("N0", culture)} units · {Roubles(row.StackRoubles ?? row.PriceRoubles, culture)} for the lot",
+            null => IntelText.FleaRowCountNotRead,
+            { } count => IntelText.FleaRowUnits(count, count.ToString("N0", culture), Roubles(row.StackRoubles ?? row.PriceRoubles, culture)),
         };
         var decision = row.Recommendation.Decision.Value;
         var economicReason = decision?.Reasons.FirstOrDefault(reason => reason.Category == RecommendationReasonCategory.Economics);
@@ -59,29 +59,32 @@ public sealed class FleaScanRowViewModel
         };
         VerdictLabel = Verdict switch
         {
-            FleaRowVerdict.ProfitToTrader => "Good buy",
-            FleaRowVerdict.ProfitOnFlea => "Good buy",
-            FleaRowVerdict.UnderAverage => "Under average",
-            FleaRowVerdict.OverAverage => "Over average",
-            _ => "No comparison",
+            FleaRowVerdict.ProfitToTrader => IntelText.FleaVerdictGoodBuy,
+            FleaRowVerdict.ProfitOnFlea => IntelText.FleaVerdictGoodBuy,
+            FleaRowVerdict.UnderAverage => IntelText.FleaVerdictUnderAverage,
+            FleaRowVerdict.OverAverage => IntelText.FleaVerdictOverAverage,
+            _ => IntelText.FleaVerdictNoComparison,
         };
         // #842: the line is the player's; the engine's sentence, its rules version and the raw
         // read are the row's details, shown on hover.
         WhyLabel = FleaRowReason.Describe(row, scan, now, culture);
-        ConfidenceLabel = $"read {row.Confidence.ToString("P0", culture)} sure";
+        ConfidenceLabel = IntelText.FleaRowConfidence(row.Confidence.ToString("P0", culture));
         ConditionLabel = row.Condition is { } condition
-            ? $"{ConditionName(condition.Kind)} {condition.Current!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0])}/{condition.Maximum!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0])}"
-            : "condition not read";
+            ? IntelText.FleaRowCondition(
+                ConditionName(condition.Kind),
+                condition.Current!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0]),
+                condition.Maximum!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0]))
+            : IntelText.FleaRowConditionNotRead;
         AlternativesLabel = row.Alternatives.Count == 0
             ? string.Empty
-            : $"Other reads: {string.Join(" · ", row.Alternatives.Take(2).Select(alternative => $"{alternative.ItemName} — {ActionLabel(alternative.Recommendation)}"))}";
-        EvidenceLabel = row.SourceText is { Length: > 0 } source ? $"Read: {source}" : string.Empty;
+            : IntelText.FleaRowOtherReads(string.Join(" · ", row.Alternatives.Take(2).Select(alternative => IntelText.FleaRowOtherRead(alternative.ItemName, ActionLabel(alternative.Recommendation)))));
+        EvidenceLabel = row.SourceText is { Length: > 0 } source ? IntelText.FleaRowRead(source) : string.Empty;
         DetailsLabel = string.Join(
             Environment.NewLine,
             new[]
             {
                 economicReason?.Explanation ?? decision?.Reasons.FirstOrDefault()?.Explanation,
-                $"Rules {row.Recommendation.RulesetVersion}",
+                IntelText.FleaRowRules(row.Recommendation.RulesetVersion),
                 EvidenceLabel,
             }.Where(line => !string.IsNullOrEmpty(line)));
     }
@@ -128,17 +131,17 @@ public sealed class FleaScanRowViewModel
 
     private static string ConditionName(ItemConditionKind kind) => kind switch
     {
-        ItemConditionKind.Uses => "Uses",
-        ItemConditionKind.Charges => "Charges",
-        ItemConditionKind.Resource => "Resource",
-        _ => "Durability",
+        ItemConditionKind.Uses => IntelText.FleaConditionUses,
+        ItemConditionKind.Charges => IntelText.FleaConditionCharges,
+        ItemConditionKind.Resource => IntelText.FleaConditionResource,
+        _ => IntelText.FleaConditionDurability,
     };
 
     private static string ActionLabel(RecommendationResult recommendation) => recommendation.Decision.Value?.Action switch
     {
-        RecommendationAction.Take => "good buy",
-        RecommendationAction.Leave => "skip",
-        _ => "review",
+        RecommendationAction.Take => IntelText.FleaRowActionGoodBuy,
+        RecommendationAction.Leave => IntelText.FleaRowActionSkip,
+        _ => IntelText.FleaRowActionReview,
     };
 }
 
@@ -160,25 +163,28 @@ public sealed class FleaScanViewModel : BindableViewModel
         var format = culture ?? CultureInfo.CurrentCulture;
         _culture = format;
         _clock = timeProvider ?? TimeProvider.System;
-        Heading = scan.ItemName is { } name ? $"Offers for {name}" : "Offers you photographed";
+        Heading = scan.ItemName is { } name ? IntelText.FleaScanOffersFor(name) : IntelText.FleaScanOffersPhotographed;
         ItemLabel = scan.ItemName is null
-            ? "The item's name was not legible, so the rows stand alone."
+            ? IntelText.FleaScanNameIllegible
             : scan.Alternates.Count == 0
-                ? "Read from your screenshot."
-                : $"Read from your screenshot · could also be {string.Join(", ", scan.Alternates.Take(2).Select(item => item.DisplayName))}";
+                ? IntelText.FleaScanReadFromScreenshot
+                : IntelText.FleaScanReadCouldBe(string.Join(", ", scan.Alternates.Take(2).Select(item => item.DisplayName)));
         TraderLabel = scan.TraderRoubles is { } trader
-            ? $"{scan.TraderName ?? "Best trader"} pays {FleaScanRowViewModel.Roubles(trader, format)}"
-            : "No trader buys it";
+            ? IntelText.FleaScanTraderPays(scan.TraderName ?? IntelText.FleaScanBestTrader, FleaScanRowViewModel.Roubles(trader, format))
+            : IntelText.FleaScanNoTrader;
         AverageLabel = (scan.Average24HourRoubles, scan.AverageFeeRoubles) switch
         {
             ({ } average, { } fee) =>
-                $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · {FleaScanRowViewModel.Roubles(average - fee, format)} after a {FleaScanRowViewModel.Roubles(fee, format)} fee",
+                IntelText.FleaScanAverageAfterFee(
+                    FleaScanRowViewModel.Roubles(average, format),
+                    FleaScanRowViewModel.Roubles(average - fee, format),
+                    FleaScanRowViewModel.Roubles(fee, format)),
             // #842: the fee is worked out from the rates an items refresh keeps; a catalog synced
             // before they were kept has none, and a refresh is what fixes it.
             ({ } average, null) when scan.FeeRates is null =>
-                $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · fee rates not synced, refresh",
-            ({ } average, null) => $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · no base price for the fee",
-            _ => "No 24 h flea average",
+                IntelText.FleaScanAverageNoRates(FleaScanRowViewModel.Roubles(average, format)),
+            ({ } average, null) => IntelText.FleaScanAverageNoBase(FleaScanRowViewModel.Roubles(average, format)),
+            _ => IntelText.FleaScanNoAverage,
         };
         var now = _clock.GetUtcNow();
         Rows = [.. scan.Rows.Select((row, index) => new FleaScanRowViewModel(row, scan, index + 1, format, now))];
@@ -186,15 +192,15 @@ public sealed class FleaScanViewModel : BindableViewModel
         var stale = scan.PriceUpdatedUtc is { } priceTime && now - priceTime > TimeSpan.FromDays(1);
         MarketDataNote = (offline, stale, scan.PriceUpdatedUtc) switch
         {
-            (true, true, { } offlineTime) => $"Offline · comparison prices are from {LocalTime.Moment(offlineTime)}",
-            (true, _, _) => "Offline · comparison prices are cached",
-            (false, true, { } onlineTime) => $"Price comparison is over a day old · {LocalTime.Moment(onlineTime)}",
+            (true, true, { } offlineTime) => IntelText.FleaScanOfflineFrom(LocalTime.Moment(offlineTime)),
+            (true, _, _) => IntelText.FleaScanOfflineCached,
+            (false, true, { } onlineTime) => IntelText.FleaScanOverADay(LocalTime.Moment(onlineTime)),
             _ => string.Empty,
         };
         SummaryLabel = Rows.Count(row => row.IsGoodBuy) switch
         {
-            0 => $"{Rows.Count.ToString(format)} rows read · none would pay to resell",
-            var good => $"{Rows.Count.ToString(format)} rows read · {good.ToString(format)} would pay to resell",
+            0 => IntelText.FleaScanSummaryNone(Rows.Count.ToString(format)),
+            var good => IntelText.FleaScanSummary(Rows.Count.ToString(format), good.ToString(format)),
         };
     }
 

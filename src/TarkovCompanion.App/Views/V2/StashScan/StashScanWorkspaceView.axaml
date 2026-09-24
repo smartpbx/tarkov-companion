@@ -2,6 +2,7 @@
              x:DataType="vm:StashScanWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:v2="using:TarkovCompanion.App.Views.V2"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan">
   <UserControl.Resources>
@@ -209,14 +210,14 @@
             v2:SidePanelFit.MainMinimum="620" v2:SidePanelFit.Minimum="280">
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
         <StackPanel Spacing="4">
-          <TextBlock Classes="v2-heading-2" Text="Guided capture" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-heading-2" Text="{x:Static l:IntelText.StashGuidedCapture}" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
                      AutomationProperties.AutomationId="v2-stash-status"
                      AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
 
         <StackPanel Grid.Row="1" Spacing="8">
-          <TextBlock Classes="v2-label" Text="Capture for" />
+          <TextBlock Classes="v2-label" Text="{x:Static l:IntelText.StashCaptureFor}" />
           <ItemsControl ItemsSource="{Binding ScanTargets}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
@@ -232,8 +233,8 @@
         </StackPanel>
 
         <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
-          <TextBlock Classes="v2-heading-3" Text="Snapshots" AutomationProperties.HeadingLevel="3" />
-          <Button Grid.Column="1" Classes="v2-plain" Content="Refresh" Command="{Binding RefreshCommand}"
+          <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashSnapshots}" AutomationProperties.HeadingLevel="3" />
+          <Button Grid.Column="1" Classes="v2-plain" Content="{x:Static l:IntelText.StashRefresh}" Command="{Binding RefreshCommand}"
                   AutomationProperties.AutomationId="v2-stash-refresh" />
         </Grid>
 
@@ -250,7 +251,7 @@
                           Command="{Binding SelectCommand}">
                     <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
                       <TextBlock Classes="v2-body stash-strong" Text="{Binding RecordedLabel}" />
-                      <TextBlock Grid.Column="1" Classes="v2-label" Text="current" IsVisible="{Binding IsCurrent}"
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:IntelText.StashCurrent}" IsVisible="{Binding IsCurrent}"
                                  Foreground="{DynamicResource V2.Brush.Action}" />
                       <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="v2-label"
                                  Text="{Binding StatusLabel}" TextTrimming="CharacterEllipsis" />
@@ -264,7 +265,7 @@
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
               </Viewbox>
               <TextBlock Classes="v2-label" TextWrapping="Wrap" TextAlignment="Center"
-                         Text="No stash snapshots yet." />
+                         Text="{x:Static l:IntelText.StashNoSnapshotsYet}" />
             </StackPanel>
           </Panel>
         </ScrollViewer>
@@ -272,7 +273,7 @@
         <Panel Grid.Row="4">
           <Button Classes="v2-primary" HorizontalAlignment="Stretch" IsVisible="{Binding IsScanIdle}"
                   AutomationProperties.AutomationId="v2-stash-start-scan"
-                  Content="Start scan" Command="{Binding StartSelectedScanCommand}" />
+                  Content="{x:Static l:IntelText.StashStartScan}" Command="{Binding StartSelectedScanCommand}" />
           <!-- [V2 rough package 40] A full-stash scan in progress: what to do next, and the only
                three ways it ends or changes. It survives a restart; nothing discards it but Discard. -->
           <Border Classes="stash-row" IsVisible="{Binding IsScanInProgress}"
@@ -283,21 +284,21 @@
               <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding GuidedNextStep}"
                          AutomationProperties.AutomationId="v2-stash-guided-next"
                          AutomationProperties.LiveSetting="Polite" />
-              <Button Classes="v2-primary" HorizontalAlignment="Stretch" Content="Keep going"
+              <Button Classes="v2-primary" HorizontalAlignment="Stretch" Content="{x:Static l:IntelText.StashKeepGoing}"
                       IsVisible="{Binding IsScanPaused}" Command="{Binding ContinueScanCommand}"
                       AutomationProperties.AutomationId="v2-stash-guided-continue" />
-              <Button Classes="v2-primary" HorizontalAlignment="Stretch" Content="Finish"
+              <Button Classes="v2-primary" HorizontalAlignment="Stretch" Content="{x:Static l:IntelText.StashFinish}"
                       IsVisible="{Binding !IsScanPaused}" IsEnabled="{Binding CanFinishScan}"
                       Command="{Binding FinishScanCommand}"
                       AutomationProperties.AutomationId="v2-stash-guided-finish" />
               <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Classes="v2-outline" Content="Finish"
+                <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashFinish}"
                         IsVisible="{Binding IsScanPaused}" IsEnabled="{Binding CanFinishScan}"
                         Command="{Binding FinishScanCommand}" />
-                <Button Classes="v2-plain" Content="Undo last"
+                <Button Classes="v2-plain" Content="{x:Static l:IntelText.StashUndoLast}"
                         IsEnabled="{Binding CanFinishScan}" Command="{Binding UndoLastScreenshotCommand}"
                         AutomationProperties.AutomationId="v2-stash-guided-undo" />
-                <Button Classes="v2-plain" Content="Discard"
+                <Button Classes="v2-plain" Content="{x:Static l:IntelText.StashDiscard}"
                         Command="{Binding DiscardScanCommand}"
                         AutomationProperties.AutomationId="v2-stash-guided-discard" />
               </StackPanel>
@@ -311,33 +312,33 @@
     <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
         <StackPanel Spacing="2">
-          <TextBlock Classes="v2-heading-2" Text="Reconstructed stash" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-heading-2" Text="{x:Static l:IntelText.StashReconstructed}" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-label" Text="{Binding ReconstructionLabel}" />
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <Button Classes="v2-chip" Classes.v2-selected="{Binding IsGridView}" Width="46"
-                  Command="{Binding ShowGridCommand}" AutomationProperties.Name="Grid view"
+                  Command="{Binding ShowGridCommand}" AutomationProperties.Name="{x:Static l:IntelText.StashGridView}"
                   AutomationProperties.AutomationId="v2-stash-grid-view">
             <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Grid}" />
           </Button>
           <Button Classes="v2-chip" Classes.v2-selected="{Binding IsListView}" Width="46"
-                  Command="{Binding ShowListCommand}" AutomationProperties.Name="List view"
+                  Command="{Binding ShowListCommand}" AutomationProperties.Name="{x:Static l:IntelText.StashListView}"
                   AutomationProperties.AutomationId="v2-stash-list-view">
             <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.List}" />
           </Button>
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                     IsVisible="{Binding HasSelection}">
-          <Button Classes="v2-outline" Content="Export CSV" Command="{Binding ExportCsvCommand}"
+          <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashExportCsv}" Command="{Binding ExportCsvCommand}"
                   AutomationProperties.AutomationId="v2-stash-export-csv" />
-          <Button Classes="v2-outline" Content="Export JSON" Command="{Binding ExportJsonCommand}"
+          <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashExportJson}" Command="{Binding ExportJsonCommand}"
                   AutomationProperties.AutomationId="v2-stash-export-json" />
-          <Button Classes="v2-outline" Content="Compare to previous" Command="{Binding CompareToPreviousCommand}"
+          <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashCompareToPrevious}" Command="{Binding CompareToPreviousCommand}"
                   AutomationProperties.AutomationId="v2-stash-compare" />
-          <Button Classes="v2-outline" Content="Merge previous" Command="{Binding MergePreviousSnapshotCommand}"
+          <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashMergePrevious}" Command="{Binding MergePreviousSnapshotCommand}"
                   IsEnabled="{Binding CanMergePreviousSnapshot}"
                   AutomationProperties.AutomationId="v2-stash-merge-previous" />
-          <Button Classes="v2-plain" Content="Delete" Command="{Binding DeleteSelectedCommand}"
+          <Button Classes="v2-plain" Content="{x:Static l:IntelText.StashDelete}" Command="{Binding DeleteSelectedCommand}"
                   AutomationProperties.AutomationId="v2-stash-delete" />
         </StackPanel>
       </Grid>
@@ -357,7 +358,7 @@
           <ScrollViewer HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding IsListView}">
             <StackPanel Spacing="18">
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-heading-3" Text="Items" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashItems}" AutomationProperties.HeadingLevel="3" />
                 <ItemsControl ItemsSource="{Binding Items}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -374,9 +375,9 @@
                             <TextBlock Classes="v2-label" Text="{Binding WhyLabel}" TextTrimming="CharacterEllipsis" />
                           </StackPanel>
                           <TextBlock Grid.Column="2" Classes="v2-body" VerticalAlignment="Center" Text="{Binding QuantityLabel}" />
-                          <Button Grid.Column="3" Classes="v2-plain" Content="Wiki"
+                          <Button Grid.Column="3" Classes="v2-plain" Content="{x:Static l:IntelText.StashWiki}"
                                   IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
-                          <Button Grid.Column="4" Classes="v2-outline" Content="Open kit"
+                          <Button Grid.Column="4" Classes="v2-outline" Content="{x:Static l:IntelText.StashOpenKit}"
                                   IsVisible="{Binding HasLoadoutLink}" Command="{Binding OpenLoadoutCommand}"
                                   AutomationProperties.AutomationId="v2-stash-open-loadout" />
                         </Grid>
@@ -387,8 +388,8 @@
               </StackPanel>
 
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-heading-3" Text="Ammo" AutomationProperties.HeadingLevel="3" />
-                <TextBlock Classes="v2-label" Text="No ammo recognized in this snapshot." IsVisible="{Binding HasNoAmmoSummary}" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashAmmo}" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-label" Text="{x:Static l:IntelText.StashNoAmmo}" IsVisible="{Binding HasNoAmmoSummary}" />
                 <ItemsControl ItemsSource="{Binding AmmoSummary}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:StashAmmoSummaryRowViewModel">
@@ -403,8 +404,8 @@
               </StackPanel>
 
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-heading-3" Text="Keys" AutomationProperties.HeadingLevel="3" />
-                <TextBlock Classes="v2-label" Text="No keys recognized in this snapshot." IsVisible="{Binding HasNoKeySummary}" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashKeys}" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-label" Text="{x:Static l:IntelText.StashNoKeys}" IsVisible="{Binding HasNoKeySummary}" />
                 <ItemsControl ItemsSource="{Binding KeySummary}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:StashKeySummaryRowViewModel">
@@ -429,9 +430,9 @@
             <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
               <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Grid}" />
             </Viewbox>
-            <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="No stash scan yet" />
+            <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="{x:Static l:IntelText.StashNoScanYet}" />
             <TextBlock Classes="v2-label" TextAlignment="Center" TextWrapping="Wrap"
-                       Text="Start a scan, scroll to the top of your stash, and take a screenshot of each screenful." />
+                       Text="{x:Static l:IntelText.StashNoScanHint}" />
           </StackPanel>
         </Panel>
       </Border>
@@ -442,7 +443,7 @@
             v2:SidePanelFit.MainMinimum="640" v2:SidePanelFit.Minimum="260">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="16,20,16,16" Spacing="12">
-          <TextBlock Classes="v2-heading-2" Text="Sort plan" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-heading-2" Text="{x:Static l:IntelText.StashSortPlan}" AutomationProperties.HeadingLevel="2" />
 
           <ItemsControl ItemsSource="{Binding PlanTiles}">
             <ItemsControl.ItemsPanel>
@@ -470,17 +471,17 @@
             <StackPanel Spacing="8">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" />
-                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="Ammo" />
+                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:IntelText.StashAmmo}" />
                 <TextBlock Grid.Column="2" Classes="v2-body stash-strong" VerticalAlignment="Center" Text="{Binding AmmoCountLabel}" />
               </Grid>
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Pin}" />
-                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="Keys" />
+                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:IntelText.StashKeys}" />
                 <TextBlock Grid.Column="2" Classes="v2-body stash-strong" VerticalAlignment="Center" Text="{Binding KeyCountLabel}" />
               </Grid>
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Document}" />
-                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="Items" />
+                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:IntelText.StashItems}" />
                 <TextBlock Grid.Column="2" Classes="v2-body stash-strong" VerticalAlignment="Center" Text="{Binding ItemCountLabel}" />
               </Grid>
               <TextBlock Classes="v2-label" Text="{Binding CoverageLabel}" TextWrapping="Wrap" />
@@ -489,7 +490,7 @@
 
           <Border Classes="v2-section v2-section-accent" IsVisible="{Binding HasStashValue}">
             <StackPanel Spacing="2">
-              <TextBlock Classes="v2-label" Text="Known stash value" />
+              <TextBlock Classes="v2-label" Text="{x:Static l:IntelText.StashKnownValue}" />
               <TextBlock Classes="v2-heading-1" Text="{Binding StashValueLabel}" />
               <TextBlock Classes="v2-label" Text="{Binding UpdatedLabel}" TextWrapping="Wrap" />
             </StackPanel>
@@ -497,46 +498,46 @@
 
           <Border Classes="v2-section" IsVisible="{Binding HasSelectedItem}">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="Correct this item" AutomationProperties.HeadingLevel="3" />
+              <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashCorrectItem}" AutomationProperties.HeadingLevel="3" />
               <TextBlock Classes="v2-body stash-strong" Text="{Binding SelectedItemDisplayName}" TextWrapping="Wrap" />
               <TextBlock Classes="v2-label" Text="{Binding SelectedItemSortLabel}" TextWrapping="Wrap" />
-              <Button Classes="v2-outline" Content="Open recognized kit in Loadout"
+              <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashOpenKitInLoadout}"
                       IsVisible="{Binding SelectedItemHasLoadoutLink}"
                       Command="{Binding SelectedItemOpenLoadoutCommand}"
                       AutomationProperties.AutomationId="v2-stash-open-selected-loadout" />
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBox Classes="v2-field-input" Watermark="Corrected item id"
+                <TextBox Classes="v2-field-input" Watermark="{x:Static l:IntelText.StashCorrectedItemId}"
                          Text="{Binding IdentityCorrection}"
-                         AutomationProperties.Name="Corrected item id"
+                         AutomationProperties.Name="{x:Static l:IntelText.StashCorrectedItemId}"
                          AutomationProperties.AutomationId="v2-stash-correct-identity-input" />
-                <Button Grid.Column="1" Classes="v2-outline" Content="Apply"
-                        AutomationProperties.Name="Correct identity"
+                <Button Grid.Column="1" Classes="v2-outline" Content="{x:Static l:IntelText.StashApply}"
+                        AutomationProperties.Name="{x:Static l:IntelText.StashCorrectIdentity}"
                         AutomationProperties.AutomationId="v2-stash-correct-identity"
                         Command="{Binding CorrectIdentityCommand}" />
               </Grid>
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBox Classes="v2-field-input" Watermark="Corrected count"
+                <TextBox Classes="v2-field-input" Watermark="{x:Static l:IntelText.StashCorrectedCount}"
                          Text="{Binding QuantityCorrection}"
-                         AutomationProperties.Name="Corrected count"
+                         AutomationProperties.Name="{x:Static l:IntelText.StashCorrectedCount}"
                          AutomationProperties.AutomationId="v2-stash-correct-quantity-input" />
-                <Button Grid.Column="1" Classes="v2-outline" Content="Apply"
-                        AutomationProperties.Name="Correct count"
+                <Button Grid.Column="1" Classes="v2-outline" Content="{x:Static l:IntelText.StashApply}"
+                        AutomationProperties.Name="{x:Static l:IntelText.StashCorrectCount}"
                         AutomationProperties.AutomationId="v2-stash-correct-quantity"
                         Command="{Binding CorrectQuantityCommand}" />
               </Grid>
               <Grid ColumnDefinitions="Auto,*">
-                <Button Classes="v2-plain" Content="Mark unknown"
+                <Button Classes="v2-plain" Content="{x:Static l:IntelText.StashMarkUnknown}"
                         AutomationProperties.AutomationId="v2-stash-mark-unknown"
                         Command="{Binding MarkSelectedUnknownCommand}" />
                 <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" TextWrapping="Wrap"
                            Text="{Binding CorrectionsNotice}" />
               </Grid>
               <WrapPanel ItemSpacing="8" LineSpacing="8">
-                <Button Classes="v2-outline" Content="Pin" Command="{Binding PinSelectedCommand}"
+                <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashPin}" Command="{Binding PinSelectedCommand}"
                         AutomationProperties.AutomationId="v2-stash-pin" />
-                <Button Classes="v2-outline" Content="Ignore" Command="{Binding IgnoreSelectedCommand}"
+                <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashIgnore}" Command="{Binding IgnoreSelectedCommand}"
                         AutomationProperties.AutomationId="v2-stash-ignore" />
-                <Button Classes="v2-outline" Content="Rescan region" Command="{Binding RescanSelectedRegionCommand}"
+                <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashRescanRegion}" Command="{Binding RescanSelectedRegionCommand}"
                         AutomationProperties.AutomationId="v2-stash-rescan" />
               </WrapPanel>
             </StackPanel>
@@ -545,7 +546,7 @@
           <Border Classes="v2-section" IsVisible="{Binding HasPendingCorrections}">
             <StackPanel Spacing="6">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBlock Classes="v2-heading-3" Text="Review history" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashReviewHistory}" AutomationProperties.HeadingLevel="3" />
                 <Button Grid.Column="1" Classes="v2-plain" Content="{Binding UndoReviewLabel}"
                         IsEnabled="{Binding CanUndoReview}" Command="{Binding UndoReviewCommand}"
                         AutomationProperties.AutomationId="v2-stash-undo-review" />

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Windows.Input;
 
@@ -115,7 +116,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         [
             .. Enumerable.Range(0, 7).Select(armorClass => new AmmoChipViewModel(
                 armorClass == 0 ? "class-any" : $"class-{armorClass}",
-                armorClass == 0 ? "Any armor" : $"Class {armorClass}",
+                armorClass == 0 ? IntelText.AmmoAnyArmor : IntelText.AmmoClass(armorClass),
                 () => ArmorClass = armorClass)),
         ];
         Sorts =
@@ -124,10 +125,10 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
                 $"sort-{sort.ToString().ToLowerInvariant()}",
                 sort switch
                 {
-                    AmmoSort.Penetration => "Penetration",
-                    AmmoSort.Damage => "Damage",
-                    AmmoSort.Name => "Name",
-                    _ => "Best first",
+                    AmmoSort.Penetration => IntelText.AmmoSortPenetration,
+                    AmmoSort.Damage => IntelText.AmmoSortDamage,
+                    AmmoSort.Name => IntelText.AmmoSortName,
+                    _ => IntelText.AmmoSortBestFirst,
                 },
                 () => Sort = sort)),
         ];
@@ -237,10 +238,10 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
 
     /// <summary>Why the table is empty: no caliber yet, none cached, or nothing gets through the chosen class.</summary>
     public string NoRoundsLabel => _page.Rounds.Count > 0 && ArmorClass > 0
-        ? $"No round in this caliber beats class {ArmorClass}."
+        ? IntelText.AmmoNoneBeatsClass(ArmorClass)
         : _page.SelectedCaliber is null
-            ? "Pick a caliber to rank its rounds."
-            : "No rounds are cached for this caliber.";
+            ? IntelText.AmmoPickCaliber
+            : IntelText.AmmoNoRoundsCached;
 
     /// <summary>"4 of 12 rounds" while a class filter hides some; "12 rounds" otherwise.</summary>
     public string RoundCountLabel
@@ -250,8 +251,8 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
             var shown = Rounds.Count;
             var total = _page.Rounds.Count;
             return shown == total
-                ? $"{total:N0} round{(total == 1 ? string.Empty : "s")}"
-                : $"{shown:N0} of {total:N0} rounds";
+                ? IntelText.AmmoRoundCount(total)
+                : IntelText.AmmoRoundsShownOf(shown, total);
         }
     }
 
@@ -307,7 +308,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
     }
 
     private static bool GetsThrough(AmmoRoundViewModel round, int armorClass) =>
-        round.ArmorClasses.FirstOrDefault(rating => rating.ArmorClass == $"Class {armorClass}") is { IsStrong: true };
+        round.ArmorClasses.FirstOrDefault(rating => rating.ClassNumber == armorClass) is { IsStrong: true };
 
     private void MarkChips()
     {
