@@ -101,6 +101,9 @@ person reads is that instant shown in the player's own zone, and only
 `Time`, `ShortTime`, or `Date` (the player's culture) or `Sortable` / `SortableSeconds` (a fixed
 order for diagnostics); it never calls `ToLocalTime`, prints `:u`, or writes "UTC" after a time.
 Relative times ("4h ago") stay relative and are computed from two UTC instants.
+The "player's own zone" is the active profile's time zone setting (Setup › Game & Profile, #269),
+"System time" by default; `ProfileTimeZoneBinder` hands it to `LocalTime`. The game's log lines are
+still parsed in the machine's zone, because that is the zone the game wrote them in.
 
 Output that leaves the screen says which clock it uses. The raid-history CSV is opened in a
 spreadsheet, so it carries the local clock under `start_local` / `end_local` headers; the JSON is

@@ -131,7 +131,8 @@ public sealed class ProfileBundleService(
         await players.SaveAsync(player, cancellationToken).ConfigureAwait(false);
 
         await ImportQuestsAsync(identity, player, before.Quests, bundle.Quests, now, cancellationToken).ConfigureAwait(false);
-        await ImportRaidsAsync(player, before.Raids, bundle.Raids, cancellationToken).ConfigureAwait(false);
+        // [#269] Only the raids played in this profile's mode; the preview said how many are left out.
+        await ImportRaidsAsync(player, before.Raids, ProfileBundleChanges.SameMode(bundle.Raids, identity.Mode), cancellationToken).ConfigureAwait(false);
         return identity.Name;
     }
 

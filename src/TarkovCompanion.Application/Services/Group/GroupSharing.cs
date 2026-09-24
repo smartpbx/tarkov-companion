@@ -284,6 +284,13 @@ public sealed record GroupMemberView(
     /// predates this, which is an ordinary answer rather than a missing one.
     /// </remarks>
     public IReadOnlyList<GroupTrailPointView> Trail { get; init; } = [];
+
+    /// <summary>
+    /// [#269] The game mode this member's companion says they play ("pvp", "pve", "seasonal"), or
+    /// null from a companion or relay that predates it. A member on another mode arrives with no
+    /// quests: their quest ids would name tasks in a progress line this profile does not share.
+    /// </summary>
+    public string? GameMode { get; init; }
 }
 
 /// <summary>One place a member has been, and how old that reading was when they said so.</summary>
@@ -374,6 +381,13 @@ public sealed record GroupSnapshot(
     public string? MySide { get; init; }
 
     public DateTimeOffset? MyScavLockedUntil { get; init; }
+
+    /// <summary>
+    /// [#269] This player's game mode as sent ("pvp", "pve", "seasonal"), or null where the
+    /// active profile could not be read. What each member's <see cref="GroupMemberView.GameMode"/>
+    /// is compared against.
+    /// </summary>
+    public string? MyGameMode { get; init; }
 
     /// <summary>When contact with the relay was lost, if what is here is the last good read.</summary>
     /// <remarks>

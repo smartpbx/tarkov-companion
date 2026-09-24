@@ -225,6 +225,45 @@ public sealed class ProfileContextService : IDisposable
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Sets the time zone a profile's times are shown in (#269): "system" or a zone id this machine
+    /// knows. Language, region, identity and progress are untouched.
+    /// </summary>
+    public Task<ProfileWorkspaceSnapshot> UpdateTimeZoneAsync(
+        Guid profileId,
+        string timeZone,
+        CancellationToken cancellationToken)
+    {
+        if (!Core.Common.ProfileTimeZone.IsValid(timeZone))
+        {
+            throw new ArgumentException("That time zone is not known on this computer.", nameof(timeZone));
+        }
+
+        var stored = Core.Common.ProfileTimeZone.IsSystem(timeZone) ? Core.Common.ProfileTimeZone.System : timeZone.Trim();
+        return MutateAsync(snapshot =>
+        {
+            var profile = Find(snapshot, profileId);
+            if (string.Equals(profile.Context.Locale.TimeZone, stored, StringComparison.Ordinal))
+            {
+                return snapshot;
+            }
+
+            var locale = new ProfileLocale(profile.Context.Locale.Language, profile.Context.Locale.Region, stored);
+            var replacement = new ProfileRecord(
+                new ProfileContext(profile.Context.Identity, profile.Context.Mode, profile.Context.WipeSeason, locale, profile.Context.DataSnapshot),
+                profile.Name,
+                profile.Progress,
+                profile.Lifecycle,
+                UtcNow(),
+                profile.ExtensionJson);
+            return new ProfileWorkspaceSnapshot(
+                checked(snapshot.Revision + 1),
+                snapshot.ActiveProfileId,
+                snapshot.Profiles.Select(candidate =>
+                    candidate.Context.Identity.ProfileId == profileId ? replacement : candidate).ToArray());
+        }, cancellationToken);
+    }
+
     public async Task<ProfileComparison> CompareAsync(Guid leftProfileId, Guid rightProfileId, CancellationToken cancellationToken)
     {
         var snapshot = await ReadAsync(cancellationToken).ConfigureAwait(false);

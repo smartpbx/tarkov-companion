@@ -870,7 +870,7 @@ public static class AppComposition
         // here is what turns that on.
         services.AddSingleton<ProfileRuntimeContextService>();
         services.AddSingleton<IProfileRuntimeContextService>(provider =>
-            provider.GetRequiredService<ProfileRuntimeContextService>());
+            TarkovCompanion.App.Services.V2.Profile.ProfileTimeZoneBinder.Attach(provider.GetRequiredService<ProfileRuntimeContextService>()));
         services.AddSingleton<IBackgroundWorkSupervisor>(_ => new BackgroundWorkSupervisor(timeProvider));
         services.AddSingleton<ICaptureWorkScheduler>(provider =>
             new SupervisedCaptureWorkScheduler(provider.GetRequiredService<IBackgroundWorkSupervisor>()));
@@ -1064,7 +1064,8 @@ public static class AppComposition
         services.AddSingleton(provider => new SetupProfilesViewModel(
             provider.GetRequiredService<ProfileManagementService>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
-            ProfileTransferComposition.Create(provider, paths)));
+            ProfileTransferComposition.Create(provider, paths),
+            ProfileCompareComposition.Create(provider)));
         // [#292] Setup's data detail, About, Data & Privacy and Displays.
         services.AddSingleton(provider => new SetupDataDetailViewModel(
             provider.GetRequiredService<IRuntimeStateStore>(),

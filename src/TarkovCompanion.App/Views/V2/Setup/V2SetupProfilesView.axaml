@@ -73,7 +73,7 @@
                 </WrapPanel>
               </Grid>
               <!-- #292 task 3: mode and wipe label, editable after creation. -->
-              <Grid IsVisible="{Binding IsEditing}" ColumnDefinitions="*,*,Auto,Auto" ColumnSpacing="10">
+              <Grid IsVisible="{Binding IsEditing}" ColumnDefinitions="*,*,*,Auto,Auto" ColumnSpacing="10">
                 <ComboBox Grid.Column="0" ItemsSource="{Binding Modes}" SelectedItem="{Binding EditMode}" MinWidth="120"
                           AutomationProperties.AutomationId="v2-setup-profile-edit-mode"
                           AutomationProperties.Name="{Binding EditModeFieldLabel}">
@@ -86,11 +86,22 @@
                 <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding EditWipe}"
                          AutomationProperties.AutomationId="v2-setup-profile-edit-wipe"
                          AutomationProperties.Name="{Binding EditWipeFieldLabel}" />
-                <Button Grid.Column="2" Classes="v2-target primary"
+                <!-- [#269] The zone this profile's times are shown in; "System time" is the default. -->
+                <ComboBox Grid.Column="2" ItemsSource="{Binding Zones}" SelectedItem="{Binding EditZone}" MinWidth="160"
+                          HorizontalAlignment="Stretch"
+                          AutomationProperties.AutomationId="v2-setup-profile-edit-zone"
+                          AutomationProperties.Name="{Binding EditZoneFieldLabel}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SetupProfileZoneOption">
+                      <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <Button Grid.Column="3" Classes="v2-target primary"
                         AutomationProperties.AutomationId="v2-setup-profile-save-edit"
                         Content="{Binding SaveEditLabel}"
                         Command="{Binding SaveEditCommand}" CommandParameter="{Binding}" />
-                <Button Grid.Column="3" Classes="v2-target"
+                <Button Grid.Column="4" Classes="v2-target"
                         AutomationProperties.AutomationId="v2-setup-profile-cancel-edit"
                         Content="{Binding CancelEditLabel}"
                         Command="{Binding CancelEditCommand}" />
@@ -102,6 +113,11 @@
     </ItemsControl>
     <CheckBox Content="{Binding ShowArchivedLabel}" IsChecked="{Binding ShowArchived}" IsVisible="{Binding HasArchived}"
               AutomationProperties.AutomationId="v2-setup-profile-show-archived" />
+
+    <!-- [#269] Two profiles side by side, read-only. -->
+    <StackPanel Classes="v2-stack" IsVisible="{Binding HasCompare}" Margin="0,8,0,0">
+      <setup:V2SetupProfileCompareView DataContext="{Binding Compare}" />
+    </StackPanel>
 
     <TextBlock Classes="v2-heading-3" Text="{Binding NewHeading}" AutomationProperties.HeadingLevel="3" Margin="0,8,0,0" />
     <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto">

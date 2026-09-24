@@ -97,6 +97,17 @@ public sealed class ProfileManagementService(
         return await runtime.RefreshAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Sets the time zone a profile's times are shown in: "system" or a zone id (#269).</summary>
+    /// <exception cref="ArgumentException">The zone is not known on this computer.</exception>
+    public async Task<ProfileRuntimeContextSnapshot> UpdateTimeZoneAsync(
+        Guid profileId,
+        string timeZone,
+        CancellationToken cancellationToken)
+    {
+        await profiles.UpdateTimeZoneAsync(profileId, timeZone, cancellationToken).ConfigureAwait(false);
+        return await runtime.RefreshAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ProfileRuntimeContextSnapshot> ArchiveAsync(Guid profileId, CancellationToken cancellationToken)
     {
         await profiles.ArchiveAsync(profileId, cancellationToken).ConfigureAwait(false);

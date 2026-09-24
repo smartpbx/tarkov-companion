@@ -106,6 +106,43 @@ public sealed class SquadQuestSyncTests
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1.5), $"Closing took {watch.ElapsedMilliseconds} ms.");
     }
 
+    /// <summary>
+    /// [#269] A PvE squadmate's quests are not this PvP player's quests: they arrive with none, and
+    /// with their mode named so the Team page can say why.
+    /// </summary>
+    [Fact]
+    public async Task ASquadmateOnAnotherModeArrivesWithoutQuests()
+    {
+        var relay = new InProcessRelay();
+        var board = new Board(Quest("debut", RecordedTaskState.Active, Objective("shoot-scavs", RecordedObjectiveState.Unknown)));
+        await using var clay = Session(relay, "Clay", new GroupQuestShare(new StubProfiles(GameMode.Pve), board), out _);
+        await using var geo = Session(relay, "Geo", new GroupQuestShare(new StubProfiles(GameMode.Regular), board), out var geoStore);
+
+        clay.Start();
+        geo.Start();
+        var seen = await WaitAsync(() => geoStore.Current.Group.Members.FirstOrDefault(member => member.Name == "Clay") is { GameMode: not null });
+
+        Assert.True(seen, "Geo never heard Clay's game mode.");
+        var member = geoStore.Current.Group.Members.Single(item => item.Name == "Clay");
+        Assert.Equal("pve", member.GameMode);
+        Assert.Equal("pvp", geoStore.Current.Group.MyGameMode);
+        Assert.Empty(member.QuestIds);
+        Assert.Empty(member.Quests);
+        Assert.Empty(member.Objectives);
+        Assert.Equal(
+            "Clay is on PvE; this profile is PvP. Quests are not shared across modes.",
+            GroupModeCheck.Warning(geoStore.Current.Group.MyGameMode, geoStore.Current.Group.Members));
+    }
+
+    [Fact]
+    public void TheRelayRefusesAGameModeLongerThanItsBound()
+    {
+        var state = new GroupMemberState("Clay", null, "Menu", null, null, null, null, null, [], []) { GameMode = "pve" };
+
+        Assert.Null(state.Validate());
+        Assert.NotNull((state with { GameMode = new string('x', 17) }).Validate());
+    }
+
     [Fact]
     public async Task AnOlderCompanionWithoutObjectivesIsStillReadAsNoObjectives()
     {
@@ -396,11 +433,11 @@ public sealed class SquadQuestSyncTests
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    private sealed class StubProfiles : IPlayerProfileService
+    private sealed class StubProfiles(GameMode mode = GameMode.Regular) : IPlayerProfileService
     {
         public Task<PlayerProfile> GetActiveAsync(CancellationToken cancellationToken) =>
             System.Threading.Tasks.Task.FromResult(new PlayerProfile(
-                Guid.Empty, "Local profile", GameMode.Regular, 1, Faction.Unknown, null,
+                Guid.Empty, "Local profile", mode, 1, Faction.Unknown, null,
                 new Dictionary<string, int>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new Dictionary<string, int>(StringComparer.Ordinal),

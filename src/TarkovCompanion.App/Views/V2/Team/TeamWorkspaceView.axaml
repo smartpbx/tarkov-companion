@@ -645,6 +645,18 @@
               <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding MemberCountLabel}" />
             </Grid>
 
+            <!-- [#269] A squadmate on another game mode: said once, their quests kept apart. -->
+            <Border Classes="v2-team-section" IsVisible="{Binding HasModeWarning}"
+                    AutomationProperties.AutomationId="v2-team-mode-warning">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <TextBlock Classes="v2-label" TextWrapping="Wrap" VerticalAlignment="Center"
+                           Foreground="{DynamicResource V2.Brush.Warning}" Text="{Binding ModeWarning}" />
+                <Button Grid.Column="1" Classes="v2-target" Content="OK" VerticalAlignment="Center"
+                        AutomationProperties.AutomationId="v2-team-mode-warning-dismiss"
+                        Command="{Binding DismissModeWarningCommand}" />
+              </Grid>
+            </Border>
+
             <!-- [#780] Squad quests: every member's active quests, named from this catalog, with
                  progress, and "Shared" where two or more of you are on the same one. -->
             <Border Classes="v2-team-section v2-team-accent" IsVisible="{Binding HasSquadQuests}"

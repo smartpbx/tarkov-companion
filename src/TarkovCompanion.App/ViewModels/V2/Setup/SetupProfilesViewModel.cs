@@ -13,6 +13,7 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
     private bool _isEditing;
     private SetupProfileModeOption _editMode;
     private string _editWipe;
+    private SetupProfileZoneOption _editZone;
 
     internal SetupProfileRowViewModel(
         ProfileRecord record,
@@ -29,7 +30,8 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
         IsArchived = record.Lifecycle == ProfileLifecycle.Archived;
         Mode = SetupProfilesViewModel.ModeLabel(record.Context.Mode);
         Wipe = record.Context.WipeSeason.Value;
-        Summary = $"{Mode} · {Wipe} · {record.Context.Locale.Language}";
+        ZoneId = record.Context.Locale.TimeZone;
+        Summary = $"{Mode} · {Wipe} · {record.Context.Locale.Language} · {SetupProfileZoneOption.ShortLabel(ZoneId)}";
         StatusLabel = IsActive
             ? V2ShellText.Get("V2.Setup.Profiles.ActiveBadge")
             : IsArchived ? V2ShellText.Get("V2.Setup.Profiles.ArchivedBadge") : string.Empty;
@@ -41,12 +43,15 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
         Modes = modes;
         _editMode = modes.FirstOrDefault(option => option.Mode == record.Context.Mode) ?? modes[0];
         _editWipe = Wipe;
+        Zones = SetupProfileZoneOption.All(ZoneId);
+        _editZone = SetupProfileZoneOption.Find(Zones, ZoneId);
         BeginEditCommand = new DelegateCommand(() => IsEditing = true);
         CancelEditCommand = new DelegateCommand(() =>
         {
             IsEditing = false;
             EditMode = _editMode;
             EditWipe = Wipe;
+            EditZone = SetupProfileZoneOption.Find(Zones, ZoneId);
         });
         SaveEditCommand = saveEdit;
     }
@@ -70,6 +75,20 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
         get => _editWipe;
         set => SetProperty(ref _editWipe, value ?? string.Empty);
     }
+
+    /// <summary>[#269] The zones this profile's times can be shown in, "System time" first.</summary>
+    public IReadOnlyList<SetupProfileZoneOption> Zones { get; }
+
+    public SetupProfileZoneOption EditZone
+    {
+        get => _editZone;
+        set => SetProperty(ref _editZone, value ?? Zones[0]);
+    }
+
+    /// <summary>The stored setting: "system" or a zone id.</summary>
+    public string ZoneId { get; }
+
+    public string EditZoneFieldLabel => "Time zone";
 
     public ICommand BeginEditCommand { get; }
 
@@ -163,9 +182,11 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     public SetupProfilesViewModel(
         ProfileManagementService service,
         Action<Action>? post = null,
-        SetupProfileTransferViewModel? transfer = null)
+        SetupProfileTransferViewModel? transfer = null,
+        SetupProfileCompareViewModel? compare = null)
     {
         Transfer = transfer;
+        Compare = compare;
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _post = post ?? (action => action());
         Modes =
@@ -191,6 +212,11 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     public SetupProfileTransferViewModel? Transfer { get; }
 
     public bool HasTransfer => Transfer is not null;
+
+    /// <summary>[#269] Two profiles side by side; null where no compare is composed.</summary>
+    public SetupProfileCompareViewModel? Compare { get; }
+
+    public bool HasCompare => Compare is not null;
 
     public IReadOnlyList<SetupProfileModeOption> Modes { get; }
 
@@ -386,6 +412,11 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
             Apply(await _service
                 .UpdateAsync(row.Id, row.EditMode.Mode, row.EditWipe, CancellationToken.None)
                 .ConfigureAwait(true));
+            if (!string.Equals(row.EditZone.Id, row.ZoneId, StringComparison.Ordinal))
+            {
+                Apply(await _service.UpdateTimeZoneAsync(row.Id, row.EditZone.Id, CancellationToken.None).ConfigureAwait(true));
+            }
+
             Say(V2ShellText.Format("V2.Setup.Profiles.Edited", CultureInfo.CurrentCulture, row.Name), isError: false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -424,6 +455,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
             Profiles.Add(new(record, isActive, Modes, _switchRow, _archiveRow, _restoreRow, _saveEditRow));
         }
 
+        _ = Compare?.SetProfilesAsync(snapshot.Workspace);
         HasArchived = archived > 0;
         OnPropertyChanged(nameof(HasArchived));
         var active = snapshot.ActiveProfile;

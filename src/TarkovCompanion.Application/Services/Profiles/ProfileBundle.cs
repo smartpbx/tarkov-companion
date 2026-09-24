@@ -247,10 +247,18 @@ public static class ProfileBundleChanges
             changes.Add(new("Quest pins", $"{current.Quests.Pins.Count}", $"{current.Quests.Pins.Count + pinsAdded}"));
         }
 
-        var raidsAdded = NewRaids(current.Raids, incoming.Raids).Count;
+        var raidsAdded = NewRaids(current.Raids, SameMode(incoming.Raids, incoming.Profile.Mode)).Count;
         if (raidsAdded > 0)
         {
             changes.Add(new("Raids", $"{current.Raids.Count}", $"{current.Raids.Count + raidsAdded}"));
+        }
+
+        // [#269] A raid played in another mode is not this profile's history, whatever file it
+        // arrived in. Said here, before the import, rather than dropped without a word.
+        var foreign = incoming.Raids.Count - SameMode(incoming.Raids, incoming.Profile.Mode).Count;
+        if (foreign > 0)
+        {
+            changes.Add(new("Raids from another mode", $"{foreign}", "not imported"));
         }
 
         return changes;
@@ -267,6 +275,23 @@ public static class ProfileBundleChanges
         var keys = current.Where(raid => raid.StartedUtc is not null).Select(Key).ToHashSet();
         return [.. incoming.Where(raid => !ids.Contains(raid.Id) && (raid.StartedUtc is null || !keys.Contains(Key(raid))))];
     }
+
+    /// <summary>
+    /// [#269] The raids recorded in <paramref name="mode"/>. A raid's mode is the profile's
+    /// <c>GameMode</c> name when it was played ("Regular", "Pve", "PvpSeason"); one this cannot read
+    /// is kept, because an unreadable mode is not evidence of a different one.
+    /// </summary>
+    public static IReadOnlyList<ProfileBundleRaid> SameMode(IReadOnlyList<ProfileBundleRaid> raids, ProfileGameMode mode) =>
+        [.. raids.Where(raid => RaidMode(raid.Mode) is not { } played || played == mode)];
+
+    /// <summary>A raid's recorded mode as a profile mode, or null when it cannot be read.</summary>
+    public static ProfileGameMode? RaidMode(string? mode) => mode?.Trim().ToLowerInvariant() switch
+    {
+        "regular" or "pvp" => ProfileGameMode.Pvp,
+        "pve" => ProfileGameMode.Pve,
+        "pvpseason" or "seasonal" => ProfileGameMode.Seasonal,
+        _ => null,
+    };
 
     private static (string, DateTimeOffset?) Key(ProfileBundleRaid raid) => (raid.MapId ?? string.Empty, raid.StartedUtc?.ToUniversalTime());
 

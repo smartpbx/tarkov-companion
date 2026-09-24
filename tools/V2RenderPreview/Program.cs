@@ -578,11 +578,23 @@ internal static class Program
             if (shell is not null && args.Contains("--profiles-demo"))
             {
                 var management = services.GetRequiredService<TarkovCompanion.Application.Services.Profiles.ProfileManagementService>();
+                if (args.Contains("--profiles-compare-demo"))
+                {
+                    DrainUntilComplete(ProfileCompareDemo.SeedFirstAsync(services));
+                }
+
                 management.CreateAsync("Old wipe", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pvp, "Wipe 2", default).GetAwaiter().GetResult();
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
                 Pump(20);
+
+                // [#269] Setup's compare, over two profiles with progress of their own.
+                if (args.Contains("--profiles-compare-demo") && shell.SetupWorkspace?.Profiles is { } compareProfiles)
+                {
+                    DrainUntilComplete(ProfileCompareDemo.SeedActiveAndCompareAsync(services, compareProfiles));
+                    Pump(20);
+                }
 
                 // [#292 task 3] Opens the active profile's inline mode/wipe editor, so the render
                 // shows real fields bound to a real row rather than a mock of the form.
@@ -1874,6 +1886,14 @@ internal static class Program
                 Pump(80);
             }
 
+            // [#269] A squadmate on another game mode: the Team page's one-line warning.
+            if (shell is not null && args.Contains("--team-mode-demo"))
+            {
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.Application.Services.Group.GroupSessionService>().DisposeAsync().AsTask());
+                ProfileCompareDemo.ShowTeamModeWarning(services, TeamDemoGroup(viewModel.Map.RenderModel));
+                Pump(40);
+            }
+
             // [#279] The Windows gallery's seeded scene, run here the same way the packaged app runs it.
             if (shell is not null && StringOption(args, "--gallery-scene") is { } galleryScene)
             {
@@ -1997,6 +2017,16 @@ internal static class Program
             // Package 29 (parity): raids written through the real history service, so Debrief lists
             // and selects them the way it does for a player's own. The newest carries a trail on the
             // shown map; --watch then presses "Watch on map" and the render lands on the Raid map.
+            // [#269] Shows every time in this zone, as the active profile's setting would.
+            if (StringOption(args, "--profile-zone") is { } profileZone)
+            {
+                var zoneManagement = services.GetRequiredService<TarkovCompanion.Application.Services.Profiles.ProfileManagementService>();
+                var loaded = zoneManagement.LoadAsync(default).GetAwaiter().GetResult();
+                zoneManagement.UpdateTimeZoneAsync(loaded.ActiveProfile!.Context.Identity.ProfileId, profileZone, default).GetAwaiter().GetResult();
+                Console.WriteLine($"Profile zone: {TarkovCompanion.Core.Common.LocalTime.Zone.Id}");
+                Pump(10);
+            }
+
             if (shell is not null && args.Contains("--debrief-demo"))
             {
                 var shownRaid = RaidDemo(viewModel.Map.RenderModel).Raid;
