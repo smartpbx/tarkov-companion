@@ -59,11 +59,11 @@ public sealed class InstrumentPaletteVariantTests
     {
         var resources = Palette();
 
-        // V2Appearance's high-contrast and colour-vision variants override only the V2.* status
-        // roles; everything the instrument palette paints has to resolve through inheritance.
-        Assert.Equal(
-            Color(resources, "CanvasBrush", ThemeVariant.Dark),
-            Color(resources, "CanvasBrush", V2Appearance.HighContrast));
+        // V2Appearance's colour-vision variants override only the V2.* status roles; everything
+        // the instrument palette paints has to resolve through inheritance. High contrast has its
+        // own set (#266): falling through to Dark left dark-grey control edges in a black shell.
+        Assert.Equal(Avalonia.Media.Color.Parse("#000000"), Color(resources, "CanvasBrush", V2Appearance.HighContrast));
+        Assert.Equal(Avalonia.Media.Color.Parse("#FFFFFF"), Color(resources, "LineStrongBrush", V2Appearance.HighContrast));
         Assert.Equal(
             Color(resources, "CanvasBrush", ThemeVariant.Light),
             Color(resources, "CanvasBrush", V2Appearance.LightMonochrome));

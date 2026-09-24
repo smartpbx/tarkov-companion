@@ -6,7 +6,7 @@
     <!-- A workspace pane: the flat raised card the Raid map sits in. -->
     <Style Selector="Border.v2-intel-pane">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
     </Style>
@@ -59,7 +59,7 @@
     </Style>
     <Style Selector="Button.v2-intel-row">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="CornerRadius" Value="0" />
       <Setter Property="Padding" Value="10,10" />
@@ -76,7 +76,7 @@
       <Setter Property="Width" Value="56" />
       <Setter Property="Height" Value="56" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
@@ -86,7 +86,7 @@
          128x64 grid — the concept's product photograph, minus the photograph. -->
     <Style Selector="Border.v2-intel-stage">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
@@ -99,24 +99,24 @@
     </Style>
     <!-- #287: the compare tray across the top of the detail pane. -->
     <Style Selector="Border.v2-intel-compare-tray">
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="Padding" Value="24,10" />
     </Style>
     <Style Selector="Border.v2-intel-fact">
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="Padding" Value="0,7" />
     </Style>
     <Style Selector="Border.v2-intel-panel">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
     </Style>
     <!-- A context-panel section with the concept's cyan leading edge (the Raid panel's pattern). -->
     <Style Selector="Border.v2-intel-section">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
@@ -220,7 +220,7 @@
       <Setter Property="Opacity" Value="0.7" />
     </Style>
     <Style Selector="Border.v2-intel-headrow">
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="Padding" Value="10,0,10,6" />
     </Style>
@@ -241,7 +241,7 @@
          by/Used in sections. -->
     <Style Selector="Border.v2-intel-trade-row">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="Padding" Value="14,12" />
     </Style>

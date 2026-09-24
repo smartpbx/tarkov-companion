@@ -15,6 +15,7 @@
       <SolidColorBrush x:Key="V2.Brush.Canvas" Color="#101820" />
       <SolidColorBrush x:Key="V2.Brush.Surface" Color="#182530" />
       <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="#223441" />
+      <SolidColorBrush x:Key="V2.Brush.Divider" Color="#223441" />
       <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="#F4F8FA" />
       <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="#C8D5DC" />
       <SolidColorBrush x:Key="V2.Brush.Border" Color="#8297A4" />
@@ -41,6 +42,7 @@
       <SolidColorBrush x:Key="V2.Brush.Canvas" Color="#F6F8F9" />
       <SolidColorBrush x:Key="V2.Brush.Surface" Color="#FFFFFF" />
       <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="#EAF0F3" />
+      <SolidColorBrush x:Key="V2.Brush.Divider" Color="#EAF0F3" />
       <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="#15232C" />
       <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="#40545F" />
       <SolidColorBrush x:Key="V2.Brush.Border" Color="#607783" />
@@ -67,6 +69,10 @@
       <SolidColorBrush x:Key="V2.Brush.Canvas" Color="#000000" />
       <SolidColorBrush x:Key="V2.Brush.Surface" Color="#000000" />
       <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="#000000" />
+      <!-- [#266] A panel's edge. Dark and light draw it in the raised surface's colour, as every
+           pane did before it had a name; high contrast has no raised surface (all three grounds
+           are black), so a pane drawn that way lost its edge and the Intel list floated on black. -->
+      <SolidColorBrush x:Key="V2.Brush.Divider" Color="#FFFFFF" />
       <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="#FFFFFF" />
       <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="#FFFFFF" />
       <SolidColorBrush x:Key="V2.Brush.Border" Color="#FFFFFF" />

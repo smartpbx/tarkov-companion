@@ -8,7 +8,7 @@
          a tick is exactly what this panel exists to replace. -->
     <Style Selector="Border.v2-selftest-row">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="14,10" />

@@ -8,7 +8,7 @@
     <!-- Same visual language as the Hideout tab's card and chip. -->
     <Style Selector="Border.v2-keep-card">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
     </Style>

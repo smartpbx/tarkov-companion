@@ -7,7 +7,7 @@
     "excluded": ["Avalonia classes", "CSS", "breakpoints", "focus-ring pixels", "screenshots", "game interaction"]
   },
   "tokens": {
-    "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown"],
+    "color": ["canvas", "surface", "surfaceRaised", "divider", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown"],
     "chart": ["series1", "series2", "series3", "series4"],
     "map": ["historical", "modelled", "manual", "unavailable"],
     "type": ["display", "heading1", "heading2", "heading3", "body", "label"],

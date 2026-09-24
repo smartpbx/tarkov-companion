@@ -21,7 +21,7 @@
     <!-- A primary pane: the flat card the Raid map sits in. -->
     <Style Selector="Border.v2-team-pane">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="ClipToBounds" Value="True" />
@@ -31,13 +31,13 @@
     </Style>
     <Style Selector="Border.v2-team-panel">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
     </Style>
     <!-- A context-panel section; the accented one takes the concept's cyan leading edge. -->
     <Style Selector="Border.v2-team-section">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
@@ -49,7 +49,7 @@
     <!-- A member chip along the top, like the concept's Clayton/Maya/Jordan cards. -->
     <Style Selector="Border.v2-team-member">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="14,9" />
@@ -82,7 +82,7 @@
     </Style>
     <Style Selector="Border.v2-team-pill">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="14,9" />
@@ -113,7 +113,7 @@
     </Style>
     <Style Selector="Border.v2-team-row">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="14,9,6,9" />

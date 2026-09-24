@@ -467,7 +467,7 @@
                   <TextBlock Classes="v2-body" Text="{Binding IntelFleaCaption}" />
                   <TextBlock Classes="v2-label" Text="{Binding IntelPriceUpdatedLabel}" />
                 </StackPanel>
-                <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}"
+                <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.Divider}"
                            IsVisible="{Binding IntelHasTraderPrice}" />
                 <StackPanel Grid.Column="2" Spacing="2" IsVisible="{Binding IntelHasTraderPrice}">
                   <TextBlock Classes="v2-intel-price" Text="{Binding IntelTraderPriceLabel}" />

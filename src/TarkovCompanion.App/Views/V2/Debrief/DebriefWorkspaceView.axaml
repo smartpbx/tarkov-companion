@@ -10,19 +10,19 @@
     <!-- The same flat pane, context panel and section shapes as the Raid and Team workspaces. -->
     <Style Selector="Border.v2-debrief-pane">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="ClipToBounds" Value="True" />
     </Style>
     <Style Selector="Border.v2-debrief-panel">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
     </Style>
     <Style Selector="Border.v2-debrief-section">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
@@ -261,7 +261,7 @@
             </StackPanel>
           </WrapPanel>
 
-          <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+          <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
             <WrapPanel ItemSpacing="8" LineSpacing="6">
               <TextBlock Classes="v2-debrief-muted" Text="Saved views" VerticalAlignment="Center" />
               <ComboBox ItemsSource="{Binding SavedViews}" SelectedItem="{Binding SelectedSavedView}"
@@ -290,7 +290,7 @@
 
           <!-- #291 package 3: bulk delete, with the same preview-then-confirm shape as the single
                raid delete below. Kept beside the date range it reads. -->
-          <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+          <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
             <StackPanel Spacing="8">
               <WrapPanel ItemSpacing="10" LineSpacing="6" IsVisible="{Binding !IsConfirmingBulkDelete}">
                 <TextBlock Classes="v2-debrief-muted" Text="Delete raids before" VerticalAlignment="Center" />
@@ -328,7 +328,7 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-debrief-history">
         <Grid RowDefinitions="Auto,Auto,Auto">
-          <Border Grid.Row="1" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
+          <Border Grid.Row="1" BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
               <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
               <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="Mode" FontWeight="SemiBold" />
@@ -343,7 +343,7 @@
                between them and the rows: under "Mode" and "Started" its own columns read as a
                misaligned raid. -->
           <Border Grid.Row="0" IsVisible="{Binding ShowsMapStatsStrip}" Background="{DynamicResource V2.Brush.Canvas}"
-                  BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,10">
+                  BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,0,0,1" Padding="20,10">
             <StackPanel Spacing="6">
               <TextBlock Classes="v2-debrief-muted" Text="By map" FontWeight="SemiBold" />
               <ItemsControl ItemsSource="{Binding MapStats}">
