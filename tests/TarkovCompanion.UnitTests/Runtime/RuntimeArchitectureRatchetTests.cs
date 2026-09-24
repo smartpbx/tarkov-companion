@@ -207,8 +207,11 @@ public sealed partial class RuntimeArchitectureRatchetTests
             "RaidKey", "RaidLastSeenUtc", "RaidStartedUtc", "ResumesSession", "Side", "SideBasis",
             "StartsNewRaid", "SuggestedState", "Summary");
         AssertShape<ActiveExtract>("Confidence", "ExtractId", "Name", "Source");
+        // DetailPhrase (#314) is on the record and deliberately NOT in the codec: it is the
+        // scanner-state line in the interface language, for this machine's screen. The codec keeps
+        // carrying the fixed English Detail, so what is queued never depends on the language.
         AssertShape<ScanExecutionResult>(
-            "CanonicalItemId", "Confidence", "Detail", "IsAvailable", "ItemName", "ObservedUtc", "Recommendation",
+            "CanonicalItemId", "Confidence", "Detail", "DetailPhrase", "IsAvailable", "ItemName", "ObservedUtc", "Recommendation",
             "Source", "Succeeded", "ValuePerSlotRoubles", "ValueRoubles");
         // WrittenUtc (#314) is on the record and deliberately NOT in the codec: it only tells the
         // flea-sold notification a replayed sale from a new one, in memory, before anything is queued.
