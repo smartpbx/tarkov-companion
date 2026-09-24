@@ -15,17 +15,46 @@ namespace TarkovCompanion.UnitTests;
 /// MapPanGestureTests: the test body had already passed. The loop has been told to stop by then, so
 /// the only thing lost is the wait for it, and that is all this forgives: any other failure, or this
 /// one on a session whose dispatch task is present, still fails the test.
+///
+/// Only one session may exist at a time. Each one sets up Avalonia's process-wide platform (the
+/// render loop is bound to the dispatcher thread that set it up), and a second session starting
+/// on another thread fails with "The calling thread cannot access this object because a
+/// different thread owns it" from <c>DefaultRenderLoop.Add</c>. The collection attribute kept
+/// most classes apart, but a class without it (StashScanWorkspaceViewModelTests, #866's first
+/// Linux run) ran in parallel with them. So the session itself is the single owner now, whatever
+/// collection the test is in.
 /// </remarks>
 internal sealed class HeadlessSessions : IDisposable
 {
     private static readonly FieldInfo? DispatchTask =
         typeof(HeadlessUnitTestSession).GetField("_dispatchTask", BindingFlags.Instance | BindingFlags.NonPublic);
 
+    private static readonly SemaphoreSlim Owner = new(1, 1);
+
+    private static readonly TimeSpan OwnerWait = TimeSpan.FromMinutes(2);
+
     private readonly HeadlessUnitTestSession _session;
+    private int _disposed;
 
     private HeadlessSessions(HeadlessUnitTestSession session) => _session = session;
 
-    public static HeadlessSessions StartNew(Type entryPointType) => new(HeadlessUnitTestSession.StartNew(entryPointType));
+    public static HeadlessSessions StartNew(Type entryPointType)
+    {
+        if (!Owner.Wait(OwnerWait))
+        {
+            throw new TimeoutException($"Another headless Avalonia session held the platform for over {OwnerWait.TotalMinutes} minutes.");
+        }
+
+        try
+        {
+            return new(HeadlessUnitTestSession.StartNew(entryPointType));
+        }
+        catch
+        {
+            Owner.Release();
+            throw;
+        }
+    }
 
     public Task Dispatch(Action action, CancellationToken cancellationToken) =>
         _session.Dispatch(action, cancellationToken);
@@ -38,6 +67,11 @@ internal sealed class HeadlessSessions : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         try
         {
             _session.Dispose();
@@ -45,6 +79,10 @@ internal sealed class HeadlessSessions : IDisposable
         catch (NullReferenceException) when (DispatchTask is not null && DispatchTask.GetValue(_session) is null)
         {
             // The race above: cancelled and completed, with nothing to wait on.
+        }
+        finally
+        {
+            Owner.Release();
         }
     }
 }

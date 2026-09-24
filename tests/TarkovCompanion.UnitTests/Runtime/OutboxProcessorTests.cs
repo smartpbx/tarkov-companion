@@ -862,7 +862,7 @@ public sealed class OutboxProcessorTests
     [Fact]
     public async Task AcknowledgementRetriesBeyondOriginalExpiryWithoutReplayingHandler()
     {
-        var time = new ManualTimeProvider(Epoch);
+        var time = new ManualTimeProvider(Epoch) { MarkTimersCreatedBy = "RenewLeaseUntilTerminal" };
         var store = new ControlledStore(completeFailures: 7);
         var handlerCalls = 0;
         await using var processor = new OutboxProcessor(
@@ -896,6 +896,13 @@ public sealed class OutboxProcessorTests
             var timersDueTogether = expectedCompleteCalls % 2 == 0 ? 1 : 2;
             await RuntimeTestTasks.UntilAsync(() =>
                 time.ScheduledTimerCountAt(nextRetryUtc) >= timersDueTogether);
+            // The heartbeat itself, not merely a timer at its time: the renewal's lease-expiry
+            // timer falls due at the same instant and is live until the renewal's continuation
+            // runs. Advancing on that one moved the clock between the heartbeat reading the
+            // time and arming its delay, so it was armed 50 ms late and the wait above for two
+            // timers at the next 100 ms boundary never came true (#864's Linux run).
+            var heartbeatUtc = Epoch.AddMilliseconds(100 * (((expectedCompleteCalls - 2) / 2) + 1));
+            await RuntimeTestTasks.UntilAsync(() => time.ScheduledMarkedTimerCountAt(heartbeatUtc) == 1);
             time.Advance(TimeSpan.FromMilliseconds(50));
             await RuntimeTestTasks.UntilAsync(() => store.CompleteCalls >= expectedCompleteCalls);
 

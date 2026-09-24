@@ -165,6 +165,47 @@ public sealed class GroupSessionExchangeTests
         Assert.True(exchanges <= allowed, $"{exchanges} exchanges in {elapsed.TotalSeconds:0.0}s exceeds {allowed}.");
     }
 
+    /// <summary>
+    /// A relay that takes a moment to refuse still gets to refuse, however often the position moves.
+    /// </summary>
+    /// <remarks>
+    /// Every local change used to cut short whatever exchange was in flight, held or not. A 502
+    /// that took longer than the gap between two positions therefore never arrived: each
+    /// exchange was abandoned as "cut short on purpose", no failure was ever seen, and the relay
+    /// was asked again every 300 ms for as long as positions kept coming. The test above only
+    /// caught it when a loaded machine stretched its 5 ms answer past the 10 ms between changes
+    /// ("4 exchanges in 1.6s exceeds 3").
+    /// </remarks>
+    [Fact]
+    public async Task ARelayThatIsSlowToRefuseStillBacksOffWhileThePositionMoves()
+    {
+        var asked = new ConcurrentQueue<string>();
+        var handler = new RecordingHandler(
+            asked,
+            _ => new HttpResponseMessage(HttpStatusCode.BadGateway),
+            answerAfter: TimeSpan.FromMilliseconds(150));
+        await using var service = Service(handler, out var store);
+
+        service.Start();
+        await WaitUntilAsync(() => asked.Count >= 1);
+        var before = asked.Count;
+
+        var flooding = Stopwatch.GetTimestamp();
+        for (var change = 0; change < 60; change++)
+        {
+            var moved = Somewhere(change);
+            store.Update(current => current with { Raid = current.Raid with { LastKnownPosition = moved } });
+            await Task.Delay(25);
+        }
+
+        var elapsed = Stopwatch.GetElapsedTime(flooding);
+        var exchanges = asked.Count - before;
+        // The held first exchange may be cut short, the one after it is refused, and then the
+        // back-off holds for the whole interval; the same allowance as the test above.
+        var allowed = (int)Math.Ceiling(elapsed.TotalSeconds / GroupPublishing.Interval.TotalSeconds) + 2;
+        Assert.True(exchanges <= allowed, $"{exchanges} exchanges in {elapsed.TotalSeconds:0.0}s exceeds {allowed}.");
+    }
+
     private static ScreenshotPosition Somewhere(int step = 0) => new(
         DateTimeOffset.UtcNow.AddMilliseconds(step),
         new WorldPosition(12.5 + step, 0, 3.5),
@@ -207,7 +248,8 @@ public sealed class GroupSessionExchangeTests
     private sealed class RecordingHandler(
         ConcurrentQueue<string> queries,
         Func<HttpRequestMessage, HttpResponseMessage> respond,
-        ConcurrentQueue<string>? bodies = null) : HttpMessageHandler
+        ConcurrentQueue<string>? bodies = null,
+        TimeSpan? answerAfter = null) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -221,7 +263,7 @@ public sealed class GroupSessionExchangeTests
 
             // A relay that holds would not answer yet; this one answers at once, because what is
             // being measured here is what the client does with the answer.
-            await Task.Delay(5, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(answerAfter ?? TimeSpan.FromMilliseconds(5), cancellationToken).ConfigureAwait(false);
             return respond(request);
         }
     }
