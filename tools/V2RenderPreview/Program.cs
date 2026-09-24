@@ -151,6 +151,7 @@ internal static class Program
             // [#599] Setup > Updates beside a build that was downloaded and did not apply. There is
             // no installation and no updater here, so the state is handed to the gateway directly;
             // that the gateway reports it from a real packages folder is PendingUpdateTests' job.
+            RollbackDemo.Install(args);
             if (args.Contains("--update-did-not-apply"))
             {
                 TarkovCompanion.App.Services.Updates.VelopackUpdateGateway.RenderPending = new(

@@ -132,6 +132,9 @@ public sealed record AppCommandLine(
     /// </summary>
     public bool ApplyUpdateAndExit { get; init; }
 
+    /// <summary>[#292] Go back to the previous build and leave: the rollback with no window, for Windows verification.</summary>
+    public bool RollBackAndExit { get; init; }
+
     /// <summary>
     /// [#279] A seeded state for the Windows page gallery (<see cref="GallerySceneKind"/>), with a
     /// readiness answer on the diagnostic channel. Honoured only with <c>--developer-mode</c>.
@@ -168,6 +171,7 @@ public sealed record AppCommandLine(
                 ? WindowSizeOverride.Parse(windowSize)
                 : null,
             ApplyUpdateAndExit = HasFlag(args, "--apply-update-and-exit"),
+            RollBackAndExit = HasFlag(args, "--roll-back-and-exit"),
             GalleryScene = GetValue(args, "--gallery-scene") is { } scene
                 ? GallerySceneKinds.Parse(scene)
                 : null,
@@ -185,6 +189,7 @@ public sealed record AppCommandLine(
     [
         "--self-test",
         "--apply-update-and-exit",
+        "--roll-back-and-exit",
         "--demo",
         "--headless",
         "--developer-mode",

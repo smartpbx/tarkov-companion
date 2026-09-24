@@ -1957,6 +1957,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         _retentionSettings = retentionSettings;
         _recycleBin = recycleBin;
         _updates = updates;
+        // #292: going back to the previous build, the pin that keeps it there, and provenance.
+        Rollback = new(updates, CheckForUpdateAsync);
         _gameFolders = gameFolders;
         _observation = observation;
         _selfTest = selfTest;
@@ -2441,6 +2443,9 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 
     public bool SupportsUpdates => _updates is not null;
 
+    /// <summary>#292: Setup › Updates' "Go back to the previous version", pin and provenance.</summary>
+    public TarkovCompanion.App.ViewModels.V2.Setup.SetupRollbackViewModel Rollback { get; }
+
     private async Task CheckForUpdateAsync()
     {
         if (_updates is null || IsBusyWithUpdate)
@@ -2526,6 +2531,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         CanDownloadUpdate = progress.CanDownload;
         CanRestartForUpdate = progress.CanApply;
         AvailableBuild = progress.Available ?? (progress.Failed ? "Unknown · the check failed" : "Nothing newer");
+        Rollback.Refresh();
     }
 
     /// <summary>

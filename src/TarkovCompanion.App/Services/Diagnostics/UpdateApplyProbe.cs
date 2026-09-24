@@ -33,12 +33,33 @@ internal static class UpdateApplyProbe
         };
         try
         {
-            var gateway = new VelopackUpdateGateway();
+            // With the data folder, so an update keeps the running build's package and a rollback can find it.
+            var gateway = new VelopackUpdateGateway(paths: AppDataPaths.Resolve());
             report["channel"] = gateway.Channel.Name;
             report["installed"] = gateway.InstalledBuild;
             if (!gateway.IsInstalled)
             {
                 return Finish(options, report, 2, "not installed, so there is nothing to update");
+            }
+
+            if (options.RollBackAndExit)
+            {
+                var offer = gateway.FindPreviousAsync(CancellationToken.None).GetAwaiter().GetResult();
+                report["previous"] = offer.Previous?.Version;
+                report["previousSource"] = offer.Previous?.Source.ToString();
+                if (offer.Previous is null)
+                {
+                    return Finish(options, report, 3, offer.Reason ?? "nothing older to go back to");
+                }
+
+                var back = gateway.DownloadPreviousAsync(offer, null, CancellationToken.None).GetAwaiter().GetResult();
+                report["download"] = back.Status;
+                if (!back.CanApply)
+                {
+                    return Finish(options, report, 4, "the older build was not accepted");
+                }
+
+                return HandOver(options, report, gateway);
             }
 
             var found = gateway.CheckAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -55,21 +76,26 @@ internal static class UpdateApplyProbe
                 return Finish(options, report, 4, "the download was not accepted");
             }
 
-            report["bystanderPid"] = StartBystander();
-            Finish(options, report, 0, "handing over to the updater");
-
-            static void Log(string line) => Console.Error.WriteLine(line);
-            gateway.HandOver = new UpdateHandOver(
-                new UpdateHandOverSteps(() => { }, () => { }, _ => Task.CompletedTask),
-                new HardProcessEnder(Log),
-                Log);
-            gateway.ApplyAndRestart();
-            return 5;
+            return HandOver(options, report, gateway);
         }
         catch (Exception exception)
         {
             return Finish(options, report, 6, exception.Message);
         }
+    }
+
+    private static int HandOver(AppCommandLine options, SortedDictionary<string, object?> report, VelopackUpdateGateway gateway)
+    {
+        report["bystanderPid"] = StartBystander();
+        Finish(options, report, 0, "handing over to the updater");
+
+        static void Log(string line) => Console.Error.WriteLine(line);
+        gateway.HandOver = new UpdateHandOver(
+            new UpdateHandOverSteps(() => { }, () => { }, _ => Task.CompletedTask),
+            new HardProcessEnder(Log),
+            Log);
+        gateway.ApplyAndRestart();
+        return 5;
     }
 
     /// <summary>A process that does nothing for ninety seconds, started the careless way on purpose.</summary>

@@ -1,0 +1,60 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupRollbackView"
+             x:DataType="vm:SetupRollbackViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
+             xmlns:updates="using:TarkovCompanion.App.Services.Updates">
+  <!-- #292: where the running build came from, and going back to the one before it. Two presses:
+       the first says what will happen, the second does it. -->
+  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-rollback">
+    <StackPanel Classes="v2-field">
+      <TextBlock Classes="v2-label" Text="{Binding ProvenanceHeading}" />
+      <ItemsControl ItemsSource="{Binding Provenance}" AutomationProperties.AutomationId="v2-setup-update-provenance">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="updates:UpdateProvenanceRow">
+            <Grid ColumnDefinitions="96,*" Margin="0,2">
+              <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Label}" />
+              <SelectableTextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Value}" TextWrapping="Wrap" />
+            </Grid>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+    <TextBlock Classes="v2-label" Margin="0,8,0,0" Text="{Binding GoingBackHeading}" />
+    <StackPanel Classes="v2-field" IsVisible="{Binding HasPin}">
+      <TextBlock Classes="v2-body" Text="{Binding PinText}" TextWrapping="Wrap"
+                 AutomationProperties.AutomationId="v2-setup-update-pin" />
+      <Button Classes="v2-target" HorizontalAlignment="Left"
+              AutomationProperties.AutomationId="v2-setup-resume-updates"
+              Content="{Binding ResumeLabel}" Command="{Binding ResumeUpdatesCommand}" />
+    </StackPanel>
+    <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding !IsConfirming}"
+            IsEnabled="{Binding CanStart}"
+            AutomationProperties.AutomationId="v2-setup-go-back"
+            Content="{Binding StartLabel}" Command="{Binding StartCommand}" />
+    <TextBlock Classes="v2-body" IsVisible="{Binding HasStatus}" Text="{Binding Status}" TextWrapping="Wrap"
+               AutomationProperties.AutomationId="v2-setup-go-back-status" />
+    <ProgressBar Classes="v2-setup-progress" Minimum="0" Maximum="100"
+                 IsVisible="{Binding IsDownloading}" Value="{Binding Percent}"
+                 AutomationProperties.Name="{Binding Status}" />
+    <Border Classes="v2-card" IsVisible="{Binding IsConfirming}" Padding="12"
+            AutomationProperties.AutomationId="v2-setup-go-back-confirm">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ConfirmHeading}" />
+        <ItemsControl ItemsSource="{Binding ConfirmSteps}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" Margin="0,1" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-go-back-confirm-yes"
+                  Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-go-back-cancel"
+                  Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>
