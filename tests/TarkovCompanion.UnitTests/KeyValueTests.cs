@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Core.Abstractions;
 
@@ -26,7 +27,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(1_000, dearerThan: 0.01, lockCount: 0, maximumUses: 1, Needs(tracked: 1));
 
         Assert.Equal(KeepOrSell.Keep, verdict.Call);
-        Assert.Contains("a quest you are on needs it", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("a quest you are on needs it", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -44,7 +45,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(1_000, dearerThan: 0.01, lockCount: 0, maximumUses: 1, Needs(ahead: 4));
 
         Assert.Equal(KeepOrSell.KeepForLater, verdict.Call);
-        Assert.Contains("4 quests ahead of you need it", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("4 quests ahead of you need it", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -54,7 +55,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(1_000, dearerThan: 0.9, lockCount: 0, maximumUses: 1, Needs(tracked: 1, ahead: 9));
 
         Assert.Equal(KeepOrSell.Keep, verdict.Call);
-        Assert.DoesNotContain("ahead", verdict.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("ahead", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -73,7 +74,7 @@ public sealed class KeyValueTests
             TrackedQuestsNeedingIt = 1,
         };
 
-        Assert.Contains("a quest you are on needs it", KeyValue.Judge(1_000, 0.5, 0, null, needs).Reason, StringComparison.Ordinal);
+        Assert.Contains("a quest you are on needs it", IntelText.KeyReason(KeyValue.Judge(1_000, 0.5, 0, null, needs).Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -82,7 +83,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(1_000, dearerThan: 0.02, lockCount: 1, maximumUses: null, Needs(hideout: 1));
 
         Assert.Equal(KeepOrSell.Keep, verdict.Call);
-        Assert.Contains("hideout", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("hideout", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -105,7 +106,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(40_000, 0.5, 2, null, Needs());
 
         Assert.Equal(KeepOrSell.NoCall, verdict.Call);
-        Assert.Contains("your call", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("your call", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -116,7 +117,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(0, dearerThan: null, lockCount: 4, maximumUses: null, Needs());
 
         Assert.Equal(KeepOrSell.NoCall, verdict.Call);
-        Assert.Contains("no price is cached", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("no price is cached", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -126,7 +127,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(900_000, 0.95, 1, maximumUses: 1, Needs());
 
         Assert.Equal(KeepOrSell.Keep, verdict.Call);
-        Assert.Contains("opens once", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("opens once", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -135,7 +136,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(2_000, 0.02, lockCount: 0, maximumUses: null, Needs());
 
         Assert.Equal(KeepOrSell.Sell, verdict.Call);
-        Assert.Contains("no cached lock", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("no cached lock", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -195,7 +196,7 @@ public sealed class KeyValueTests
         var verdict = KeyValue.Judge(500_000, dearerThan: null, lockCount: 2, maximumUses: null, Needs());
 
         Assert.Equal(KeepOrSell.NoCall, verdict.Call);
-        Assert.Contains("too few keys have cached prices", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("too few keys have cached prices", IntelText.KeyReason(verdict.Reason), StringComparison.Ordinal);
     }
 
     [Fact]

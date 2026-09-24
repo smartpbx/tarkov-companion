@@ -1107,7 +1107,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// that is only counting up has no such claim to qualify.
     /// </remarks>
     public bool HasRaidPhaseDetail =>
-        !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeftDetail);
+        !string.Equals(TimeLeft, RaidText.Unknown, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeftDetail);
 
     /// <summary>The current map's name for the context panel header, e.g. "CUSTOMS".</summary>
     public string MapTitle => (SelectedMap?.Name ?? Renderer?.LocationLabel ?? string.Empty).ToUpper(CultureInfo.CurrentCulture);

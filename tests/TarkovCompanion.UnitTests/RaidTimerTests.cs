@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Raids;
 
 namespace TarkovCompanion.UnitTests;
@@ -72,7 +73,7 @@ public sealed class RaidTimerTests
 
         Assert.Equal(RaidTimeBasis.Counted, remaining.Basis);
         Assert.Equal(TimeSpan.FromMinutes(28), remaining.Remaining);
-        Assert.Equal("counted from start", remaining.Detail);
+        Assert.Equal("counted from start", RaidText.ClockBasis(remaining.Basis));
     }
 
     /// <summary>
@@ -253,7 +254,7 @@ public sealed class RaidLengthBySideTests
 
         Assert.Equal(RaidTimeBasis.Unknown, remaining.Basis);
         Assert.Null(remaining.Remaining);
-        Assert.Equal("open extracts or set by hand", remaining.Detail);
+        Assert.Equal("open extracts or set by hand", RaidText.ClockBasis(remaining.Basis));
     }
 
     [Fact]
@@ -269,6 +270,6 @@ public sealed class RaidLengthBySideTests
 
         Assert.Equal(RaidTimeBasis.Observed, remaining.Basis);
         Assert.Equal(TimeSpan.FromMinutes(16), remaining.Remaining);
-        Assert.Equal("from screenshot", remaining.Detail);
+        Assert.Equal("from screenshot", RaidText.ClockBasis(remaining.Basis));
     }
 }

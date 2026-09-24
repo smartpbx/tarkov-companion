@@ -42,14 +42,18 @@ public sealed record RaidTimeRemaining(TimeSpan? Remaining, RaidTimeBasis Basis)
     /// everywhere, from this one place, and it always says "left" or "elapsed". Minutes and
     /// seconds, because no raid runs longer than an hour.
     /// </remarks>
-    public string ClockText(DateTimeOffset? startedUtc, DateTimeOffset nowUtc)
+    // [#314] The words ("left", "elapsed") are the App's: this says which way the clock runs and
+    // the minutes, and RaidText.Clock says it in the player's language.
+    public RaidClock Clock(DateTimeOffset? startedUtc, DateTimeOffset nowUtc)
     {
         if (Remaining is { } left)
         {
-            return $"{Minutes(left)} left";
+            return new(RaidClockDirection.Left, Minutes(left));
         }
 
-        return startedUtc is { } started ? $"{Minutes(nowUtc - started)} elapsed" : string.Empty;
+        return startedUtc is { } started
+            ? new(RaidClockDirection.Elapsed, Minutes(nowUtc - started))
+            : RaidClock.None;
     }
 
     private static string Minutes(TimeSpan span)
@@ -57,14 +61,21 @@ public sealed record RaidTimeRemaining(TimeSpan? Remaining, RaidTimeBasis Basis)
         var shown = span > TimeSpan.Zero ? span : TimeSpan.Zero;
         return string.Create(CultureInfo.InvariantCulture, $"{(int)shown.TotalMinutes:00}:{shown.Seconds:00}");
     }
+}
 
-    /// <summary>Which of the two this is, so a count is not read as a reading.</summary>
-    public string Detail => Basis switch
-    {
-        RaidTimeBasis.Observed => "from screenshot",
-        RaidTimeBasis.Counted => "counted from start",
-        _ => "open extracts or set by hand",
-    };
+/// <summary>Which way the raid clock runs: down from the raid's length, or up from its start.</summary>
+public enum RaidClockDirection
+{
+    /// <summary>No clock: neither a length nor a start is known.</summary>
+    None,
+    Left,
+    Elapsed,
+}
+
+/// <summary>The raid clock as "mm:ss" and its direction; the App puts it into words.</summary>
+public sealed record RaidClock(RaidClockDirection Direction, string Minutes)
+{
+    public static RaidClock None { get; } = new(RaidClockDirection.None, string.Empty);
 }
 
 /// <summary>

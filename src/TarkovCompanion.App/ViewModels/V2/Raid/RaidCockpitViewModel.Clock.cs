@@ -13,16 +13,19 @@ public sealed partial class RaidCockpitViewModel
     public string ExtractClockSummary => DescribeExtractClock(
         _stateStore.Current.Raid.State == RaidLifecycleState.InRaid,
         _raid.Clock,
+        _raid.ClockCountsDown,
         _raid.TimeLeftDetail);
 
-    internal static string DescribeExtractClock(bool isInRaid, string clock, string detail)
+    /// <remarks>[#314] Whether the clock counts down is passed in, not read off the words ("… left"),
+    /// which change with the interface language.</remarks>
+    internal static string DescribeExtractClock(bool isInRaid, string clock, bool countsDown, string detail)
     {
         if (!isInRaid)
         {
             return string.Empty;
         }
 
-        return clock.EndsWith(" left", StringComparison.Ordinal)
+        return countsDown && clock.Length > 0
             ? $"{clock} · {detail}"
             : RaidText.TimeLeftUnknown(detail);
     }

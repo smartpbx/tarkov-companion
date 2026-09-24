@@ -53,13 +53,13 @@ public sealed partial class RaidCockpitViewModel
 
     public string RouteStartLabel => _routeStartLabel;
 
-    public string PrimaryRouteEstimate => ShownRoute?.Plan.LowerContact.MinutesLabel ?? string.Empty;
+    public string PrimaryRouteEstimate => ShownRoute?.Plan.LowerContact.MinutesLabel() ?? string.Empty;
 
     public bool HasAlternativeRoute => ShownRoute?.Plan.Direct is not null;
 
-    public string AlternativeRouteEstimate => ShownRoute?.Plan.Direct?.MinutesLabel ?? string.Empty;
+    public string AlternativeRouteEstimate => ShownRoute?.Plan.Direct?.MinutesLabel() ?? string.Empty;
 
-    public IReadOnlyList<string> RouteReasons => ShownRoute?.Plan.Reasons ?? [];
+    public IReadOnlyList<string> RouteReasons => [.. (ShownRoute?.Plan.Reasons ?? []).Select(RaidText.RouteReason)];
 
     public string RouteCaveat => RaidText.RouteCaveat;
 
@@ -150,7 +150,7 @@ public sealed partial class RaidCockpitViewModel
         {
             Add(
                 "traffic-route:direct",
-                RaidText.DirectLineTo(shown.Extract, direct.MinutesLabel),
+                RaidText.DirectLineTo(shown.Extract, direct.MinutesLabel()),
                 RaidText.HigherContactDetail(RouteCaveat),
                 direct,
                 new(AlternativeRouteColor, LineThickness: 3, Opacity: 0.85));
@@ -158,8 +158,8 @@ public sealed partial class RaidCockpitViewModel
 
         Add(
             "traffic-route:lower-contact",
-            RaidText.LowerContactRouteTo(shown.Extract, shown.Plan.LowerContact.MinutesLabel),
-            $"{string.Join(". ", shown.Plan.Reasons)}. {RouteCaveat}.",
+            RaidText.LowerContactRouteTo(shown.Extract, shown.Plan.LowerContact.MinutesLabel()),
+            $"{string.Join(". ", shown.Plan.Reasons.Select(RaidText.RouteReason))}. {RouteCaveat}.",
             shown.Plan.LowerContact,
             new(RouteColor, LineThickness: 4));
         _routeStyles = styles;
@@ -268,7 +268,7 @@ public sealed partial class RaidCockpitViewModel
         return [.. rows
             .Select((row, index) => order.TryGetValue(row.Name, out var planned)
                 ? (Row: row.WithRoute(
-                    planned.route.Plan.LowerContact.MinutesLabel,
+                    planned.route.Plan.LowerContact.MinutesLabel(),
                     string.Equals(row.Name, shown, StringComparison.OrdinalIgnoreCase),
                     new DelegateCommand(() => ChooseRouteExtract(planned.route.Extract))), Rank: planned.index)
                 : (Row: row, Rank: _extractRoutes.Count + index))

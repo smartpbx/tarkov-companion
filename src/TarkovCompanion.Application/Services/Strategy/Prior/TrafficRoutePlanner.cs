@@ -26,9 +26,41 @@ public sealed record TrafficRoute(
     public int MinutesLow => Math.Max(1, (int)Math.Floor(Metres * ObstacleAllowance / BriskPace / 60));
 
     public int MinutesHigh => Math.Max(MinutesLow + 1, (int)Math.Ceiling(Metres * ObstacleAllowance / CarefulPace / 60));
-
-    public string MinutesLabel => string.Create(CultureInfo.CurrentCulture, $"~{MinutesLow}–{MinutesHigh} min");
 }
+
+/// <summary>Why the lower-contact route is suggested, as a code the App puts into words (#314).</summary>
+public enum TrafficRouteReasonKind
+{
+    /// <summary>The direct line already has the lowest modelled contact.</summary>
+    DirectIsLowest,
+
+    /// <summary>The one route's length and mean contact.</summary>
+    LengthAndContact,
+
+    /// <summary>Avoids a named hotspot's convergence (Place set) or the direct line's busiest stretch.</summary>
+    AvoidsPeak,
+
+    /// <summary>Mean contact along this route against the direct line's.</summary>
+    ContactAgainstDirect,
+
+    /// <summary>How much longer than the direct line.</summary>
+    Longer,
+
+    /// <summary>Still crosses raised traffic near a named hotspot (Place set), or at its busiest.</summary>
+    StillCrosses,
+}
+
+/// <summary>One reason, with the route numbers it was read from.</summary>
+/// <param name="Place">A hotspot's name, when the reason is about one.</param>
+/// <param name="Share">A traffic share, 0 to 1: this route's mean or peak.</param>
+/// <param name="OtherShare">The direct line's matching share, where the reason compares.</param>
+public sealed record TrafficRouteReason(
+    TrafficRouteReasonKind Kind,
+    string? Place = null,
+    double Metres = 0,
+    double OtherMetres = 0,
+    double Share = 0,
+    double OtherShare = 0);
 
 /// <summary>The lower-contact route to one destination, the direct line when it differs, and why.</summary>
 /// <param name="Cost">What the planner minimised: metres, plus five times metres weighted by traffic.</param>
@@ -36,7 +68,7 @@ public sealed record TrafficRoutePlan(
     TrafficRoute LowerContact,
     TrafficRoute? Direct,
     double Cost,
-    IReadOnlyList<string> Reasons,
+    IReadOnlyList<TrafficRouteReason> Reasons,
     Confidence Confidence);
 
 /// <summary>The traffic field as a graph V1's <see cref="IRoutePlanner"/> can walk.</summary>
@@ -160,31 +192,32 @@ public sealed class TrafficRoutePlanner
     }
 
     /// <summary>Why the lower-contact route is the one suggested, from the two routes' own numbers.</summary>
-    internal static IReadOnlyList<string> Reasons(TrafficRoute lower, TrafficRoute? direct, IReadOnlyList<TrafficHotspot> hotspots)
+    internal static IReadOnlyList<TrafficRouteReason> Reasons(TrafficRoute lower, TrafficRoute? direct, IReadOnlyList<TrafficHotspot> hotspots)
     {
-        var culture = CultureInfo.CurrentCulture;
-        var reasons = new List<string>();
+        var reasons = new List<TrafficRouteReason>();
         if (direct is null)
         {
-            reasons.Add("The direct line already has the lowest modelled contact");
-            reasons.Add(string.Create(culture, $"{lower.Metres:0} m · modelled contact {lower.MeanTraffic:P0} along it"));
+            reasons.Add(new(TrafficRouteReasonKind.DirectIsLowest));
+            reasons.Add(new(TrafficRouteReasonKind.LengthAndContact, Metres: lower.Metres, Share: lower.MeanTraffic));
         }
         else
         {
             if (direct.PeakTraffic - lower.PeakTraffic >= 0.15)
             {
-                var where = Nearest(hotspots, direct.PeakAt) is { } avoided ? $"{avoided.Name} convergence" : "the direct line's busiest stretch";
-                reasons.Add(string.Create(culture, $"Avoids {where} · peak {direct.PeakTraffic:P0} → {lower.PeakTraffic:P0}"));
+                reasons.Add(new(
+                    TrafficRouteReasonKind.AvoidsPeak,
+                    Nearest(hotspots, direct.PeakAt)?.Name,
+                    Share: lower.PeakTraffic,
+                    OtherShare: direct.PeakTraffic));
             }
 
-            reasons.Add(string.Create(culture, $"Modelled contact {lower.MeanTraffic:P0} along it · {direct.MeanTraffic:P0} on the direct line"));
-            reasons.Add(string.Create(culture, $"{Math.Max(0, lower.Metres - direct.Metres):0} m longer · {lower.Metres:0} m against {direct.Metres:0} m"));
+            reasons.Add(new(TrafficRouteReasonKind.ContactAgainstDirect, Share: lower.MeanTraffic, OtherShare: direct.MeanTraffic));
+            reasons.Add(new(TrafficRouteReasonKind.Longer, Metres: lower.Metres, OtherMetres: direct.Metres));
         }
 
         if (lower.PeakTraffic >= 0.5)
         {
-            var where = Nearest(hotspots, lower.PeakAt) is { } crossed ? $"near {crossed.Name}" : "at its busiest";
-            reasons.Add(string.Create(culture, $"Still crosses raised traffic {where} · {lower.PeakTraffic:P0}"));
+            reasons.Add(new(TrafficRouteReasonKind.StillCrosses, Nearest(hotspots, lower.PeakAt)?.Name, Share: lower.PeakTraffic));
         }
 
         return reasons;

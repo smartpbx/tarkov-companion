@@ -114,3 +114,75 @@ public sealed class TarkovTrackerStatusLineTests
             TarkovTrackerStatusLine.Compose(Status(connected: true, remaining: 12, limit: 15), SetupText.QuestsTrackerTokenSaved));
     }
 }
+
+/// <summary>[#314] Application-layer codes the App puts into words: every value has words.</summary>
+public sealed class ReasonCodeTextTests
+{
+    [Fact]
+    public void Every_raid_clock_direction_and_time_basis_has_words()
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        foreach (var direction in Enum.GetValues<TarkovCompanion.Application.Services.Raids.RaidClockDirection>())
+        {
+            var text = TarkovCompanion.App.Localization.RaidText.ClockText(new(direction, "12:34"));
+            Assert.Equal(direction == TarkovCompanion.Application.Services.Raids.RaidClockDirection.None, text.Length == 0);
+        }
+
+        var bases = Enum.GetValues<TarkovCompanion.Application.Services.Raids.RaidTimeBasis>()
+            .Select(TarkovCompanion.App.Localization.RaidText.ClockBasis).ToArray();
+        Assert.All(bases, text => Assert.False(string.IsNullOrWhiteSpace(text)));
+        Assert.Equal(bases.Length, bases.Distinct(StringComparer.Ordinal).Count());
+    }
+}
+
+public sealed class RouteReasonTextTests
+{
+    [Fact]
+    public void Every_route_reason_code_has_words_and_the_english_is_unchanged()
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        using var culture = new CultureScope("en-US");
+        foreach (var kind in Enum.GetValues<TarkovCompanion.Application.Services.Strategy.Prior.TrafficRouteReasonKind>())
+        {
+            Assert.False(string.IsNullOrWhiteSpace(RaidText.RouteReason(new(kind))));
+        }
+
+        Assert.Equal(
+            "Avoids Dorms convergence · peak 90% → 20%",
+            RaidText.RouteReason(new(TarkovCompanion.Application.Services.Strategy.Prior.TrafficRouteReasonKind.AvoidsPeak, "Dorms", Share: 0.2, OtherShare: 0.9)));
+        Assert.Equal(
+            "40 m longer · 240 m against 200 m",
+            RaidText.RouteReason(new(TarkovCompanion.Application.Services.Strategy.Prior.TrafficRouteReasonKind.Longer, Metres: 240, OtherMetres: 200)));
+        Assert.Equal("~3–5 min", RaidText.RouteMinutes(3, 5));
+    }
+
+    private sealed class CultureScope : IDisposable
+    {
+        private readonly System.Globalization.CultureInfo _previous = System.Globalization.CultureInfo.CurrentCulture;
+
+        public CultureScope(string name) => System.Globalization.CultureInfo.CurrentCulture = new(name);
+
+        public void Dispose() => System.Globalization.CultureInfo.CurrentCulture = _previous;
+    }
+}
+
+public sealed class VerdictTextTests
+{
+    [Fact]
+    public void Every_key_reason_share_and_recommendation_action_has_words()
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        foreach (var reason in Enum.GetValues<TarkovCompanion.Core.Domain.Planning.KeyVerdictReason>())
+        {
+            Assert.False(string.IsNullOrWhiteSpace(IntelText.KeyReason(new(reason, 2))));
+        }
+
+        var shares = Enum.GetValues<TarkovCompanion.Core.Domain.Planning.KeyShareBand>().Select(IntelText.KeyShare).ToArray();
+        Assert.Equal(shares.Length, shares.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(Enum.GetValues<RecommendationAction>(), action => Assert.False(string.IsNullOrWhiteSpace(IntelText.RecommendationVerdict(action))));
+        Assert.Equal("a quest you are on needs it", IntelText.KeyReason(new(TarkovCompanion.Core.Domain.Planning.KeyVerdictReason.TrackedQuestsNeedIt, 1)));
+        Assert.Equal(
+            "dearer than four keys in five of priced keys, and it opens once",
+            IntelText.KeyReason(new(TarkovCompanion.Core.Domain.Planning.KeyVerdictReason.DearerOpensOnce, Share: TarkovCompanion.Core.Domain.Planning.KeyShareBand.FourInFive)));
+    }
+}

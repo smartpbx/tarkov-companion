@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Raids;
 
 namespace TarkovCompanion.UnitTests;
@@ -57,6 +58,6 @@ public sealed class RaidClockTickTests
     {
         var unknown = RaidTimer.Resolve(null, Started, length: null, Started.AddMinutes(10));
 
-        Assert.False(string.IsNullOrWhiteSpace(unknown.Detail));
+        Assert.False(string.IsNullOrWhiteSpace(RaidText.ClockBasis(unknown.Basis)));
     }
 }

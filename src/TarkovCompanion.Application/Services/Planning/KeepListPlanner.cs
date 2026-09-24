@@ -210,7 +210,7 @@ public static class KeepListPlanner
                     .ToArray();
             }
 
-            string? keyReason = null;
+            KeyReasonCode? keyReason = null;
             if (keyFactsById.TryGetValue(itemId, out var keyFact))
             {
                 var needs = new ItemNeedSummary(0, 0, hideoutNeeds.Length > 0 ? 1 : 0)
