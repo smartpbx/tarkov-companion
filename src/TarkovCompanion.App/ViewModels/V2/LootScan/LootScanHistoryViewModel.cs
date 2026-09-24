@@ -36,7 +36,9 @@ public sealed class LootScanHistoryViewModel : BindableViewModel
         ILootScanHistoryStore store,
         IRuntimeStateStore? runtime = null,
         ILogger<LootScanHistoryViewModel>? logger = null,
-        CultureInfo? culture = null)
+        CultureInfo? culture = null,
+        ApplicationStartupCoordinator? startup = null,
+        Func<CancellationToken, Task>? databaseReady = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _runtime = runtime;
@@ -50,7 +52,11 @@ public sealed class LootScanHistoryViewModel : BindableViewModel
             runtime.Changed += OnRuntimeChanged;
         }
 
-        _ = RefreshSafelyAsync();
+        // [#799] The first listing waits for migrations: built by the V2 shell at startup, it
+        // queried loot_scans about 0.8 s before migration 0019 created it on a fresh launch and
+        // logged "no such table" with nothing listed.
+        databaseReady ??= startup is null ? null : startup.DatabaseReadyAsync;
+        _ = databaseReady is null ? RefreshSafelyAsync() : RefreshWhenReadyAsync(databaseReady);
     }
 
     public string Heading => "Last scans";
@@ -121,6 +127,21 @@ public sealed class LootScanHistoryViewModel : BindableViewModel
     }
 
     public void Close() => Opened = null;
+
+    private async Task RefreshWhenReadyAsync(Func<CancellationToken, Task> databaseReady)
+    {
+        try
+        {
+            await databaseReady(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "The database did not become ready; saved loot scans are not listed.");
+            return;
+        }
+
+        await RefreshSafelyAsync().ConfigureAwait(true);
+    }
 
     private async Task RefreshSafelyAsync()
     {

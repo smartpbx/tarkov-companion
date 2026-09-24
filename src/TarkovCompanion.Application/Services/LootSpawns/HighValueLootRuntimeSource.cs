@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.LootSpawns;
 using TarkovCompanion.Core.Domain.Maps.Scene;
@@ -51,6 +54,10 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     private readonly ILootSpawnSourceRefreshService _refreshService;
     private readonly HighValueLootLayerService _layerService;
     private readonly TimeProvider _timeProvider;
+    private readonly ILogger _logger;
+    // [#799] Maps already reported Unavailable for the current head, so the reason is logged once
+    // per map per loaded publication rather than on every scene rebuild.
+    private readonly ConcurrentDictionary<string, byte> _unavailableLogged = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private LootSpawnSourceBundle? _lastKnownGood;
     private LootSpawnSourceRefreshOutcome? _lastRefreshOutcome;
@@ -75,12 +82,14 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         ILootSpawnSourcePublicationStore publicationStore,
         ILootSpawnSourceRefreshService refreshService,
         HighValueLootLayerService layerService,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ILogger<HighValueLootRuntimeSource>? logger = null)
     {
         _publicationStore = publicationStore ?? throw new ArgumentNullException(nameof(publicationStore));
         _refreshService = refreshService ?? throw new ArgumentNullException(nameof(refreshService));
         _layerService = layerService ?? throw new ArgumentNullException(nameof(layerService));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _logger = logger ?? (ILogger)NullLogger.Instance;
     }
 
     public LootSpawnSourceBundle? LastKnownGood => Volatile.Read(ref _lastKnownGood);
@@ -100,7 +109,16 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         }
 
         var head = LastKnownGood;
-        return head is null || evaluatedUtc - head.Identity.ImportedUtc > freshFor;
+        if (head is null)
+        {
+            return true;
+        }
+
+        // [#799] A head imported "after" now was stamped by a clock that was ahead (or has since
+        // jumped back). It stays drawn, but it is due a refresh: comparing only the positive age
+        // would have skipped refreshing for as long as the clock had been wrong.
+        var age = evaluatedUtc - head.Identity.ImportedUtc;
+        return age < TimeSpan.Zero || age > freshFor;
     }
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -115,6 +133,8 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             {
                 Volatile.Write(ref _lastKnownGood, durableHead);
             }
+
+            LogHead("loaded", durableHead);
         }
         finally
         {
@@ -133,7 +153,12 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             var retained = result.Published ?? result.LastKnownGood;
             if (retained is not null)
             {
+                var previous = LastKnownGood;
                 Volatile.Write(ref _lastKnownGood, retained);
+                if (!ReferenceEquals(previous, retained))
+                {
+                    LogHead(result.Published is null ? "retained" : "published", retained);
+                }
             }
 
             Volatile.Write(
@@ -163,7 +188,57 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
 
         var result = BuildUncached(head, request, cancellationToken);
         Volatile.Write(ref _built, [new BuiltLayer(head, request, result), .. built.Take(1)]);
+        LogUnavailable(head, request, result);
         return result;
+    }
+
+    /// <summary>
+    /// [#799] One line per load saying which publication the layer is drawing from. "0 spawns,
+    /// Unavailable" on every map arrived with a log that could not say whether a publication had
+    /// been read at all, which generation it was, or how its stamps compared with the clock.
+    /// </summary>
+    private void LogHead(string how, LootSpawnSourceBundle? head)
+    {
+        _unavailableLogged.Clear();
+        if (head is null)
+        {
+            _logger.LogInformation("Loot publication {How}: none available.", how);
+            return;
+        }
+
+        var identity = head.Identity;
+        _logger.LogInformation(
+            "Loot publication {How}: dataset {Dataset}, generated {GeneratedUtc:O}, imported {ImportedUtc:O}, data through {DataThroughUtc:O}, {Maps} maps, {Spawns} spawns; clock {NowUtc:O}.",
+            how,
+            identity.DatasetVersion,
+            identity.GeneratedUtc,
+            identity.ImportedUtc,
+            identity.DataThroughUtc,
+            head.Snapshots.Count,
+            head.Snapshots.Sum(snapshot => snapshot.Records.Count),
+            _timeProvider.GetUtcNow());
+    }
+
+    private void LogUnavailable(
+        LootSpawnSourceBundle? head,
+        HighValueLootRuntimeLayerRequest request,
+        HighValueLootLayerResult result)
+    {
+        if (result.Status.Completeness != ResultCompleteness.Unavailable ||
+            !_unavailableLogged.TryAdd(request.MapId, 0))
+        {
+            return;
+        }
+
+        var snapshot = head?.Snapshots.FirstOrDefault(candidate =>
+            string.Equals(candidate.MapId, request.MapId, StringComparison.OrdinalIgnoreCase));
+        _logger.LogWarning(
+            "High-value loot unavailable on {MapId}: {Reasons}. Head {Dataset}, snapshot generated {GeneratedUtc:O}, evaluated {EvaluatedUtc:O}.",
+            request.MapId,
+            string.Join("; ", result.Diagnostics.Take(4).Select(diagnostic => diagnostic.Code)),
+            head?.Identity.DatasetVersion ?? "none",
+            snapshot?.GeneratedUtc,
+            request.EvaluatedUtc);
     }
 
     private HighValueLootLayerResult BuildUncached(

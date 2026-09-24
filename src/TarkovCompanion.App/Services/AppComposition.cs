@@ -295,7 +295,8 @@ public static class AppComposition
         services.AddSingleton<TarkovDevLootSpawnNormalizer>();
         services.AddSingleton(provider => new DurableLootSpawnPublicationStore(
             Path.Combine(paths.Cache, "LootSpawns", "publication.cache"),
-            timeProvider));
+            timeProvider,
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger<DurableLootSpawnPublicationStore>()));
         services.AddSingleton<ILootSpawnSourcePublicationStore>(provider =>
             provider.GetRequiredService<DurableLootSpawnPublicationStore>());
         services.AddSingleton<IReviewedLootSpawnPublicationReplacementStore>(provider =>
