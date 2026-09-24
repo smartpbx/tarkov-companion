@@ -223,7 +223,7 @@ public sealed class StashScanWorkspaceViewModelTests
     public async Task A_snapshot_saved_while_the_page_is_open_appears_without_navigating()
     {
         // On the UI thread, as in the app: the page reloads from the dispatcher, not from the saver.
-        using var session = Avalonia.Headless.HeadlessUnitTestSession.StartNew(
+        using var session = HeadlessSessions.StartNew(
             typeof(TarkovCompanion.UnitTests.V2MapRenderer.MapMarkClipTests.MarkClipApp));
         Assert.True(await session.Dispatch(SavedWhileOpenAsync, CancellationToken.None));
     }

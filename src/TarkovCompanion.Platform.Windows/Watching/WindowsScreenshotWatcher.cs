@@ -113,6 +113,18 @@ public sealed class WindowsScreenshotWatcher(
     private long _lastListingTicks;
     private long _pollIntervalTicks;
 
+    /// <summary>What a listing costs, for the duty cycle: the cheaper of the last two.</summary>
+    /// <remarks>
+    /// Not the last one alone. That number is wall time, so a listing the scheduler set aside
+    /// for a tenth of a second on a busy PC — a game running, a build — read as a folder that
+    /// costs a tenth of a second, and the ten-times rule turned it into a 1.3 s wait before the
+    /// next look. A squadmate's marker arrived 1.59 s late on a loaded CI runner exactly so
+    /// (TeammatePositionLatencyTests, 2026-09-24: 0.30 s either side of it). A folder that is
+    /// really slow is slow on every listing and still backs off one listing later; a moment of
+    /// preemption is only ever in one of them.
+    /// </remarks>
+    private long _listingCostTicks;
+
     /// <summary>What the last directory listing cost, for the duty cycle and for diagnostics.</summary>
     public TimeSpan LastListing => new(Interlocked.Read(ref _lastListingTicks));
 
@@ -145,9 +157,9 @@ public sealed class WindowsScreenshotWatcher(
             var listingStarted = _timeProvider.GetTimestamp();
             var now = _timeProvider.GetUtcNow();
             var snapshot = Snapshot(screenshotRoot, now);
-            Interlocked.Exchange(
-                ref _lastListingTicks,
-                _timeProvider.GetElapsedTime(listingStarted).Ticks);
+            var listed = _timeProvider.GetElapsedTime(listingStarted).Ticks;
+            var before = Interlocked.Exchange(ref _lastListingTicks, listed);
+            _listingCostTicks = before == 0 ? listed : Math.Min(before, listed);
             var present = snapshot.Select(item => item.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var missing in settling.Keys.Where(path => !present.Contains(path)).ToArray())
             {
@@ -252,7 +264,7 @@ public sealed class WindowsScreenshotWatcher(
     {
         var wanted = IntervalFor(
             pacer?.Current == ScreenshotWatchPace.Attentive ? _attentivePollInterval : _pollInterval,
-            LastListing);
+            new TimeSpan(_listingCostTicks));
         Interlocked.Exchange(ref _pollIntervalTicks, wanted.Ticks);
         return wanted;
     }

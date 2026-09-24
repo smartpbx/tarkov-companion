@@ -63,7 +63,12 @@ public abstract class RealBrowserTestHarness : IDisposable
 }
 
 /// <summary>A real-browser test must never hold a build slot indefinitely.</summary>
+/// <remarks>
+/// Three minutes, not one. The pairing waits inside the scripts are 45 s each because Chromium
+/// starting beside the rest of the suite on a loaded runner has taken longer than the old 15 s,
+/// and a ceiling below their sum turned a slow start into a timeout of its own.
+/// </remarks>
 internal sealed class RealBrowserFactAttribute : FactAttribute
 {
-    public RealBrowserFactAttribute() => Timeout = 60_000;
+    public RealBrowserFactAttribute() => Timeout = 180_000;
 }

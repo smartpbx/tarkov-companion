@@ -219,6 +219,60 @@ public sealed class ScreenshotWatchPaceTests(ITestOutputHelper output)
                 TimeSpan.FromMilliseconds(wantedMilliseconds),
                 TimeSpan.FromMilliseconds(listingMilliseconds)));
 
+    /// <summary>
+    /// One listing the scheduler set aside does not slow the watcher; a folder slow every time does.
+    /// </summary>
+    /// <remarks>
+    /// The listing is timed on the wall clock, so a busy PC can make one look expensive. Taken
+    /// alone, a 200 ms preemption became a two-second poll, and on 2026-09-24 a squadmate's
+    /// marker arrived 1.59 s late on a loaded CI runner with every other sample at 0.30 s. The
+    /// clock here charges the listings rather than the machine, so the outcome is the rule's.
+    /// </remarks>
+    [Fact]
+    public async Task OneSlowListingDoesNotBackTheWatcherOffButASlowFolderStillDoes()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var clock = new ListingClock();
+            var watcher = new WindowsScreenshotWatcher(
+                pollInterval: TimeSpan.FromMilliseconds(100),
+                attentivePollInterval: TimeSpan.FromMilliseconds(20),
+                timeProvider: clock,
+                pacer: new SwitchablePacer { Pace = ScreenshotWatchPace.Attentive });
+            await using var enumerator = watcher.WatchAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var idle = enumerator.MoveNextAsync().AsTask();
+
+            await UntilAsync(() => clock.Waits.Count >= 2, stopping.Token);
+            var spiked = clock.Charge(TimeSpan.FromMilliseconds(200), listings: 1);
+            await UntilAsync(() => clock.Waits.Count > spiked + 1, stopping.Token);
+            var slow = clock.Charge(TimeSpan.FromMilliseconds(200), listings: 3);
+            await UntilAsync(() => clock.Waits.Count > slow + 1, stopping.Token);
+
+            // Stopped before judging, so a failed assertion is reported as itself rather than as
+            // the enumerator refusing to be disposed mid-wait.
+            await stopping.CancelAsync();
+            Assert.False(await idle);
+            var waits = clock.Waits;
+            Assert.True(waits.Count > slow + 1, $"Only {waits.Count} waits were asked for.");
+
+            // Twenty milliseconds on an idle box; anything under a second is not the spike's
+            // ten-times, which would be at least two.
+            Assert.True(
+                waits[spiked] < TimeSpan.FromSeconds(1),
+                $"One 200 ms listing set the next wait to {waits[spiked].TotalMilliseconds:0} ms.");
+            Assert.True(
+                waits[slow + 1] >= TimeSpan.FromMilliseconds(2_000),
+                $"Two 200 ms listings in a row left the wait at {waits[slow + 1].TotalMilliseconds:0} ms.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static async Task UntilAsync(Func<bool> ready, CancellationToken cancellationToken)
     {
         var started = Stopwatch.GetTimestamp();
@@ -242,6 +296,77 @@ public sealed class ScreenshotWatchPaceTests(ITestOutputHelper output)
         "en",
         TimeSpan.FromHours(9),
         TimeSpan.FromMinutes(5));
+
+    /// <summary>
+    /// The real clock, except that chosen listings are charged a fixed extra cost, and every
+    /// wait the watcher asks for is written down.
+    /// </summary>
+    /// <remarks>
+    /// The watcher reads the timestamp twice per listing, at its start and its end, and nowhere
+    /// else, so every second read is the end of one. The extra is added from that read onward,
+    /// which keeps the clock monotonic and charges exactly the listing it was meant for.
+    /// </remarks>
+    private sealed class ListingClock : TimeProvider
+    {
+        private readonly object _gate = new();
+        private readonly List<TimeSpan> _waits = [];
+        private long _reads;
+        private long _extraTicks;
+        private TimeSpan _charge;
+        private int _charged;
+        private bool _waitPending;
+
+        public IReadOnlyList<TimeSpan> Waits
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _waits];
+                }
+            }
+        }
+
+        /// <summary>Charges the next listings (or the one in progress); returns the index of the wait after the first.</summary>
+        public int Charge(TimeSpan extra, int listings)
+        {
+            lock (_gate)
+            {
+                _charge = extra;
+                _charged = listings;
+                return _waits.Count + (_waitPending ? 1 : 0);
+            }
+        }
+
+        public override long GetTimestamp()
+        {
+            lock (_gate)
+            {
+                if (_reads++ % 2 == 1)
+                {
+                    _waitPending = true;
+                    if (_charged > 0)
+                    {
+                        _charged--;
+                        _extraTicks += (long)(_charge.TotalSeconds * TimestampFrequency);
+                    }
+                }
+
+                return base.GetTimestamp() + _extraTicks;
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            lock (_gate)
+            {
+                _waits.Add(dueTime);
+                _waitPending = false;
+            }
+
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
+    }
 
     private sealed class SwitchablePacer : IScreenshotWatchPacer
     {

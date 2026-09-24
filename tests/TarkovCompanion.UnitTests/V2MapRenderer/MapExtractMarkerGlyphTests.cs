@@ -28,7 +28,7 @@ public sealed class MapExtractMarkerGlyphTests
     [Fact]
     public async Task Extract_and_transit_glyphs_stay_well_inside_their_disc_selected_or_not()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(MapMarkClipTests.MarkClipApp));
+        using var session = HeadlessSessions.StartNew(typeof(MapMarkClipTests.MarkClipApp));
         await session.Dispatch(
             () =>
             {

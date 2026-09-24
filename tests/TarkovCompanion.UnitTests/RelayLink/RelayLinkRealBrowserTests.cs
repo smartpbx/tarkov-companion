@@ -92,7 +92,7 @@ public sealed class RelayLinkRealBrowserTests : RealBrowserTestHarness
             Assert.Equal("Raid tablet", desktop.Panel.RequestedDisplayName);
             await ((AsyncDelegateCommand)desktop.Panel.ApproveCommand).ExecuteAsync();
 
-            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(45)));
+            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(120)));
             var stdout = await stdoutTask;
             var stderr = await stderrTask;
             Assert.True(browserProcess.HasExited, $"The headless browser did not finish in time.\nstdout:\n{stdout}\nstderr:\n{stderr}");

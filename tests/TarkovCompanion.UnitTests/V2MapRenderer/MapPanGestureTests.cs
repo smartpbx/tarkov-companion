@@ -112,7 +112,7 @@ public sealed class MapPanGestureTests
 
     private static void Run(double bearing, Action<Window, MapSceneRendererView, MapSceneRendererViewModel> body)
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(MapMarkClipTests.MarkClipApp));
+        using var session = HeadlessSessions.StartNew(typeof(MapMarkClipTests.MarkClipApp));
         session.Dispatch(
             () =>
             {

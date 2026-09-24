@@ -105,8 +105,13 @@ public sealed class SetupSelfTestViewModelTests
         var waiting = Assert.Single(view.Rows, row => row.Id == SelfTestProbes.ScreenshotsId);
         Assert.Equal(SelfTestOutcome.Waiting, waiting.Outcome);
 
+        // Taken before the gate opens. Opening it can run the whole settle inline, down to the
+        // view model clearing Settling, before the next line reads it: the NullReferenceException
+        // on #744's gate was this line awaiting the null it read afterwards.
+        var settling = view.Settling;
+        Assert.NotNull(settling);
         gate.SetResult();
-        await view.Settling!;
+        await settling;
 
         Assert.False(view.AsksForScreenshot);
         Assert.Equal(SelfTestOutcome.Pass, Assert.Single(view.Rows, row => row.Id == SelfTestProbes.ScreenshotsId).Outcome);
@@ -123,8 +128,10 @@ public sealed class SetupSelfTestViewModelTests
         await view.RunAsync();
         Assert.True(view.AsksForScreenshot);
 
+        var settling = view.Settling;
+        Assert.NotNull(settling);
         view.Stop();
-        await view.Settling!;
+        await settling;
 
         Assert.False(view.IsRunning);
         var screenshots = Assert.Single(view.Rows, row => row.Id == SelfTestProbes.ScreenshotsId);
