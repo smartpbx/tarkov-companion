@@ -2963,6 +2963,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     private void RefreshObjectives()
     {
+        ApplyPendingPlanObjective();
         var entries = _questScene.Entries;
         if (_selectedObjectiveId is not null && entries.All(entry => entry.ObjectiveId != _selectedObjectiveId))
         {

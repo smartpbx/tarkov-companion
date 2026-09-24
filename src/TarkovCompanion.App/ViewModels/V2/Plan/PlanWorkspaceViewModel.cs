@@ -244,7 +244,7 @@ public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
 
     public ICommand MarkQuestDoneCommand => _markQuestDoneCommand ??= new AsyncDelegateCommand(() => _owner.MarkQuestDoneAsync(Task.TaskId));
 
-    public ICommand ShowOnMapCommand => _showOnMapCommand ??= new AsyncDelegateCommand(() => _owner.ShowOnMapAsync(Objective.MapIds[0]));
+    public ICommand ShowOnMapCommand => _showOnMapCommand ??= new AsyncDelegateCommand(() => _owner.ShowOnMapAsync(Objective.MapIds[0], Objective.ObjectiveId));
 
     public ICommand StartQuestCommand => _startQuestCommand ??= new AsyncDelegateCommand(
         () => _owner.SetQuestStateAsync(Task.TaskId, RecordedTaskState.Active));
@@ -1916,14 +1916,6 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     internal static string CountLabel(int count, string noun) =>
         string.Create(CultureInfo.CurrentCulture, $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}");
 
-    private async Task OpenInRaidAsync(string mapId)
-    {
-        var group = Groups.FirstOrDefault(candidate =>
-            string.Equals(candidate.MapId, mapId, StringComparison.OrdinalIgnoreCase));
-        _raidCockpit?.SetObjectiveRoute(mapId, group?.Route);
-        await ShowOnMapAsync(mapId).ConfigureAwait(true);
-    }
-
     internal bool SelectMapForPreview(string map)
     {
         var group = Groups.FirstOrDefault(candidate =>
@@ -2421,13 +2413,15 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             CancellationToken.None));
 
     /// <summary>Follows the shared map to the objective's map and tells the shell to show it.</summary>
-    internal async Task ShowOnMapAsync(string mapId)
+    internal async Task ShowOnMapAsync(string mapId, string? objectiveId = null)
     {
         try
         {
             // Quest objectives name maps by game-data id; the map view follows catalog location
             // ids. Handing it the game id matched no location and silently did nothing.
             await _map.FollowRaidAsync(LocationIdFor(mapId) ?? mapId).ConfigureAwait(true);
+            // [#802] The objectives layer on, and the objective selected once the map places it.
+            _raidCockpit?.RevealQuestObjectives(objectiveId);
             ShowOnMapRequested?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
