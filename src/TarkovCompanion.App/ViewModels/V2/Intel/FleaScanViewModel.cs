@@ -125,8 +125,13 @@ public sealed class FleaScanRowViewModel
 }
 
 /// <summary>A photographed flea screen as Intel &gt; Flea shows it.</summary>
-public sealed class FleaScanViewModel
+public sealed class FleaScanViewModel : BindableViewModel
 {
+    private readonly TimeProvider _clock;
+    private readonly CultureInfo _culture;
+    private string _observedLabel = string.Empty;
+    private bool _isOfferStale;
+
     public FleaScanViewModel(
         FleaScanResult scan,
         CultureInfo? culture = null,
@@ -135,6 +140,8 @@ public sealed class FleaScanViewModel
     {
         Scan = scan ?? throw new ArgumentNullException(nameof(scan));
         var format = culture ?? CultureInfo.CurrentCulture;
+        _culture = format;
+        _clock = timeProvider ?? TimeProvider.System;
         Heading = scan.ItemName is { } name ? $"Offers for {name}" : "Offers you photographed";
         ItemLabel = scan.ItemName is null
             ? "The item's name was not legible, so the rows stand alone."
@@ -151,9 +158,9 @@ public sealed class FleaScanViewModel
             ({ } average, null) => $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · fee not known",
             _ => "No 24 h flea average",
         };
-        ObservedLabel = $"Photographed {LocalTime.Moment(scan.ObservedUtc)}";
         Rows = [.. scan.Rows.Select((row, index) => new FleaScanRowViewModel(row, scan, index + 1, format))];
-        var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
+        var now = _clock.GetUtcNow();
+        RefreshAge();
         var stale = scan.PriceUpdatedUtc is { } priceTime && now - priceTime > TimeSpan.FromDays(1);
         MarketDataNote = (offline, stale, scan.PriceUpdatedUtc) switch
         {
@@ -179,7 +186,27 @@ public sealed class FleaScanViewModel
 
     public string AverageLabel { get; }
 
-    public string ObservedLabel { get; }
+    /// <summary>#284: when the offers were seen; the ranking is only as good as that moment.</summary>
+    public string ObservedLabel
+    {
+        get => _observedLabel;
+        private set => SetProperty(ref _observedLabel, value);
+    }
+
+    /// <summary>The offers were photographed long enough ago that some may have sold.</summary>
+    public bool IsOfferStale
+    {
+        get => _isOfferStale;
+        private set => SetProperty(ref _isOfferStale, value);
+    }
+
+    /// <summary>Re-words <see cref="ObservedLabel"/> for the current time; the page calls it while shown.</summary>
+    public void RefreshAge()
+    {
+        var now = _clock.GetUtcNow();
+        ObservedLabel = FleaOfferAge.Describe(Scan.ObservedUtc, now, _culture);
+        IsOfferStale = FleaOfferAge.IsStale(Scan.ObservedUtc, now);
+    }
 
     public string SummaryLabel { get; }
 
