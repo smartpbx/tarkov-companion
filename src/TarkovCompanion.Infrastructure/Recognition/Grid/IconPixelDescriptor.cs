@@ -37,6 +37,9 @@ public sealed class IconPixelDescriptor
 
     public int WidthCells { get; }
 
+    /// <summary>The normalised values, for proving two ways of building a descriptor agree.</summary>
+    internal ReadOnlySpan<float> Values => _values;
+
     public int HeightCells { get; }
 
     /// <summary>

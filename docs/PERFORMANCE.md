@@ -142,6 +142,10 @@ scenarios.
 
 A failing budget is a prompt to run the harness and find out why, not to raise the number.
 
+## Loot Scan icon matching (#572)
+
+One real frame's grid build, first scan of a session, against the 5,320-icon corpus on dev: 56-61 s before (every cell decoded every reference of its shape itself, queued on the cache's exclusive lease), 0.3-1.3 s after (one shared decode per shape); later scans 22-303 ms, identity accuracy on the labelled frames unchanged. The app now describes every reference in the background after the icon index refreshes (1.4-1.6 s, about 46 MB). Re-measure with `RealLootScanTimingTests`.
+
 ## Known slow, not fixed here
 
 - **A real change to the plan recreates all of it.** Moving one marker recreates every marker, line
