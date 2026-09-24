@@ -98,8 +98,8 @@ async function main() {
     await page.fill("#pairingCode", pairingCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
-    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     await page.waitForTimeout(500); // first surface read landing
 
     const box = await page.locator("#map").boundingBox();

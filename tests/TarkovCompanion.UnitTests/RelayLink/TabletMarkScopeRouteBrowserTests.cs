@@ -88,7 +88,7 @@ public sealed class TabletMarkScopeRouteBrowserTests : RealBrowserTestHarness
                 TabletMapSurfaceJson.Serialize(MinimalSurface(clock.GetUtcNow())),
                 artwork: null));
 
-            await browserProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(55));
+            await browserProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(150));
             var stdout = await browserProcess.StandardOutput.ReadToEndAsync();
             var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(5));
             var failures = Regex.Matches(stdout, "^CHECK:FAIL:.*$", RegexOptions.Multiline).Select(match => match.Value);
@@ -140,7 +140,7 @@ public sealed class TabletMarkScopeRouteBrowserTests : RealBrowserTestHarness
 
     private static async Task UntilAsync(Func<bool> condition, string what)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(45);
+        var deadline = DateTime.UtcNow.AddSeconds(90); // liveness: the browser starts with the rest of the suite running
         while (!condition())
         {
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for " + what + ".");

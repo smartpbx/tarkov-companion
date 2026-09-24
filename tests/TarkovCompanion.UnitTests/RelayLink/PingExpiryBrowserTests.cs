@@ -56,21 +56,17 @@ public sealed class PingExpiryBrowserTests : RealBrowserTestHarness
         Assert.True(desktop.Panel.IsAwaitingTablet, desktop.Panel.StatusMessage);
         var pairingCode = desktop.Panel.PairingCode!;
 
-        // Real time, not the fake clock: the tablet's own drop timer runs against its browser's
-        // Date.now(). Ten seconds out, not the production 45s — long enough to clear a real
-        // pairing handshake (WebCrypto key generation, several HTTP round trips) with room to
-        // spare, short enough that this test does not sit around waiting for it.
-        var expiresUtc = DateTimeOffset.UtcNow.AddSeconds(10);
-        var surface = OnePingSurface(expiresUtc);
-        var published = await desktop.Bridge.PublishMapSurfaceAsync(
-            TabletMapSurfaceJson.Serialize(surface),
-            artwork: null);
-        Assert.True(published);
+        // Published before pairing without the ping, the same order TabletScreenshotHarness uses;
+        // the ping goes on in a second revision once the tablet is paired.
+        Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(
+            TabletMapSurfaceJson.Serialize(Surface(1, pingExpiresUtc: null)),
+            artwork: null));
 
         var scriptPath = Path.Combine(RepositoryRoot(), "scripts", "test-tablet-ping-expiry.cjs");
         Assert.True(File.Exists(scriptPath), $"Missing {scriptPath}.");
         var startInfo = new ProcessStartInfo("node")
         {
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -79,14 +75,43 @@ public sealed class PingExpiryBrowserTests : RealBrowserTestHarness
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        startInfo.ArgumentList.Add(expiresUtc.ToString("O"));
         using var browserProcess = StartBrowser(startInfo);
+        var stderrTask = browserProcess.StandardError.ReadToEndAsync();
+        var stdoutLines = new List<string>();
+        var stdoutGate = new object();
+        var paired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reading = Task.Run(async () =>
+        {
+            string? line;
+            while ((line = await browserProcess.StandardOutput.ReadLineAsync()) is not null)
+            {
+                lock (stdoutGate)
+                {
+                    stdoutLines.Add(line);
+                }
+
+                if (line == "PAIRED")
+                {
+                    paired.TrySetResult();
+                }
+            }
+
+            paired.TrySetResult();
+        });
+
+        string Stdout()
+        {
+            lock (stdoutGate)
+            {
+                return string.Join('\n', stdoutLines);
+            }
+        }
 
         try
         {
             // Approve the pairing exactly as a person watching the desktop panel would. Nothing
             // here needs a poll loop: the script sends no command and only ever reads.
-            var deadline = DateTime.UtcNow.AddSeconds(45);
+            var deadline = DateTime.UtcNow.AddSeconds(90);
             while (!desktop.Panel.IsAwaitingApproval && !browserProcess.HasExited && DateTime.UtcNow < deadline)
             {
                 await Task.Delay(25);
@@ -94,19 +119,36 @@ public sealed class PingExpiryBrowserTests : RealBrowserTestHarness
 
             if (browserProcess.HasExited)
             {
-                var earlyStdout = await browserProcess.StandardOutput.ReadToEndAsync();
-                var earlyStderr = await browserProcess.StandardError.ReadToEndAsync();
-                Assert.Fail($"The browser exited before requesting pairing (exit {browserProcess.ExitCode}):\n{earlyStdout}\n{earlyStderr}");
+                Assert.Fail($"The browser exited before requesting pairing (exit {browserProcess.ExitCode}):\n{Stdout()}\n{await stderrTask}");
             }
 
             Assert.True(desktop.Panel.IsAwaitingApproval, desktop.Panel.StatusMessage);
             await ((AsyncDelegateCommand)desktop.Panel.ApproveCommand).ExecuteAsync();
 
-            var stdoutTask = browserProcess.StandardOutput.ReadToEndAsync();
-            var stderrTask = browserProcess.StandardError.ReadToEndAsync();
-            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(40)));
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
+            // Real time, not the fake clock: the tablet's own drop timer runs against its browser's
+            // Date.now(). Ten seconds out, not the production 45 s, and counted from the moment the
+            // tablet says it is paired. It used to be counted from before the browser was even
+            // launched, so a busy machine could spend the whole ten seconds starting Chromium and
+            // pairing, and the ping had gone before the tablet ever drew it.
+            await paired.Task.WaitAsync(TimeSpan.FromSeconds(90));
+            if (!Stdout().Contains("PAIRED", StringComparison.Ordinal))
+            {
+                await browserProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.Fail($"The browser exited before it was paired:\n{Stdout()}\n{await stderrTask}");
+            }
+
+            var expiresUtc = DateTimeOffset.UtcNow.AddSeconds(10);
+            Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(
+                TabletMapSurfaceJson.Serialize(Surface(2, expiresUtc)),
+                artwork: null));
+            await browserProcess.StandardInput.WriteLineAsync("EXPIRES " + expiresUtc.ToString("O"));
+            browserProcess.StandardInput.Close();
+
+            await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(60)));
+            await reading.WaitAsync(TimeSpan.FromSeconds(10)).ContinueWith(_ => { }, TaskScheduler.Default);
+            var stdout = Stdout();
+            var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(10))
+                .ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : "<stderr read timed out>", TaskScheduler.Default);
 
             Assert.True(browserProcess.HasExited, $"The headless browser did not finish in time.\nstdout:\n{stdout}\nstderr:\n{stderr}");
             var failLines = stdout.Split('\n').Where(line => line.StartsWith("CHECK:FAIL:", StringComparison.Ordinal));
@@ -123,10 +165,10 @@ public sealed class PingExpiryBrowserTests : RealBrowserTestHarness
         }
     }
 
-    /// <summary>One ping, "ping-expiring", the sole reason this surface exists; no artwork,
-    /// because this test never draws a pixel, only reads whether the object is still there.</summary>
-    private static TabletMapSurface OnePingSurface(DateTimeOffset pingExpiresUtc) => new(
-        Revision: 1,
+    /// <summary>One ping, "ping-expiring", the sole reason this surface exists, or none yet; no
+    /// artwork, because this test never draws a pixel, only reads whether the object is still there.</summary>
+    private static TabletMapSurface Surface(long revision, DateTimeOffset? pingExpiresUtc) => new(
+        Revision: revision,
         MapId: "customs",
         MapName: "Customs",
         VariantKey: "default",
@@ -136,7 +178,9 @@ public sealed class PingExpiryBrowserTests : RealBrowserTestHarness
         Attribution: [],
         FloorIds: ["1F"],
         Layers: [new TabletMapLayer("landmarks", "Landmarks", 0, true)],
-        Objects: [new("ping-expiring", "landmarks", "Ping", "UserAuthored", "Ping", null, [500, 500], [], null, false, false, pingExpiresUtc)],
+        Objects: pingExpiresUtc is { } expires
+            ? [new("ping-expiring", "landmarks", "Ping", "UserAuthored", "Ping", null, [500, 500], [], null, false, false, expires)]
+            : [],
         View: new TabletMapView("1F", 500, 500, 1, null, null),
         Search: null,
         Message: null,

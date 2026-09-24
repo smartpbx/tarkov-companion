@@ -51,6 +51,11 @@ and has neither a step that could publish nor a token that could.
    `--developer-mode --gallery-scene <map|route|squad|marks>`: the app seeds synthetic state
    (catalog quests, a demo squad, marks) and the gallery waits for its `ready` answer on the
    diagnostic channel instead of sleeping. Database and Config are restored after each scene.
+   After a step (an extract pressed, a zoom, the loot layer) a `ready` with a condition
+   (`settled`, `loot`) waits for the map instead of a fixed sleep. Advisory matrix shots add
+   1280x720, 1500x900, 1120x720 (the window minimum) and 150%/200% text at 1080p for some
+   routes: reported in the log and the job summary (with per-family timings and every PNG
+   captured), never failing the step.
 8. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
    showing a populated catalog is evidence that the desktop launches since then produced it.
 9. Seeds a data-preservation marker, runs the packed installer silently, requires the marker

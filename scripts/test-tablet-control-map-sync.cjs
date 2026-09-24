@@ -93,8 +93,8 @@ async function main() {
     await page.fill("#pairingCode", pairingCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
-    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 }); // liveness, not a measurement: a loaded machine has taken over 15 s
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     await until((s) => s.hasSurface, 15000);
 
     await page.click('#deviceModes button[data-mode="Control"]');
@@ -156,6 +156,12 @@ async function main() {
   } catch (error) {
     console.error(`FAILURE: ${error && error.stack ? error.stack : error}`);
     console.error(consoleLog.join("\n"));
+    const pairingPage = await page.evaluate(() => ({
+      error: document.getElementById("pairingError")?.textContent || null,
+      shown: ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]
+        .filter((id) => document.getElementById(id) && document.getElementById(id).style.display !== "none"),
+    })).catch(() => null);
+    console.error(`PAIRING_PAGE: ${JSON.stringify(pairingPage)}`);
     await browser.close();
     process.exitCode = 1;
     return;

@@ -62,8 +62,8 @@ async function main() {
     await page.fill("#pairingCode", pairingCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
-    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     let current = await until(page, (value) => value.hasSurface && value.hasLive);
     check("the tablet has the desktop map", current.hasSurface, JSON.stringify(current));
 

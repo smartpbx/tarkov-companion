@@ -18,7 +18,7 @@ public sealed class WorkspaceViewCacheTests
     [Fact]
     public async Task Returning_to_a_workspace_shows_the_view_built_on_the_first_visit()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(CacheApp));
+        using var session = HeadlessSessions.StartNew(typeof(CacheApp));
         await session.Dispatch(
             () =>
             {
@@ -58,7 +58,7 @@ public sealed class WorkspaceViewCacheTests
     [Fact]
     public async Task Views_past_the_capacity_are_let_go_oldest_first()
     {
-        using var session = HeadlessUnitTestSession.StartNew(typeof(CacheApp));
+        using var session = HeadlessSessions.StartNew(typeof(CacheApp));
         await session.Dispatch(
             () =>
             {

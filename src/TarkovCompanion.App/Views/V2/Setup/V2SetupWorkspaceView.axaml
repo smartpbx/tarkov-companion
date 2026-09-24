@@ -28,7 +28,8 @@
   <!-- V2 rough package 17 (home): compact section tabs like the shell's own, the home overview
        first, then one settings section at a time. -->
   <StackPanel Classes="v2-stack" Margin="16,8,16,0">
-    <ItemsControl ItemsSource="{Binding Sections}"
+    <!-- #833: at 200% text the tabs wrap across the width; they stop short of the floating banner. -->
+    <ItemsControl ItemsSource="{Binding Sections}" setup:FloatingBannerClearance.ClearsWhatsNewBanner="True"
                   AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.AutomationId="v2-setup-sections"
                   AutomationProperties.LandmarkType="Navigation"

@@ -12,7 +12,12 @@
 // Same shape as scripts/test-tablet-touch-gestures.cjs (#570): CommonJS, Playwright resolved the
 // same way, because it is not a project dependency here.
 //
-// Usage: node test-tablet-ping-expiry.cjs <relayOrigin> <pairingCode> <deviceName> <pingExpiresUtc>
+// The ping's lifetime starts once the tablet is paired, not before the browser is launched: the
+// script prints PAIRED, the test publishes the surface with the ping and answers on stdin with
+// `EXPIRES <iso-8601>`. With the expiry fixed before launch, a loaded machine could spend the whole
+// lifetime starting Chromium and pairing, and the tablet never saw the ping it was meant to drop.
+//
+// Usage: node test-tablet-ping-expiry.cjs <relayOrigin> <pairingCode> <deviceName>
 
 const path = require("node:path");
 const os = require("node:os");
@@ -49,15 +54,38 @@ function check(name, condition, detail = "") {
   }
 }
 
+// Lines from the test on stdin, queued from the start so none is missed while the page loads.
+const readline = require("node:readline");
+const input = readline.createInterface({ input: process.stdin });
+const pendingLines = [];
+let lineWaiter = null;
+input.on("line", (line) => {
+  if (lineWaiter) {
+    const waiter = lineWaiter;
+    lineWaiter = null;
+    waiter(line);
+  } else {
+    pendingLines.push(line);
+  }
+});
+input.on("close", () => {
+  if (lineWaiter) {
+    const waiter = lineWaiter;
+    lineWaiter = null;
+    waiter(null);
+  }
+});
+const nextLine = () => pendingLines.length > 0
+  ? Promise.resolve(pendingLines.shift())
+  : new Promise((resolve) => { lineWaiter = resolve; });
+
 async function main() {
-  const [, , relayOrigin, pairingCode, deviceName, pingExpiresUtc] = process.argv;
-  if (!relayOrigin || !pairingCode || !deviceName || !pingExpiresUtc) {
-    console.error("usage: node test-tablet-ping-expiry.cjs <relayOrigin> <pairingCode> <deviceName> <pingExpiresUtc>");
+  const [, , relayOrigin, pairingCode, deviceName] = process.argv;
+  if (!relayOrigin || !pairingCode || !deviceName) {
+    console.error("usage: node test-tablet-ping-expiry.cjs <relayOrigin> <pairingCode> <deviceName>");
     process.exitCode = 2;
     return;
   }
-
-  const expiresAtMs = Date.parse(pingExpiresUtc);
 
   const { chromium } = resolvePlaywright();
   const browser = await chromium.launch({ args: ["--ignore-certificate-errors"] });
@@ -72,14 +100,21 @@ async function main() {
     await page.fill("#pairingCode", pairingCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
-    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
+    // Liveness bounds, not measurements: a browser starting on a machine running the rest of the
+    // suite has taken longer than fifteen seconds to get this far.
+    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
 
-    // The surface (with the soon-to-expire ping already on it) was published before pairing
-    // began, the same order TabletScreenshotHarness uses. Polled rather than a fixed sleep: real
-    // pairing (WebCrypto key generation, several HTTP round trips) has no fixed cost, and the
-    // ping's own expiry is a real wall-clock instant the C# side chose with plenty of margin over
-    // that, not this script's business to guess at.
+    console.log("PAIRED");
+    const expires = await nextLine();
+    if (!expires || !expires.startsWith("EXPIRES ")) {
+      throw new Error(`expected EXPIRES <instant> on stdin, got ${JSON.stringify(expires)}`);
+    }
+
+    const expiresAtMs = Date.parse(expires.slice("EXPIRES ".length));
+
+    // The surface with the soon-to-expire ping was published just before that line was sent.
+    // Polled rather than a fixed sleep: the read has no fixed cost.
     let before = await page.evaluate(() => window.__tabletTestState());
     const setupDeadline = Date.now() + 15000;
     while (!before.pingIds.includes("ping-expiring") && Date.now() < setupDeadline) {
@@ -125,7 +160,9 @@ async function main() {
   await browser.close();
 }
 
-main().catch((error) => {
-  console.error(`FAILURE: ${error && error.stack ? error.stack : error}`);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(`FAILURE: ${error && error.stack ? error.stack : error}`);
+    process.exitCode = 1;
+  })
+  .finally(() => input.close());

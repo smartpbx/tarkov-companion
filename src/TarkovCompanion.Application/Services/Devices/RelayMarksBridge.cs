@@ -768,6 +768,21 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         var held = response.Headers.Contains(FramesHeldHeader);
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
+            // Refused a session this desktop has already moved on from. The loop's held read and a
+            // direct poll both go out on the credential of the moment; when the relay refuses the
+            // old one, the first to be handled reclaims, and the second used to reclaim again —
+            // replacing the session the first had just adopted, so the next call on it (a device
+            // revoke, say) was refused too, and a revoke that is refused is not retried. The path
+            // found behind a revoked tablet resuming once on #783's gate (RelayLinkNextDayTests).
+            // Only a refusal of the session still held here says anything about the claim.
+            lock (_gate)
+            {
+                if (!ReferenceEquals(_owner, owner))
+                {
+                    return default;
+                }
+            }
+
             // [#289] The relay has ended this owner session: it expired (twelve hours, or two
             // idle), or another claim replaced it. The first is every morning, so before giving
             // the claim up this desktop asks to be let back in on its key.

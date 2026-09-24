@@ -56,14 +56,28 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
 
         Assert.True(await run.UntilAsync(() => !run.BravoSeesPing, TimeSpan.FromSeconds(30)), "Bravo should stop seeing the ping.");
         var lost = run.Clock.GetUtcNow();
+        var lostAt = Stopwatch.GetTimestamp();
         run.Events.Add("bravo lost the ping");
 
         var lived = lost - placed.CreatedUtc;
         var shown = lost - seen;
         run.Events.Add(string.Create(CultureInfo.InvariantCulture, $"lived {lived.TotalSeconds:0.0} s, Bravo saw it {shown.TotalSeconds:0.0} s"));
-        Assert.InRange(lived.TotalSeconds, 43, 47);
-        Assert.InRange(shown.TotalSeconds, 43, 47);
+        // Not taken early: the #589/#785 fault was a ping gone from the squad's maps at 16 s.
+        Assert.True(lived.TotalSeconds >= 43, $"The ping lived {lived.TotalSeconds:0.0} s.");
+        Assert.True(shown.TotalSeconds >= 43, $"Bravo saw the ping for {shown.TotalSeconds:0.0} s.");
         Assert.Contains(run.Events.Lines, line => line.Contains("forwarder remove", StringComparison.Ordinal) && line.Contains("expired", StringComparison.Ordinal));
+
+        // Not kept late, in two halves measured on the clock each one runs on. The upper bound
+        // used to be on the whole of it on the fast clock, which multiplied the relay round trip,
+        // Bravo's exchange and the test's own polling by three: 0.67 s of a busy runner read as a
+        // ping that lived 47.008 s. The removal is timed on the fast clock, where its timer runs;
+        // the squad hearing of it is timed on the wall, where the network and the holds run.
+        var (removedUtc, removedAt) = run.Removed ?? throw new InvalidOperationException("The forwarder never removed the ping.");
+        var removedAfter = removedUtc - placed.CreatedUtc;
+        Assert.InRange(removedAfter.TotalSeconds, 44.9, 46.5);
+        var heard = Stopwatch.GetElapsedTime(removedAt, lostAt);
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"removed at {removedAfter.TotalSeconds:0.00} s, Bravo lost it {heard.TotalMilliseconds:0} ms of wall time later"));
+        Assert.True(heard < TimeSpan.FromSeconds(1.5), $"Bravo lost the ping {heard.TotalMilliseconds:0} ms after the forwarder removed it.");
     }
 
     /// <summary>
@@ -121,6 +135,7 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                 (mapId, position, isPing, cancellationToken) => _alpha.SendMarkAsync(mapId, position, label: null, isPing, cancellationToken),
                 (id, why) =>
                 {
+                    Removed ??= (clock.GetUtcNow(), Stopwatch.GetTimestamp());
                     events.Add($"forwarder remove {id}: {why}");
                     return _alpha.RemoveMarkAsync(id, CancellationToken.None, why);
                 },
@@ -128,6 +143,9 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
         }
 
         public FastClock Clock { get; }
+
+        /// <summary>When the forwarder first took a mark off the relay, on the fast clock and the wall.</summary>
+        public (DateTimeOffset Utc, long At)? Removed { get; private set; }
 
         public Timeline Events { get; }
 

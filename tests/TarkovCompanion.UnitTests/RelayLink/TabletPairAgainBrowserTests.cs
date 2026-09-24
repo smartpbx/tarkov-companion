@@ -83,12 +83,12 @@ public sealed class TabletPairAgainBrowserTests : RealBrowserTestHarness
 
         try
         {
-            await firstAsked.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            await firstAsked.Task.WaitAsync(TimeSpan.FromSeconds(60));
             await UntilAsync(() => desktop.Panel.IsAwaitingApproval || browser.HasExited, "the first pairing request");
             Assert.False(browser.HasExited, Output("The browser exited before approval.", stdout));
             await ((AsyncDelegateCommand)desktop.Panel.ApproveCommand).ExecuteAsync();
-            await initialPaired.Task.WaitAsync(TimeSpan.FromSeconds(20));
-            await readyForFreshCode.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            await initialPaired.Task.WaitAsync(TimeSpan.FromSeconds(60));
+            await readyForFreshCode.Task.WaitAsync(TimeSpan.FromSeconds(60));
 
             Assert.True(desktop.Panel.CanStartPairing, desktop.Panel.StatusMessage);
             await ((AsyncDelegateCommand)desktop.Panel.StartPairingCommand).ExecuteAsync();
@@ -96,12 +96,12 @@ public sealed class TabletPairAgainBrowserTests : RealBrowserTestHarness
             await browser.StandardInput.WriteLineAsync(freshQrUrl);
             await browser.StandardInput.FlushAsync();
 
-            await freshStarted.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            await freshStarted.Task.WaitAsync(TimeSpan.FromSeconds(60));
             await UntilAsync(() => desktop.Panel.IsAwaitingApproval || browser.HasExited, "the fresh QR pairing request");
             Assert.False(browser.HasExited, Output("The browser exited before the fresh QR request arrived.", stdout));
             Assert.Equal("Tablet", desktop.Panel.RequestedDisplayName);
 
-            await browser.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20));
+            await browser.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
             await reader.WaitAsync(TimeSpan.FromSeconds(5));
             var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(5));
             var output = Output(string.Empty, stdout);
@@ -130,7 +130,7 @@ public sealed class TabletPairAgainBrowserTests : RealBrowserTestHarness
 
     private static async Task UntilAsync(Func<bool> condition, string description)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(15);
+        var deadline = DateTime.UtcNow.AddSeconds(60); // liveness: the browser starts with the rest of the suite running
         while (!condition())
         {
             Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for " + description + ".");
