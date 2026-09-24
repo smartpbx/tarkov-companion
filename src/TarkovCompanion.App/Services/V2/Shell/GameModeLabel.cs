@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profiles;
 
@@ -13,9 +14,10 @@ public static class GameModeLabel
 {
     public static string Of(ProfileGameMode mode) => mode switch
     {
-        ProfileGameMode.Pvp => "PvP",
-        ProfileGameMode.Pve => "PvE",
-        ProfileGameMode.Seasonal => "Seasonal",
+        // [#314] From the string tables: Debrief shows these beside every raid.
+        ProfileGameMode.Pvp => UiText.Get("Common.Mode.Pvp"),
+        ProfileGameMode.Pve => UiText.Get("Common.Mode.Pve"),
+        ProfileGameMode.Seasonal => UiText.Get("Common.Mode.Seasonal"),
         _ => V2ShellText.Get("V2.Setup.Profiles.ModeUnset"),
     };
 

@@ -32,6 +32,8 @@
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
     <EmbeddedResource Include="../../docs/CHANGELOG-player.json" LogicalName="TarkovCompanion.PlayerChangelog.json" />
+    <!-- [#314] The interface's string tables, one per culture; see Localization/UiText.cs. -->
+    <EmbeddedResource Include="Localization/Strings/*.json" LogicalName="TarkovCompanion.Strings.%(Filename).json" />
   </ItemGroup>
   <ItemGroup>
     <!-- The OCR probe's atomic report write is proven by interrupting a write partway through,

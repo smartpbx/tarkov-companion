@@ -124,6 +124,8 @@ public static class AppComposition
             : () => IsEnabled(Environment.GetEnvironmentVariable(OfflineEnvironmentVariable));
         var offline = offlineProbe();
         var paths = AppDataPaths.Resolve(settings.DataRoot, commandLine.Demo);
+        // [#314] Before any view exists: views read their labels once, when they load.
+        TarkovCompanion.App.Localization.UiText.Use(TarkovCompanion.App.Localization.UiCulturePreference.Read(paths.Config));
         var runtimeOptions = new RuntimeOptions(
             commandLine.Demo,
             offline,

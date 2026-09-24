@@ -53,6 +53,15 @@ for path in sorted((root / "src/TarkovCompanion.App/ViewModels").rglob("*.cs")):
         if len(text) > budget and not skip(text):
             found.append((path.relative_to(root), len(text), text))
 
+# [#314] Copy moved out of views and view models into the string tables is still copy. Every
+# form of every entry in every culture's table is held to the same budget.
+import json
+for path in sorted((root / "src/TarkovCompanion.App/Localization/Strings").glob("*.json")):
+    for key, value in json.loads(path.read_text()).items():
+        for text in ([value] if isinstance(value, str) else list(value.values())):
+            if len(text) > budget and not skip(text):
+                found.append((path.relative_to(root), len(text), text))
+
 over = [(p, n, t) for p, n, t in found if t[:60] not in allowed]
 
 print(f"User-facing labels longer than {budget} characters.")

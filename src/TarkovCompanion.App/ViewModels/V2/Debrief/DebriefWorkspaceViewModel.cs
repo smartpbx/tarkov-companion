@@ -1,5 +1,6 @@
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Text.Json;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
@@ -77,11 +78,11 @@ public sealed record DebriefScanRowViewModel(
 
     public bool IsWrong { get; init; }
 
-    public string CorrectionLabel => IsWrong ? "Marked wrong" : string.Empty;
+    public string CorrectionLabel => IsWrong ? DebriefText.MarkedWrong : string.Empty;
 
     public bool HasCorrection => IsWrong;
 
-    public string CorrectionActionLabel => IsWrong ? "Restore" : "Wrong";
+    public string CorrectionActionLabel => IsWrong ? DebriefText.Restore : DebriefText.Wrong;
 
     public ICommand? CorrectionCommand { get; init; }
 
@@ -193,7 +194,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     private RaidFactSources _selectedSources = new(
         RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown);
     private bool _selectedLoadRecorded;
-    private string _status = "Raid history has not been loaded.";
+    private string _status = DebriefText.NotLoaded;
     private string _correctedOutcome = string.Empty;
     private string _correctedNotes = string.Empty;
     private Func<string, string?> _mapName = _ => null;
@@ -209,8 +210,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     private DebriefSideFilter _sideFilter = DebriefSideFilter.Any;
     private DateTimeOffset? _dateFrom;
     private DateTimeOffset? _dateTo;
-    private IReadOnlyList<DebriefMapFilterOption> _mapFilterOptions = [new(null, "All maps")];
-    private IReadOnlyList<DebriefTagFilterOption> _tagFilterOptions = [new(null, "All tags")];
+    private IReadOnlyList<DebriefMapFilterOption> _mapFilterOptions = [new(null, DebriefText.AllMaps)];
+    private IReadOnlyList<DebriefTagFilterOption> _tagFilterOptions = [new(null, DebriefText.AllTags)];
     private ICommand? _clearSearch;
     private ICommand? _clearFilters;
     private string _newTag = string.Empty;
@@ -307,10 +308,10 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
     /// <summary>Distinguishes an empty history from a filter that matched nothing in it.</summary>
     public string NoRaidsMessage => _showArchived
-        ? "No archived raids."
+        ? DebriefText.NoArchivedRaids
         : !ContextRecords.Any()
-            ? "No raids recorded yet."
-            : "No raids match these filters.";
+            ? DebriefText.NoRaidsYet
+            : DebriefText.NoRaidsMatch;
 
     public bool HasSelection => _selected is not null;
 
@@ -318,17 +319,17 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
     public string SelectedMapLabel => _selected?.MapId is { } mapId ? MapLabel(mapId) : string.Empty;
 
-    public string SelectedStartedLabel => LocalTime.Moment(_selected?.StartedUtc) ?? "Unknown";
+    public string SelectedStartedLabel => LocalTime.Moment(_selected?.StartedUtc) ?? DebriefText.Unknown;
 
     /// <summary>Package 17 (home): said once, beside the field it explains, instead of in the status line.</summary>
-    public string OutcomeHint { get; } = "The game doesn't record outcomes; enter one by hand.";
+    public string OutcomeHint { get; } = DebriefText.OutcomeHint;
 
     public string SelectedModeLabel => TarkovCompanion.App.Services.V2.Shell.GameModeLabel.OfStored(_selected?.Mode);
 
     public string SelectedDurationLabel => Duration(_selected);
 
     /// <summary>Package 29 (parity): V1's "Ended" column, which the list's Duration column only implied.</summary>
-    public string SelectedEndedLabel => LocalTime.Moment(_selected?.EndedUtc) ?? "In progress";
+    public string SelectedEndedLabel => LocalTime.Moment(_selected?.EndedUtc) ?? DebriefText.InProgress;
 
     /// <summary>
     /// How far the raid went, as V1's History page said it ("at least 1.4 km"); empty until there are
@@ -349,8 +350,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
             var metres = HistoryPageViewModel.PathMetres(_selectedPositions);
             return metres >= 1000
-                ? string.Create(CultureInfo.CurrentCulture, $"At least {metres / 1000:F1} km")
-                : string.Create(CultureInfo.CurrentCulture, $"At least {metres:F0} m");
+                ? DebriefText.AtLeastKm(metres / 1000)
+                : DebriefText.AtLeastMetres(metres);
         }
     }
 
@@ -359,15 +360,14 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     /// <summary>Whether the selected raid has screenshots to watch back — the same test V1 used to show "Watch it".</summary>
     public bool CanWatch => _selectedPositions.Count > 0;
 
-    public string SelectedOutcomeLabel => _selected?.Outcome ?? "Not recorded";
+    public string SelectedOutcomeLabel => _selected?.Outcome ?? DebriefText.NotRecorded;
 
     public string SelectedNotesLabel => _selected?.Notes ?? string.Empty;
 
     public string SelectedPathLabel => _selectedPositions.Count switch
     {
-        0 => "No screenshots recorded for this raid.",
-        1 => "1 screenshot recorded.",
-        var count => $"{count.ToString(CultureInfo.CurrentCulture)} screenshots recorded.",
+        0 => DebriefText.NoScreenshots,
+        var count => DebriefText.ScreenshotsRecorded(count),
     };
 
     /// <summary>The plan/actual comparison is bounded by screenshots; it is not live tracking.</summary>
@@ -380,24 +380,22 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                 return string.Empty;
             }
 
-            var prefix = $"Planned to {_selectedPlannedRoute.Extract}";
+            var prefix = DebriefText.PlannedTo(_selectedPlannedRoute.Extract);
             return RaidRouteDeviation.Measure(_selectedPlannedRoute.Points, _selectedPositions) is not { } deviation
                 ? prefix
-                : string.Create(
-                    CultureInfo.CurrentCulture,
-                    $"{prefix} · screenshots averaged {deviation.AverageMetres:F0} m from plan · furthest {deviation.FurthestMetres:F0} m");
+                : DebriefText.RouteDeviation(prefix, deviation.AverageMetres, deviation.FurthestMetres);
         }
     }
 
     public bool HasSelectedRouteComparison => _selectedPlannedRoute is not null;
 
     /// <summary>Where the map came from, beside the raid's name in the detail heading.</summary>
-    public string SelectedMapKindLabel => _selectedSources.Map.Label();
+    public string SelectedMapKindLabel => DebriefText.Kind(_selectedSources.Map);
 
     public bool HasSelectedMapKind => SelectedMapKindLabel.Length > 0;
 
     /// <summary>The distance is a floor built from straight lines between screenshots, so it is an estimate.</summary>
-    public string SelectedDistanceKindLabel => HasDistance ? RaidFactKind.Estimated.Label() : string.Empty;
+    public string SelectedDistanceKindLabel => HasDistance ? DebriefText.Kind(RaidFactKind.Estimated) : string.Empty;
 
     /// <summary>The detail facts of the selected raid, each with the kind of evidence behind it.</summary>
     public IReadOnlyList<DebriefFactRowViewModel> SelectedFacts { get; private set; } = [];
@@ -408,10 +406,10 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     public bool HasSelectedScans => SelectedScans.Count > 0;
 
     /// <summary>"3 scans · 2 recognised": how many were taken and how many named an item, unavailable ones counted apart.</summary>
-    public string SelectedScanSummary { get; private set; } = "No scans during this raid.";
+    public string SelectedScanSummary { get; private set; } = DebriefText.NoScans;
 
     /// <summary>How long matchmaking and loading took before this raid began, if it was seen.</summary>
-    public string SelectedLoadTimeLabel { get; private set; } = "Load time not recorded.";
+    public string SelectedLoadTimeLabel { get; private set; } = DebriefText.LoadNotRecorded;
 
     public IReadOnlyList<DebriefSaleRowViewModel> SelectedSales { get; private set; } = [];
 
@@ -623,7 +621,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         try
         {
             await _raidHistoryService.SetManualMetadataAsync(raidId, metadata, CancellationToken.None).ConfigureAwait(true);
-            Status = "Saved.";
+            Status = DebriefText.Saved;
             await LoadAsync(CancellationToken.None).ConfigureAwait(true);
             // LoadAsync only reselects when nothing is selected; this raid still is, so the fact
             // rows (built from the selection, not the reload) need their own refresh to pick up
@@ -632,7 +630,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"That could not be saved: {exception.Message}";
+            Status = DebriefText.SaveFailed(exception.Message);
         }
     }
 
@@ -696,9 +694,12 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        DeletePreviewLabel = string.Create(
-            CultureInfo.CurrentCulture,
-            $"This removes {SelectedMapLabel} · {SelectedStartedLabel} ({SelectedDurationLabel}), its {CountLabel(SelectedScans.Count, "scan")} and {CountLabel(_selectedPositions.Count, "screenshot")}.");
+        DeletePreviewLabel = DebriefText.DeletePreview(
+            SelectedMapLabel,
+            SelectedStartedLabel,
+            SelectedDurationLabel,
+            DebriefText.ScanCount(SelectedScans.Count),
+            DebriefText.ScreenshotCount(_selectedPositions.Count));
         IsConfirmingDelete = true;
         RaiseAll();
     }
@@ -718,7 +719,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         }
 
         var raidId = _selected.Id;
-        var summary = $"Deleted 1 raid ({SelectedMapLabel}, {SelectedStartedLabel}).";
+        var summary = DebriefText.DeletedOne(SelectedMapLabel, SelectedStartedLabel);
         await _raidHistoryService.SoftDeleteAsync([raidId], _clock.GetUtcNow(), CancellationToken.None).ConfigureAwait(true);
         _pendingDeleteIds = [raidId];
         UndoDeleteSummary = summary;
@@ -732,7 +733,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         if (_deleteBeforeDate is not { } before)
         {
-            Status = "Pick a date first.";
+            Status = DebriefText.PickADate;
             RaiseAll();
             return;
         }
@@ -740,12 +741,12 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         var matches = RecordsBefore(before);
         if (matches.Count == 0)
         {
-            Status = $"No raids before {LocalTime.Date(before)}.";
+            Status = DebriefText.NoRaidsBefore(LocalTime.Date(before));
             RaiseAll();
             return;
         }
 
-        BulkDeletePreviewLabel = $"This removes {CountLabel(matches.Count, "raid")} before {LocalTime.Date(before)}.";
+        BulkDeletePreviewLabel = DebriefText.BulkDeletePreview(DebriefText.RaidCount(matches.Count), LocalTime.Date(before));
         IsConfirmingBulkDelete = true;
         RaiseAll();
     }
@@ -775,7 +776,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         var ids = matches.Select(record => record.Raid.Id).ToArray();
         await _raidHistoryService.SoftDeleteAsync(ids, _clock.GetUtcNow(), CancellationToken.None).ConfigureAwait(true);
         _pendingDeleteIds = ids;
-        UndoDeleteSummary = $"Deleted {CountLabel(ids.Length, "raid")} before {LocalTime.Date(before)}.";
+        UndoDeleteSummary = DebriefText.BulkDeleted(DebriefText.RaidCount(ids.Length), LocalTime.Date(before));
         IsConfirmingBulkDelete = false;
         if (_selected is not null && ids.Contains(_selected.Id))
         {
@@ -806,7 +807,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         if (_selected is null || _selectedPositions.Count == 0)
         {
-            Status = "That raid has no screenshots to watch.";
+            Status = DebriefText.NoScreenshotsToWatch;
             return;
         }
 
@@ -821,7 +822,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     }
 
     /// <summary>Says why a replay could not be opened, in the same status line every other Debrief failure uses.</summary>
-    public void ReportReplayFailure(string reason) => Status = $"That raid could not be opened on the map: {reason}";
+    public void ReportReplayFailure(string reason) => Status = DebriefText.ReplayFailed(reason);
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
@@ -865,7 +866,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             _allRecords = [];
             Raids = [];
             MapStats = [];
-            Status = $"Raid history unavailable: {exception.Message}";
+            Status = DebriefText.Unavailable(exception.Message);
             WorkspaceFault.Record("debrief", "load", exception);
             RaiseAll();
         }
@@ -917,7 +918,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(mapId => new DebriefMapFilterOption(mapId, MapLabel(mapId!)))
             .OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase);
-        _mapFilterOptions = [new(null, "All maps"), .. maps];
+        _mapFilterOptions = [new(null, DebriefText.AllMaps), .. maps];
         OnPropertyChanged(nameof(MapFilterOptions));
         OnPropertyChanged(nameof(SelectedMapFilterOption));
     }
@@ -929,7 +930,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(tag => tag, StringComparer.CurrentCultureIgnoreCase)
             .Select(tag => new DebriefTagFilterOption(tag, tag));
-        _tagFilterOptions = [new(null, "All tags"), .. tags];
+        _tagFilterOptions = [new(null, DebriefText.AllTags), .. tags];
         if (_tagFilter is not null && !_tagFilterOptions.Any(option =>
                 string.Equals(option.Tag, _tagFilter, StringComparison.OrdinalIgnoreCase)))
         {
@@ -959,16 +960,16 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             var raid = record.Raid;
             rows.Add(new DebriefRaidRowViewModel(
                 raid.Id,
-                raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
+                raid.MapId is { } mapId ? MapLabel(mapId) : DebriefText.UnknownMap,
                 TarkovCompanion.App.Services.V2.Shell.GameModeLabel.OfStored(raid.Mode),
-                LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
-                LocalTime.Moment(raid.EndedUtc) ?? "In progress",
+                LocalTime.Moment(raid.StartedUtc) ?? DebriefText.Unknown,
+                LocalTime.Moment(raid.EndedUtc) ?? DebriefText.InProgress,
                 Duration(raid),
-                raid.Outcome ?? "Not recorded")
+                raid.Outcome ?? DebriefText.NotRecorded)
             {
                 SelectCommand = new AsyncDelegateCommand(() => SelectRaidAsync(raid.Id, CancellationToken.None)),
                 IsSelected = _selected?.Id == raid.Id,
-                OutcomeKindLabel = record.Sources.Outcome.Label(),
+                OutcomeKindLabel = DebriefText.Kind(record.Sources.Outcome),
                 TagsLabel = string.Join(" · ", record.Tags),
                 WipeLabel = record.Wipe ?? string.Empty,
             });
@@ -978,7 +979,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         MapStats = BuildMapStats(active);
         RebuildCoverage(active);
         Status = (_showArchived
-            ? CountLabel(filtered.Length, "archived raid")
+            ? DebriefText.ArchivedRaidCount(filtered.Length)
             : BuildStatusLabel(filtered.Length, inContext.Count(record => !record.IsArchived))) + ContextSuffix;
         RaiseAll();
     }
@@ -987,11 +988,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         if (total == 0)
         {
-            return "No raids recorded yet.";
+            return DebriefText.NoRaidsYet;
         }
 
-        var totalLabel = CountLabel(total, "raid");
-        return shown == total ? totalLabel : $"{shown.ToString(CultureInfo.CurrentCulture)} of {totalLabel}";
+        var totalLabel = DebriefText.RaidCount(total);
+        return shown == total ? totalLabel : DebriefText.Of(shown, totalLabel);
     }
 
     private bool MatchesFilters(DebriefRaidRecord record)
@@ -1116,20 +1117,21 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private static readonly (DebriefOutcomeFilter Filter, string Label)[] OutcomeFilterOptions =
+    // Read on each use, not once per process, so the labels follow the chosen culture.
+    private static (DebriefOutcomeFilter Filter, string Label)[] OutcomeFilterOptions =>
     [
-        (DebriefOutcomeFilter.Any, "Any outcome"),
-        (DebriefOutcomeFilter.Survived, "Survived"),
-        (DebriefOutcomeFilter.Died, "Died"),
-        (DebriefOutcomeFilter.Mia, "MIA"),
-        (DebriefOutcomeFilter.RunThrough, "Run-through"),
+        (DebriefOutcomeFilter.Any, DebriefText.AnyOutcome),
+        (DebriefOutcomeFilter.Survived, DebriefText.Survived),
+        (DebriefOutcomeFilter.Died, DebriefText.Died),
+        (DebriefOutcomeFilter.Mia, DebriefText.Mia),
+        (DebriefOutcomeFilter.RunThrough, DebriefText.RunThrough),
     ];
 
-    private static readonly (DebriefSideFilter Filter, string Label)[] SideFilterOptions =
+    private static (DebriefSideFilter Filter, string Label)[] SideFilterOptions =>
     [
-        (DebriefSideFilter.Any, "Any side"),
-        (DebriefSideFilter.Pmc, "PMC"),
-        (DebriefSideFilter.Scav, "Scav"),
+        (DebriefSideFilter.Any, DebriefText.AnySide),
+        (DebriefSideFilter.Pmc, DebriefText.Pmc),
+        (DebriefSideFilter.Scav, DebriefText.Scav),
     ];
 
     private IReadOnlyList<DebriefFilterChipViewModel> CreateOutcomeChips() =>
@@ -1163,7 +1165,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             _tagFilter);
         if (!_savedViewStore.Save(requested))
         {
-            Status = $"Name the view (up to {DebriefSavedViewStore.MaximumNameLength} characters); up to {DebriefSavedViewStore.MaximumViews} views are kept.";
+            Status = DebriefText.NameTheView(DebriefSavedViewStore.MaximumNameLength, DebriefSavedViewStore.MaximumViews);
             return;
         }
 
@@ -1173,7 +1175,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         SelectedSavedView = SavedViews.First(view =>
             string.Equals(view.Name, requested.Name.Trim(), StringComparison.OrdinalIgnoreCase));
         SavedViewName = string.Empty;
-        Status = $"Saved view: {SelectedSavedView.Name}.";
+        Status = DebriefText.SavedView(SelectedSavedView.Name);
         RaiseAll();
     }
 
@@ -1181,7 +1183,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         if (SelectedSavedView is not { } view)
         {
-            Status = "Choose a saved view first.";
+            Status = DebriefText.ChooseSavedView;
             return;
         }
 
@@ -1199,7 +1201,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SelectedTagFilterOption));
         OnPropertyChanged(nameof(DateFrom));
         OnPropertyChanged(nameof(DateTo));
-        Status = $"Applied view: {view.Name}.";
+        Status = DebriefText.AppliedView(view.Name);
         RaiseAll();
     }
 
@@ -1214,7 +1216,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SavedViews));
         OnPropertyChanged(nameof(HasSavedViews));
         SelectedSavedView = null;
-        Status = $"Deleted saved view: {view.Name}.";
+        Status = DebriefText.DeletedView(view.Name);
         RaiseAll();
     }
 
@@ -1222,7 +1224,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         if (_selected is null || DebriefRaidTags.Normalize(NewTag) is not { } tag)
         {
-            Status = $"Enter a tag up to {DebriefRaidTags.MaximumTagLength} characters.";
+            Status = DebriefText.TagTooLong(DebriefRaidTags.MaximumTagLength);
             return;
         }
 
@@ -1235,7 +1237,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
         if (current.Count >= DebriefRaidTags.MaximumTagsPerRaid)
         {
-            Status = $"A raid can have up to {DebriefRaidTags.MaximumTagsPerRaid} tags.";
+            Status = DebriefText.TooManyTags(DebriefRaidTags.MaximumTagsPerRaid);
             return;
         }
 
@@ -1261,7 +1263,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             CancellationToken.None).ConfigureAwait(true);
         await LoadAsync(CancellationToken.None).ConfigureAwait(true);
         await SelectRaidAsync(raidId, CancellationToken.None).ConfigureAwait(true);
-        Status = present ? $"Added tag: {tag}." : $"Removed tag: {tag}.";
+        Status = present ? DebriefText.AddedTag(tag) : DebriefText.RemovedTag(tag);
     }
 
     public async Task SelectRaidAsync(Guid raidId, CancellationToken cancellationToken)
@@ -1281,8 +1283,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             SelectedSales = [];
             SelectedQuestEvents = [];
             SelectedScans = [];
-            SelectedScanSummary = "No scans during this raid.";
-            SelectedLoadTimeLabel = "Load time not recorded.";
+            SelectedScanSummary = DebriefText.NoScans;
+            SelectedLoadTimeLabel = DebriefText.LoadNotRecorded;
             _selectedLoadRecorded = false;
             _selectedSources = RaidFactRules.Classify(
                 new RaidHistoryEntry(Guid.Empty, Guid.Empty, null, string.Empty, null, null, null, null),
@@ -1311,8 +1313,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             var stateFacts = await ReadStateFactsAsync(raidId, cancellationToken).ConfigureAwait(true);
             _selectedLoadRecorded = stateFacts.LoadSeconds is not null;
             SelectedLoadTimeLabel = stateFacts.LoadSeconds is { } loadSeconds
-                ? $"{loadSeconds.ToString("0.0", CultureInfo.CurrentCulture)}s queue/load"
-                : "Load time not recorded.";
+                ? DebriefText.QueueLoadSeconds(loadSeconds)
+                : DebriefText.LoadNotRecorded;
             _selectedSources = RaidFactRules.Classify(
                 _selected,
                 await LoadCorrectionsAsync(raidId, cancellationToken).ConfigureAwait(true));
@@ -1346,42 +1348,42 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
         var facts = new List<DebriefFactRowViewModel>
         {
-            new("Mode", SelectedModeLabel, _selectedSources.Mode.Label()),
-            new("Wipe", SelectedWipeLabel, SelectedRecord?.Wipe is null ? string.Empty : RaidFactKind.Inferred.Label()),
-            new("Started", SelectedStartedLabel, _selectedSources.Started.Label()),
-            new("Ended", SelectedEndedLabel, _selectedSources.Ended.Label()),
-            new("Duration", SelectedDurationLabel, _selectedSources.Duration.Label()),
-            new("Queue/load", SelectedLoadTimeLabel, _selectedLoadRecorded ? RaidFactKind.Observed.Label() : string.Empty),
-            new("Outcome", SelectedOutcomeLabel, _selectedSources.Outcome.Label()),
+            new(DebriefText.Mode, SelectedModeLabel, DebriefText.Kind(_selectedSources.Mode)),
+            new(DebriefText.Wipe, SelectedWipeLabel, SelectedRecord?.Wipe is null ? string.Empty : DebriefText.Kind(RaidFactKind.Inferred)),
+            new(DebriefText.Started, SelectedStartedLabel, DebriefText.Kind(_selectedSources.Started)),
+            new(DebriefText.Ended, SelectedEndedLabel, DebriefText.Kind(_selectedSources.Ended)),
+            new(DebriefText.Duration, SelectedDurationLabel, DebriefText.Kind(_selectedSources.Duration)),
+            new(DebriefText.QueueLoad, SelectedLoadTimeLabel, _selectedLoadRecorded ? DebriefText.Kind(RaidFactKind.Observed) : string.Empty),
+            new(DebriefText.Outcome, SelectedOutcomeLabel, DebriefText.Kind(_selectedSources.Outcome)),
         };
         if (SelectedNotesLabel.Length > 0)
         {
-            facts.Add(new("Notes", SelectedNotesLabel, _selectedSources.Notes.Label()));
+            facts.Add(new(DebriefText.Notes, SelectedNotesLabel, DebriefText.Kind(_selectedSources.Notes)));
         }
 
         // Manual fields (#291 package 4): a player-entered zero is a real answer ("no PMC kills")
         // and is shown; only an unentered field is left out.
         if (ManualPmcKills is not null)
         {
-            facts.Add(new("PMC kills", ManualPmcKills.Value.ToString(CultureInfo.CurrentCulture), RaidFactKind.Manual.Label()));
+            facts.Add(new(DebriefText.PmcKills, ManualPmcKills.Value.ToString(CultureInfo.CurrentCulture), DebriefText.Kind(RaidFactKind.Manual)));
         }
 
         if (ManualScavKills is not null)
         {
-            facts.Add(new("Scav kills", ManualScavKills.Value.ToString(CultureInfo.CurrentCulture), RaidFactKind.Manual.Label()));
+            facts.Add(new(DebriefText.ScavKills, ManualScavKills.Value.ToString(CultureInfo.CurrentCulture), DebriefText.Kind(RaidFactKind.Manual)));
         }
 
         if (ManualBossKills is not null)
         {
-            facts.Add(new("Boss kills", ManualBossKills.Value.ToString(CultureInfo.CurrentCulture), RaidFactKind.Manual.Label()));
+            facts.Add(new(DebriefText.BossKills, ManualBossKills.Value.ToString(CultureInfo.CurrentCulture), DebriefText.Kind(RaidFactKind.Manual)));
         }
 
         if (ManualValueRoubles is not null)
         {
             facts.Add(new(
-                "Value brought out",
-                string.Create(CultureInfo.CurrentCulture, $"{ManualValueRoubles.Value:N0} roubles"),
-                RaidFactKind.Manual.Label()));
+                DebriefText.ValueBroughtOut,
+                DebriefText.Roubles(ManualValueRoubles.Value),
+                DebriefText.Kind(RaidFactKind.Manual)));
         }
 
         return facts;
@@ -1409,12 +1411,12 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         {
             var isWrong = wrongScanIds.Contains(scan.Id);
             var itemName = scan.Recognised
-                ? scan.ItemName ?? (scan.ItemId is null ? "Item" : await ResolveItemNameAsync(scan.ItemId, cancellationToken).ConfigureAwait(true))
-                : scan.IsAvailable ? "Nothing recognised" : "Scan unavailable";
+                ? scan.ItemName ?? (scan.ItemId is null ? DebriefText.Item : await ResolveItemNameAsync(scan.ItemId, cancellationToken).ConfigureAwait(true))
+                : scan.IsAvailable ? DebriefText.NothingRecognised : DebriefText.ScanUnavailable;
             var detail = new List<string>();
             if (scan.Recognised && scan.Confidence is { } confidence)
             {
-                detail.Add(string.Create(CultureInfo.CurrentCulture, $"{confidence:P0} sure"));
+                detail.Add(DebriefText.PercentSure(confidence));
             }
 
             if (scan.Recommendation is { Length: > 0 } recommendation)
@@ -1425,11 +1427,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             rows.Add((scan.ObservedUtc, new(
                 LocalTime.ShortTime(scan.ObservedUtc),
                 itemName,
-                scan.IdentityKind.Label(),
+                DebriefText.Kind(scan.IdentityKind),
                 scan.ValueRoubles is { } roubles
-                    ? string.Create(CultureInfo.CurrentCulture, $"≈ {roubles:N0} roubles")
+                    ? DebriefText.ApproxRoubles(roubles)
                     : string.Empty,
-                scan.ValueKind.Label(),
+                DebriefText.Kind(scan.ValueKind),
                 string.Join(" · ", detail))
             {
                 ScanId = scan.Id,
@@ -1450,10 +1452,14 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         var recognised = counted.Count(scan => scan.Recognised) + countedLoot.Count(scan => scan.Items.Any(item => item.ItemId is not null));
         var unavailable = counted.Count(scan => !scan.IsAvailable);
         SelectedScanSummary = scans.Length + lootScans.Count == 0
-            ? "No scans during this raid."
-            : string.Create(
-                CultureInfo.CurrentCulture,
-                $"{CountLabel(counted.Length + countedLoot.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}{(wrongCount > 0 ? $" · {wrongCount:N0} marked wrong" : string.Empty)}");
+            ? DebriefText.NoScans
+            : string.Join(" · ", new[]
+            {
+                DebriefText.ScanCount(counted.Length + countedLoot.Length),
+                DebriefText.Recognised(recognised),
+                unavailable > 0 ? DebriefText.UnavailableCount(unavailable) : null,
+                wrongCount > 0 ? DebriefText.MarkedWrongCount(wrongCount) : null,
+            }.OfType<string>());
     }
 
     /// <summary>
@@ -1467,10 +1473,10 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         return new DebriefScanRowViewModel(
             LocalTime.ShortTime(loot.EvaluatedUtc),
             LootScanHistoryViewModel.Summary(loot, culture),
-            RaidFactKind.Inferred.Label(),
-            taken > 0 ? string.Create(culture, $"≈ {taken:N0} roubles taken") : string.Empty,
-            RaidFactKind.Estimated.Label(),
-            "Loot scan · " + LootScanHistoryViewModel.RulesLabel(loot) + (loot.IsComplete ? string.Empty : " · needed review"))
+            DebriefText.Kind(RaidFactKind.Inferred),
+            taken > 0 ? DebriefText.RoublesTaken(taken) : string.Empty,
+            DebriefText.Kind(RaidFactKind.Estimated),
+            DebriefText.LootScan(LootScanHistoryViewModel.RulesLabel(loot)) + (loot.IsComplete ? string.Empty : " · " + DebriefText.NeededReview))
         {
             ScanId = loot.CorrectionId,
             IsWrong = isWrong,
@@ -1483,7 +1489,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                     ? $"{item.Verdict.ToString().ToUpperInvariant()} {item.Name} · {LootScanDecisionViewModel.CompactRoubles(value, culture)}"
                     : $"{item.Verdict.ToString().ToUpperInvariant()} {item.Name}")
                 .Concat(loot.Items.Count > MaximumVerdictLines
-                    ? [string.Create(culture, $"+{loot.Items.Count - MaximumVerdictLines:N0} more")]
+                    ? [DebriefText.MoreVerdicts(loot.Items.Count - MaximumVerdictLines)]
                     : [])
                 .ToArray(),
         };
@@ -1506,7 +1512,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             new RaidScanCorrection(scanId, isWrong, correctedUtc).ToPayload(),
             CancellationToken.None).ConfigureAwait(true);
         await LoadScansAsync(_selected.Id, CancellationToken.None).ConfigureAwait(true);
-        Status = isWrong ? "Scan marked wrong; totals updated." : "Scan restored to totals.";
+        Status = isWrong ? DebriefText.ScanMarkedWrong : DebriefText.ScanRestored;
         RaiseAll();
     }
 
@@ -1542,11 +1548,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         foreach (var (itemId, info) in byItem)
         {
             var name = itemId.Length == 0
-                ? "Item not in the synced catalog"
+                ? DebriefText.ItemNotInCatalog
                 : await ResolveItemNameAsync(itemId, cancellationToken).ConfigureAwait(true);
             rows.Add(new(
                 name,
-                info.Count == 1 ? "1 sold" : $"{info.Count.ToString(CultureInfo.CurrentCulture)} sold",
+                DebriefText.Sold(info.Count),
                 LocalTime.ShortTime(info.Latest)));
         }
 
@@ -1614,16 +1620,15 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             var manualLabel = BuildManualStatsLabel(raidsOnMap);
             rows.Add(new(
                 MapLabel(group.Key),
-                CountLabel(raidsOnMap.Length, "raid"),
+                DebriefText.RaidCount(raidsOnMap.Length),
                 durations.Length == 0
-                    ? "Duration unknown"
-                    : $"avg {FormatDuration(AverageTicks(durations))}",
+                    ? DebriefText.DurationUnknown
+                    : DebriefText.Average(FormatDuration(AverageTicks(durations))),
                 loadTimes.Count == 0
-                    ? "Load time unknown"
-                    : $"avg {loadTimes.Average().ToString("0.0", CultureInfo.CurrentCulture)}s "
-                        + $"({CountLabel(loadTimes.Count, "raid")} measured)",
+                    ? DebriefText.LoadTimeUnknown
+                    : DebriefText.AverageLoad(loadTimes.Average(), DebriefText.RaidCount(loadTimes.Count)),
                 manualLabel,
-                manualLabel.Length == 0 ? string.Empty : RaidFactKind.Manual.Label()));
+                manualLabel.Length == 0 ? string.Empty : DebriefText.Kind(RaidFactKind.Manual)));
         }
 
         return rows;
@@ -1644,24 +1649,22 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         var parts = new List<string>();
         if (manual.Any(entry => entry.PmcKills is not null))
         {
-            parts.Add($"{manual.Sum(entry => entry.PmcKills ?? 0).ToString(CultureInfo.CurrentCulture)} PMC");
+            parts.Add(DebriefText.ManualPmc(manual.Sum(entry => entry.PmcKills ?? 0)));
         }
 
         if (manual.Any(entry => entry.ScavKills is not null))
         {
-            parts.Add($"{manual.Sum(entry => entry.ScavKills ?? 0).ToString(CultureInfo.CurrentCulture)} Scav");
+            parts.Add(DebriefText.ManualScav(manual.Sum(entry => entry.ScavKills ?? 0)));
         }
 
         if (manual.Any(entry => entry.BossKills is not null))
         {
-            parts.Add($"{manual.Sum(entry => entry.BossKills ?? 0).ToString(CultureInfo.CurrentCulture)} boss");
+            parts.Add(DebriefText.ManualBoss(manual.Sum(entry => entry.BossKills ?? 0)));
         }
 
         if (manual.Any(entry => entry.ValueRoubles is not null))
         {
-            parts.Add(string.Create(
-                CultureInfo.CurrentCulture,
-                $"{manual.Sum(entry => entry.ValueRoubles ?? 0):N0} roubles"));
+            parts.Add(DebriefText.Roubles(manual.Sum(entry => entry.ValueRoubles ?? 0)));
         }
 
         return string.Join(" · ", parts);
@@ -1792,9 +1795,9 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
     private static string DescribeTaskState(RecordedTaskState state) => state switch
     {
-        RecordedTaskState.Completed => "Handed in",
-        RecordedTaskState.Failed => "Failed",
-        RecordedTaskState.Active => "Started",
+        RecordedTaskState.Completed => DebriefText.HandedIn,
+        RecordedTaskState.Failed => DebriefText.Failed,
+        RecordedTaskState.Active => DebriefText.Started,
         _ => state.ToString(),
     };
 
@@ -1803,9 +1806,6 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
     private static string FormatDuration(TimeSpan elapsed) =>
         elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\h\ mm\m" : @"mm\m\ ss\s", CultureInfo.InvariantCulture);
-
-    private static string CountLabel(int count, string noun) =>
-        count == 1 ? $"1 {noun}" : $"{count.ToString(CultureInfo.CurrentCulture)} {noun}s";
 
     /// <summary>Reads one stored payload, or nothing rather than failing the whole workspace.</summary>
     private static T? ReadPayload<T>(string payload)
@@ -1835,12 +1835,12 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                 string.IsNullOrWhiteSpace(CorrectedOutcome) ? null : CorrectedOutcome.Trim(),
                 string.IsNullOrWhiteSpace(CorrectedNotes) ? null : CorrectedNotes.Trim(),
                 CancellationToken.None).ConfigureAwait(true);
-            Status = "Correction saved.";
+            Status = DebriefText.CorrectionSaved;
             await LoadAsync(CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"That correction could not be saved: {exception.Message}";
+            Status = DebriefText.CorrectionFailed(exception.Message);
         }
     }
 
@@ -1862,11 +1862,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                 await write(stream, CancellationToken.None).ConfigureAwait(true);
             }
 
-            Status = $"Exported to {destination}";
+            Status = DebriefText.ExportedTo(destination);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Export failed: {exception.Message}";
+            Status = DebriefText.ExportFailed(exception.Message);
         }
     }
 
@@ -1876,16 +1876,16 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         if (raid?.StartedUtc is not { } started)
         {
-            return "Unknown";
+            return DebriefText.Unknown;
         }
 
         if (raid.EndedUtc is null)
         {
-            return "In progress";
+            return DebriefText.InProgress;
         }
 
         var elapsed = raid.EndedUtc.Value - started;
-        return elapsed <= TimeSpan.Zero ? "Unknown" : FormatDuration(elapsed);
+        return elapsed <= TimeSpan.Zero ? DebriefText.Unknown : FormatDuration(elapsed);
     }
 
     private void RaiseAll()
