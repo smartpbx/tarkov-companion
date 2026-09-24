@@ -653,9 +653,12 @@
       <Setter Property="VerticalAlignment" Value="Top" />
       <Setter Property="Margin" Value="0,-20,0,0" />
     </Style>
+    <!-- The control edge, not the divider: in dark the divider is the raised surface's colour,
+         1.2:1 on this fill, and at the group's resting opacity the buttons read as smudges
+         on the terrain. V2.Brush.Border is held to 3:1 (ControlChromeContrastTests). -->
     <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
     <!-- [#591] Zoom, fit and the loot preset already float at the standard 32 DIP target
@@ -664,7 +667,7 @@
          still in the automation tree at every opacity, so a keyboard user or a screen reader never
          loses them. -->
     <Style Selector="StackPanel#RendererCommands">
-      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="Opacity" Value="0.8" />
       <Setter Property="Transitions">
         <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.15" /></Transitions>
       </Setter>

@@ -69,6 +69,7 @@ public sealed class ControlChromeContrastTests
         ("ExpanderHeaderBorderBrush", "expander header edge"),
         ("ExpanderChevronForeground", "expander chevron"),
         ("FloatingLineBrush", "floating map panel edge"),
+        ("V2.Brush.Border", "map zoom and fit button edge"),
     ];
 
     public static TheoryData<string> Variants => ["Dark", "Light", "HighContrast"];
