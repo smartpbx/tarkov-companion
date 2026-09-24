@@ -21,6 +21,23 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
     /// </remarks>
     private const double MinimumScore = 0.6;
 
+    internal const string ExactNameCandidatesSql = """
+        SELECT id, name, short_name, normalized_name, normalized_short_name
+        FROM items
+        WHERE normalized_name = $query OR normalized_short_name = $query;
+        """;
+
+    internal const string FullTextCandidatesSql = """
+        SELECT item_id, name, short_name, bm25(item_search) AS rank
+        FROM item_search
+        WHERE item_search MATCH $query
+        ORDER BY rank
+        LIMIT 100;
+        """;
+
+    /// <summary>Every name, scored in memory for typos; a whole-table read by design.</summary>
+    internal const string FuzzyCandidatesSql = "SELECT id, name, short_name FROM items;";
+
     internal const string ExactItemSql = """
         SELECT id, name, short_name, description, category_type, width, height, flea_eligible,
                icon_url, image_url, wiki_url, properties_type, properties_json, source_updated_utc
@@ -161,11 +178,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
         var candidates = new Dictionary<string, SearchCandidate>(StringComparer.Ordinal);
         await using (var exact = connection.CreateCommand())
         {
-            exact.CommandText = """
-                SELECT id, name, short_name, normalized_name, normalized_short_name
-                FROM items
-                WHERE normalized_name = $query OR normalized_short_name = $query;
-                """;
+            exact.CommandText = ExactNameCandidatesSql;
             exact.Parameters.AddWithValue("$query", normalizedQuery);
             await using var reader = await exact.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -183,13 +196,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
 
         await using (var fts = connection.CreateCommand())
         {
-            fts.CommandText = """
-                SELECT item_id, name, short_name, bm25(item_search) AS rank
-                FROM item_search
-                WHERE item_search MATCH $query
-                ORDER BY rank
-                LIMIT 100;
-                """;
+            fts.CommandText = FullTextCandidatesSql;
             fts.Parameters.AddWithValue("$query", BuildFtsQuery(normalizedQuery));
             await using var reader = await fts.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -205,7 +212,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
 
         await using (var fuzzy = connection.CreateCommand())
         {
-            fuzzy.CommandText = "SELECT id, name, short_name FROM items;";
+            fuzzy.CommandText = FuzzyCandidatesSql;
             await using var reader = await fuzzy.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {

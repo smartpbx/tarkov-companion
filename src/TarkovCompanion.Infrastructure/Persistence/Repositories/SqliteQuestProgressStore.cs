@@ -12,6 +12,40 @@ public sealed class SqliteQuestProgressStore(
 {
     private static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
 
+    internal const string ProfileRevisionSql = """
+        SELECT revision
+        FROM quest_progress_profiles
+        WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation;
+        """;
+
+    internal const string TaskStatesSql = """
+        SELECT task_id, state, assertion_source, revision, modified_utc
+        FROM quest_profile_task_states
+        WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
+        ORDER BY task_id COLLATE BINARY;
+        """;
+
+    internal const string ObjectiveStatesSql = """
+        SELECT objective_id, state, progress_count, assertion_source, revision, modified_utc
+        FROM quest_profile_objective_states
+        WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
+        ORDER BY objective_id COLLATE BINARY;
+        """;
+
+    internal const string ItemHoldingsSql = """
+        SELECT item_id, found_in_raid, item_count, assertion_source, revision, modified_utc
+        FROM quest_profile_item_holdings
+        WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
+        ORDER BY item_id COLLATE BINARY, found_in_raid;
+        """;
+
+    internal const string PinsSql = """
+        SELECT target_kind, target_id, sort_order, note, assertion_source, revision, modified_utc
+        FROM quest_profile_pins
+        WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
+        ORDER BY sort_order, target_kind, target_id COLLATE BINARY;
+        """;
+
     public async Task<QuestProgressSnapshot> GetAsync(
         QuestProfileScope scope,
         CancellationToken cancellationToken)
@@ -142,11 +176,7 @@ public sealed class SqliteQuestProgressStore(
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT revision
-            FROM quest_progress_profiles
-            WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation;
-            """;
+        command.CommandText = ProfileRevisionSql;
         AddScope(command, scope);
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return value is null ? 0 : Convert.ToInt64(value, CultureInfo.InvariantCulture);
@@ -445,12 +475,7 @@ public sealed class SqliteQuestProgressStore(
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT task_id, state, assertion_source, revision, modified_utc
-            FROM quest_profile_task_states
-            WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
-            ORDER BY task_id COLLATE BINARY;
-            """;
+        command.CommandText = TaskStatesSql;
         AddScope(command, scope);
         var values = new Dictionary<string, RecordedTaskProgress>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -471,12 +496,7 @@ public sealed class SqliteQuestProgressStore(
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT objective_id, state, progress_count, assertion_source, revision, modified_utc
-            FROM quest_profile_objective_states
-            WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
-            ORDER BY objective_id COLLATE BINARY;
-            """;
+        command.CommandText = ObjectiveStatesSql;
         AddScope(command, scope);
         var values = new Dictionary<string, RecordedObjectiveProgress>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -497,12 +517,7 @@ public sealed class SqliteQuestProgressStore(
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT item_id, found_in_raid, item_count, assertion_source, revision, modified_utc
-            FROM quest_profile_item_holdings
-            WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
-            ORDER BY item_id COLLATE BINARY, found_in_raid;
-            """;
+        command.CommandText = ItemHoldingsSql;
         AddScope(command, scope);
         var values = new List<RecordedItemHolding>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -522,12 +537,7 @@ public sealed class SqliteQuestProgressStore(
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT target_kind, target_id, sort_order, note, assertion_source, revision, modified_utc
-            FROM quest_profile_pins
-            WHERE profile_id = $profileId AND game_mode = $gameMode AND generation = $generation
-            ORDER BY sort_order, target_kind, target_id COLLATE BINARY;
-            """;
+        command.CommandText = PinsSql;
         AddScope(command, scope);
         var values = new List<RecordedQuestPin>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

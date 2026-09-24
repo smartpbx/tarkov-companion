@@ -1033,6 +1033,10 @@ public sealed class SqliteDataPlatformMaintenance(
 /// <summary>Captures SQLite's chosen access paths for each latency-critical V2 read.</summary>
 public sealed class SqliteQueryPlanAuditor(SqliteConnectionFactory connectionFactory)
 {
+    // Declared before Queries: static initializers run in textual order.
+    private static readonly ImmutableArray<(string Name, object Value)> QuestProgressScope =
+        [("$profileId", "00000000-0000-0000-0000-000000000001"), ("$gameMode", "Regular"), ("$generation", "1")];
+
     private static readonly ImmutableArray<QueryFamily> Queries =
     [
         new(
@@ -1087,6 +1091,36 @@ public sealed class SqliteQueryPlanAuditor(SqliteConnectionFactory connectionFac
                 new("station-outputs", SqliteCraftPlanningCatalog.StationCraftOutputsSql, true, [("$scope", "station")]),
                 new("station-history", SqliteCraftPlanningCatalog.StationCraftHistorySql, true,
                     [("$scope", "station"), ("$limit", 100)]),
+            ]),
+        new(
+            "quest-progress",
+            typeof(SqliteQuestProgressStore),
+            nameof(SqliteQuestProgressStore.GetAsync),
+            [
+                new("profile-revision", SqliteQuestProgressStore.ProfileRevisionSql, true, QuestProgressScope),
+                new("task-states", SqliteQuestProgressStore.TaskStatesSql, true, QuestProgressScope),
+                new("objective-states", SqliteQuestProgressStore.ObjectiveStatesSql, true, QuestProgressScope),
+                new("item-holdings", SqliteQuestProgressStore.ItemHoldingsSql, true, QuestProgressScope),
+                new("pins", SqliteQuestProgressStore.PinsSql, true, QuestProgressScope),
+            ]),
+        new(
+            "requirements",
+            typeof(SqliteRequirementCatalog),
+            nameof(SqliteRequirementCatalog.GetQuestRequirementsAsync),
+            [
+                // Both are loaded whole once per sync and cached: the projection is every requirement.
+                new("quest-items", SqliteRequirementCatalog.QuestItemRequirementsSql, false, []),
+                new("hideout-items", SqliteRequirementCatalog.HideoutItemRequirementsSql, false, []),
+            ]),
+        new(
+            "item-search",
+            typeof(SqliteItemRepository),
+            nameof(SqliteItemRepository.SearchAsync),
+            [
+                new("exact-name", SqliteItemRepository.ExactNameCandidatesSql, true, [("$query", "salewa")]),
+                new("full-text", SqliteItemRepository.FullTextCandidatesSql, false, [("$query", "\"salewa\"*")]),
+                // Typo tolerance scores every name in memory, so this one reads the table by design.
+                new("fuzzy-names", SqliteItemRepository.FuzzyCandidatesSql, false, []),
             ]),
     ];
 

@@ -60,7 +60,47 @@ public sealed class QueryPlanEvidenceTests
                 "map/catalog-scan: SCAN maps",
                 "history/history-list: SCAN raids | USE TEMP B-TREE FOR ORDER BY",
                 "profile/profile-contexts: SCAN profile_contexts USING INDEX sqlite_autoindex_profile_contexts_1",
+                // Loaded whole once per sync and cached. The join to the objective is still a key lookup.
+                "requirements/quest-items: SCAN item USING INDEX sqlite_autoindex_task_objective_items_1 | " +
+                    "SEARCH objective USING COVERING INDEX sqlite_autoindex_task_objectives_1 (task_id=? AND id=?)",
+                "requirements/hideout-items: SCAN hideout_requirements",
+                // FTS5 reports every lookup as a SCAN of the virtual table; ":M" is the MATCH constraint
+                // going to its own index, which is the part that matters.
+                "item-search/full-text: SCAN item_search VIRTUAL TABLE INDEX 0:M5 | USE TEMP B-TREE FOR ORDER BY",
+                // Typo tolerance scores every name in memory: about 5,300 short rows, read once per search.
+                "item-search/fuzzy-names: SCAN items",
             ],
             wholeTable);
+    }
+
+    [Fact]
+    public async Task QuestProgressReadsFindOneProfileByItsWholeScopeAndExactSearchUsesBothNameIndexes()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var plans = await new SqliteQueryPlanAuditor(database.Factory).CaptureAsync(TestContext.Current.CancellationToken);
+
+        // The quest page reads five tables per open. Each grows by one row per quest, objective, item
+        // or pin per profile and generation, so each read must seek on the full scope, not a prefix of it.
+        var questProgress = Assert.Single(plans, plan => plan.Path == "quest-progress").Statements;
+        Assert.Equal(["profile-revision", "task-states", "objective-states", "item-holdings", "pins"],
+            questProgress.Select(statement => statement.Name));
+        Assert.All(questProgress, statement => Assert.StartsWith(
+            "SEARCH ", statement.Steps[0], StringComparison.Ordinal));
+        Assert.All(questProgress, statement => Assert.EndsWith(
+            "(profile_id=? AND game_mode=? AND generation=?)", statement.Steps[0], StringComparison.Ordinal));
+
+        // An exact name or short name: an OR that falls back to a scan when either index is missing.
+        var exact = Assert.Single(
+            Assert.Single(plans, plan => plan.Path == "item-search").Statements,
+            statement => statement.Name == "exact-name");
+        Assert.Equal(
+            [
+                "MULTI-INDEX OR",
+                "INDEX 1",
+                "SEARCH items USING INDEX idx_items_normalized_name (normalized_name=?)",
+                "INDEX 2",
+                "SEARCH items USING INDEX idx_items_normalized_short_name (normalized_short_name=?)",
+            ],
+            exact.Steps.ToArray());
     }
 }
