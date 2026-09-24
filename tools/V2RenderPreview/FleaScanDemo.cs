@@ -72,6 +72,9 @@ internal static class FleaScanDemo
                 Row(average * 104 / 100, 1, 0.91),
                 Row(average * 125 / 100, 2, 0.86),
             ]);
+        // --flea-scan-age <minutes>: the screenshot was taken that long ago, so the ranking's
+        // "Offers as seen at" line can be rendered in its aged, may-be-gone wording (#284).
+        var shot = now.AddMinutes(-AgeMinutes());
         var session = new CaptureSessionId(Guid.NewGuid());
         var request = new CaptureHandoffRequest(
             session,
@@ -80,14 +83,14 @@ internal static class FleaScanDemo
             services.GetRequiredService<ShellCaptureContextSource>().Describe(),
             CaptureCorrelationId.New(),
             CaptureSourceKind.GameWrittenScreenshot,
-            now.AddSeconds(-5),
-            now.AddSeconds(-4),
+            shot.AddSeconds(-5),
+            shot.AddSeconds(-4),
             null,
             CaptureDeliveryKind.WatchedFile,
             new EvidenceProvenance(
                 EvidenceSourceClass.GameWrittenScreenshot,
                 "render://flea-demo-frame",
-                now.AddSeconds(-5),
+                shot.AddSeconds(-5),
                 EvidenceConfidence.Unscored,
                 new ProducerIdentity("v2-render-preview", "1")),
             0,
@@ -96,5 +99,12 @@ internal static class FleaScanDemo
             new CaptureCorrection(CaptureReviewAction.UseDetected, ScanIntent.Flea, RecognizedContext.Flea, 0, now, "render-preview"));
         drain(services.GetRequiredService<ICaptureResultHandoff>().AcceptAsync(request, CancellationToken.None).AsTask());
         pump(80);
+    }
+
+    private static int AgeMinutes()
+    {
+        var args = Environment.GetCommandLineArgs();
+        var index = Array.IndexOf(args, "--flea-scan-age");
+        return index >= 0 && index + 1 < args.Length && int.TryParse(args[index + 1], out var minutes) ? minutes : 0;
     }
 }
