@@ -1984,6 +1984,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             Load("keys-owned", KeysWorkspace.LoadOwnedAsync);
         }
+        // Saved kits were read only after a save or delete, so a kit saved last session was missing.
+        else if (route == V2Routes.Loadout && Legacy?.Loadout is { } loadout)
+        {
+            Load("loadout-presets", () => loadout.LoadPresetsAsync(CancellationToken.None));
+        }
         else if (route == V2Routes.Setup)
         {
             _homeOverviewLoaded = false;
@@ -2247,7 +2252,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 : continuity.InitiatingDevice)
         {
             ProfileId = snapshot.Profile?.Id.ToString("D", CultureInfo.InvariantCulture),
-            ProfileMode = snapshot.Profile?.GameMode.ToString(),
+            ProfileMode = snapshot.Profile is { } modeProfile ? GameModeLabel.Of(modeProfile.GameMode) : null,
             RaidId = snapshot.Raid.RaidId?.ToString("D", CultureInfo.InvariantCulture),
             RaidState = snapshot.Raid.State.ToString(),
             ObjectiveId = continuity.ObjectiveId ?? selectedObjective ?? Router.Context.ObjectiveId,

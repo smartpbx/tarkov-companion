@@ -274,7 +274,7 @@ public sealed class LootScanViewModel : BindableViewModel
             var map = Result.Context.ActiveMap;
             return string.IsNullOrWhiteSpace(map)
                 ? _text.CurrentCaptureContext
-                : _culture.TextInfo.ToTitleCase(map.Replace('-', ' '));
+                : TarkovCompanion.Core.Domain.Maps.MapDisplayName.FromId(map);
         }
     }
 

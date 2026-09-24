@@ -312,7 +312,7 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("Legacy.Items.SearchCommand.ExecuteAsync()", model, StringComparison.Ordinal);
         Assert.Contains("Surface.Policy.PlayerAction", model, StringComparison.Ordinal);
         Assert.Contains("Surface.Policy.FocusesOnPlayerAction", model, StringComparison.Ordinal);
-        Assert.Contains("ProfileMode = snapshot.Profile?.GameMode.ToString()", model, StringComparison.Ordinal);
+        Assert.Contains("ProfileMode = snapshot.Profile is { } modeProfile ? GameModeLabel.Of(modeProfile.GameMode) : null", model, StringComparison.Ordinal);
         Assert.Contains("RaidId = snapshot.Raid.RaidId", model, StringComparison.Ordinal);
         Assert.Contains("TeamMemberKeys = snapshot.Squad.Members", model, StringComparison.Ordinal);
         Assert.Contains("CaptureState.CorrelationId ?? continuity.CaptureCorrelationId", model, StringComparison.Ordinal);

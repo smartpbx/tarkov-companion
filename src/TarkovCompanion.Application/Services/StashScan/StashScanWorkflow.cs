@@ -15,6 +15,13 @@ public sealed class StashScanWorkflow(
     StashSnapshotComparer comparer,
     IStashReviewCommandSink? reviewCommands = null)
 {
+    /// <summary>
+    /// Raised after a snapshot is stored, on whatever thread saved it. A capture saves from the
+    /// capture pipeline, not from the Stash page, and the page only re-read its list when it was
+    /// navigated to, so a scan taken with the page open did not appear until the player left it.
+    /// </summary>
+    public event EventHandler<StashSnapshotRecord>? SnapshotSaved;
+
     public async Task<StashScanAssemblyResult> CompleteAsync(
         StashScanAssemblyRequest request,
         Guid durableSnapshotId,
@@ -32,6 +39,7 @@ public sealed class StashScanWorkflow(
             makeCurrent,
             assembled.Recognition);
         await snapshotStore.SaveAsync(record, cancellationToken).ConfigureAwait(false);
+        SnapshotSaved?.Invoke(this, record);
         return assembled;
     }
 

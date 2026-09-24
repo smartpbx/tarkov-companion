@@ -310,7 +310,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     /// <summary>Package 17 (home): said once, beside the field it explains, instead of in the status line.</summary>
     public string OutcomeHint { get; } = "The game doesn't record outcomes; enter one by hand.";
 
-    public string SelectedModeLabel => _selected?.Mode ?? string.Empty;
+    public string SelectedModeLabel => TarkovCompanion.App.Services.V2.Shell.GameModeLabel.OfStored(_selected?.Mode);
 
     public string SelectedDurationLabel => Duration(_selected);
 
@@ -945,7 +945,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             rows.Add(new DebriefRaidRowViewModel(
                 raid.Id,
                 raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
-                raid.Mode,
+                TarkovCompanion.App.Services.V2.Shell.GameModeLabel.OfStored(raid.Mode),
                 LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
                 LocalTime.Moment(raid.EndedUtc) ?? "In progress",
                 Duration(raid),
