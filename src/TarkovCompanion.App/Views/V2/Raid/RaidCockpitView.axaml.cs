@@ -4,7 +4,6 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.Views.V2.MapRenderer;
-using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.Views.V2.Raid;
@@ -18,59 +17,6 @@ public sealed partial class RaidCockpitView : UserControl
     public RaidCockpitView()
     {
         AvaloniaXamlLoader.Load(this);
-        SizeChanged += CockpitSizeChanged;
-        if (this.FindControl<Grid>("MapColumn") is { } mapColumn)
-        {
-            mapColumn.SizeChanged += MapColumnSizeChanged;
-        }
-    }
-
-    /// <summary>
-    /// [#266] The Raid plan's share of a narrow cockpit, and the strip's second row.
-    /// </summary>
-    /// <remarks>
-    /// Interface scale went to 200%, and a 1920-wide window became a 960-wide shell: the 360-wide
-    /// plan left the map 390 wide and the strip clipped Follow in half. The panel keeps the width
-    /// the player dragged, and gives way only when the map would be left under 600 wide.
-    /// </remarks>
-    private void CockpitSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
-    {
-        if (this.FindControl<Border>("ContextPanel") is { } panel)
-        {
-            panel.MaxWidth = ShellLayout.SidePanelMaximum(
-                eventArgs.NewSize.Width,
-                RaidCockpitViewModel.MinimumContextPanelWidth);
-        }
-    }
-
-    private void MapColumnSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
-    {
-        if (this.FindControl<Grid>("ControlStrip") is not { } strip ||
-            this.FindControl<Grid>("StripSecondRow") is not { } secondRow ||
-            this.FindControl<Control>("TrafficChip") is not { } chip ||
-            this.FindControl<Control>("PresentationControls") is not { } presentation)
-        {
-            return;
-        }
-
-        // Width only: moving controls to the second row changes the strip's height, never the
-        // column's width, so this cannot flip back and forth. A row of its own rather than a
-        // second row of the same Grid: a control spanning its Auto columns widened them, and the
-        // chip was left a column one letter wide.
-        var oneRow = ShellLayout.ControlStripFitsOneRow(eventArgs.NewSize.Width);
-        var host = oneRow ? strip : secondRow;
-        if (chip.Parent == host)
-        {
-            return;
-        }
-
-        ((Panel)chip.Parent!).Children.Remove(chip);
-        ((Panel)presentation.Parent!).Children.Remove(presentation);
-        Grid.SetColumn(chip, oneRow ? 2 : 0);
-        Grid.SetColumn(presentation, 1);
-        host.Children.Add(presentation);
-        host.Children.Add(chip);
-        secondRow.IsVisible = !oneRow;
     }
 
     /// <summary>

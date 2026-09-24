@@ -53,7 +53,7 @@ public sealed class InterfaceScaleTests
     {
         // The same rule the floors follow. A key held down should not come back round to where
         // it started without saying so, and there is no size beyond the largest.
-        Assert.Equal(2.0, ShellLayout.StepScale(2.0, 1), 6);
+        Assert.Equal(1.3, ShellLayout.StepScale(1.3, 1), 6);
         Assert.Equal(0.9, ShellLayout.StepScale(0.9, -1), 6);
     }
 

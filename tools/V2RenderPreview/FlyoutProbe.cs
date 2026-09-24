@@ -18,9 +18,7 @@ namespace TarkovCompanion.V2RenderPreview;
 /// </remarks>
 internal static class FlyoutProbe
 {
-    /// <param name="scrollToEnd">[#266] Scrolls the menu to its foot first: the Layers menu's traffic
-    /// legend sits below 520 pixels of layer switches.</param>
-    public static void Save(Window window, string automationId, string outputPath, Action<int> pump, bool scrollToEnd = false)
+    public static void Save(Window window, string automationId, string outputPath, Action<int> pump)
     {
         var button = window.GetVisualDescendants().OfType<Button>()
             .FirstOrDefault(candidate => AutomationProperties.GetAutomationId(candidate) == automationId)
@@ -32,12 +30,6 @@ internal static class FlyoutProbe
 
         flyout.ShowAt(button);
         pump(30);
-        if (scrollToEnd && (content as ScrollViewer ?? content.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()) is { } scroller)
-        {
-            scroller.ScrollToEnd();
-            pump(10);
-        }
-
         var host = TopLevel.GetTopLevel(content)
             ?? throw new InvalidOperationException("The flyout opened without a top level.");
         using var frame = host.CaptureRenderedFrame()

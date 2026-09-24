@@ -1,4 +1,3 @@
-using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -1068,16 +1067,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// The clock is <see cref="RaidPageViewModel.Clock"/>, the same string the top bar shows, not a
     /// second reading of the same raid in another format.
     /// </remarks>
-    /// <remarks>
-    /// [#266] Without a clock it says the state in the top bar's own words. It used to say "Not in
-    /// raid" for every other state, so before any log evidence the top bar read "Raid unknown" and
-    /// the strip under the map asserted "Not in raid" about the same moment.
-    /// </remarks>
-    public string RaidPhaseLabel => PhaseLabel(_raid.Clock, _stateStore.Current.Raid.State);
-
-    internal static string PhaseLabel(string clock, RaidLifecycleState state) => clock.Length > 0
-        ? clock
-        : V2ShellText.Get($"V2.Shell.Context.RaidState.{state}");
+    public string RaidPhaseLabel => _raid.Clock.Length > 0
+        ? _raid.Clock
+        : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
 
     /// <summary>
     /// False while no countdown is running, so the quiet phase label stands alone.
