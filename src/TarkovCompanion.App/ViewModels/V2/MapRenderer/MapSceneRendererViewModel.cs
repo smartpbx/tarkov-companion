@@ -2197,6 +2197,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         foreach (var group in groups)
         {
             var members = group.Select(index => eligible[index]).ToArray();
+            // [#307] A spot the objective route stops at is never folded into a count: on Customs
+            // the "5" and "7" boxes were stacks that had swallowed the route's numbered stops, and
+            // a count drawn over the stop's badge hid it just the same.
+            if (members.Any(member => member.HasPinBadge))
+            {
+                continue;
+            }
+
             foreach (var member in members)
             {
                 member.JoinStack(StackZoom);
@@ -3540,6 +3548,30 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public string PinBadge => IsPinMark ? Style?.Badge ?? string.Empty : string.Empty;
     public bool HasPinBadge => PinBadge.Length > 0;
 
+    /// <summary>The route step badge's diameter in screen DIPs, whatever the zoom.</summary>
+    internal const double PinBadgeExtent = 22;
+
+    /// <summary>
+    /// [#307] Cancels the mark's own zoom scale, so a step number reads at the same size on every
+    /// stop. Scaled with its pin, the number on a stop of its own came out at about 7px at fit zoom
+    /// on a 1080p screen, unreadable, while one on an objective's corner read at a different size.
+    /// </summary>
+    public double PinBadgeScale => 1 / MarkerScale;
+
+    /// <summary>
+    /// [#307] Where the step badge is centred inside the pin: on the head of a route stop's own
+    /// pin, where its number would have been, or on the top-right corner of an objective's shield,
+    /// so the objective's letter stays readable beside it.
+    /// </summary>
+    public Thickness PinBadgeMargin
+    {
+        get
+        {
+            var (x, y) = IsWaypointMark ? (PinWidth / 2, PinWidth / 2) : (PinWidth - 1, 1.0);
+            return new(x - (PinBadgeExtent / 2), y - (PinBadgeExtent / 2), 0, 0);
+        }
+    }
+
     /// <summary>A ping is a transient pulse, drawn at its own point, never a pin.</summary>
     public bool IsPingMark => Icon == MapSceneMarkerIcon.Ping;
 
@@ -3552,7 +3584,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public bool HasPinLabel => PinLabel.Length > 0;
 
     /// <summary>The letter shows, or a completed objective's check does — never both at once.</summary>
-    public bool ShowsPinLetter => HasPinLabel && !IsCompletedObjective;
+    public bool ShowsPinLetter => HasPinLabel && !IsCompletedObjective && !(IsWaypointMark && HasPinBadge);
 
     /// <summary>
     /// Issue 379: an objective the catalog gives no place for, that the player put there
@@ -3641,6 +3673,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
                 OnPropertyChanged(nameof(HitExtent));
                 OnPropertyChanged(nameof(HitCornerRadius));
                 OnPropertyChanged(nameof(PinHeadHitMargin));
+                OnPropertyChanged(nameof(PinBadgeScale));
+                OnPropertyChanged(nameof(PinBadgeMargin));
             }
         }
     }
@@ -3718,7 +3752,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// Where the marker sits in the stack of markers: the selected one on top, so two objectives
     /// standing on the same helicopter do not leave the one that was picked underneath the other.
     /// </summary>
-    public int ZOrder => IsSwitchMark && HasMarkerNumber ? 20 : _isSelected ? 10 : 0;
+    public int ZOrder => IsSwitchMark && HasMarkerNumber ? 20 : _isSelected ? 10 : HasPinBadge ? 5 : 0;
 
     public void UpdateCamera(MapSceneCamera camera)
     {
@@ -3730,6 +3764,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             OnPropertyChanged(nameof(HitExtent));
             OnPropertyChanged(nameof(HitCornerRadius));
             OnPropertyChanged(nameof(PinHeadHitMargin));
+            OnPropertyChanged(nameof(PinBadgeScale));
         }
 
         if (wasShown != IsShownOnPlan)
