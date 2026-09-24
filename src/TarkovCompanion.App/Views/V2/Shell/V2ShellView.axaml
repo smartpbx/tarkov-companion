@@ -136,6 +136,13 @@
       <Setter Property="Padding" Value="20,0,12,0" />
       <Setter Property="Height" Value="60" />
     </Style>
+    <!-- [#266] A shell narrower than ShellLayout.TopBarFullMinimumWidth (1920 at 175% and 200%)
+         drops the product name and the freshness words rather than cutting the Ready pill off the
+         right-hand edge. The freshness icon stays and carries the words as its tooltip; the name
+         stays in the tree as the toolbar's accessible name. -->
+    <Style Selector="Grid.v2-topbar-short StackPanel.v2-topbar-optional, Grid.v2-topbar-short TextBlock.v2-topbar-optional">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
     <Style Selector="Rectangle.v2-topbar-sep">
       <Setter Property="Width" Value="1" />
       <Setter Property="Height" Value="28" />
@@ -296,7 +303,7 @@
         <!-- Left to right like the concepts: name, map, mode, raid clock, data freshness; then
              search/setup/capture and the status pill at the far right. -->
         <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16">
-          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <StackPanel Grid.Column="0" Classes="v2-topbar-optional" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
             <TextBlock Classes="v2-heading-3" Text="{Binding AppName}" />
             <Border Classes="v2-topbar-tag" VerticalAlignment="Center">
               <TextBlock Classes="v2-label" Text="{Binding AppTag}" />
@@ -327,9 +334,10 @@
                        Text="{Binding RaidClockLabel}" />
           </StackPanel>
           <Rectangle Grid.Column="7" Classes="v2-topbar-sep" />
-          <StackPanel Grid.Column="8" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <StackPanel Grid.Column="8" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                      ToolTip.Tip="{Binding DataFreshnessLabel}">
             <Viewbox Width="20" Height="20"><Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" /></Viewbox>
-            <TextBlock Classes="v2-label" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-freshness"
+            <TextBlock Classes="v2-label v2-topbar-optional" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-freshness"
                        Text="{Binding DataFreshnessLabel}" />
           </StackPanel>
           <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsHeaderSearch}">

@@ -126,6 +126,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // being deleted outright.
     private readonly bool _developerMode;
     private V2WidthClass _widthClass = V2WidthClass.Expanded;
+    private double _effectiveWidth = double.PositiveInfinity;
     private V2ShellWindowPlacement? _window;
     private V2NavigationContinuity _continuity = V2NavigationContinuity.Desktop;
     private int _regionIndex = -1;
@@ -982,12 +983,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             }
 
             _navigationRail = value;
-            foreach (var destination in PrimaryDestinations)
-            {
-                destination.ShowsLabel = value == V2NavigationRail.Labels;
-            }
-
-            SetupDestination.ShowsLabel = value == V2NavigationRail.Labels;
+            ApplyRailLabels();
             OnPropertyChanged(nameof(NavigationRail));
             OnPropertyChanged(nameof(ShowsNavigationRail));
             OnPropertyChanged(nameof(ShowsNavigationLauncher));
@@ -1002,7 +998,26 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <summary>The floating way back to the destinations while the rail is away.</summary>
     public bool ShowsNavigationLauncher => UsesRailNavigation && NavigationRail == V2NavigationRail.Hidden;
 
-    public double NavigationRailWidth => NavigationRail == V2NavigationRail.Labels ? 168 : 60;
+    public double NavigationRailWidth => ShowsRailLabels ? 168 : 60;
+
+    /// <summary>[#266] The rail's words, when they were chosen and the shell has room for them.</summary>
+    /// <remarks>
+    /// At 200% a 1920-wide window is a 960-wide shell, and the labelled rail took a sixth of it.
+    /// The choice itself is kept: widen the window or step the scale back and the words return.
+    /// </remarks>
+    public bool ShowsRailLabels =>
+        NavigationRail == V2NavigationRail.Labels && ShellLayout.RailFitsLabels(_effectiveWidth);
+
+    private void ApplyRailLabels()
+    {
+        foreach (var destination in PrimaryDestinations)
+        {
+            destination.ShowsLabel = ShowsRailLabels;
+        }
+
+        SetupDestination.ShowsLabel = ShowsRailLabels;
+        OnPropertyChanged(nameof(NavigationRailWidth));
+    }
 
     public string NavigationRailStateLabel => V2ShellText.Get(NavigationRail switch
     {
@@ -1390,6 +1405,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
     public void UpdateEffectiveWidth(double effectiveWidth, string? focusedAutomationId = null)
     {
+        var hadRailLabels = ShowsRailLabels;
+        _effectiveWidth = effectiveWidth;
+        if (hadRailLabels != ShowsRailLabels)
+        {
+            ApplyRailLabels();
+        }
+
         var width = V2ShellAdaptation.Classify(effectiveWidth);
         if (WidthClass == width)
         {
