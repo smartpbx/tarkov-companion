@@ -168,6 +168,12 @@ internal static class Program
                 MonitorService: monitorDemo,
                 WindowPlacementController: placementDemo));
 
+            // [#314] --ui-culture qps-ploc: the pseudo-locale, to see untranslated and clipping copy.
+            if (StringOption(args, "--ui-culture") is { } uiCulture)
+            {
+                TarkovCompanion.App.Localization.UiText.Use(uiCulture);
+            }
+
             if (args.Contains("--learn-mode"))
             {
                 services.GetRequiredService<LearnModeSetting>().IsEnabled = true;

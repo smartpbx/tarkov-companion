@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Raids;
 
@@ -74,18 +75,18 @@ public sealed partial class DebriefWorkspaceViewModel
     public bool HasArchived => ArchivedCount > 0 || ShowArchived;
 
     public string ArchiveToggleLabel => ShowArchived
-        ? "Back to raids"
-        : $"Archived ({ArchivedCount.ToString(CultureInfo.CurrentCulture)})";
+        ? DebriefText.BackToRaids
+        : DebriefText.ArchivedCount(ArchivedCount);
 
     public ICommand ToggleArchivedCommand => _toggleArchived ??= new DelegateCommand(() => ShowArchived = !ShowArchived);
 
     public bool SelectedIsArchived => SelectedRecord?.IsArchived ?? false;
 
-    public string ArchiveActionLabel => SelectedIsArchived ? "Restore raid" : "Archive raid";
+    public string ArchiveActionLabel => SelectedIsArchived ? DebriefText.RestoreRaid : DebriefText.ArchiveRaid;
 
     public string ArchiveHint => SelectedIsArchived
-        ? "Archived: left out of the list, stats and charts."
-        : "Hides it from the list, stats and charts. Nothing is deleted.";
+        ? DebriefText.ArchivedHint
+        : DebriefText.ArchiveHint;
 
     public ICommand ArchiveSelectedCommand => _archiveSelected ??= new AsyncDelegateCommand(ToggleArchiveSelectedAsync);
 
@@ -93,11 +94,11 @@ public sealed partial class DebriefWorkspaceViewModel
     public string SelectedOfferedLabel => SelectedRecord switch
     {
         null => string.Empty,
-        { OfferedExtracts: { Count: > 0 } offered } => "Offered: " + string.Join(", ", offered),
-        _ => "Offered extracts not recorded for this raid.",
+        { OfferedExtracts: { Count: > 0 } offered } => DebriefText.Offered(string.Join(", ", offered)),
+        _ => DebriefText.OfferedNotRecordedForRaid,
     };
 
-    public string SelectedExtractUsedLabel => SelectedRecord?.UsedExtract ?? "Not recorded";
+    public string SelectedExtractUsedLabel => SelectedRecord?.UsedExtract ?? DebriefText.NotRecorded;
 
     public bool HasSelectedExtractUsed => SelectedRecord?.UsedExtract is not null;
 
@@ -142,26 +143,26 @@ public sealed partial class DebriefWorkspaceViewModel
         RaiseContext();
     }
 
-    private string CoverageMapLabel(string? mapId) => mapId is { Length: > 0 } id ? MapLabel(id) : "Unknown map";
+    private string CoverageMapLabel(string? mapId) => mapId is { Length: > 0 } id ? MapLabel(id) : DebriefText.UnknownMap;
 
     private DebriefMapCoverageRowViewModel CoverageRow(RaidMapCoverage map)
     {
         var culture = CultureInfo.CurrentCulture;
         var extracts = map.Offered.Count == 0
-            ? "Offered not recorded"
-            : string.Create(culture, $"{map.UsedOfOffered.Count} of {map.Offered.Count} used");
+            ? DebriefText.OfferedNotRecorded
+            : DebriefText.UsedOfOffered(map.UsedOfOffered.Count, map.Offered.Count);
         var note = map.RaidsWithOffered == map.Raids
             ? string.Empty
-            : string.Create(culture, $"{map.RaidsWithOffered} of {CountLabel(map.Raids, "raid")}");
+            : DebriefText.Of(map.RaidsWithOffered, DebriefText.RaidCount(map.Raids));
         if (map.UsedUnchecked > 0)
         {
             note = (note.Length == 0 ? string.Empty : note + " · ")
-                + string.Create(culture, $"{map.UsedUnchecked} used, no list");
+                + DebriefText.UsedNoList(map.UsedUnchecked);
         }
 
         return new(
             MapLabel(map.MapId),
-            CountLabel(map.Raids, "raid"),
+            DebriefText.RaidCount(map.Raids),
             map.Extracted.ToString(culture),
             map.Died.ToString(culture),
             map.SurvivalRate is { } rate ? DebriefSurvivalChartViewModel.Percent(rate) : "—",
@@ -208,7 +209,7 @@ public sealed partial class DebriefWorkspaceViewModel
         var name = RaidExtractUsed.Normalize(extract);
         if (name is null && !string.IsNullOrWhiteSpace(extract))
         {
-            Status = $"Enter an extract name up to {RaidExtractUsed.MaximumLength} characters.";
+            Status = DebriefText.ExtractTooLong(RaidExtractUsed.MaximumLength);
             return;
         }
 
@@ -222,7 +223,7 @@ public sealed partial class DebriefWorkspaceViewModel
             CancellationToken.None).ConfigureAwait(true);
         await LoadAsync(CancellationToken.None).ConfigureAwait(true);
         await SelectRaidAsync(raidId, CancellationToken.None).ConfigureAwait(true);
-        Status = name is null ? "Cleared the extract used." : $"Extract used: {name}.";
+        Status = name is null ? DebriefText.ClearedExtract : DebriefText.ExtractUsedStatus(name);
     }
 
     /// <summary>Archives the selected raid, or restores it when it is archived.</summary>
@@ -246,6 +247,6 @@ public sealed partial class DebriefWorkspaceViewModel
         // The raid has just left the list being shown; keep it in the panel so the action can be
         // reversed from where it was taken.
         await SelectRaidAsync(raidId, CancellationToken.None).ConfigureAwait(true);
-        Status = archive ? "Raid archived. Restore it from Archived." : "Raid restored.";
+        Status = archive ? DebriefText.RaidArchived : DebriefText.RaidRestored;
     }
 }

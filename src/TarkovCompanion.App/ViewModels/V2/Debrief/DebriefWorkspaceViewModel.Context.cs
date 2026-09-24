@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Core.Domain.Profiles;
@@ -45,18 +46,18 @@ public sealed partial class DebriefWorkspaceViewModel
     public bool HasOtherContexts => OtherContextCount > 0 || ShowAllContexts;
 
     public string ContextToggleLabel => ShowAllContexts
-        ? "This profile only"
-        : $"Show all ({OtherContextCount.ToString(CultureInfo.CurrentCulture)})";
+        ? DebriefText.ThisProfileOnly
+        : DebriefText.ShowAll(OtherContextCount);
 
     public ICommand ToggleContextCommand => _toggleContext ??= new DelegateCommand(() => ShowAllContexts = !ShowAllContexts);
 
-    public string SelectedWipeLabel => SelectedRecord?.Wipe ?? "Unknown";
+    public string SelectedWipeLabel => SelectedRecord?.Wipe ?? DebriefText.Unknown;
 
     /// <summary>What the list and its totals cover, after the count in the status line.</summary>
     private string ContextSuffix => _context.Active is not { } active
         ? string.Empty
         : ShowAllContexts
-            ? " · all modes and wipes"
+            ? " · " + DebriefText.AllModesAndWipes
             : $" · {GameModeLabel.Of(active.Context.Mode)} · {active.Context.WipeSeason.Value}";
 
     /// <summary>Reads the context once per load and places every raid in it.</summary>

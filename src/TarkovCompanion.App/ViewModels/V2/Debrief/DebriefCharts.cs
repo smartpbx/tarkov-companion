@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Common;
@@ -54,7 +55,7 @@ public abstract class DebriefChartViewModel : BindableViewModel
 
     public bool ShowChart => !ShowTable && HasData;
 
-    public string ToggleLabel => ShowTable ? "Chart" : "Table";
+    public string ToggleLabel => ShowTable ? DebriefText.Chart : DebriefText.Table;
 
     public ICommand ToggleTableCommand { get; }
 
@@ -84,23 +85,21 @@ public sealed class DebriefValueChartViewModel : DebriefChartViewModel
 
     public override bool HasData => Values.Count > 0;
 
-    public string EmptyLabel => "Enter a raid's value to chart it.";
+    public string EmptyLabel => DebriefText.ValueChartEmpty;
 
     internal void Update(IReadOnlyList<RaidValuePoint> points, Func<string?, string> mapLabel)
     {
         Values = [.. points.Select(point => (double)point.ValueRoubles)];
         Rows = [.. points.Select(point => new DebriefValueRowViewModel(
-            LocalTime.Moment(point.StartedUtc) ?? "Unknown",
+            LocalTime.Moment(point.StartedUtc) ?? DebriefText.Unknown,
             mapLabel(point.MapId),
             Roubles(point.ValueRoubles)))];
         MaxLabel = points.Count == 0 ? string.Empty : Roubles(points.Max(point => point.ValueRoubles));
         FirstLabel = points.Count == 0 ? string.Empty : LocalTime.Moment(points[0].StartedUtc) ?? string.Empty;
         LastLabel = points.Count < 2 ? string.Empty : LocalTime.Moment(points[^1].StartedUtc) ?? string.Empty;
         Summary = points.Count == 0
-            ? "No raid has a value entered."
-            : string.Create(
-                CultureInfo.CurrentCulture,
-                $"{points.Count} raids with a value, highest {MaxLabel}, average {Roubles((long)points.Average(point => point.ValueRoubles))}.");
+            ? DebriefText.NoValueEntered
+            : DebriefText.ValueSummary(points.Count, MaxLabel, Roubles((long)points.Average(point => point.ValueRoubles)));
         RaiseData();
     }
 
@@ -114,7 +113,7 @@ public sealed class DebriefSurvivalChartViewModel : DebriefChartViewModel
 
     public override bool HasData => Bars.Count > 0;
 
-    public string EmptyLabel => "Record raid outcomes to chart survival.";
+    public string EmptyLabel => DebriefText.SurvivalChartEmpty;
 
     internal void Update(IReadOnlyList<RaidMapCoverage> maps, Func<string?, string> mapLabel)
     {
@@ -124,9 +123,9 @@ public sealed class DebriefSurvivalChartViewModel : DebriefChartViewModel
                 mapLabel(map.MapId),
                 map.SurvivalRate!.Value,
                 Percent(map.SurvivalRate.Value),
-                string.Create(CultureInfo.CurrentCulture, $"{map.Extracted} of {map.OutcomesRecorded}")))];
+                DebriefText.Of(map.Extracted, map.OutcomesRecorded)))];
         Summary = Bars.Count == 0
-            ? "No raid has an outcome recorded."
+            ? DebriefText.NoOutcomeRecorded
             : string.Join("; ", Bars.Select(bar => $"{bar.MapLabel} {bar.RateLabel}")) + ".";
         RaiseData();
     }

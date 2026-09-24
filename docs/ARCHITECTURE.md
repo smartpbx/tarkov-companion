@@ -112,6 +112,18 @@ name the player's offset once in the header. Tests pin a zone that is never UTC
 (`LocalTime.UseZone`), because a UTC-only CI box prints local and UTC identically and hid this bug;
 `LocalTimeRuleContractTests` fails when a call site goes around the helper.
 
+## Words the player reads
+
+Copy is moving from `V2ShellText` into string tables (#314): `src/TarkovCompanion.App/Localization/Strings/<culture>.json`,
+flat key to text, or key to `{ "one": …, "other": … }` for a counted phrase. `UiText` picks the culture once at
+composition (`Config/interface-language.json`'s `culture`, else the system UI culture) and falls back to English key by
+key, logging a missing key once. Arguments are formatted in the current culture, and times arrive already formatted by
+`LocalTime`. `qps-ploc` is a pseudo-locale (accented, ~35% longer, bracketed) that shows untranslated copy and clipping;
+set it with `TARKOV_COMPANION_UI_CULTURE=qps-ploc` or V2RenderPreview's `--ui-culture qps-ploc`. Debrief is migrated;
+to migrate the next workspace, add its keys to `en.json` under its own prefix, add a typed accessor like `DebriefText`
+(a property per label, a method per format or count), bind the view with `{x:Static l:<Workspace>Text.Name}`, replace
+the view model's literals, and render it in both cultures. `scripts/sweep-prose.sh` scans the tables.
+
 ## Cross-platform contract
 
 Linux must build and test all domain, application, data, recognition, simulator, and demo behavior. Windows-specific code is guarded behind interfaces and runtime OS checks. The self-contained `win-x64` publish is produced on Linux and proven in the Windows VM with synthetic permitted inputs.
