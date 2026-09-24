@@ -31,13 +31,10 @@ public sealed partial class PlanWorkspaceView : UserControl
     /// <summary>The map card's own margins, which are not available to the plan.</summary>
     private const double MapCardMargins = 32;
 
-    /// <summary>How wide Requirements and Open in Raid are when they stand beside the objectives.</summary>
-    private const double SidePieceWidthBelow = 380;
-
     /// <summary>What the panel takes from the width when it sits beside the map.</summary>
     private const double PanelWidthBeside = 440;
 
-    private MapPanelPlacement? _placement;
+    private PlanPanelArrangement? _arrangement;
     private PlanWorkspaceViewModel? _watchedPlan;
     private MapSceneRendererViewModel? _watchedRenderer;
 
@@ -149,44 +146,59 @@ public sealed partial class PlanWorkspaceView : UserControl
             PanelMinimumHeightBelow,
             aspect);
 
-        if (placement == MapPanelPlacement.Below)
+        // [#828] At 150-200% interface scale the shell is too narrow for the arrangement the
+        // placement alone would pick; see PlanPanelFit.
+        var arrangement = PlanPanelFit.Arrange(placement, forMapAndPanel, available.Height, PanelWidthBeside);
+
+        if (arrangement is PlanPanelArrangement.BelowSideBySide or PlanPanelArrangement.BelowStacked)
         {
+            var sideBySide = arrangement == PlanPanelArrangement.BelowSideBySide;
+            var panelHeight = sideBySide ? PanelMinimumHeightBelow : PlanPanelFit.StackedPanelMinimumHeight;
+
             // The card takes the height the plan can actually fill and the panel takes the rest,
             // so neither of them is a box with nothing in it.
             var mapHeight = Math.Min(
-                available.Height - PanelMinimumHeightBelow,
+                available.Height - panelHeight,
                 ((forMapAndPanel - MapCardMargins) / aspect) + MapCardMargins);
-            if (_placement != placement)
+            if (_arrangement != arrangement)
             {
                 Grid.SetColumn(PlanPanel, 1);
                 Grid.SetRow(PlanPanel, 1);
                 Grid.SetRowSpan(PlanPanel, 1);
                 PlanPanel.Width = double.NaN;
                 PlanPanel.Height = double.NaN;
+                PlanMapCard.IsVisible = true;
                 PlanBody.RowDefinitions = new RowDefinitions("Auto,*");
                 // The map's name is the heading of the card directly above it here, so the panel
                 // does not say it a second time and spends the rows on objectives instead.
                 SetPanelHeadingVisible(false);
-                ArrangePanel(sideBySide: true);
+                ArrangePanel(sideBySide);
+            }
+
+            if (sideBySide)
+            {
+                SetSidePieceWidth(PlanPanelFit.SidePieceWidth(forMapAndPanel));
             }
 
             PlanMapCard.Height = Math.Max(0, mapHeight);
-            _placement = placement;
+            _arrangement = arrangement;
             return;
         }
 
-        if (_placement == placement)
+        if (_arrangement == arrangement)
         {
             return;
         }
 
-        _placement = placement;
-        Grid.SetColumn(PlanPanel, 2);
+        _arrangement = arrangement;
+        var panelOnly = arrangement == PlanPanelArrangement.PanelOnly;
+        Grid.SetColumn(PlanPanel, panelOnly ? 1 : 2);
         Grid.SetRow(PlanPanel, 0);
         Grid.SetRowSpan(PlanPanel, 2);
-        PlanPanel.Width = PanelWidthBeside;
+        PlanPanel.Width = panelOnly ? double.NaN : PanelWidthBeside;
         PlanPanel.Height = double.NaN;
         PlanMapCard.Height = double.NaN;
+        PlanMapCard.IsVisible = !panelOnly;
         PlanBody.RowDefinitions = new RowDefinitions("*,Auto");
         SetPanelHeadingVisible(true);
         ArrangePanel(sideBySide: false);
@@ -218,7 +230,6 @@ public sealed partial class PlanWorkspaceView : UserControl
         Grid.SetColumnSpan(PlanRequirementsCard, sideBySide ? 1 : 2);
         // The starred row beside the objectives, not the Auto row under them.
         Grid.SetRow(PlanRequirementsCard, sideBySide ? 1 : 2);
-        PlanRequirementsCard.Width = sideBySide ? SidePieceWidthBelow : double.NaN;
         PlanRequirementsCard.Margin = sideBySide ? new(16, 8, 16, 12) : new(16, 0, 16, 12);
         PlanRequirementsCard.VerticalAlignment = sideBySide
             ? Avalonia.Layout.VerticalAlignment.Top
@@ -226,7 +237,21 @@ public sealed partial class PlanWorkspaceView : UserControl
 
         Grid.SetColumn(PlanPanelActions, sideBySide ? 1 : 0);
         Grid.SetColumnSpan(PlanPanelActions, sideBySide ? 1 : 2);
-        PlanPanelActions.Width = sideBySide ? SidePieceWidthBelow : double.NaN;
+        SetSidePieceWidth(sideBySide ? PlanPanelFit.SidePieceFullWidth : double.NaN);
+    }
+
+    /// <summary>How wide Requirements and Open in Raid are when they stand beside the objectives.</summary>
+    private void SetSidePieceWidth(double width)
+    {
+        if (PlanRequirementsCard is not null)
+        {
+            PlanRequirementsCard.Width = width;
+        }
+
+        if (PlanPanelActions is not null)
+        {
+            PlanPanelActions.Width = width;
+        }
     }
 
     private void SetPanelHeadingVisible(bool visible)
