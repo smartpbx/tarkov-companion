@@ -129,7 +129,10 @@ key from the table as `Shell.*`; the map renderer's `Map.*` words are in the tab
 (shipped tables only; the pseudo-locale in developer mode), taking effect at the next start. Where Core or Application decides
 something the player reads (the raid clock, a route's reasons, a key's verdict, a settings diff row), it returns a
 code and its numbers (`RaidClock`, `TrafficRouteReason`, `KeyReasonCode`, `SetupSettingsField`) and the App's accessor
-puts it into words; no App resource moves down a layer.
+puts it into words; no App resource moves down a layer. A family of sentences is a `Phrase` (Core.Common): a code from an
+enum marked `[PhraseCodes("Key.Prefix")]` plus its arguments, said by `PhraseText.Say`; a test checks every code has
+English. A record that is stored or relayed (recommendation reasons, quest import reasons, the scanner line) keeps its
+fixed English and carries the phrase beside it, unserialised. Rouble, k/M and kg suffixes go through `UnitText`.
 
 ## Feature flags
 

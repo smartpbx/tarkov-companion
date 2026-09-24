@@ -456,10 +456,5 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
-    private static string Roubles(long value) => value switch
-    {
-        >= 1_000_000 => "₽" + (value / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture) + "M",
-        >= 10_000 => "₽" + (value / 1_000d).ToString("0", CultureInfo.CurrentCulture) + "K",
-        _ => "₽" + value.ToString("N0", CultureInfo.CurrentCulture),
-    };
+    private static string Roubles(long value) => UnitText.RoublesShort(value, shortFrom: 10_000);
 }

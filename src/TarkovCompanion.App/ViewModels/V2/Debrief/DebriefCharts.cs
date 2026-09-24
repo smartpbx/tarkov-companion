@@ -103,7 +103,7 @@ public sealed class DebriefValueChartViewModel : DebriefChartViewModel
         RaiseData();
     }
 
-    private static string Roubles(long value) => string.Create(CultureInfo.CurrentCulture, $"₽{value:N0}");
+    private static string Roubles(long value) => UnitText.Roubles(value);
 }
 
 /// <summary>Survival rate per map: extracted over raids whose outcome is recorded.</summary>

@@ -59,21 +59,19 @@ public sealed class LoadoutIntelligenceService
             }
             else
             {
-                findings.Issue(
-                    $"No compatibility data is available for '{itemId}'.",
-                    "The loaded catalog has no entry for this item, so it could not be checked against the rest of the kit or priced. It counts as unpriced and unweighed in the totals.");
+                findings.Issue(new(LoadoutFindingKind.NotInCatalog, Item: itemId));
             }
         }
 
-        ValidateCategory(selection.WeaponItemId, ItemCategory.Weapon, "weapon", findings);
-        ValidateCategory(selection.AmmunitionItemId, ItemCategory.Ammunition, "ammunition", findings);
-        ValidateCategory(selection.ArmorItemId, ItemCategory.Armor, "armor", findings);
-        ValidateCategories(selection.PlateItemIds, ItemCategory.Plate, "plate", findings);
-        ValidateCategory(selection.HelmetItemId, ItemCategory.Helmet, "helmet", findings);
-        ValidateCategory(selection.HeadsetItemId, ItemCategory.Headset, "headset", findings);
-        ValidateCategory(selection.RigItemId, ItemCategory.Rig, "rig", findings);
-        ValidateCategory(selection.BackpackItemId, ItemCategory.Backpack, "backpack", findings);
-        ValidateCategories(selection.MedicalItemIds, ItemCategory.Medicine, "medical", findings);
+        ValidateCategory(selection.WeaponItemId, ItemCategory.Weapon, LoadoutSlotWord.Weapon, findings);
+        ValidateCategory(selection.AmmunitionItemId, ItemCategory.Ammunition, LoadoutSlotWord.Ammunition, findings);
+        ValidateCategory(selection.ArmorItemId, ItemCategory.Armor, LoadoutSlotWord.Armor, findings);
+        ValidateCategories(selection.PlateItemIds, ItemCategory.Plate, LoadoutSlotWord.Plate, findings);
+        ValidateCategory(selection.HelmetItemId, ItemCategory.Helmet, LoadoutSlotWord.Helmet, findings);
+        ValidateCategory(selection.HeadsetItemId, ItemCategory.Headset, LoadoutSlotWord.Headset, findings);
+        ValidateCategory(selection.RigItemId, ItemCategory.Rig, LoadoutSlotWord.Rig, findings);
+        ValidateCategory(selection.BackpackItemId, ItemCategory.Backpack, LoadoutSlotWord.Backpack, findings);
+        ValidateCategories(selection.MedicalItemIds, ItemCategory.Medicine, LoadoutSlotWord.Medical, findings);
         CheckWeaponAndAmmunition(selection, findings);
         CheckMagazines(selection, findings);
         CheckPlates(selection, findings);
@@ -95,23 +93,22 @@ public sealed class LoadoutIntelligenceService
 
         if (ammo is not null && !ammo.ObtainableForProfile)
         {
-            findings.Warn(
-                "The selected ammunition is not obtainable for the active profile rules.",
-                "The rules of the active profile (its game mode and what it has unlocked) say this round cannot be bought or found yet, so a kit built around it cannot be assembled as shown.");
+            findings.Warn(new(LoadoutFindingKind.AmmunitionNotObtainable));
         }
 
         if (_ammoKitWarningPolicy.Warns(ammoTier, totalCost))
         {
-            findings.Warn(
-                FormattableString.Invariant($"{ammoTier}-tier ammunition is weak relative to this {totalCost:N0}-rouble kit."),
-                FormattableString.Invariant($"A rule of thumb, not a ballistic result: ammunition in tier {string.Join(" or ", _ammoKitWarningPolicy.WeakTiers.Order(StringComparer.Ordinal))} is treated as weak, and a kit costing {_ammoKitWarningPolicy.KitCostThresholdRoubles:N0} roubles or more is a costly one to load with it. It is shown only when every item in the kit has a price."));
+            findings.Warn(new(
+                LoadoutFindingKind.WeakAmmunitionForKit,
+                Tier: ammoTier,
+                Roubles: totalCost,
+                WeakTiers: [.. _ammoKitWarningPolicy.WeakTiers.Order(StringComparer.Ordinal)],
+                ThresholdRoubles: _ammoKitWarningPolicy.KitCostThresholdRoubles));
         }
 
         if (selection.ArmorItemId is not null && selection.PlateItemIds.Count == 0 && !StatesNoPlateSlots(selection.ArmorItemId))
         {
-            findings.Warn(
-                "Armor is selected without any known plate selection.",
-                "This armor takes plates in its plate slots, and the protection it gives comes from them. With none selected the slots are empty.");
+            findings.Warn(new(LoadoutFindingKind.ArmorWithoutPlates));
         }
 
         return new(
@@ -124,8 +121,7 @@ public sealed class LoadoutIntelligenceService
             costCoverage,
             weightCoverage,
             knownCost,
-            knownWeight,
-            findings.Why);
+            knownWeight);
     }
 
     // True only when the catalog says so: an armor with a stated class and no plate slots (a soft
@@ -146,9 +142,12 @@ public sealed class LoadoutIntelligenceService
         if (weapon.Caliber is not null && ammo.Caliber is not null &&
             !CaliberKey.Matches(weapon.Caliber, ammo.Caliber))
         {
-            findings.Issue(
-                $"{ammo.Name} ({CaliberText.Describe(ammo.Caliber, ammo.Name)}) does not match {weapon.Name} ({CaliberText.Describe(weapon.Caliber, weapon.Name)}).",
-                "A weapon fires only its own caliber. The catalog lists a caliber for both and they differ, so this weapon cannot use this ammunition.");
+            findings.Issue(new(
+                LoadoutFindingKind.CaliberMismatch,
+                Item: ammo.Name,
+                ItemCaliber: CaliberText.Describe(ammo.Caliber, ammo.Name),
+                Other: weapon.Name,
+                OtherCaliber: CaliberText.Describe(weapon.Caliber, weapon.Name)));
         }
     }
 
@@ -165,18 +164,17 @@ public sealed class LoadoutIntelligenceService
                 magazine.CompatibleWeaponItemIds.Count > 0 &&
                 !magazine.CompatibleWeaponItemIds.Contains(selection.WeaponItemId))
             {
-                findings.Issue(
-                    $"{magazine.Name} is not compatible with the selected weapon.",
-                    "The catalog lists the weapons this magazine fits, and the selected weapon is not one of them.");
+                findings.Issue(new(LoadoutFindingKind.MagazineDoesNotFitWeapon, Item: magazine.Name));
             }
 
             if (TryGet(selection.AmmunitionItemId, out var ammo) &&
                 magazine.Caliber is not null && ammo.Caliber is not null &&
                 !CaliberKey.Matches(magazine.Caliber, ammo.Caliber))
             {
-                findings.Issue(
-                    $"{magazine.Name} does not accept {CaliberText.Describe(ammo.Caliber, ammo.Name)} ammunition.",
-                    "A magazine holds one caliber. The catalog gives this magazine's caliber and the selected round's, and they differ.");
+                findings.Issue(new(
+                    LoadoutFindingKind.MagazineCaliberMismatch,
+                    Item: magazine.Name,
+                    OtherCaliber: CaliberText.Describe(ammo.Caliber, ammo.Name)));
             }
         }
     }
@@ -193,9 +191,7 @@ public sealed class LoadoutIntelligenceService
             if (plate.CompatibleParentItemIds.Count > 0 &&
                 !plate.CompatibleParentItemIds.Contains(selection.ArmorItemId))
             {
-                findings.Issue(
-                    $"{plate.Name} is not compatible with the selected armor.",
-                    "A body armor lists the plates that fit each of its plate slots. This plate is not on the selected armor's list, so it would not fit.");
+                findings.Issue(new(LoadoutFindingKind.PlateDoesNotFit, Item: plate.Name));
             }
         }
     }
@@ -203,21 +199,19 @@ public sealed class LoadoutIntelligenceService
     private void ValidateCategory(
         string? itemId,
         ItemCategory category,
-        string slot,
+        LoadoutSlotWord slot,
         Findings findings)
     {
         if (TryGet(itemId, out var item) && item.Category != category)
         {
-            findings.Issue(
-                $"{item.Name} is not valid for the {slot} slot.",
-                $"Each slot takes one kind of item. The catalog files this item under {item.Category}, which is not what the {slot} slot takes, so it belongs in a different slot.");
+            findings.Issue(new(LoadoutFindingKind.WrongSlot, Item: item.Name, Slot: slot, Category: item.Category.ToString()));
         }
     }
 
     private void ValidateCategories(
         IEnumerable<string> itemIds,
         ItemCategory category,
-        string slot,
+        LoadoutSlotWord slot,
         Findings findings)
     {
         foreach (var itemId in itemIds.Distinct(StringComparer.Ordinal))
@@ -252,25 +246,15 @@ public sealed class LoadoutIntelligenceService
         foreach (var itemId in selection.MedicalItemIds) yield return itemId;
     }
 
-    /// <summary>The issues and warnings found so far, each with the plain reason it was raised.</summary>
+    /// <summary>The issues and warnings found so far; the App says each and why it was raised.</summary>
     private sealed class Findings
     {
-        public List<string> Issues { get; } = [];
+        public List<LoadoutFinding> Issues { get; } = [];
 
-        public List<string> Warnings { get; } = [];
+        public List<LoadoutFinding> Warnings { get; } = [];
 
-        public Dictionary<string, string> Why { get; } = new(StringComparer.Ordinal);
+        public void Issue(LoadoutFinding finding) => Issues.Add(finding);
 
-        public void Issue(string message, string why)
-        {
-            Issues.Add(message);
-            Why[message] = why;
-        }
-
-        public void Warn(string message, string why)
-        {
-            Warnings.Add(message);
-            Why[message] = why;
-        }
+        public void Warn(LoadoutFinding finding) => Warnings.Add(finding);
     }
 }

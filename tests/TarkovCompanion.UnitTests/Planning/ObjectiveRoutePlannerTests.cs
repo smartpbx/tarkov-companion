@@ -18,7 +18,7 @@ public sealed class ObjectiveRoutePlannerTests
         Assert.Equal(["near", "middle", "far"], route.Steps.Select(step => step.ObjectiveId));
         Assert.Equal([2d, 3d, 4d], route.Steps.Select(step => step.LegDistanceMetres));
         Assert.Equal(9, route.TotalDistanceMetres);
-        Assert.All(route.Steps, step => Assert.StartsWith("Nearest unvisited objective from", step.Reason, StringComparison.Ordinal));
+        Assert.All(route.Steps, step => Assert.Equal(ObjectiveRouteReasonKind.NearestFrom, step.Reason.Kind));
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public sealed class ObjectiveRoutePlannerTests
                 "2-opt moved it from step 2 to shorten the whole route",
                 "Still step 4; 2-opt reordered the stops before it",
             ],
-            route.Steps.Select(step => step.Reason));
+            route.Steps.Select(step => English(step.Reason)));
     }
 
     [Fact]
@@ -106,4 +106,11 @@ public sealed class ObjectiveRoutePlannerTests
 
     private static ObjectiveRouteStop Stop(string id, double x, double y) =>
         new(id, id, new MapScenePoint(x, y));
+
+    /// <summary>The reason as the Plan page says it in English.</summary>
+    private static string English(ObjectiveRouteReason reason)
+    {
+        using var scope = TarkovCompanion.App.Localization.UiText.Scope(TarkovCompanion.App.Localization.UiText.Create("en", _ => { }));
+        return TarkovCompanion.App.Localization.PlanText.ObjectiveRouteReason(reason);
+    }
 }

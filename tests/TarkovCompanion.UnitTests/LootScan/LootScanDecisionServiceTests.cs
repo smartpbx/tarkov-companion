@@ -9,6 +9,7 @@ using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recommendations;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.UnitTests.Localization;
 
 namespace TarkovCompanion.UnitTests.LootScan;
 
@@ -1707,9 +1708,9 @@ public sealed class LootScanDecisionServiceTests
             reviewedContentSha256,
             initiatingDeviceId,
             recommendationContext);
-        return new LootScanDecisionService(
+        return AdviceWordsCheck.SaidAsBefore(new LootScanDecisionService(
             maximumPlacementCellVisits: maximumPlacementCellVisits,
-            maximumRecommendationWorkVisits: maximumRecommendationWorkVisits).Evaluate(request);
+            maximumRecommendationWorkVisits: maximumRecommendationWorkVisits).Evaluate(request));
     }
 
     private static LootScanResult Evaluate(
@@ -1736,7 +1737,7 @@ public sealed class LootScanDecisionServiceTests
             carriedCoverageComplete,
             recommendations ?? [],
             policies ?? []);
-        return new LootScanDecisionService().Evaluate(request);
+        return AdviceWordsCheck.SaidAsBefore(new LootScanDecisionService().Evaluate(request));
     }
 
     private static LootScanRequest Request(

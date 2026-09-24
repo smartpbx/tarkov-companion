@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
@@ -146,7 +147,7 @@ public sealed class GroupRelayVersionMatrixTests
         Assert.Equal(
             reply["waypoints"]!.AsArray().Select(item => MarkPalette.Normalize(item!["color"]?.GetValue<string>())),
             group.Waypoints.Select(waypoint => waypoint.Colour));
-        Assert.DoesNotContain("Relay speaks", group.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Relay speaks", Words(group), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -186,7 +187,7 @@ public sealed class GroupRelayVersionMatrixTests
         Assert.True(await WaitAsync(() => store.Current.Group.Members.Any(member => member.Name == "NewGeo")));
 
         Assert.True(store.Current.Group.IsSharing);
-        Assert.Contains("Relay speaks 2", store.Current.Group.Detail, StringComparison.Ordinal);
+        Assert.Contains("Relay speaks 2", Words(store.Current.Group), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -290,6 +291,13 @@ public sealed class GroupRelayVersionMatrixTests
     }
 
     private static readonly GroupDrawingView TodaysLine = new("line-1", "customs", "ground", [(10.0, 20.0), (15.5, 25.3), (30.0, 40.0)]);
+
+    /// <summary>[#314] The status line in the English the player reads.</summary>
+    private static string Words(GroupSnapshot group)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        return SetupText.GroupStatus(group);
+    }
 
     private static string CurrentMember(string name) => JsonSerializer.Serialize(
         new GroupMemberState(name, "customs", "InRaid", "pmc", 12.5, 44.0, 90, 4, [], ["Debut"])

@@ -70,6 +70,12 @@ public sealed record EftInstallDiscoverySnapshot
 
     public string Detail { get; }
 
+    /// <summary>
+    /// [#314] For a failed discovery, the exception's own message that <see cref="Detail"/> quotes,
+    /// so the App can say the words around it; null otherwise. <see cref="Code"/> says which failure.
+    /// </summary>
+    public string? Fault { get; init; }
+
     public bool IsContextValid => Status == EftInstallDiscoveryStatus.Ready;
 
     public static EftInstallDiscoverySnapshot Uninitialized(DateTimeOffset checkedUtc) => new(

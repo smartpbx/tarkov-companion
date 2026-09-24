@@ -55,7 +55,7 @@ public sealed class QuestImportProposalViewModel(
 
     public string Entity => SetupText.QuestsEntity(SetupText.QuestEntityKind(proposal.EntityKind), proposal.EntityId);
 
-    public string Detail => proposal.Reason;
+    public string Detail => SetupText.QuestImportReason(proposal);
 
     public string LocalValue => SetupText.QuestsLocalValue(FormatValue(proposal.LocalValue));
 
@@ -1433,11 +1433,11 @@ public sealed class QuestsPageViewModel : PageViewModel
         [.. record.Conflicts.Select(conflict => new QuestImportHistoryLineViewModel(
             SetupText.QuestsHistoryEntity(SetupText.QuestEntityKind(conflict.EntityKind), conflict.EntityId),
             conflict.Resolution == QuestImportResolution.KeepLocal
-                ? SetupText.QuestsKeptHere(conflict.Reason)
-                : SetupText.QuestsTookIncoming(conflict.Reason))),
+                ? SetupText.QuestsKeptHere(SetupText.QuestImportReasonStored(conflict.Reason))
+                : SetupText.QuestsTookIncoming(SetupText.QuestImportReasonStored(conflict.Reason)))),
          .. record.Unresolved.Select(unresolved => new QuestImportHistoryLineViewModel(
             SetupText.QuestsHistoryEntity(SetupText.QuestEntityKind(unresolved.EntityKind), unresolved.EntityId),
-            SetupText.QuestsNotApplied(unresolved.Reason)))]);
+            SetupText.QuestsNotApplied(SetupText.QuestImportReasonStored(unresolved.Reason))))]);
 
     private async Task UndoLastImportAsync()
     {

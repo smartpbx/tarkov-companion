@@ -16,7 +16,7 @@ public sealed class TrafficRoutePlannerTests
     public void TheLowerContactRouteGoesRoundAHotspotTheDirectLineCrosses()
     {
         var field = Field((column, row) => column is >= 12 and <= 19 && row is >= 10 and <= 21 ? 1 : 0);
-        var hotspot = new TrafficHotspot(new(160, 160), 1, "Dorms", ["high-value loot"], 60);
+        var hotspot = new TrafficHotspot(new(160, 160), 1, "Dorms", [TrafficDriver.HighValueLoot], 60);
         var graph = Planner.BuildGraph("test-map", field, unitsPerMetre: 1);
 
         var plan = Planner.Plan(graph, new(15, 165), new(305, 165), [hotspot], RaidPhase.Early)!;

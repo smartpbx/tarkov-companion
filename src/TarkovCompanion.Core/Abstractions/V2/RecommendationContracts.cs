@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.Core.Abstractions.V2;
@@ -53,6 +54,18 @@ public sealed record RecommendationReason(
     public int Priority { get; } = Priority;
 
     public EvidenceProvenance Provenance { get; } = V2ContractGuard.NotNull(Provenance, nameof(Provenance));
+
+    private readonly PhraseAside _words;
+
+    /// <summary>
+    /// The same sentence as <see cref="Explanation"/>, as a code the App says in the interface
+    /// language. Never stored or sent: a record read back has none and shows its English.
+    /// </summary>
+    [JsonIgnore]
+    public Phrase? Words { get => _words.Value; private init => _words = new(value); }
+
+    /// <summary>This record, carrying <paramref name="words"/> beside its English.</summary>
+    public RecommendationReason WithWords(Phrase? words) => this with { Words = words };
 }
 
 /// <summary>A fact that would change the answer, e.g. "if the quest is already turned in: Sell".</summary>
@@ -67,6 +80,18 @@ public sealed record RecommendationSensitivity(
 
     public RecommendationAction? AlternativeAction { get; } =
         V2ContractGuard.DefinedOptional(AlternativeAction, nameof(AlternativeAction));
+
+    private readonly PhraseAside _words;
+
+    /// <summary>
+    /// The same sentence as <see cref="Explanation"/>, as a code the App says in the interface
+    /// language. Never stored or sent: a record read back has none and shows its English.
+    /// </summary>
+    [JsonIgnore]
+    public Phrase? Words { get => _words.Value; private init => _words = new(value); }
+
+    /// <summary>This record, carrying <paramref name="words"/> beside its English.</summary>
+    public RecommendationSensitivity WithWords(Phrase? words) => this with { Words = words };
 }
 
 /// <summary>The two named inputs every opportunity-cost figure is computed from.</summary>
@@ -141,6 +166,18 @@ public sealed record RecommendationDecision
     public RecommendationAction Action { get; }
 
     public string Summary { get; }
+
+    private readonly PhraseAside _summaryWords;
+
+    /// <summary>
+    /// The same sentence as <see cref="Summary"/>, as a code the App says in the interface
+    /// language. Never stored or sent: a decision read back has none and shows its English.
+    /// </summary>
+    [JsonIgnore]
+    public Phrase? SummaryWords { get => _summaryWords.Value; private init => _summaryWords = new(value); }
+
+    /// <summary>This decision, carrying <paramref name="words"/> beside its English summary.</summary>
+    public RecommendationDecision WithSummaryWords(Phrase? words) => this with { SummaryWords = words };
 
     /// <summary>Ordered by priority, highest first; ties keep the ruleset's order.</summary>
     public IReadOnlyList<RecommendationReason> Reasons { get; }

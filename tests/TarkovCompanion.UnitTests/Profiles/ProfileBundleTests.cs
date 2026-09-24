@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -44,8 +45,8 @@ public sealed class ProfileBundleTests
         var json = ProfileBundleCodec.Write(await service.ExportAsync(CancellationToken.None));
         var preview = await service.PreviewAsync(json, ProfileBundleTarget.NewProfile, CancellationToken.None);
         Assert.Null(preview.Refusal);
-        Assert.Contains(preview.Changes, change => change.Area == "Level" && change.After == "42");
-        Assert.Contains(preview.Changes, change => change.Area == "Raids" && change.After == "1");
+        Assert.Contains(preview.Changes, change => change.Area == ProfileBundleArea.Level && ProfileWords.After(change) == "42");
+        Assert.Contains(preview.Changes, change => change.Area == ProfileBundleArea.Raids && ProfileWords.After(change) == "1");
 
         Assert.Equal("Main", await service.ImportAsync(preview, CancellationToken.None));
 
@@ -131,7 +132,7 @@ public sealed class ProfileBundleTests
         var preview = await service.PreviewAsync(pve, ProfileBundleTarget.ActiveProfile, CancellationToken.None);
 
         Assert.False(preview.CanImportIntoActive);
-        Assert.Contains("PvE", preview.Refusal);
+        Assert.Contains("PvE", ProfileWords.Refusal(preview.Refusal));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ImportAsync(preview, CancellationToken.None));
     }
 
@@ -153,8 +154,8 @@ public sealed class ProfileBundleTests
 
         var preview = await service.PreviewAsync(json, ProfileBundleTarget.NewProfile, CancellationToken.None);
 
-        Assert.Contains(preview.Changes, change => change.Area == "Raids" && change.After == "1");
-        Assert.Contains(preview.Changes, change => change.Area == "Raids from another mode" && change.Now == "1");
+        Assert.Contains(preview.Changes, change => change.Area == ProfileBundleArea.Raids && ProfileWords.After(change) == "1");
+        Assert.Contains(preview.Changes, change => change.Area == ProfileBundleArea.RaidsFromAnotherMode && change.Now == "1");
         await service.ImportAsync(preview, CancellationToken.None);
         var target = world.Active;
         var landed = (await world.Raids.ListAsync(CancellationToken.None)).Where(raid => raid.ProfileId == target).ToArray();
@@ -331,5 +332,21 @@ public sealed class ProfileBundleTests
         public Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+}
+
+/// <summary>[#314] The preview's codes in the English the player reads.</summary>
+internal static class ProfileWords
+{
+    public static string After(ProfileBundleChange change)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        return PhraseText.Say(change.After);
+    }
+
+    public static string? Refusal(ProfileBundleRefusal? refusal)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        return SetupText.ProfileTransferRefusal(refusal);
     }
 }

@@ -126,12 +126,12 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
         : string.Empty;
 
     public IReadOnlyList<SetupProfileTransferChangeViewModel> Changes => _preview?.Changes
-        .Select(change => new SetupProfileTransferChangeViewModel(change.Area, change.Now, change.After))
+        .Select(change => new SetupProfileTransferChangeViewModel(SetupText.ProfileArea(change.Area), change.Now, PhraseText.Say(change.After)))
         .ToArray() ?? [];
 
     public bool HasNoChanges => _preview is { Changes.Count: 0 } && CanImport;
 
-    public string Refusal => _preview?.Refusal ?? string.Empty;
+    public string Refusal => SetupText.ProfileTransferRefusal(_preview?.Refusal) ?? string.Empty;
 
     public bool HasRefusal => Refusal.Length > 0;
 

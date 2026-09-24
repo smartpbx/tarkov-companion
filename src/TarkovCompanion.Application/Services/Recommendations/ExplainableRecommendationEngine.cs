@@ -1,5 +1,6 @@
 using System.Globalization;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Inventory;
@@ -46,7 +47,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 evidenceIssues,
                 "profile.incomplete",
-                "Profile progress is incomplete or stale; recheck progression before discarding the item.",
+                Say(AdviceSentence.ProfileIncomplete, "Profile progress is incomplete or stale; recheck progression before discarding the item."),
                 profileAssessment);
         }
         else
@@ -61,7 +62,7 @@ public sealed class ExplainableRecommendationEngine(
             request,
             evidenceIssues,
             "profile.override-untrusted",
-            "The explicit item rule is ambiguous, stale, incomplete, or below the confidence threshold.");
+            Say(AdviceSentence.OverrideUntrusted, "The explicit item rule is ambiguous, stale, incomplete, or below the confidence threshold."));
         var explicitAction = explicitEvidence?.Value.Action;
         if (explicitEvidence is { } trustedExplicitAction)
         {
@@ -74,9 +75,12 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.ExplicitOverride,
                 RecommendationReasonCategory.ExplicitOverride,
                 "override.explicit",
-                $"Your explicit item rule says {ActionText(overridden)}.",
+                Say(
+                    AdviceSentence.OverrideExplicit,
+                    $"Your explicit item rule says {ActionText(overridden)}.",
+                    AdviceWords.Of<AdviceActionWord>(overridden)),
                 explicitEvidence!.Provenance));
-            sensitivities.Add(new("override-removed", "Removing the explicit item rule may change this recommendation.", null));
+            sensitivities.Add(Sensitivity("override-removed", Say(AdviceSentence.OverrideRemoved, "Removing the explicit item rule may change this recommendation."), null));
         }
 
         var eventEvidence = InspectEventState(
@@ -84,7 +88,7 @@ public sealed class ExplainableRecommendationEngine(
             request,
             evidenceIssues,
             "profile.event-state-untrusted",
-            "Event-item state is ambiguous, stale, incomplete, below the confidence threshold, or not a user-confirmed outcome.");
+            Say(AdviceSentence.EventStateUntrusted, "Event-item state is ambiguous, stale, incomplete, below the confidence threshold, or not a user-confirmed outcome."));
         var eventState = eventEvidence?.Value;
         if (eventEvidence is { } trustedEventState)
         {
@@ -97,11 +101,11 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.EventAllergy,
                 RecommendationReasonCategory.Safety,
                 "event.allergic",
-                "A prior result marked this event item allergic; do not consume it.",
+                Say(AdviceSentence.EventAllergic, "A prior result marked this event item allergic; do not consume it."),
                 eventEvidence!.Provenance));
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "event-state-corrected",
-                "A reviewed correction to the recorded event result would change the safety advice.",
+                Say(AdviceSentence.EventStateCorrected, "A reviewed correction to the recorded event result would change the safety advice."),
                 V2RecommendationAction.Review));
         }
 
@@ -110,7 +114,7 @@ public sealed class ExplainableRecommendationEngine(
             request,
             evidenceIssues,
             "profile.protection-untrusted",
-            "Item protection is ambiguous, stale, incomplete, or below the confidence threshold.");
+            Say(AdviceSentence.ProtectionUntrusted, "Item protection is ambiguous, stale, incomplete, or below the confidence threshold."));
         var isProtected = protectedEvidence?.Value == true;
         if (protectedEvidence is { } trustedProtection)
         {
@@ -123,9 +127,9 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.ProtectedItem,
                 RecommendationReasonCategory.Safety,
                 "item.protected",
-                "This item is protected from discard or sale recommendations.",
+                Say(AdviceSentence.ItemProtected, "This item is protected from discard or sale recommendations."),
                 protectedEvidence!.Provenance));
-            sensitivities.Add(new("protection-removed", "Removing protection may expose economic actions.", null));
+            sensitivities.Add(Sensitivity("protection-removed", Say(AdviceSentence.ProtectionRemoved, "Removing protection may expose economic actions."), null));
         }
 
         var trustedNeeds = InspectNeeds(request, evidenceIssues);
@@ -142,6 +146,9 @@ public sealed class ExplainableRecommendationEngine(
             var rule = RuleFor(need.Need);
             var category = CategoryFor(rule);
             var horizon = need.Need.StepsAhead == 0 ? "current" : $"{need.Need.StepsAhead} step(s) ahead";
+            var horizonWords = need.Need.StepsAhead == 0
+                ? new Phrase(AdviceSentence.HorizonCurrent)
+                : new Phrase(AdviceSentence.HorizonAhead, need.Need.StepsAhead);
             var fir = need.Need.RequiresFoundInRaid ? " found-in-raid" : string.Empty;
             var holdings = need.Allocated > 0
                 ? $" after {need.Allocated} compatible observed holding(s)"
@@ -159,11 +166,25 @@ public sealed class ExplainableRecommendationEngine(
                 rule,
                 category,
                 $"need.{NeedCode(need.Need)}.{need.Need.NeedId}",
-                $"Keep {need.Outstanding} more{fir} for {need.Need.DisplayName} ({horizon}){holdings}.",
+                Say(
+                    (need.Need.RequiresFoundInRaid, need.Allocated > 0) switch
+                    {
+                        (false, false) => AdviceSentence.NeedKeep,
+                        (false, true) => AdviceSentence.NeedKeepAfterHoldings,
+                        (true, false) => AdviceSentence.NeedKeepFoundInRaid,
+                        (true, true) => AdviceSentence.NeedKeepFoundInRaidAfterHoldings,
+                    },
+                    $"Keep {need.Outstanding} more{fir} for {need.Need.DisplayName} ({horizon}){holdings}.",
+                    need.Allocated > 0
+                        ? [need.Outstanding, need.Need.DisplayName, horizonWords, need.Allocated]
+                        : [need.Outstanding, need.Need.DisplayName, horizonWords]),
                 provenance));
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 $"need-completed.{need.Need.NeedId}",
-                $"Completing or satisfying {need.Need.DisplayName} may expose the next lower-priority use.",
+                Say(
+                    AdviceSentence.NeedCompleted,
+                    $"Completing or satisfying {need.Need.DisplayName} may expose the next lower-priority use.",
+                    need.Need.DisplayName),
                 null));
         }
 
@@ -172,7 +193,7 @@ public sealed class ExplainableRecommendationEngine(
             request,
             evidenceIssues,
             "profile.pinned-untrusted",
-            "Pinned-item state is ambiguous, stale, incomplete, or below the confidence threshold.");
+            Say(AdviceSentence.PinnedUntrusted, "Pinned-item state is ambiguous, stale, incomplete, or below the confidence threshold."));
         var isPinned = pinnedEvidence?.Value == true;
         if (pinnedEvidence is { } trustedPin)
         {
@@ -185,9 +206,9 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.Pin,
                 RecommendationReasonCategory.PinOrWishlist,
                 "profile.pinned",
-                "You pinned this item.",
+                Say(AdviceSentence.Pinned, "You pinned this item."),
                 pinnedEvidence!.Provenance));
-            sensitivities.Add(new("pin-removed", "Unpinning the item may expose its economic recommendation.", null));
+            sensitivities.Add(Sensitivity("pin-removed", Say(AdviceSentence.PinRemoved, "Unpinning the item may expose its economic recommendation."), null));
         }
 
         var wishlistEvidence = InspectRequiredProfileField(
@@ -195,7 +216,7 @@ public sealed class ExplainableRecommendationEngine(
             request,
             evidenceIssues,
             "profile.wishlist-untrusted",
-            "Wishlist state is ambiguous, stale, incomplete, or below the confidence threshold.");
+            Say(AdviceSentence.WishlistUntrusted, "Wishlist state is ambiguous, stale, incomplete, or below the confidence threshold."));
         var isWishlisted = wishlistEvidence?.Value == true;
         if (wishlistEvidence is { } trustedWishlist)
         {
@@ -208,9 +229,9 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.Wishlist,
                 RecommendationReasonCategory.PinOrWishlist,
                 "profile.wishlist",
-                "This item is on your wishlist.",
+                Say(AdviceSentence.Wishlist, "This item is on your wishlist."),
                 wishlistEvidence!.Provenance));
-            sensitivities.Add(new("wishlist-removed", "Removing the item from the wishlist may change the answer.", null));
+            sensitivities.Add(Sensitivity("wishlist-removed", Say(AdviceSentence.WishlistRemoved, "Removing the item from the wishlist may change the answer."), null));
         }
 
         if (eventState == EventItemState.Untested)
@@ -219,9 +240,9 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.EventUntested,
                 RecommendationReasonCategory.Safety,
                 "event.untested",
-                "This event item is untested; review it before consuming.",
+                Say(AdviceSentence.EventUntested, "This event item is untested; review it before consuming."),
                 eventEvidence!.Provenance));
-            sensitivities.Add(new("event-tested", "Recording the tested result will replace the review advice.", null));
+            sensitivities.Add(Sensitivity("event-tested", Say(AdviceSentence.EventTested, "Recording the tested result will replace the review advice."), null));
         }
         else if (eventState == EventItemState.Safe)
         {
@@ -229,7 +250,7 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.EventSafe,
                 RecommendationReasonCategory.Safety,
                 "event.safe",
-                "A prior result marked this event item safe to consume.",
+                Say(AdviceSentence.EventSafe, "A prior result marked this event item safe to consume."),
                 eventEvidence!.Provenance));
         }
 
@@ -244,7 +265,10 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.Scarcity,
                 RecommendationReasonCategory.ScarcityOrObtainability,
                 $"scarcity.obtainability.{scarcityBand.ToString().ToLowerInvariant()}",
-                $"Current evidence classifies this item as {scarcityBand.ToString().ToLowerInvariant()} to obtain.",
+                Say(
+                    AdviceSentence.Scarcity,
+                    $"Current evidence classifies this item as {scarcityBand.ToString().ToLowerInvariant()} to obtain.",
+                    AdviceWords.Of<AdviceObtainabilityWord>(scarcityBand)),
                 scarcityProvenance));
         }
 
@@ -264,9 +288,9 @@ public sealed class ExplainableRecommendationEngine(
                 $"economics.{economic.SourceCode}.{economic.Band.ToString().ToLowerInvariant()}",
                 EconomicExplanation(economic),
                 economic.ExplanationProvenance));
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "price-or-footprint-updated",
-                "A newer net price or corrected footprint can move the item into another value-per-square band.",
+                Say(AdviceSentence.PriceOrFootprintUpdated, "A newer net price or corrected footprint can move the item into another value-per-square band."),
                 null));
         }
 
@@ -288,7 +312,7 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.EvidenceQuality,
                 RecommendationReasonCategory.EvidenceQuality,
                 "evidence.insufficient",
-                "There is not enough current evidence to recommend a keep, take, leave, or sale action.",
+                Say(AdviceSentence.EvidenceInsufficient, "There is not enough current evidence to recommend a keep, take, leave, or sale action."),
                 profile.Provenance));
         }
 
@@ -345,9 +369,9 @@ public sealed class ExplainableRecommendationEngine(
             .Select(reason => new V2RecommendationReason(
                 reason.Category,
                 reason.Code,
-                reason.Explanation,
+                reason.Explanation.English,
                 _policy.PriorityOf(reason.Rule),
-                reason.Provenance))
+                reason.Provenance).WithWords(reason.Explanation.Words))
             .ToArray();
         var summaryReason = SelectSummaryReason(dominantRule, raidContext, orderedDrafts);
 
@@ -355,16 +379,17 @@ public sealed class ExplainableRecommendationEngine(
             request,
             economics,
             dominantRule == ExplainableRecommendationRule.Economics);
+        var summary = Summary(action, summaryReason.Explanation);
         var decision = new RecommendationDecision(
             action,
-            Summary(action, summaryReason.Explanation),
+            summary.English,
             orderedReasons,
             opportunityCost,
             opportunityLineage,
             sensitivities
                 .DistinctBy(sensitivity => sensitivity.FactCode, StringComparer.Ordinal)
                 .OrderBy(sensitivity => sensitivity.FactCode, StringComparer.Ordinal)
-                .ToArray());
+                .ToArray()).WithSummaryWords(summary.Words);
         var decisionProvenance = CombineProvenance(
             "recommendation.decision",
             request.EvaluatedUtc,
@@ -419,7 +444,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "identity.untrusted",
-                "The photographed item's identity is ambiguous, stale, incomplete, or below the confidence threshold.",
+                Say(AdviceSentence.IdentityUntrusted, "The photographed item's identity is ambiguous, stale, incomplete, or below the confidence threshold."),
                 identity);
         }
 
@@ -433,7 +458,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "offer.price-untrusted",
-                "The photographed offer price is ambiguous, stale, incomplete, or below the confidence threshold.",
+                Say(AdviceSentence.OfferPriceUntrusted, "The photographed offer price is ambiguous, stale, incomplete, or below the confidence threshold."),
                 offer.Assessment);
         }
 
@@ -477,7 +502,7 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.EvidenceQuality,
                 RecommendationReasonCategory.EvidenceQuality,
                 "evidence.insufficient",
-                "There is not enough current evidence to compare this photographed offer.",
+                Say(AdviceSentence.OfferEvidenceInsufficient, "There is not enough current evidence to compare this photographed offer."),
                 request.ItemIdentity.Provenance));
         }
 
@@ -487,9 +512,9 @@ public sealed class ExplainableRecommendationEngine(
             .Select(reason => new V2RecommendationReason(
                 reason.Category,
                 reason.Code,
-                reason.Explanation,
+                reason.Explanation.English,
                 _policy.PriorityOf(reason.Rule),
-                reason.Provenance))
+                reason.Provenance).WithWords(reason.Explanation.Words))
             .ToArray();
         var top = ordered[0];
         var absentCost = new EvidencedValue<long?>(
@@ -497,16 +522,17 @@ public sealed class ExplainableRecommendationEngine(
             null,
             new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current, "opportunity-cost.unavailable"),
             top.Provenance);
+        var summary = Summary(action, new Said(top.Explanation, top.Words!));
         var decision = new RecommendationDecision(
             action,
-            Summary(action, top.Explanation),
+            summary.English,
             ordered,
             absentCost,
             null,
-            [new RecommendationSensitivity(
+            [Sensitivity(
                 "offer-or-resale-price-updated",
-                "A newer photographed offer or catalog resale price can change this comparison.",
-                null)]);
+                Say(AdviceSentence.OfferOrResaleUpdated, "A newer photographed offer or catalog resale price can change this comparison."),
+                null)]).WithSummaryWords(summary.Words);
         // A complete offer has one economic reason whose lineage is already near the contract's
         // depth bound (offer + identity + flea gross/fee/net). Wrapping that single tree again
         // adds no evidence and can make a valid comparison unrepresentable.
@@ -542,7 +568,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "inventory.missing",
-                "No inventory snapshot was available for holdings subtraction.",
+                Say(AdviceSentence.InventoryMissing, "No inventory snapshot was available for holdings subtraction."),
                 request.Profile.Provenance,
                 FreshnessState.Unknown);
             return InventoryInspection.Unknown;
@@ -554,7 +580,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "inventory.incompatible",
-                "The inventory snapshot belongs to a different profile or data snapshot and was not subtracted.",
+                Say(AdviceSentence.InventoryIncompatible, "The inventory snapshot belongs to a different profile or data snapshot and was not subtracted."),
                 snapshot.Provenance,
                 snapshot.Status.Freshness);
             return InventoryInspection.Unknown;
@@ -573,7 +599,7 @@ public sealed class ExplainableRecommendationEngine(
                 snapshotAssessment.Failure == EvidenceFailure.Stale
                     ? "inventory.stale"
                     : "inventory.untrusted",
-                "The inventory snapshot is incomplete, stale, or below the confidence threshold and was not subtracted.",
+                Say(AdviceSentence.InventoryUntrusted, "The inventory snapshot is incomplete, stale, or below the confidence threshold and was not subtracted."),
                 snapshotAssessment);
             return InventoryInspection.Unknown;
         }
@@ -589,7 +615,7 @@ public sealed class ExplainableRecommendationEngine(
                 AddIssue(
                     issues,
                     "inventory.partial",
-                    "The scanned inventory does not cover enough space to treat an unseen item as zero held.",
+                    Say(AdviceSentence.InventoryUnseen, "The scanned inventory does not cover enough space to treat an unseen item as zero held."),
                     snapshot.Provenance,
                     snapshot.Status.Freshness);
                 return InventoryInspection.Unknown;
@@ -614,7 +640,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "inventory.total-untrusted",
-                "The observed total holding count is unknown, ambiguous, stale, or below the confidence threshold.",
+                Say(AdviceSentence.InventoryTotalUntrusted, "The observed total holding count is unknown, ambiguous, stale, or below the confidence threshold."),
                 total.Assessment);
         }
 
@@ -623,7 +649,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "inventory.fir-untrusted",
-                "The observed found-in-raid holding count is unknown, ambiguous, stale, or below the confidence threshold.",
+                Say(AdviceSentence.InventoryFirUntrusted, "The observed found-in-raid holding count is unknown, ambiguous, stale, or below the confidence threshold."),
                 foundInRaid.Assessment);
         }
 
@@ -635,7 +661,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "inventory.partial",
-                "Holdings subtraction uses positive observations only because inventory coverage is partial.",
+                Say(AdviceSentence.InventoryPartial, "Holdings subtraction uses positive observations only because inventory coverage is partial."),
                 snapshot.Provenance,
                 snapshot.Status.Freshness);
         }
@@ -673,7 +699,10 @@ public sealed class ExplainableRecommendationEngine(
                 AddIssue(
                     issues,
                     $"need.untrusted.{need.NeedId}",
-                    $"{need.DisplayName} is incomplete, stale, or below the confidence threshold and was not used.",
+                    Say(
+                        AdviceSentence.NeedUntrusted,
+                        $"{need.DisplayName} is incomplete, stale, or below the confidence threshold and was not used.",
+                        need.DisplayName),
                     assessment);
                 continue;
             }
@@ -703,7 +732,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "candidate.fir-untrusted",
-                "Found-in-raid status is unknown, ambiguous, stale, or below the confidence threshold.",
+                Say(AdviceSentence.CandidateFirUntrusted, "Found-in-raid status is unknown, ambiguous, stale, or below the confidence threshold."),
                 candidateFir.Assessment);
         }
 
@@ -846,9 +875,9 @@ public sealed class ExplainableRecommendationEngine(
             var code = field.Value is null
                 ? "scarcity.unknown"
                 : "scarcity.untrusted";
-            var explanation = field.Value is null
-                ? "Obtainability is unknown; the item was not assumed to be common."
-                : "Obtainability is partial, stale, ambiguous, or below the confidence threshold and was not used.";
+            Said explanation = field.Value is null
+                ? Say(AdviceSentence.ScarcityUnknown, "Obtainability is unknown; the item was not assumed to be common.")
+                : Say(AdviceSentence.ScarcityUntrusted, "Obtainability is partial, stale, ambiguous, or below the confidence threshold and was not used.");
             AddIssue(issues, code, explanation, band.Assessment);
             return ScarcityInspection.Unknown;
         }
@@ -874,7 +903,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "raid-context.missing",
-                "Raid phase and risk were not supplied; economic loot advice remains review-only.",
+                Say(AdviceSentence.RaidContextMissing, "Raid phase and risk were not supplied; economic loot advice remains review-only."),
                 request.Profile.Provenance,
                 FreshnessState.Unknown);
             return RaidContextInspection.Unavailable(_policy.LootThresholds.Normal);
@@ -895,7 +924,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 context.Phase.Value is null ? "raid-context.phase-unknown" : "raid-context.phase-untrusted",
-                "Raid phase is unknown, stale, ambiguous, or below the confidence threshold.",
+                Say(AdviceSentence.RaidPhaseUntrusted, "Raid phase is unknown, stale, ambiguous, or below the confidence threshold."),
                 phase.Assessment);
         }
 
@@ -904,7 +933,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 context.Risk.Value is null ? "raid-context.risk-unknown" : "raid-context.risk-untrusted",
-                "Raid risk is unknown, stale, ambiguous, or below the confidence threshold.",
+                Say(AdviceSentence.RaidRiskUntrusted, "Raid risk is unknown, stale, ambiguous, or below the confidence threshold."),
                 risk.Assessment);
         }
 
@@ -940,7 +969,11 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.RaidContext,
                 RecommendationReasonCategory.Safety,
                 $"raid.phase.{phase.ToString().ToLowerInvariant()}",
-                $"The {phase.ToString().ToLowerInvariant()} raid phase sets the ordinary-loot minimum to the {context.PhaseRequiredBand.ToString().ToLowerInvariant()} value band.",
+                Say(
+                    AdviceSentence.RaidPhase,
+                    $"The {phase.ToString().ToLowerInvariant()} raid phase sets the ordinary-loot minimum to the {context.PhaseRequiredBand.ToString().ToLowerInvariant()} value band.",
+                    AdviceWords.Of<AdvicePhaseWord>(phase),
+                    AdviceWords.Of<AdviceBandWord>(context.PhaseRequiredBand)),
                 phaseProvenance));
         }
 
@@ -952,7 +985,11 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.RaidContext,
                 RecommendationReasonCategory.Safety,
                 $"raid.risk.{risk.ToString().ToLowerInvariant()}",
-                $"The {risk.ToString().ToLowerInvariant()} raid-risk setting sets the ordinary-loot minimum to the {context.RiskRequiredBand.ToString().ToLowerInvariant()} value band.",
+                Say(
+                    AdviceSentence.RaidRisk,
+                    $"The {risk.ToString().ToLowerInvariant()} raid-risk setting sets the ordinary-loot minimum to the {context.RiskRequiredBand.ToString().ToLowerInvariant()} value band.",
+                    AdviceWords.Of<AdviceRiskWord>(risk),
+                    AdviceWords.Of<AdviceBandWord>(context.RiskRequiredBand)),
                 riskProvenance));
         }
     }
@@ -967,17 +1004,17 @@ public sealed class ExplainableRecommendationEngine(
         if (scarcity.ShouldKeep)
         {
             var improvedAction = selectAlternative(false, raidContext);
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "obtainability-improved",
-                "If this item becomes easier to obtain, economics may become the deciding reason.",
+                Say(AdviceSentence.ObtainabilityImproved, "If this item becomes easier to obtain, economics may become the deciding reason."),
                 improvedAction != currentAction ? improvedAction : null));
         }
         else if (scarcity.Band is not null)
         {
             var worsenedAction = selectAlternative(true, raidContext);
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "obtainability-worsened",
-                "If this item becomes scarce to obtain, the recommendation may change to keep or take it.",
+                Say(AdviceSentence.ObtainabilityWorsened, "If this item becomes scarce to obtain, the recommendation may change to keep or take it."),
                 worsenedAction != currentAction ? worsenedAction : null));
         }
     }
@@ -1012,9 +1049,9 @@ public sealed class ExplainableRecommendationEngine(
                 RequiredBand = _policy.LootThresholds.RequiredBand(phase, RecommendationRaidRisk.Low),
             };
             var lowerRiskAction = selectAlternative(scarcity.ShouldKeep, lowerRisk);
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "raid-risk-reduced",
-                "Lowering the current raid risk may lower the economic band required to take this item.",
+                Say(AdviceSentence.RaidRiskReduced, "Lowering the current raid risk may lower the economic band required to take this item."),
                 lowerRiskAction != currentAction ? lowerRiskAction : null));
         }
         else
@@ -1026,9 +1063,9 @@ public sealed class ExplainableRecommendationEngine(
                 RequiredBand = _policy.LootThresholds.RequiredBand(phase, RecommendationRaidRisk.Critical),
             };
             var higherRiskAction = selectAlternative(scarcity.ShouldKeep, higherRisk);
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "raid-risk-increased",
-                "Higher raid risk may make ordinary economic loot a leave.",
+                Say(AdviceSentence.RaidRiskIncreased, "Higher raid risk may make ordinary economic loot a leave."),
                 higherRiskAction != currentAction ? higherRiskAction : null));
         }
 
@@ -1041,9 +1078,9 @@ public sealed class ExplainableRecommendationEngine(
                 RequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Middle, risk),
             };
             var earlierPhaseAction = selectAlternative(scarcity.ShouldKeep, earlierPhase);
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "raid-phase-earlier",
-                "An earlier raid phase may lower the economic band required to take this item.",
+                Say(AdviceSentence.RaidPhaseEarlier, "An earlier raid phase may lower the economic band required to take this item."),
                 earlierPhaseAction != currentAction ? earlierPhaseAction : null));
         }
         else
@@ -1055,9 +1092,9 @@ public sealed class ExplainableRecommendationEngine(
                 RequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Extracting, risk),
             };
             var laterPhaseAction = selectAlternative(scarcity.ShouldKeep, laterPhase);
-            sensitivities.Add(new(
+            sensitivities.Add(Sensitivity(
                 "raid-phase-later",
-                "A later raid phase may make ordinary economic loot a leave.",
+                Say(AdviceSentence.RaidPhaseLater, "A later raid phase may make ordinary economic loot a leave."),
                 laterPhaseAction != currentAction ? laterPhaseAction : null));
         }
     }
@@ -1109,7 +1146,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "economics.footprint-missing",
-                "Occupied squares are missing, stale, ambiguous, or below the confidence threshold; value per square was not invented.",
+                Say(AdviceSentence.FootprintMissing, "Occupied squares are missing, stale, ambiguous, or below the confidence threshold; value per square was not invented."),
                 footprint.Assessment);
         }
 
@@ -1118,7 +1155,10 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "economics.flea-net-untrusted",
-                "The flea-net value or its reported absence is stale, ambiguous, incomplete, unauthoritative, or below the confidence threshold.",
+                Say(
+                    AdviceSentence.FleaNetUntrusted,
+                    "The flea-net value or its reported absence is stale, ambiguous, incomplete, unauthoritative, or below the confidence threshold.",
+                    new Phrase(AdviceSentence.PriceDoubt)),
                 flea.Assessment);
         }
 
@@ -1127,7 +1167,10 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "economics.trader-untrusted",
-                "The trader value or its reported absence is stale, ambiguous, incomplete, unauthoritative, or below the confidence threshold.",
+                Say(
+                    AdviceSentence.TraderUntrusted,
+                    "The trader value or its reported absence is stale, ambiguous, incomplete, unauthoritative, or below the confidence threshold.",
+                    new Phrase(AdviceSentence.PriceDoubt)),
                 trader.Assessment);
         }
 
@@ -1136,7 +1179,7 @@ public sealed class ExplainableRecommendationEngine(
             AddIssue(
                 issues,
                 "economics.price-missing",
-                "No current trustworthy flea net or trader value is available; gross value is not treated as net.",
+                Say(AdviceSentence.PriceMissing, "No current trustworthy flea net or trader value is available; gross value is not treated as net."),
                 CombineProvenance(
                     "recommendation.economic-price.unavailable",
                     evaluatedUtc,
@@ -1450,33 +1493,71 @@ public sealed class ExplainableRecommendationEngine(
         return orderedReasons.FirstOrDefault(reason => reason.Rule == rule) ?? orderedReasons[0];
     }
 
-    private static string Summary(V2RecommendationAction action, string topReason) =>
-        $"{action}: {topReason}";
+    private static Said Summary(V2RecommendationAction action, Said topReason) =>
+        new($"{action}: {topReason.English}", new Phrase(AdviceWords.Of<AdviceSummary>(action), topReason.Words));
 
-    private static string EconomicExplanation(EconomicInspection economics)
+    /// <summary>A sentence the engine gives: its fixed English, and the same words as a code the App says.</summary>
+    private static Said Say(AdviceSentence code, string english, params object?[] arguments) =>
+        new(english, new Phrase(code, arguments));
+
+    private static RecommendationSensitivity Sensitivity(
+        string factCode,
+        Said explanation,
+        V2RecommendationAction? alternativeAction) =>
+        new RecommendationSensitivity(factCode, explanation.English, alternativeAction).WithWords(explanation.Words);
+
+    private static Said EconomicExplanation(EconomicInspection economics)
     {
-        var details = new List<string>();
-        if (economics.FleaGrossRoubles is { } gross) details.Add($"flea gross {gross.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (economics.FleaFeeRoubles is { } fee) details.Add($"fee {fee.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (economics.FleaNetRoubles is { } net) details.Add($"flea net {net.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (economics.TraderRoubles is { } trader) details.Add($"trader {trader.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (economics.ConditionFraction is { } condition) details.Add($"condition {condition.ToString("P0", CultureInfo.InvariantCulture)}");
-        var suffix = details.Count == 0 ? string.Empty : $" ({string.Join(", ", details)})";
-        return $"{economics.TotalValue.ToString("N0", CultureInfo.InvariantCulture)} roubles across {economics.Footprint} square(s) is {economics.ValuePerSquare.ToString("N0", CultureInfo.InvariantCulture)} per square, in the {economics.Band.ToString().ToLowerInvariant()} band{suffix}.";
+        var details = new List<Said>();
+        if (economics.FleaGrossRoubles is { } gross) details.Add(Say(AdviceSentence.DetailFleaGross, $"flea gross {gross.ToString("N0", CultureInfo.InvariantCulture)}", gross));
+        if (economics.FleaFeeRoubles is { } fee) details.Add(Say(AdviceSentence.DetailFee, $"fee {fee.ToString("N0", CultureInfo.InvariantCulture)}", fee));
+        if (economics.FleaNetRoubles is { } net) details.Add(Say(AdviceSentence.DetailFleaNet, $"flea net {net.ToString("N0", CultureInfo.InvariantCulture)}", net));
+        if (economics.TraderRoubles is { } trader) details.Add(Say(AdviceSentence.DetailTrader, $"trader {trader.ToString("N0", CultureInfo.InvariantCulture)}", trader));
+        if (economics.ConditionFraction is { } condition) details.Add(Say(AdviceSentence.DetailCondition, $"condition {condition.ToString("P0", CultureInfo.InvariantCulture)}", WholePercent(condition)));
+        var suffix = details.Count == 0 ? string.Empty : $" ({string.Join(", ", details.Select(detail => detail.English))})";
+        var english = $"{economics.TotalValue.ToString("N0", CultureInfo.InvariantCulture)} roubles across {economics.Footprint} square(s) is {economics.ValuePerSquare.ToString("N0", CultureInfo.InvariantCulture)} per square, in the {economics.Band.ToString().ToLowerInvariant()} band{suffix}.";
+        var band = AdviceWords.Of<AdviceBandWord>(economics.Band);
+        return details.Count == 0
+            ? Say(AdviceSentence.Economics, english, economics.TotalValue, economics.Footprint, economics.ValuePerSquare, band)
+            : Say(AdviceSentence.EconomicsDetailed, english, economics.TotalValue, economics.Footprint, economics.ValuePerSquare, band, DetailList(details));
     }
 
-    private static string FleaOfferExplanation(long offerPrice, EconomicInspection resale, long margin)
+    /// <summary>The details as one phrase, each joined to the rest the way the English joins them with ", ".</summary>
+    private static Phrase DetailList(IReadOnlyList<Said> details)
     {
-        var channel = resale.SourceCode == "flea-net" ? "flea after its fee" : "best trader";
+        var list = details[^1].Words;
+        for (var index = details.Count - 2; index >= 0; index--)
+        {
+            list = new Phrase(AdviceSentence.DetailList, details[index].Words, list);
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// A fraction as the whole percent the invariant "P0" format writes, so "condition 60 %" reads
+    /// the same in English once the App says it; the English keeps the invariant space before "%".
+    /// </summary>
+    private static long WholePercent(double fraction) =>
+        (long)Math.Round(fraction * 100, MidpointRounding.AwayFromZero);
+
+    private static Said FleaOfferExplanation(long offerPrice, EconomicInspection resale, long margin)
+    {
+        var fleaChannel = resale.SourceCode == "flea-net";
+        var channel = fleaChannel ? "flea after its fee" : "best trader";
+        var channelWords = new Phrase(fleaChannel ? AdviceSentence.ChannelFleaAfterFee : AdviceSentence.ChannelBestTrader);
         var result = margin > 0
-            ? $"{margin.ToString("N0", CultureInfo.InvariantCulture)} roubles more than it costs"
+            ? Say(AdviceSentence.MarginMore, $"{margin.ToString("N0", CultureInfo.InvariantCulture)} roubles more than it costs", margin)
             : margin == 0
-                ? "the same as it costs"
-                : $"{Math.Abs(margin).ToString("N0", CultureInfo.InvariantCulture)} roubles less than it costs";
+                ? Say(AdviceSentence.MarginSame, "the same as it costs")
+                : Say(AdviceSentence.MarginLess, $"{Math.Abs(margin).ToString("N0", CultureInfo.InvariantCulture)} roubles less than it costs", Math.Abs(margin));
         var condition = resale.ConditionFraction is { } fraction
             ? $" at {fraction.ToString("P0", CultureInfo.InvariantCulture)} condition"
             : string.Empty;
-        return $"The offer costs {offerPrice.ToString("N0", CultureInfo.InvariantCulture)} roubles{condition}; the {channel} returns {resale.TotalValue.ToString("N0", CultureInfo.InvariantCulture)}, {result}.";
+        var english = $"The offer costs {offerPrice.ToString("N0", CultureInfo.InvariantCulture)} roubles{condition}; the {channel} returns {resale.TotalValue.ToString("N0", CultureInfo.InvariantCulture)}, {result.English}.";
+        return resale.ConditionFraction is { } known
+            ? Say(AdviceSentence.OfferAtCondition, english, offerPrice, WholePercent(known), channelWords, resale.TotalValue, result.Words)
+            : Say(AdviceSentence.Offer, english, offerPrice, channelWords, resale.TotalValue, result.Words);
     }
 
     private TrustedValue<T>? InspectRequiredProfileField<T>(
@@ -1484,7 +1565,7 @@ public sealed class ExplainableRecommendationEngine(
         ExplainableRecommendationRequest request,
         IDictionary<string, EvidenceIssue> issues,
         string issueCode,
-        string issueExplanation)
+        Said issueExplanation)
         where T : struct
     {
         // Overrides, protection, pins, wishlist membership, and recorded event outcomes are durable
@@ -1508,7 +1589,7 @@ public sealed class ExplainableRecommendationEngine(
         ExplainableRecommendationRequest request,
         IDictionary<string, EvidenceIssue> issues,
         string issueCode,
-        string issueExplanation)
+        Said issueExplanation)
     {
         var inspection = InspectEvidence(
             field,
@@ -1729,14 +1810,14 @@ public sealed class ExplainableRecommendationEngine(
     private static void AddIssue(
         IDictionary<string, EvidenceIssue> issues,
         string code,
-        string explanation,
+        Said explanation,
         ReliabilityAssessment assessment) =>
         AddIssue(issues, code, explanation, assessment.Provenance, assessment.Freshness);
 
     private static void AddIssue(
         IDictionary<string, EvidenceIssue> issues,
         string code,
-        string explanation,
+        Said explanation,
         EvidenceProvenance provenance,
         FreshnessState freshness = FreshnessState.Current)
     {
@@ -1913,12 +1994,15 @@ public sealed class ExplainableRecommendationEngine(
         ExplainableRecommendationRule Rule,
         RecommendationReasonCategory Category,
         string Code,
-        string Explanation,
+        Said Explanation,
         EvidenceProvenance Provenance);
+
+    /// <summary>A sentence as it is stored (fixed English) and as it is said (a code the App words).</summary>
+    private sealed record Said(string English, Phrase Words);
 
     private sealed record EvidenceIssue(
         string Code,
-        string Explanation,
+        Said Explanation,
         EvidenceProvenance Provenance,
         FreshnessState Freshness);
 

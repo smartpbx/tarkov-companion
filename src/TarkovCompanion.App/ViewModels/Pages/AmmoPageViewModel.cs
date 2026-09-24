@@ -244,7 +244,7 @@ public sealed class AmmoPageViewModel : PageViewModel
             // An empty cache means the rows this page was built from are gone, so the
             // ranking is dropped with them rather than left on screen looking current.
             Reset();
-            Status = snapshot.Data.Detail;
+            Status = SetupText.DataDetail(snapshot.Data);
             _settled = true;
             return;
         }

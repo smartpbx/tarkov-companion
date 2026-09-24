@@ -206,7 +206,7 @@ public sealed class TrafficRoutePlanner
             {
                 reasons.Add(new(
                     TrafficRouteReasonKind.AvoidsPeak,
-                    Nearest(hotspots, direct.PeakAt)?.Name,
+                    PlaceOf(Nearest(hotspots, direct.PeakAt)),
                     Share: lower.PeakTraffic,
                     OtherShare: direct.PeakTraffic));
             }
@@ -217,11 +217,17 @@ public sealed class TrafficRoutePlanner
 
         if (lower.PeakTraffic >= 0.5)
         {
-            reasons.Add(new(TrafficRouteReasonKind.StillCrosses, Nearest(hotspots, lower.PeakAt)?.Name, Share: lower.PeakTraffic));
+            reasons.Add(new(TrafficRouteReasonKind.StillCrosses, PlaceOf(Nearest(hotspots, lower.PeakAt)), Share: lower.PeakTraffic));
         }
 
         return reasons;
     }
+
+    /// <summary>
+    /// The hotspot's place for a reason: its name, the empty string for a hotspot with no name near
+    /// it (the App says "Unnamed area"), or null when there is no hotspot at all.
+    /// </summary>
+    private static string? PlaceOf(TrafficHotspot? hotspot) => hotspot is null ? null : hotspot.Name ?? string.Empty;
 
     private static TrafficHotspot? Nearest(IReadOnlyList<TrafficHotspot> hotspots, MapPoint point) => hotspots
         .Select(hotspot => (hotspot, Distance: Distance(hotspot.Position, point)))

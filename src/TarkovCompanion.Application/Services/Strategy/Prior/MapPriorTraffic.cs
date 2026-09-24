@@ -55,12 +55,28 @@ public sealed record TrafficPriorBasis(
 }
 
 /// <summary>A place the modelled field peaks, and which facts make it peak there.</summary>
+/// <param name="Name">The nearest named place or crossing, or null where none is near; the App says "Unnamed area".</param>
 public sealed record TrafficHotspot(
     MapPoint Position,
     double Intensity,
-    string Name,
-    IReadOnlyList<string> Drivers,
+    string? Name,
+    IReadOnlyList<TrafficDriver> Drivers,
     double RadiusUnits);
+
+/// <summary>A fact the modelled field is built from; the App names each ("player spawns", "your raids").</summary>
+[PhraseCodes("Raid.Traffic.Driver")]
+public enum TrafficDriver
+{
+    PlayerSpawns,
+    HighValueLoot,
+    BossAreas,
+    NamedPlaces,
+    Crossings,
+    Extracts,
+    LinesFromSpawns,
+    LinesToExtracts,
+    YourRaids,
+}
 
 /// <summary>A traffic estimate for one map and raid phase, built only from map structure.</summary>
 /// <remarks>
@@ -79,8 +95,6 @@ public sealed record MapPriorTraffic(
     IReadOnlyList<TrafficHotspot> Hotspots,
     Confidence Confidence)
 {
-    public const string SourceClass = "Prior from map structure, not recorded raids";
-
     public const string ModelVersion = "map-prior-1";
 
     public bool HasField => Field is not null;
@@ -164,16 +178,16 @@ public sealed class MapPriorTrafficModel
         var boss = Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.BossArea);
         var places = Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.NamedPlace);
         var (arriving, leaving) = Movement(grid, sources, [loot, boss, places], inputs.UnitsPerMetre);
-        var layers = new (string Driver, double Multiplier, double[] Values)[]
+        var layers = new (TrafficDriver Driver, double Multiplier, double[] Values)[]
         {
-            ("player spawns", multipliers.Spawn, Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.PlayerSpawn)),
-            ("high-value loot", multipliers.Poi, loot),
-            ("boss areas", multipliers.Poi * BossShare, boss),
-            ("named places", multipliers.Poi * PlaceShare, places),
-            ("crossings", multipliers.Choke * 0.6, Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.Crossing)),
-            ("extracts", multipliers.Extract * 0.8, Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.Extract)),
-            ("lines from spawns", (multipliers.Spawn + multipliers.Poi) / 2, arriving),
-            ("lines to extracts", (multipliers.Poi + multipliers.Extract) / 2, leaving),
+            (TrafficDriver.PlayerSpawns, multipliers.Spawn, Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.PlayerSpawn)),
+            (TrafficDriver.HighValueLoot, multipliers.Poi, loot),
+            (TrafficDriver.BossAreas, multipliers.Poi * BossShare, boss),
+            (TrafficDriver.NamedPlaces, multipliers.Poi * PlaceShare, places),
+            (TrafficDriver.Crossings, multipliers.Choke * 0.6, Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.Crossing)),
+            (TrafficDriver.Extracts, multipliers.Extract * 0.8, Splat(grid, sources, inputs.UnitsPerMetre, TrafficPriorSourceKind.Extract)),
+            (TrafficDriver.LinesFromSpawns, (multipliers.Spawn + multipliers.Poi) / 2, arriving),
+            (TrafficDriver.LinesToExtracts, (multipliers.Poi + multipliers.Extract) / 2, leaving),
         };
 
         var combined = new double[columns * rows];
@@ -206,7 +220,7 @@ public sealed class MapPriorTrafficModel
         var drivers = layers.ToList();
         if (ownShare > 0)
         {
-            drivers.Add(("your raids", ownShare * 2, own));
+            drivers.Add((TrafficDriver.YourRaids, ownShare * 2, own));
         }
 
         var hotspots = Hotspots(field, grid, drivers, sources, inputs.UnitsPerMetre);
@@ -443,7 +457,7 @@ public sealed class MapPriorTrafficModel
     private static IReadOnlyList<TrafficHotspot> Hotspots(
         TrafficField field,
         GridShape grid,
-        IReadOnlyList<(string Driver, double Multiplier, double[] Values)> drivers,
+        IReadOnlyList<(TrafficDriver Driver, double Multiplier, double[] Values)> drivers,
         IReadOnlyList<TrafficPriorSource> sources,
         double unitsPerMetre)
     {
@@ -475,7 +489,7 @@ public sealed class MapPriorTrafficModel
             chosen.Add(new(
                 centre,
                 field.Values[index],
-                nearest ?? "Unnamed area",
+                nearest,
                 [.. contributions.Where(pair => pair.Value >= total * 0.25).Take(3).Select(pair => pair.Driver)],
                 separation / 2));
         }

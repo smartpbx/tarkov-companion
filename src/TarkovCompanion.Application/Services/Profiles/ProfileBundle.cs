@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Profiles;
@@ -199,7 +200,46 @@ public static class ProfileBundleCodec
 }
 
 /// <summary>One line of an import preview: what it is now, and what it will be.</summary>
-public sealed record ProfileBundleChange(string Area, string Now, string After);
+/// <param name="Area">[#314] What part of the profile, as a code the App words.</param>
+/// <param name="Now">The value as it is: a number or a name, never words.</param>
+/// <param name="After">[#314] What it will be, as a <see cref="ProfileBundleValue"/> phrase the App words.</param>
+public sealed record ProfileBundleChange(ProfileBundleArea Area, string Now, Phrase After);
+
+/// <summary>[#314] The parts of a profile an import preview names.</summary>
+[PhraseCodes("Setup.ProfileArea")]
+public enum ProfileBundleArea
+{
+    Level,
+    Faction,
+    TraderLevels,
+    HideoutStations,
+    QuestsDone,
+    ObjectiveCounts,
+    Wishlist,
+    KeepAndSellMarks,
+    EventMarks,
+    OwnedCounts,
+    QuestStates,
+    QuestPins,
+    Raids,
+    RaidsFromAnotherMode,
+    RaidsFromAnotherWipe,
+}
+
+/// <summary>[#314] How an import preview says what a part will be.</summary>
+[PhraseCodes("Setup.ProfileValue")]
+public enum ProfileBundleValue
+{
+    /// <summary>{0}: the value itself.</summary>
+    Plain,
+
+    /// <summary>{0}: how many quests the file sets.</summary>
+    SetFromFile,
+    NotImported,
+
+    /// <summary>{0}: the count after; {1}: how many of them differ.</summary>
+    Differ,
+}
 
 /// <summary>What importing a file would change in a profile, worked out before anything is written.</summary>
 public static class ProfileBundleChanges
@@ -218,35 +258,35 @@ public static class ProfileBundleChanges
 
         if (now.Level != after.Level)
         {
-            changes.Add(new("Level", now.Level.ToString(CultureInfo.InvariantCulture), after.Level.ToString(CultureInfo.InvariantCulture)));
+            changes.Add(new(ProfileBundleArea.Level, now.Level.ToString(CultureInfo.InvariantCulture), Plain(after.Level.ToString(CultureInfo.InvariantCulture))));
         }
 
         if (now.Faction != after.Faction)
         {
-            changes.Add(new("Faction", now.Faction.ToString(), after.Faction.ToString()));
+            changes.Add(new(ProfileBundleArea.Faction, now.Faction.ToString(), Plain(after.Faction.ToString())));
         }
 
-        Levels(changes, "Trader levels", now.TraderLevels, after.TraderLevels);
-        Levels(changes, "Hideout stations", now.HideoutStationLevels, after.HideoutStationLevels);
-        Set(changes, "Quests done", now.CompletedTaskIds, after.CompletedTaskIds);
-        Levels(changes, "Objective counts", now.ObjectiveProgress, after.ObjectiveProgress);
-        Set(changes, "Wishlist", now.WishlistItemIds, after.WishlistItemIds);
-        Map(changes, "Keep and sell marks", now.ItemOverrides, after.ItemOverrides);
-        Map(changes, "Event marks", now.EventItemStates, after.EventItemStates);
-        Levels(changes, "Owned counts", now.OwnedItemCounts, after.OwnedItemCounts);
+        Levels(changes, ProfileBundleArea.TraderLevels, now.TraderLevels, after.TraderLevels);
+        Levels(changes, ProfileBundleArea.HideoutStations, now.HideoutStationLevels, after.HideoutStationLevels);
+        Set(changes, ProfileBundleArea.QuestsDone, now.CompletedTaskIds, after.CompletedTaskIds);
+        Levels(changes, ProfileBundleArea.ObjectiveCounts, now.ObjectiveProgress, after.ObjectiveProgress);
+        Set(changes, ProfileBundleArea.Wishlist, now.WishlistItemIds, after.WishlistItemIds);
+        Map(changes, ProfileBundleArea.KeepAndSellMarks, now.ItemOverrides, after.ItemOverrides);
+        Map(changes, ProfileBundleArea.EventMarks, now.EventItemStates, after.EventItemStates);
+        Levels(changes, ProfileBundleArea.OwnedCounts, now.OwnedItemCounts, after.OwnedItemCounts);
 
         var taskStates = current.Quests.Tasks.ToDictionary(task => task.TaskId, task => task.State, StringComparer.Ordinal);
         var tasksChanging = incoming.Quests.Tasks.Count(task => !taskStates.TryGetValue(task.TaskId, out var state) || state != task.State);
         if (tasksChanging > 0)
         {
-            changes.Add(new("Quest states", $"{current.Quests.Tasks.Count}", $"{tasksChanging} set from the file"));
+            changes.Add(new(ProfileBundleArea.QuestStates, $"{current.Quests.Tasks.Count}", new Phrase(ProfileBundleValue.SetFromFile, tasksChanging)));
         }
 
         var pins = current.Quests.Pins.Select(pin => (pin.TargetKind, pin.TargetId)).ToHashSet();
         var pinsAdded = incoming.Quests.Pins.Count(pin => !pins.Contains((pin.TargetKind, pin.TargetId)));
         if (pinsAdded > 0)
         {
-            changes.Add(new("Quest pins", $"{current.Quests.Pins.Count}", $"{current.Quests.Pins.Count + pinsAdded}"));
+            changes.Add(new(ProfileBundleArea.QuestPins, $"{current.Quests.Pins.Count}", Plain(current.Quests.Pins.Count + pinsAdded)));
         }
 
         var sameMode = SameMode(incoming.Raids, incoming.Profile.Mode);
@@ -254,7 +294,7 @@ public static class ProfileBundleChanges
         var raidsAdded = NewRaids(current.Raids, sameWipe).Count;
         if (raidsAdded > 0)
         {
-            changes.Add(new("Raids", $"{current.Raids.Count}", $"{current.Raids.Count + raidsAdded}"));
+            changes.Add(new(ProfileBundleArea.Raids, $"{current.Raids.Count}", Plain(current.Raids.Count + raidsAdded)));
         }
 
         // [#269] A raid played in another mode is not this profile's history, whatever file it
@@ -262,14 +302,14 @@ public static class ProfileBundleChanges
         var foreign = incoming.Raids.Count - sameMode.Count;
         if (foreign > 0)
         {
-            changes.Add(new("Raids from another mode", $"{foreign}", "not imported"));
+            changes.Add(new(ProfileBundleArea.RaidsFromAnotherMode, $"{foreign}", new Phrase(ProfileBundleValue.NotImported)));
         }
 
         // [#269] The same for a raid the file places in another wipe than the target's.
         var otherWipe = sameMode.Count - sameWipe.Count;
         if (otherWipe > 0)
         {
-            changes.Add(new("Raids from another wipe", $"{otherWipe}", "not imported"));
+            changes.Add(new(ProfileBundleArea.RaidsFromAnotherWipe, $"{otherWipe}", new Phrase(ProfileBundleValue.NotImported)));
         }
 
         return changes;
@@ -307,32 +347,35 @@ public static class ProfileBundleChanges
 
     private static (string, DateTimeOffset?) Key(ProfileBundleRaid raid) => (raid.MapId ?? string.Empty, raid.StartedUtc?.ToUniversalTime());
 
-    private static void Levels(List<ProfileBundleChange> changes, string area, IReadOnlyDictionary<string, int> now, IReadOnlyDictionary<string, int> after)
+    /// <summary>A value said as it is: a number, or a name from the profile.</summary>
+    private static Phrase Plain(object value) => new(ProfileBundleValue.Plain, value);
+
+    private static void Levels(List<ProfileBundleChange> changes, ProfileBundleArea area, IReadOnlyDictionary<string, int> now, IReadOnlyDictionary<string, int> after)
     {
         var differing = now.Keys.Union(after.Keys, StringComparer.Ordinal)
             .Count(key => now.GetValueOrDefault(key) != after.GetValueOrDefault(key));
         if (differing > 0)
         {
             // Equal counts with different values ("3 → 3") would read as no change, so say how many differ.
-            changes.Add(new(area, $"{now.Count}", now.Count == after.Count ? $"{after.Count} ({differing} differ)" : $"{after.Count}"));
+            changes.Add(new(area, $"{now.Count}", now.Count == after.Count ? new Phrase(ProfileBundleValue.Differ, after.Count, differing) : Plain(after.Count)));
         }
     }
 
-    private static void Set(List<ProfileBundleChange> changes, string area, IReadOnlyList<string> now, IReadOnlyList<string> after)
+    private static void Set(List<ProfileBundleChange> changes, ProfileBundleArea area, IReadOnlyList<string> now, IReadOnlyList<string> after)
     {
         if (!now.ToHashSet(StringComparer.Ordinal).SetEquals(after))
         {
-            changes.Add(new(area, $"{now.Count}", $"{after.Count}"));
+            changes.Add(new(area, $"{now.Count}", Plain(after.Count)));
         }
     }
 
-    private static void Map<T>(List<ProfileBundleChange> changes, string area, IReadOnlyDictionary<string, T> now, IReadOnlyDictionary<string, T> after)
+    private static void Map<T>(List<ProfileBundleChange> changes, ProfileBundleArea area, IReadOnlyDictionary<string, T> now, IReadOnlyDictionary<string, T> after)
     {
         var same = now.Count == after.Count && now.All(pair =>
             after.TryGetValue(pair.Key, out var value) && EqualityComparer<T>.Default.Equals(value, pair.Value));
         if (!same)
         {
-            changes.Add(new(area, $"{now.Count}", $"{after.Count}"));
+            changes.Add(new(area, $"{now.Count}", Plain(after.Count)));
         }
     }
 }

@@ -1,3 +1,5 @@
+using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
@@ -24,7 +26,7 @@ public sealed class GroupSelfDiagnosisTests
     [Fact]
     public void ACompanionWithNoScreenshotFolderSaysSoRatherThanJustSharing()
     {
-        var detail = GroupSessionService.DescribeSharing("Geo", 2, Snapshot(watchingScreenshots: false));
+        var detail = Said("Geo", 2, Snapshot(watchingScreenshots: false));
 
         Assert.Contains("Sharing as Geo · 2 others", detail, StringComparison.Ordinal);
         Assert.Contains("screenshot folder has not been found", detail, StringComparison.Ordinal);
@@ -35,7 +37,7 @@ public sealed class GroupSelfDiagnosisTests
     [Fact]
     public void ACompanionEarlyInARaidIsJustToldToTakeOne()
     {
-        var detail = GroupSessionService.DescribeSharing(
+        var detail = Said(
             "Geo",
             1,
             Snapshot(watchingScreenshots: true, state: RaidLifecycleState.InRaid, startedMinutesAgo: 0));
@@ -60,7 +62,7 @@ public sealed class GroupSelfDiagnosisTests
     [Fact]
     public void ACompanionWellIntoARaidWithNothingArrivingNamesTheSteamOverlay()
     {
-        var detail = GroupSessionService.DescribeSharing(
+        var detail = Said(
             "Geo",
             1,
             Snapshot(watchingScreenshots: true, state: RaidLifecycleState.InRaid, startedMinutesAgo: 6));
@@ -80,7 +82,7 @@ public sealed class GroupSelfDiagnosisTests
     [Fact]
     public void ACompanionOutsideARaidIsNotNagged()
     {
-        var detail = GroupSessionService.DescribeSharing(
+        var detail = Said(
             "Geo",
             1,
             Snapshot(watchingScreenshots: true, state: RaidLifecycleState.Menu));
@@ -92,7 +94,7 @@ public sealed class GroupSelfDiagnosisTests
     [Fact]
     public void ACompanionWithAPositionSaysNothingExtra()
     {
-        var detail = GroupSessionService.DescribeSharing(
+        var detail = Said(
             "Geo",
             0,
             Snapshot(
@@ -107,10 +109,26 @@ public sealed class GroupSelfDiagnosisTests
     [Fact]
     public void AnUnsupportedPlatformSaysThatInsteadOfSuggestingSettings()
     {
-        var detail = GroupSessionService.DescribeSharing("Geo", 1, Snapshot(supported: false));
+        var detail = Said("Geo", 1, Snapshot(supported: false));
 
         Assert.Contains("not supported here", detail, StringComparison.Ordinal);
         Assert.DoesNotContain("Settings", detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>[#314] The service's code, in the English the player reads.</summary>
+    private static string Said(string name, int others, ApplicationRuntimeSnapshot snapshot)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+            return PhraseText.Say(GroupSessionService.DescribeSharing(name, others, snapshot));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
     }
 
     private static ApplicationRuntimeSnapshot Snapshot(

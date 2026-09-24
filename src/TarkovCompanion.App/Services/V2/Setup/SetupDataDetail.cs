@@ -66,7 +66,8 @@ public sealed record SetupDataDetail(IReadOnlyList<SetupFact> Facts, string? Rea
         var needsRetry = !snapshot.IsOffline
             && !snapshot.IsDemoMode
             && (data.Availability is DataAvailability.Error or DataAvailability.Unavailable || failed);
-        return new(facts, degraded && data.Detail.Length > 0 ? data.Detail : null, needsRetry);
+        var reason = SetupText.DataDetail(data);
+        return new(facts, degraded && reason.Length > 0 ? reason : null, needsRetry);
     }
 
     private static string DescribeAttempt(BackgroundWorkSnapshot? attempt, bool offline, DateTimeOffset now, CultureInfo culture)

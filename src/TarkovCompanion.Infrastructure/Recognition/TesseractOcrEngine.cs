@@ -404,12 +404,12 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     {
         if (!OperatingSystem.IsWindows())
         {
-            return new(false, ProviderName, "The packaged native provider is available on Windows only.");
+            return OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.WindowsOnly, "The packaged native provider is available on Windows only.");
         }
 
         if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
         {
-            return new(false, ProviderName, "The packaged provider requires a Windows x64 process.");
+            return OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.NeedsX64, "The packaged provider requires a Windows x64 process.");
         }
 
         Engine? engine = null;
@@ -419,7 +419,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             var modelPath = Path.Combine(tessdataPath, $"{options.Language}.traineddata");
             if (!File.Exists(modelPath))
             {
-                return new(false, ProviderName, "The configured traineddata file is missing.");
+                return OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.TraineddataMissing, "The configured traineddata file is missing.");
             }
 
             engine = new Engine(tessdataPath, options.Language, EngineMode.LstmOnly)
@@ -433,7 +433,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         {
             engine?.Dispose();
             _reader = null;
-            return new(false, ProviderName, SummarizeProviderFailure(exception));
+            return Unavailable(exception);
         }
     }
 
@@ -611,7 +611,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     private void RetireLocked(Exception failure)
     {
         _retired = true;
-        Availability = new(false, ProviderName, SummarizeProviderFailure(failure));
+        Availability = Unavailable(failure);
         FreeReaderIfUnusedLocked();
     }
 
@@ -763,7 +763,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             UnauthorizedAccessException ||
         exception.GetType().Namespace?.StartsWith("TesseractOCR", StringComparison.Ordinal) == true);
 
-    private static string SummarizeProviderFailure(Exception exception)
+    private static OcrEngineAvailability Unavailable(Exception exception)
     {
         var current = exception;
         while (current.InnerException is not null)
@@ -773,11 +773,11 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
         return current switch
         {
-            DllNotFoundException => "A packaged native OCR library or its Visual C++ runtime dependency is unavailable.",
-            BadImageFormatException => "The packaged OCR native library does not match the process architecture.",
-            UnauthorizedAccessException => "The OCR model cache is not writable.",
-            IOException => "The OCR model cache could not be prepared.",
-            _ => current.GetType().Name + ": OCR provider initialization or execution failed.",
+            DllNotFoundException => OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.NativeLibraryMissing, "A packaged native OCR library or its Visual C++ runtime dependency is unavailable."),
+            BadImageFormatException => OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.ArchitectureMismatch, "The packaged OCR native library does not match the process architecture."),
+            UnauthorizedAccessException => OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.CacheNotWritable, "The OCR model cache is not writable."),
+            IOException => OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.CacheNotPrepared, "The OCR model cache could not be prepared."),
+            _ => OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.ProviderFailed, current.GetType().Name + ": OCR provider initialization or execution failed.", current.GetType().Name),
         };
     }
 

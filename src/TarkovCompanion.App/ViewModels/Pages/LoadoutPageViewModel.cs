@@ -521,7 +521,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         {
             Results = [];
             _showingNoData = true;
-            SearchStatus = snapshot.Data.Detail;
+            SearchStatus = SetupText.DataDetail(snapshot.Data);
         }
         else if (_showingNoData)
         {
@@ -539,7 +539,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         if (_snapshot?.Data.ItemCount is null or 0)
         {
             Results = [];
-            SearchStatus = _snapshot?.Data.Detail ?? PlanText.LoadoutRuntimeNotLoaded;
+            SearchStatus = SetupText.DataDetailOf(_snapshot?.Data) ?? PlanText.LoadoutRuntimeNotLoaded;
             return;
         }
 
@@ -597,8 +597,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
                 .EvaluateAsync(BuildSelection(), profile: null, cancellationToken)
                 .ConfigureAwait(true);
 
-            Issues = evaluation.CompatibilityIssues.Select(message => Finding(evaluation, message)).ToArray();
-            Warnings = evaluation.Warnings.Select(message => Finding(evaluation, message)).ToArray();
+            Issues = evaluation.CompatibilityIssues.Select(Finding).ToArray();
+            Warnings = evaluation.Warnings.Select(Finding).ToArray();
             CostSummary = DescribeCost(evaluation);
             WeightSummary = DescribeWeight(evaluation);
             AmmoTierSummary = DescribeAmmoTier(evaluation) + await DescribeOwnedRoundsAsync(cancellationToken).ConfigureAwait(true);
@@ -1378,8 +1378,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private static ItemCategory KindOf(string itemId, ItemCategory category, IReadOnlyDictionary<string, LoadoutItemFacts> facts) =>
         category == ItemCategory.Unknown && facts.GetValueOrDefault(itemId) is { } fact ? fact.Category : category;
 
-    internal static LoadoutFindingViewModel Finding(LoadoutEvaluation evaluation, string message) =>
-        new(message, evaluation.Explanations?.GetValueOrDefault(message) ?? string.Empty);
+    internal static LoadoutFindingViewModel Finding(LoadoutFinding finding) =>
+        new(PlanText.LoadoutFinding(finding), PlanText.LoadoutFindingWhy(finding));
 
     internal static string DescribeCost(LoadoutEvaluation evaluation)
     {
@@ -1466,9 +1466,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
         EvaluationStatus = status;
     }
 
-    private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
+    private static string Roubles(long value) => UnitText.RoublesAfter(value);
 
-    private static string Kilograms(double value) => value.ToString("N2", CultureInfo.CurrentCulture) + " kg";
+    private static string Kilograms(double value) => UnitText.Kilograms(value, digits: "N2");
 
     /// <summary>What the page remembers about one assigned item.</summary>
     private sealed record AssignedItem(string ItemId, string Name, string Detail);

@@ -42,6 +42,19 @@ public sealed record RuntimeDataState(
     /// first time the wording changes.
     /// </remarks>
     public IReadOnlyList<string> FailedEndpoints { get; init; } = [];
+
+    /// <summary>
+    /// [#314] The status line as a <see cref="DataDetail"/> phrase the App words. Where it is set,
+    /// <see cref="Detail"/> is empty; <see cref="Detail"/> is shown only where this is null, which
+    /// is a fixture that wrote its own line.
+    /// </summary>
+    public Phrase? DetailPhrase { get; init; }
+
+    /// <summary>This state saying <paramref name="detail"/>, with no free text beside it.</summary>
+    public RuntimeDataState Saying(Phrase detail) => this with { Detail = string.Empty, DetailPhrase = detail };
+
+    /// <summary>This state saying <paramref name="detail"/>, with no free text beside it.</summary>
+    public RuntimeDataState Saying(DataDetail detail) => Saying(new Phrase(detail));
 }
 
 public sealed record ScanExecutionResult(
@@ -161,6 +174,13 @@ public sealed record ScanExecutionResult(
         ArgumentNullException.ThrowIfNull(result);
         return result.IsWorthReporting || outcome.Flea is { ProviderAvailable: true, Listings.Count: > 0 };
     }
+
+    /// <summary>
+    /// [#314] <see cref="Detail"/> as a code the App words, where the scanner's own state is being
+    /// described rather than a scan. <see cref="Detail"/> keeps its English for the screens that
+    /// still read it.
+    /// </summary>
+    public Phrase? DetailPhrase { get; init; }
 
     public static ScanExecutionResult Unavailable(string detail, DateTimeOffset observedUtc) => new(
         false,
@@ -332,7 +352,7 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
             options.DemoMode,
             options.IsOffline,
             false,
-            new(DataAvailability.Unavailable, 0, 0, null, "No local game data"),
+            new RuntimeDataState(DataAvailability.Unavailable, 0, 0, null, string.Empty).Saying(DataDetail.NoLocalData),
             null,
             new(
                 null,

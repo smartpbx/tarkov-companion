@@ -15,7 +15,7 @@ public sealed class RecognitionSelfTest(
         var capabilities = new List<RecognitionCapabilityStatus>();
         var ocr = ocrEngine is IOcrEngineStatus status
             ? status.Availability
-            : new OcrEngineAvailability(false, ocrEngine.GetType().Name, "Provider does not expose availability state.");
+            : OcrEngineAvailability.Unavailable(ocrEngine.GetType().Name, OcrUnavailableReason.NoAvailabilityState, "Provider does not expose availability state.");
         capabilities.Add(new(
             "offline-ocr",
             ocr.IsAvailable,

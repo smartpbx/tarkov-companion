@@ -799,7 +799,7 @@ public sealed class EventsPageViewModel : PageViewModel
 
         HasRulePreview = parsed.Rules.Effects.Count > 0;
         RulePreview = HasRulePreview
-            ? PlanText.EventsWhileActive(EventRuleText.Preview(parsed.Rules))
+            ? PlanText.EventsWhileActive(PlanText.EventRulePreview(parsed.Rules))
             : PlanText.EventsNoTypedEffects;
         RuleStatus = PlanText.EventsEffectsValidated(parsed.Rules.Effects.Count);
     }

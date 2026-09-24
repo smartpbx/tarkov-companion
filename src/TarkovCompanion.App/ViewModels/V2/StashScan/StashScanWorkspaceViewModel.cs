@@ -152,8 +152,9 @@ public static class StashSortWording
 
         if (planned.Group != StashPlanGroup.Review)
         {
-            return ordered.FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality)?.Explanation
-                   ?? string.Empty;
+            return ordered.FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality) is { } shown
+                ? AdviceText.Reason(shown)
+                : string.Empty;
         }
 
         var gaps = ordered
@@ -665,13 +666,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private static string CompactRoubles(long value) => Math.Abs(value) switch
-    {
-        >= 1_000_000 => "₽" + (value / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture) + "M",
-        >= 10_000 => "₽" + (value / 1_000d).ToString("0", CultureInfo.CurrentCulture) + "k",
-        >= 1_000 => "₽" + (value / 1_000d).ToString("0.#", CultureInfo.CurrentCulture) + "k",
-        _ => "₽" + value.ToString("N0", CultureInfo.CurrentCulture),
-    };
+    private static string CompactRoubles(long value) => UnitText.RoublesShort(value);
 
     /// <summary>Raised when the player asks to start a guided capture session for this workspace.</summary>
     /// <remarks>

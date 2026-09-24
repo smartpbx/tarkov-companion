@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Runtime;
 
 namespace TarkovCompanion.App.Services.V2.Shell;
@@ -135,7 +136,7 @@ public static class V2Readiness
 
         var detail = data.UpdatedUtc is { } synced && data.ItemCount > 0
             ? V2ShellText.Format("V2.Shell.Detail.GameData", culture, data.ItemCount, V2ShellText.Age(synced, nowUtc, culture))
-            : data.Detail;
+            : SetupText.DataDetail(data);
         return new("game-data", "V2.Shell.Check.GameData", status, detail, V2Routes.Setup, Required: true);
     }
 }

@@ -21,7 +21,7 @@ public static partial class RaidText
             TrafficRouteReasonKind.LengthAndContact => UiText.Format("Raid.Route.LengthAndContact", Metres(reason.Metres), Share(reason.Share)),
             TrafficRouteReasonKind.AvoidsPeak => UiText.Format(
                 "Raid.Route.Avoids",
-                reason.Place is { } place ? UiText.Format("Raid.Route.Convergence", place) : UiText.Get("Raid.Route.BusiestStretch"),
+                reason.Place is { } place ? UiText.Format("Raid.Route.Convergence", PlaceName(place)) : UiText.Get("Raid.Route.BusiestStretch"),
                 Share(reason.OtherShare),
                 Share(reason.Share)),
             TrafficRouteReasonKind.ContactAgainstDirect => UiText.Format("Raid.Route.ContactAgainstDirect", Share(reason.Share), Share(reason.OtherShare)),
@@ -32,11 +32,14 @@ public static partial class RaidText
                 Metres(reason.OtherMetres)),
             TrafficRouteReasonKind.StillCrosses => UiText.Format(
                 "Raid.Route.StillCrosses",
-                reason.Place is { } near ? UiText.Format("Raid.Route.Near", near) : UiText.Get("Raid.Route.AtItsBusiest"),
+                reason.Place is { } near ? UiText.Format("Raid.Route.Near", PlaceName(near)) : UiText.Get("Raid.Route.AtItsBusiest"),
                 Share(reason.Share)),
             _ => throw new ArgumentOutOfRangeException(nameof(reason), reason.Kind, "No words for this route reason."),
         };
     }
+
+    /// <summary>A hotspot's place in a reason; the planner gives the empty string for one with no name near it.</summary>
+    private static string PlaceName(string place) => place.Length == 0 ? UiText.Get("Raid.Traffic.UnnamedArea") : place;
 }
 
 /// <summary>"~3–5 min" for a route, in the interface language.</summary>

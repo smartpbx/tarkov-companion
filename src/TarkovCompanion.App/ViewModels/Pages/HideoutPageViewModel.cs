@@ -1,5 +1,6 @@
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
@@ -159,7 +160,7 @@ public sealed class HideoutPageViewModel : PageViewModel
         {
             Stations = [];
             Items = [];
-            Status = snapshot.Data.Detail;
+            Status = SetupText.DataDetail(snapshot.Data);
             return;
         }
 

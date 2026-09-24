@@ -190,7 +190,7 @@ public sealed class LoadoutCoverageTests
         Assert.Null(result.ApproximateCostRoubles);
         Assert.Equal(5_000, result.KnownCostRoubles);
         Assert.Equal(new LoadoutCoverage(1, 2), result.CostCoverage);
-        Assert.Contains(result.CompatibilityIssues, issue => issue.Contains("unknown-med", StringComparison.Ordinal));
+        Assert.Contains(result.CompatibilityIssues, issue => issue is { Kind: LoadoutFindingKind.NotInCatalog, Item: "unknown-med" });
     }
 
     [Fact]
@@ -219,18 +219,18 @@ public sealed class LoadoutCoverageTests
         // 120,000 is under the default 150,000, so the default says nothing.
         var quiet = await new LoadoutIntelligenceService(catalog, new AmmoIntelligenceService(ammo))
             .EvaluateAsync(selection, null, CancellationToken.None);
-        Assert.DoesNotContain(quiet.Warnings, warning => warning.Contains("weak relative", StringComparison.Ordinal));
+        Assert.DoesNotContain(quiet.Warnings, warning => warning.Kind == LoadoutFindingKind.WeakAmmunitionForKit);
 
         // A player who thinks 100,000 is a lot for weak ammunition can say so.
         var strict = new AmmoKitWarningPolicy(new HashSet<string>(StringComparer.Ordinal) { "C", "D" }, 100_000);
         var warned = await new LoadoutIntelligenceService(catalog, new AmmoIntelligenceService(ammo), strict)
             .EvaluateAsync(selection, null, CancellationToken.None);
-        Assert.Contains(warned.Warnings, warning => warning.Contains("weak relative", StringComparison.Ordinal));
+        Assert.Contains(warned.Warnings, warning => warning.Kind == LoadoutFindingKind.WeakAmmunitionForKit);
 
         // With one price missing there is no complete total, so there is no warning built on a partial one.
         var partial = await new LoadoutIntelligenceService(catalog, new AmmoIntelligenceService(ammo), strict)
             .EvaluateAsync(selection with { MedicalItemIds = ["med", "unpriced"] }, null, CancellationToken.None);
-        Assert.DoesNotContain(partial.Warnings, warning => warning.Contains("weak relative", StringComparison.Ordinal));
+        Assert.DoesNotContain(partial.Warnings, warning => warning.Kind == LoadoutFindingKind.WeakAmmunitionForKit);
     }
 }
 
@@ -321,12 +321,12 @@ public sealed class LoadoutExplanationTests
 
         var raised = result.CompatibilityIssues.Concat(result.Warnings).ToArray();
         Assert.True(raised.Length >= 6, string.Join(" | ", raised));
-        Assert.NotNull(result.Explanations);
-        foreach (var message in raised)
+        using var scope = TarkovCompanion.App.Localization.UiText.Scope(TarkovCompanion.App.Localization.UiText.Create("en", _ => { }));
+        foreach (var finding in raised)
         {
             Assert.True(
-                result.Explanations.TryGetValue(message, out var why) && why.Length > 20,
-                $"No reason for: {message}");
+                TarkovCompanion.App.Localization.PlanText.LoadoutFindingWhy(finding).Length > 20,
+                $"No reason for: {finding}");
         }
 
     }
@@ -344,8 +344,10 @@ public sealed class LoadoutExplanationTests
         var result = await Service(catalog, policy).EvaluateAsync(
             new(null, "ammo-5", [], null, [], null, null, null, null, ["med"]), null, CancellationToken.None);
 
-        var warning = Assert.Single(result.Warnings, message => message.Contains("weak relative", StringComparison.Ordinal));
-        var why = result.Explanations![warning];
+        var warning = Assert.Single(result.Warnings, finding => finding.Kind == LoadoutFindingKind.WeakAmmunitionForKit);
+        using var scope = TarkovCompanion.App.Localization.UiText.Scope(TarkovCompanion.App.Localization.UiText.Create("en", _ => { }));
+        using var culture = new InvariantEnglish();
+        var why = TarkovCompanion.App.Localization.PlanText.LoadoutFindingWhy(warning);
         Assert.Contains("C or D", why, StringComparison.Ordinal);
         Assert.Contains("100,000", why, StringComparison.Ordinal);
         Assert.Contains("rule of thumb", why, StringComparison.Ordinal);
@@ -366,22 +368,31 @@ public sealed class LoadoutExplanationTests
         var result = await Service(catalog).EvaluateAsync(
             new(null, null, [], "armor", [], null, null, null, null, []), null, CancellationToken.None);
 
-        var warning = result.Warnings.SingleOrDefault(w => w.Contains("without any known plate", StringComparison.Ordinal));
+        var warning = result.Warnings.SingleOrDefault(w => w.Kind == LoadoutFindingKind.ArmorWithoutPlates);
         Assert.Equal(warns, warning is not null);
         if (warning is not null)
         {
-            Assert.Contains("plate slots", result.Explanations![warning], StringComparison.Ordinal);
+            using var scope = TarkovCompanion.App.Localization.UiText.Scope(TarkovCompanion.App.Localization.UiText.Create("en", _ => { }));
+            Assert.Contains("plate slots", TarkovCompanion.App.Localization.PlanText.LoadoutFindingWhy(warning), StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public void The_page_attaches_the_reason_to_the_finding_and_leaves_it_empty_when_there_is_none()
+    public void The_page_attaches_the_reason_to_the_finding()
     {
-        var evaluation = new LoadoutEvaluation(
-            null, null, false, ["bad"], [], "Unknown", Explanations: new Dictionary<string, string> { ["bad"] = "because" });
+        using var scope = TarkovCompanion.App.Localization.UiText.Scope(TarkovCompanion.App.Localization.UiText.Create("en", _ => { }));
+        var finding = LoadoutPageViewModel.Finding(new LoadoutFinding(LoadoutFindingKind.PlateDoesNotFit, Item: "SAPI"));
 
-        Assert.Equal("because", LoadoutPageViewModel.Finding(evaluation, "bad").Explanation);
-        Assert.Equal(string.Empty, LoadoutPageViewModel.Finding(evaluation, "other").Explanation);
-        Assert.Equal(string.Empty, LoadoutPageViewModel.Finding(evaluation with { Explanations = null }, "bad").Explanation);
+        Assert.Equal("SAPI is not compatible with the selected armor.", finding.Message);
+        Assert.StartsWith("The selected armor lists the plates", finding.Explanation, StringComparison.Ordinal);
+    }
+
+    private sealed class InvariantEnglish : IDisposable
+    {
+        private readonly CultureInfo _previous = CultureInfo.CurrentCulture;
+
+        public InvariantEnglish() => CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+
+        public void Dispose() => CultureInfo.CurrentCulture = _previous;
     }
 }

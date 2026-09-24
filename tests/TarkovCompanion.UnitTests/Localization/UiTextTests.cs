@@ -198,11 +198,21 @@ public sealed class UiTextTests
         _ when type == typeof(CultureInfo) => CultureInfo.InvariantCulture,
         { IsValueType: true } => Activator.CreateInstance(type)!,
         { IsArray: true } => Array.CreateInstance(type.GetElementType()!, 0),
-        { IsInterface: true, IsGenericType: true } => Array.CreateInstance(type.GetGenericArguments()[0], 0),
+        { IsInterface: true, IsGenericType: true } => OneOf(type.GetGenericArguments()[0]),
+        { IsAbstract: true } => Sample(type.Assembly.GetTypes().OrderBy(candidate => candidate.Name, StringComparer.Ordinal)
+            .First(candidate => !candidate.IsAbstract && type.IsAssignableFrom(candidate))),
         _ => type.GetConstructors().OrderBy(constructor => constructor.GetParameters().Length).First() is var constructor
             ? constructor.Invoke([.. constructor.GetParameters().Select(parameter => Sample(parameter.ParameterType))])
             : throw new InvalidOperationException(type.Name),
     };
+
+    /// <summary>A list of one sample, so an accessor that words each item has something to word.</summary>
+    private static Array OneOf(Type element)
+    {
+        var list = Array.CreateInstance(element, 1);
+        list.SetValue(Sample(element), 0);
+        return list;
+    }
 
     [Fact]
     public void A_scoped_table_does_not_leak_into_another_flow()

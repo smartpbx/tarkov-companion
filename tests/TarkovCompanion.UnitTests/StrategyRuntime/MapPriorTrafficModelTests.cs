@@ -67,7 +67,7 @@ public sealed class MapPriorTrafficModelTests
 
         var top = prior.Hotspots[0];
         Assert.Equal("Dorms", top.Name);
-        Assert.Contains("high-value loot", top.Drivers);
+        Assert.Contains(TrafficDriver.HighValueLoot, top.Drivers);
         Assert.Equal(12, prior.Basis.LootSpawns);
         Assert.True(Math.Abs(top.Position.X - 500) < 40 && Math.Abs(top.Position.Y - 500) < 40);
     }

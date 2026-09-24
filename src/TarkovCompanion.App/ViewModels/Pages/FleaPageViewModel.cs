@@ -154,7 +154,7 @@ public sealed class FleaPageViewModel : PageViewModel
             Results = [];
             History = [];
             _showingNoData = true;
-            SearchStatus = snapshot.Data.Detail;
+            SearchStatus = SetupText.DataDetail(snapshot.Data);
         }
         else if (_showingNoData)
         {
@@ -253,7 +253,7 @@ public sealed class FleaPageViewModel : PageViewModel
         if (_snapshot?.Data.ItemCount is null or 0)
         {
             Results = [];
-            SearchStatus = _snapshot?.Data.Detail ?? IntelText.FleaPageStateNotLoaded;
+            SearchStatus = SetupText.DataDetailOf(_snapshot?.Data) ?? IntelText.FleaPageStateNotLoaded;
             return;
         }
 

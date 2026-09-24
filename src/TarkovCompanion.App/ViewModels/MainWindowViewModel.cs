@@ -1279,7 +1279,7 @@ public sealed class ItemsPageViewModel : PageViewModel
         {
             Results = [];
             _showingNoData = true;
-            SearchStatus = snapshot.Data.Detail;
+            SearchStatus = SetupText.DataDetail(snapshot.Data);
         }
         else if (_showingNoData)
         {
@@ -1306,7 +1306,7 @@ public sealed class ItemsPageViewModel : PageViewModel
         if (_snapshot?.Data.ItemCount is null or 0)
         {
             Results = [];
-            SearchStatus = _snapshot?.Data.Detail ?? "Runtime state is not loaded.";
+            SearchStatus = SetupText.DataDetailOf(_snapshot?.Data) ?? "Runtime state is not loaded.";
             return;
         }
 
@@ -2011,7 +2011,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         // headless self-test ever read that reason, so the user saw a bare "Unavailable".
         RecognitionProvider = ocrStatus.Availability.IsAvailable
             ? SetupText.SettingsRecognitionAvailable(ocrStatus.Availability.Provider)
-            : SetupText.SettingsRecognitionUnavailable(ocrStatus.Availability.Provider, ocrStatus.Availability.Reason ?? SetupText.SettingsRecognitionNoReason);
+            : SetupText.SettingsRecognitionUnavailable(ocrStatus.Availability.Provider, SetupText.OcrReason(ocrStatus.Availability));
         // The runtime warning belongs to one engine and not the other. Windows has its own OCR
         // and needs no redistributable, so telling somebody running on it to go and install
         // one sends them after a problem they do not have.
@@ -2709,7 +2709,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
         _snapshot = snapshot;
-        DataStatus = SetupText.SettingsDataStatus(SetupText.DataAvailabilityName(snapshot.Data.Availability), snapshot.Data.ItemCount, snapshot.Data.Detail);
+        DataStatus = SetupText.SettingsDataStatus(SetupText.DataAvailabilityName(snapshot.Data.Availability), snapshot.Data.ItemCount, SetupText.DataDetail(snapshot.Data));
         WatchedFolders = snapshot.Observation switch
         {
             { ScreenshotRoot: { Length: > 0 } shots, LogRoot: { Length: > 0 } logs } =>
@@ -2736,8 +2736,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 
         ProfileContext = profile is null ? SetupText.SettingsProfileUnavailable : DescribeProfile(profile);
         ScanProvider = snapshot.Scan.IsAvailable
-            ? snapshot.Scan.Succeeded ? SetupText.SettingsScanLastResult(snapshot.Scan.Source) : snapshot.Scan.Detail
-            : snapshot.Scan.Detail;
+            ? snapshot.Scan.Succeeded ? SetupText.SettingsScanLastResult(snapshot.Scan.Source) : SetupText.ScanDetail(snapshot.Scan)
+            : SetupText.ScanDetail(snapshot.Scan);
         Evidence = snapshot.DatabaseReady ? "Persistent database initialized" : "Database not initialized";
     }
 
@@ -3295,6 +3295,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 {
                     Availability = DataAvailability.Error,
                     Detail = $"Application startup failed: {exception.Message}",
+                    DetailPhrase = null,
                 },
             });
         }

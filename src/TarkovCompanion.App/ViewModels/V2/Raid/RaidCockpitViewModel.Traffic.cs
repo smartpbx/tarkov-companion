@@ -81,7 +81,7 @@ public sealed partial class RaidCockpitViewModel
 
     public string TrafficBannerTitle => RaidText.TrafficBannerTitle;
 
-    public string TrafficBannerBasis => MapPriorTraffic.SourceClass;
+    public string TrafficBannerBasis => RaidText.TrafficSourceClass;
 
     /// <summary>"Catalog through 14 Sep · includes 14 of your raids".</summary>
     public string TrafficBannerDetail => _prior is { HasField: true } prior
@@ -130,7 +130,7 @@ public sealed partial class RaidCockpitViewModel
                 rows.Add(char.ToUpper(own[0], CultureInfo.CurrentCulture) + own[1..]);
             }
 
-            rows.AddRange(prior.Hotspots.Take(2).Select(hotspot => $"{Level(hotspot.Intensity)} · {hotspot.Name}"));
+            rows.AddRange(prior.Hotspots.Take(2).Select(hotspot => $"{Level(hotspot.Intensity)} · {RaidText.HotspotName(hotspot)}"));
             return [.. rows.Where(row => row.Length > 0)];
         }
     }
@@ -238,8 +238,8 @@ public sealed partial class RaidCockpitViewModel
                 TrafficLayerId,
                 MapSceneObjectKind.Traffic,
                 MapSceneTruthKind.HistoricalEstimate,
-                RaidText.ModelledTrafficAt(Level(hotspot.Intensity), hotspot.Name),
-                RaidText.WhyDrivers(string.Join(", ", hotspot.Drivers), MapPriorTraffic.SourceClass),
+                RaidText.ModelledTrafficAt(Level(hotspot.Intensity), RaidText.HotspotName(hotspot)),
+                RaidText.WhyDrivers(RaidText.HotspotDrivers(hotspot), RaidText.TrafficSourceClass),
                 new(MapSceneGeometryKind.Region, Circle(hotspot.Position, hotspot.RadiusUnits, planBounds)),
                 [],
                 provenance,

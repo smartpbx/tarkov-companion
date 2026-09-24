@@ -157,6 +157,7 @@ public sealed partial class RaidCockpitViewModel
             shown.Route,
             shown.Origin.At,
             _timeProvider.GetUtcNow(),
+            PlanText.ObjectiveRouteWords(),
             // With the objectives layer switched off there are no pins to number, so every stop
             // gets its own gold pin again.
             QuestPinsShown() ? [.. ObjectiveRoutePins(_questScene), .. SquadRoutePins()] : null);

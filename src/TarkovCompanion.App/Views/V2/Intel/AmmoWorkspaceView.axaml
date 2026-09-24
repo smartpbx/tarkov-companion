@@ -94,7 +94,7 @@
         <Border Grid.Column="1" Classes="v2-intel-pane" Padding="14"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.AutomationId="v2-ammo-rounds">
-          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10" Grid.IsSharedSizeScope="True">
             <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
               <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:IntelText.AmmoBeats}" />
               <ItemsControl Grid.Column="1" ItemsSource="{Binding ArmorFilters}">
@@ -130,14 +130,20 @@
             <TextBlock Grid.Row="2" Classes="v2-label" Margin="2,0" Text="{Binding RoundCountLabel}" />
 
             <Border Grid.Row="3" Classes="v2-intel-headrow" IsVisible="{Binding HasRounds}">
-              <!-- [#314] The number columns are fixed to line up with the rows, so a header that
-                   is longer than its column wraps inside it rather than being cut. -->
-              <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" ColumnSpacing="10">
-                <Grid.Styles>
-                  <Style Selector="TextBlock.v2-intel-head">
-                    <Setter Property="TextWrapping" Value="Wrap" />
-                  </Style>
-                </Grid.Styles>
+              <!-- [#314] The number columns keep their old widths as a minimum and share their
+                   width with the rows, so a header wider than its column widens the column in
+                   both. Wrapping inside a fixed column broke "DAMAGE" into "DAMA" over "GE" at
+                   150% text; a header is never broken inside a word now. -->
+              <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" MinWidth="64" SharedSizeGroup="AmmoDamage" />
+                  <ColumnDefinition Width="Auto" MinWidth="64" SharedSizeGroup="AmmoPen" />
+                  <ColumnDefinition Width="Auto" MinWidth="84" SharedSizeGroup="AmmoArmorDamage" />
+                  <ColumnDefinition Width="Auto" MinWidth="64" SharedSizeGroup="AmmoFrag" />
+                  <ColumnDefinition Width="Auto" MinWidth="72" SharedSizeGroup="AmmoTier" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Classes="v2-intel-head" Text="{x:Static l:IntelText.AmmoHeadRound}" />
                 <TextBlock Grid.Column="1" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadDamage}" />
                 <TextBlock Grid.Column="2" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadPen}" />
@@ -161,7 +167,16 @@
                               AutomationProperties.Name="{Binding Name}"
                               Command="{Binding SelectCommand}">
                         <StackPanel Spacing="2">
-                        <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10">
+                        <Grid RowDefinitions="Auto,Auto" ColumnSpacing="10">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" MinWidth="64" SharedSizeGroup="AmmoDamage" />
+                            <ColumnDefinition Width="Auto" MinWidth="64" SharedSizeGroup="AmmoPen" />
+                            <ColumnDefinition Width="Auto" MinWidth="84" SharedSizeGroup="AmmoArmorDamage" />
+                            <ColumnDefinition Width="Auto" MinWidth="64" SharedSizeGroup="AmmoFrag" />
+                            <ColumnDefinition Width="Auto" MinWidth="72" SharedSizeGroup="AmmoTier" />
+                            <ColumnDefinition Width="Auto" />
+                          </Grid.ColumnDefinitions>
                           <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
                             <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                             <StackPanel Orientation="Horizontal" Spacing="8">

@@ -23,7 +23,16 @@ public sealed record ProfileBundlePreview(
     string TargetName,
     IReadOnlyList<ProfileBundleChange> Changes,
     bool CanImportIntoActive,
-    string? Refusal);
+    ProfileBundleRefusal? Refusal);
+
+/// <summary>
+/// [#314] Why a file cannot go into the active profile, for the App to word: there is no active
+/// profile (<paramref name="TargetName"/> null), or the modes differ.
+/// </summary>
+public sealed record ProfileBundleRefusal(
+    Core.Domain.Profiles.ProfileGameMode FileMode,
+    string? TargetName,
+    Core.Domain.Profiles.ProfileGameMode? TargetMode);
 
 /// <summary>
 /// Gathers the active profile's progress into a <see cref="ProfileBundle"/> and writes one back,
@@ -63,10 +72,8 @@ public sealed class ProfileBundleService(
         var bundle = ProfileBundleCodec.Read(json);
         var identity = await activeIdentity(cancellationToken).ConfigureAwait(false);
         var sameMode = identity is not null && identity.Mode == bundle.Profile.Mode;
-        string? refusal = target == ProfileBundleTarget.ActiveProfile && !sameMode
-            ? identity is null
-                ? "There is no active profile; import it as a new one."
-                : $"This file is {Mode(bundle.Profile.Mode)} and {identity.Name} is {Mode(identity.Mode)}. Import it as a new profile."
+        var refusal = target == ProfileBundleTarget.ActiveProfile && !sameMode
+            ? new ProfileBundleRefusal(bundle.Profile.Mode, identity?.Name, identity?.Mode)
             : null;
 
         ProfileBundle current;
@@ -95,7 +102,9 @@ public sealed class ProfileBundleService(
         ArgumentNullException.ThrowIfNull(preview);
         if (preview.Refusal is { } refusal)
         {
-            throw new InvalidOperationException(refusal);
+            throw new InvalidOperationException(refusal.TargetName is null
+                ? "There is no active profile; import it as a new one."
+                : $"This file is {Mode(refusal.FileMode)} and {refusal.TargetName} is {Mode(refusal.TargetMode ?? Core.Domain.Profiles.ProfileGameMode.Unknown)}. Import it as a new profile.");
         }
 
         var bundle = preview.Bundle;

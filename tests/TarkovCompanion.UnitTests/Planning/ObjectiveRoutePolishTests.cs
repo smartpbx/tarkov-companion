@@ -25,6 +25,7 @@ public sealed class ObjectiveRoutePolishTests
             route,
             new(0, 0),
             Now,
+            TarkovCompanion.App.Localization.PlanText.ObjectiveRouteWords(),
             [new("pinned", new("quest:pinned:A"), new(10.2, 0))]);
 
         Assert.Equal("1", scene.Badges[new("quest:pinned:A")]);
@@ -45,6 +46,7 @@ public sealed class ObjectiveRoutePolishTests
             route,
             new(0, 0),
             Now,
+            TarkovCompanion.App.Localization.PlanText.ObjectiveRouteWords(),
             [
                 new("b", new("quest:b"), new(10, 0)),
                 new("a", new("quest:a-far"), new(10 + ObjectiveRouteSceneBuilder.PinTolerance + 0.1, 0)),

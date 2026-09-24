@@ -259,7 +259,7 @@ public sealed class KeysPageViewModel : PageViewModel
             // rather than merely stale, and leaving them on screen would present them as
             // current.
             Reset();
-            Status = snapshot.Data.Detail;
+            Status = SetupText.DataDetail(snapshot.Data);
             return;
         }
 

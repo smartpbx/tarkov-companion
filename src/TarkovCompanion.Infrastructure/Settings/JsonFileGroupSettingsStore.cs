@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.Infrastructure.Settings;
 
@@ -29,7 +30,7 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
     };
 
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private string? _resetReason;
+    private Phrase? _resetReason;
 
     public async Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken)
     {
@@ -124,8 +125,8 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
             {
                 var aside = AtomicJsonFile.SetAside(settingsPath, DateTimeOffset.UtcNow);
                 _resetReason = aside is null
-                    ? "The group settings file was unreadable and has been reset."
-                    : $"The group settings file was unreadable and has been reset. The old one is at {Path.GetFileName(aside)}.";
+                    ? new Phrase(GroupStatus.SettingsReset)
+                    : new Phrase(GroupStatus.SettingsResetAside, Path.GetFileName(aside));
             }
 
             return null;

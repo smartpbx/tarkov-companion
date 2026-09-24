@@ -1,6 +1,7 @@
 using System.Globalization;
 using TarkovCompanion.Application.Services.Recommendations;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recommendations;
@@ -67,18 +68,18 @@ public sealed class LootScanDecisionService
 
         if (!request.IsReviewedFrameCurrent)
         {
-            issues.Add(new(
+            issues.Add(Issue(
                 LootScanIssueKind.CaptureChanged,
                 "capture.changed",
-                "The reviewed screenshot no longer matches this result; review the items again."));
+                Say(LootScanSentence.CaptureChanged, "The reviewed screenshot no longer matches this result; review the items again.")));
         }
 
         if (request.VisibleLoot.Outcome == GridReconstructionOutcome.Partial)
         {
-            issues.Add(new(
+            issues.Add(Issue(
                 LootScanIssueKind.LootCoveragePartial,
                 "loot.coverage-partial",
-                "Some visible loot could not be resolved; those cells remain review-only."));
+                Say(LootScanSentence.LootCoveragePartial, "Some visible loot could not be resolved; those cells remain review-only.")));
         }
 
         var carriedCoveragePlannable = request.HasCompleteCarriedCoverage &&
@@ -86,10 +87,10 @@ public sealed class LootScanDecisionService
             request.CarriedGrids.All(carried => CarriedIsPlannable(carried.Reconstruction));
         if (!carriedCoveragePlannable)
         {
-            issues.Add(new(
+            issues.Add(Issue(
                 LootScanIssueKind.CarriedCoveragePartial,
                 "carried.coverage-partial",
-                "Carried capacity is incomplete, so no unsupported fit or swap is claimed."));
+                Say(LootScanSentence.CarriedCoveragePartial, "Carried capacity is incomplete, so no unsupported fit or swap is claimed.")));
         }
 
         var visibleCells = request.VisibleLoot.Recognition?.Cells.ToDictionary(item => item.Anchor) ?? [];
@@ -105,10 +106,10 @@ public sealed class LootScanDecisionService
         var capacities = BuildCapacities(request, policies, cancellationToken, out var allCapacitiesAvailable);
         if (!allCapacitiesAvailable && request.CarriedGrids.Any(carried => CarriedIsPlannable(carried.Reconstruction)))
         {
-            issues.Add(new(
+            issues.Add(Issue(
                 LootScanIssueKind.CapacityUnavailable,
                 "carried.capacity-unavailable",
-                "Carried dimensions or occupied footprints are incomplete; placement is review-only."));
+                Say(LootScanSentence.CapacityUnavailable, "Carried dimensions or occupied footprints are incomplete; placement is review-only.")));
         }
 
         var unresolvedByAnchor = request.VisibleLoot.UnresolvedCells
@@ -149,7 +150,7 @@ public sealed class LootScanDecisionService
                 unresolved.Anchor,
                 unresolved.Item,
                 "item.evidence-incomplete",
-                "Item identity, footprint, or attributes are unresolved; review before acting."));
+                Say(LootScanSentence.ItemUnresolved, "Item identity, footprint, or attributes are unresolved; review before acting.")));
         }
 
         var elapsed = _timeProvider.GetElapsedTime(started);
@@ -235,7 +236,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "capture.changed",
-                "This advice belongs to an earlier screenshot revision.");
+                Say(LootScanSentence.EarlierRevision, "This advice belongs to an earlier screenshot revision."));
         }
 
         if (!TryExactItem(cell.Item, request.EvaluatedUtc, out var item, out var width, out var height))
@@ -244,7 +245,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "item.evidence-incomplete",
-                "Item identity and footprint must be resolved before capacity is calculated.");
+                Say(LootScanSentence.IdentityBeforeCapacity, "Item identity and footprint must be resolved before capacity is calculated."));
         }
 
         if (!recommendations.TryGetValue(cell.Anchor, out var evaluated))
@@ -253,7 +254,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.missing",
-                "No profile and economy recommendation was produced for this item.");
+                Say(LootScanSentence.RecommendationMissing, "No profile and economy recommendation was produced for this item."));
         }
 
         if (!evaluated.Candidate.Binding.Matches(
@@ -268,7 +269,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.binding-mismatch",
-                "The advice belongs to a different capture revision or item; review this cell again.");
+                Say(LootScanSentence.BindingMismatch, "The advice belongs to a different capture revision or item; review this cell again."));
         }
 
         if (evaluated.Recommendation is null)
@@ -288,7 +289,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.ruleset-mismatch",
-                "The advice was produced by a different ruleset version.",
+                Say(LootScanSentence.RulesetMismatch, "The advice was produced by a different ruleset version."),
                 recommendation,
                 economics);
         }
@@ -313,7 +314,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.incomplete",
-                "The recommendation has incomplete or stale evidence.",
+                Say(LootScanSentence.Incomplete, "The recommendation has incomplete or stale evidence."),
                 recommendation,
                 economics);
         }
@@ -324,7 +325,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.expired",
-                "The recommendation was produced in the future or is too old for its evidence class.",
+                Say(LootScanSentence.Expired, "The recommendation was produced in the future or is too old for its evidence class."),
                 recommendation,
                 economics);
         }
@@ -336,7 +337,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "economics.incomplete",
-                "The current economic inputs do not reproduce a trustworthy value-per-square decision for this item.",
+                Say(LootScanSentence.EconomicsIncomplete, "The current economic inputs do not reproduce a trustworthy value-per-square decision for this item."),
                 recommendation,
                 economics);
         }
@@ -347,7 +348,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.economics-mismatch",
-                "The recommendation does not match the bound sale channel, value band, or raid threshold.",
+                Say(LootScanSentence.EconomicsMismatch, "The recommendation does not match the bound sale channel, value band, or raid threshold."),
                 recommendation,
                 economics);
         }
@@ -358,7 +359,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 LootScanVerdict.Leave,
-                [new("recommendation.leave", advice.Summary)],
+                [Reason("recommendation.leave", new Said(advice.Summary, advice.SummaryWords))],
                 recommendation,
                 economics);
         }
@@ -369,7 +370,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "recommendation.requires-review",
-                advice.Summary,
+                new Said(advice.Summary, advice.SummaryWords),
                 recommendation,
                 economics);
         }
@@ -380,7 +381,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "carried.capacity-incomplete",
-                "The visible carried grid is not complete enough to prove a fit.",
+                Say(LootScanSentence.CarriedIncomplete, "The visible carried grid is not complete enough to prove a fit."),
                 recommendation,
                 economics);
         }
@@ -403,7 +404,7 @@ public sealed class LootScanDecisionService
                     cell.Anchor,
                     cell.Item,
                     LootScanVerdict.Take,
-                    [new("capacity.visible-fit", "The item fits in verified visible carried space.")],
+                    [Reason("capacity.visible-fit", Say(LootScanSentence.VisibleFit, "The item fits in verified visible carried space."))],
                     recommendation: recommendation,
                     economics: economics,
                     placement: free.Placement);
@@ -415,7 +416,7 @@ public sealed class LootScanDecisionService
                     cell.Anchor,
                     cell.Item,
                     "carried.capacity-incomplete",
-                    "Some carried grids are unread, so no fit or swap can be claimed.",
+                    Say(LootScanSentence.CarriedUnread, "Some carried grids are unread, so no fit or swap can be claimed."),
                     recommendation,
                     economics);
             }
@@ -429,7 +430,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "capacity.search-budget-exhausted",
-                "The bounded placement search reached its work limit; review placement manually.",
+                Say(LootScanSentence.SearchBudget, "The bounded placement search reached its work limit; review placement manually."),
                 recommendation,
                 economics);
         }
@@ -451,7 +452,7 @@ public sealed class LootScanDecisionService
                     cell.Anchor,
                     cell.Item,
                     "swap.evidence-incomplete",
-                    "A geometric swap may fit, but one or more carried-item protections, pins, bindings, or replacement values need review.",
+                    Say(LootScanSentence.SwapEvidenceIncomplete, "A geometric swap may fit, but one or more carried-item protections, pins, bindings, or replacement values need review."),
                     recommendation,
                     economics);
             }
@@ -460,7 +461,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 LootScanVerdict.Leave,
-                [new("capacity.no-supported-fit", "No fit or bounded swap is supported by the visible carried grid.")],
+                [Reason("capacity.no-supported-fit", Say(LootScanSentence.NoSupportedFit, "No fit or bounded swap is supported by the visible carried grid."))],
                 recommendation,
                 economics);
         }
@@ -472,7 +473,7 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 "swap.incoming-value-unknown",
-                "A swap was found, but the incoming value is not current enough to compare.",
+                Say(LootScanSentence.SwapIncomingUnknown, "A swap was found, but the incoming value is not current enough to compare."),
                 recommendation,
                 economics);
         }
@@ -483,9 +484,12 @@ public sealed class LootScanDecisionService
                 cell.Anchor,
                 cell.Item,
                 LootScanVerdict.Leave,
-                [new(
+                [Reason(
                     "swap.cost-exceeds-value",
-                    $"The supported swap gives up {swap.ReplacementCostRoubles.ToString("N0", CultureInfo.InvariantCulture)} roubles for no economic gain.")],
+                    Say(
+                        LootScanSentence.SwapCostExceeds,
+                        $"The supported swap gives up {swap.ReplacementCostRoubles.ToString("N0", CultureInfo.InvariantCulture)} roubles for no economic gain.",
+                        swap.ReplacementCostRoubles))],
                 recommendation: recommendation,
                 economics: economics);
         }
@@ -495,9 +499,12 @@ public sealed class LootScanDecisionService
             cell.Anchor,
             cell.Item,
             LootScanVerdict.Swap,
-            [new(
+            [Reason(
                 "capacity.bounded-swap",
-                $"The item fits after replacing {swap.Drops.Count.ToString(CultureInfo.InvariantCulture)} verified droppable item(s).")],
+                Say(
+                    LootScanSentence.BoundedSwap,
+                    $"The item fits after replacing {swap.Drops.Count.ToString(CultureInfo.InvariantCulture)} verified droppable item(s).",
+                    swap.Drops.Count))],
             recommendation: recommendation,
             economics: economics,
             placement: swap.Placement,
@@ -568,7 +575,7 @@ public sealed class LootScanDecisionService
                     prepared.Add(candidate.Anchor, PreparedRecommendation.Invalid(
                         candidate,
                         "recommendation.binding-mismatch",
-                        "The recommendation inputs do not belong to this capture revision and item."));
+                        Say(LootScanSentence.InputsBindingMismatch, "The recommendation inputs do not belong to this capture revision and item.")));
                     continue;
                 }
 
@@ -584,7 +591,7 @@ public sealed class LootScanDecisionService
                     prepared.Add(candidate.Anchor, PreparedRecommendation.Invalid(
                         candidate,
                         "recommendation.input-too-large",
-                        "Recommendation input identifiers or evidence exceed the bounded evaluation contract."));
+                        Say(LootScanSentence.InputTooLarge, "Recommendation input identifiers or evidence exceed the bounded evaluation contract.")));
                     continue;
                 }
 
@@ -618,7 +625,7 @@ public sealed class LootScanDecisionService
                         ref candidateVisits)
                     : RecommendationGate.Invalid(
                         "recommendation.output-binding-mismatch",
-                        "The evaluated recommendation did not preserve its request identity.");
+                        Say(LootScanSentence.OutputBindingMismatch, "The evaluated recommendation did not preserve its request identity."));
                 var economics = ProjectEconomics(
                     candidate.Economics,
                     request.EvaluatedUtc,
@@ -630,7 +637,7 @@ public sealed class LootScanDecisionService
                 prepared.Add(candidate.Anchor, PreparedRecommendation.Invalid(
                     candidate,
                     "recommendation.validation-budget-exhausted",
-                    "Recommendation evidence exceeded the bounded validation budget."));
+                    Say(LootScanSentence.ValidationBudget, "Recommendation evidence exceeded the bounded validation budget.")));
             }
             catch (ArgumentException)
             {
@@ -640,7 +647,7 @@ public sealed class LootScanDecisionService
                 prepared.Add(candidate.Anchor, PreparedRecommendation.Invalid(
                     candidate,
                     "recommendation.evaluation-invalid",
-                    "The bound recommendation inputs could not be evaluated safely."));
+                    Say(LootScanSentence.EvaluationInvalid, "The bound recommendation inputs could not be evaluated safely.")));
             }
         }
 
@@ -800,14 +807,14 @@ public sealed class LootScanDecisionService
         {
             return RecommendationGate.Invalid(
                 "recommendation.contract-version-unsupported",
-                "The recommendation uses a contract version this planner cannot read.");
+                Say(LootScanSentence.ContractVersion, "The recommendation uses a contract version this planner cannot read."));
         }
 
         if (!string.Equals(recommendation.RulesetVersion, _policy.RulesetVersion, StringComparison.Ordinal))
         {
             return RecommendationGate.Invalid(
                 "recommendation.ruleset-mismatch",
-                "The advice was produced by a different ruleset version.");
+                Say(LootScanSentence.RulesetMismatch, "The advice was produced by a different ruleset version."));
         }
 
         var decision = recommendation.Decision;
@@ -819,7 +826,7 @@ public sealed class LootScanDecisionService
         {
             return RecommendationGate.Invalid(
                 "recommendation.incomplete",
-                "The recommendation has incomplete, ambiguous, or stale evidence.",
+                Say(LootScanSentence.IncompleteAmbiguous, "The recommendation has incomplete, ambiguous, or stale evidence."),
                 freshness);
         }
 
@@ -828,14 +835,14 @@ public sealed class LootScanDecisionService
         {
             return RecommendationGate.Invalid(
                 "recommendation.metadata-too-large",
-                "The recommendation contains more reasons or alternatives than the planner can review safely.");
+                Say(LootScanSentence.MetadataTooLarge, "The recommendation contains more reasons or alternatives than the planner can review safely."));
         }
 
         if (advice.Reasons.Count == 0)
         {
             return RecommendationGate.Invalid(
                 "recommendation.reason-missing",
-                "The recommendation does not name the rule that produced its action.");
+                Say(LootScanSentence.ReasonMissing, "The recommendation does not name the rule that produced its action."));
         }
 
         budget.Visit(ref candidateVisits);
@@ -847,7 +854,7 @@ public sealed class LootScanDecisionService
             {
                 return RecommendationGate.Invalid(
                     "recommendation.precedence-mismatch",
-                    "A recommendation reason is not defined by the active ruleset.");
+                    Say(LootScanSentence.PrecedenceUndefined, "A recommendation reason is not defined by the active ruleset."));
             }
 
             var expectedPriority = _policy.PriorityOf(rule);
@@ -855,7 +862,7 @@ public sealed class LootScanDecisionService
             {
                 return RecommendationGate.Invalid(
                     "recommendation.precedence-mismatch",
-                    "A recommendation reason carries precedence that does not match the active ruleset.");
+                    Say(LootScanSentence.PrecedencePriority, "A recommendation reason carries precedence that does not match the active ruleset."));
             }
 
             mappedReasons.Add(new(reason, rule, expectedPriority));
@@ -874,7 +881,7 @@ public sealed class LootScanDecisionService
         {
             return RecommendationGate.Invalid(
                 "recommendation.precedence-mismatch",
-                "Recommendation reasons are not in the deterministic order defined by the active ruleset.");
+                Say(LootScanSentence.PrecedenceOrder, "Recommendation reasons are not in the deterministic order defined by the active ruleset."));
         }
 
         var dominant = canonicalOrder[0];
@@ -882,7 +889,7 @@ public sealed class LootScanDecisionService
         {
             return RecommendationGate.Invalid(
                 "recommendation.action-mismatch",
-                "The recommendation action does not match its highest-precedence reason.");
+                Say(LootScanSentence.ActionMismatch, "The recommendation action does not match its highest-precedence reason."));
         }
 
         if (!TryValidateProvenance(
@@ -940,7 +947,7 @@ public sealed class LootScanDecisionService
             {
                 return RecommendationGate.Invalid(
                     "recommendation.opportunity-cost-incomplete",
-                    "Opportunity-cost evidence is incomplete, ambiguous, or stale.",
+                    Say(LootScanSentence.OpportunityCostIncomplete, "Opportunity-cost evidence is incomplete, ambiguous, or stale."),
                     opportunityCost.Status.Freshness);
             }
 
@@ -1198,15 +1205,31 @@ public sealed class LootScanDecisionService
         GridCellAddress anchor,
         EvidencedValue<RecognizedItem> item,
         string code,
-        string explanation,
+        Said explanation,
         RecommendationResult? recommendation = null,
         LootScanEconomicProjection? economics = null) => new(
             anchor,
             item,
             LootScanVerdict.Review,
-            [new(code, explanation)],
+            [Reason(code, explanation)],
             recommendation,
             economics);
+
+    /// <summary>A sentence the planner gives: its fixed English, and the same words as a code the App says.</summary>
+    private static Said Say(LootScanSentence code, string english, params object?[] arguments) =>
+        new(english, new Phrase(code, arguments));
+
+    private static LootScanReason Reason(string code, Said explanation) =>
+        new LootScanReason(code, explanation.English).WithWords(explanation.Words);
+
+    private static LootScanIssue Issue(LootScanIssueKind kind, string code, Said explanation) =>
+        new LootScanIssue(kind, code, explanation.English).WithWords(explanation.Words);
+
+    /// <summary>
+    /// A sentence as it is stored (fixed English) and as it is said. The words are absent only
+    /// when they come from a recommendation read back from storage, which keeps its English.
+    /// </summary>
+    private sealed record Said(string English, Phrase? Words);
 
     private IReadOnlyList<CapacityMap> BuildCapacities(
         LootScanRequest request,
@@ -1855,7 +1878,7 @@ public sealed class LootScanDecisionService
         public static PreparedRecommendation Invalid(
             LootScanCandidateRecommendation candidate,
             string code,
-            string explanation) => new(
+            Said explanation) => new(
                 candidate,
                 null,
                 null,
@@ -1882,20 +1905,20 @@ public sealed class LootScanDecisionService
     private sealed record RecommendationGate(
         bool IsValid,
         string Code,
-        string Explanation,
+        Said Explanation,
         int PlanningPriority,
         FreshnessState Freshness)
     {
         public static RecommendationGate Valid(int planningPriority) => new(
             true,
             "recommendation.valid",
-            "Recommendation evidence is valid for planning.",
+            Say(LootScanSentence.Valid, "Recommendation evidence is valid for planning."),
             planningPriority,
             FreshnessState.Current);
 
         public static RecommendationGate Invalid(
             string code,
-            string explanation,
+            Said explanation,
             FreshnessState freshness = FreshnessState.Current) => new(
                 false,
                 code,
@@ -1907,11 +1930,11 @@ public sealed class LootScanDecisionService
         {
             ProvenanceFailure.Expired => Invalid(
                 "recommendation.expired",
-                "Recommendation evidence was produced in the future or is too old for its evidence class.",
+                Say(LootScanSentence.EvidenceExpired, "Recommendation evidence was produced in the future or is too old for its evidence class."),
                 FreshnessState.Stale),
             ProvenanceFailure.Unreliable => Invalid(
                 "recommendation.evidence-unreliable",
-                "Recommendation evidence is unscored or below the confidence required for decisive advice."),
+                Say(LootScanSentence.EvidenceUnreliable, "Recommendation evidence is unscored or below the confidence required for decisive advice.")),
             _ => throw new ArgumentOutOfRangeException(nameof(failure)),
         };
     }

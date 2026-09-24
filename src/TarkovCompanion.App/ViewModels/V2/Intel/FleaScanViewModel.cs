@@ -83,7 +83,7 @@ public sealed class FleaScanRowViewModel
             Environment.NewLine,
             new[]
             {
-                economicReason?.Explanation ?? decision?.Reasons.FirstOrDefault()?.Explanation,
+                (economicReason ?? decision?.Reasons.FirstOrDefault()) is { } shown ? AdviceText.Reason(shown) : null,
                 IntelText.FleaRowRules(row.Recommendation.RulesetVersion),
                 EvidenceLabel,
             }.Where(line => !string.IsNullOrEmpty(line)));
@@ -120,7 +120,7 @@ public sealed class FleaScanRowViewModel
 
     public bool IsGoodBuy => Verdict is FleaRowVerdict.ProfitToTrader or FleaRowVerdict.ProfitOnFlea;
 
-    internal static string Roubles(long value, CultureInfo culture) => "₽" + value.ToString("N0", culture);
+    internal static string Roubles(long value, CultureInfo culture) => UnitText.Roubles(value, culture);
 
     private static string OriginalPrice(FleaScanRow row, CultureInfo culture) => row.CurrencyCode switch
     {
