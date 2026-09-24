@@ -29,7 +29,7 @@ public sealed record KeyRowViewModel(
     /// An init property rather than two more positional parameters on a record that already
     /// takes nine.
     /// </remarks>
-    public KeyVerdict Verdict { get; init; } = new(KeepOrSell.NoCall, string.Empty);
+    public KeyVerdict Verdict { get; init; } = new(KeepOrSell.NoCall, null);
 
     public string VerdictLabel => Verdict.Call switch
     {
@@ -53,7 +53,7 @@ public sealed record KeyRowViewModel(
 
     public bool IsSell => Verdict.Call == KeepOrSell.Sell;
 
-    public string VerdictReason => Verdict.Reason;
+    public string VerdictReason => TarkovCompanion.App.Localization.IntelText.KeyReason(Verdict.Reason);
 }
 
 /// <summary>

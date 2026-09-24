@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Setup;
@@ -24,9 +25,9 @@ public sealed class SetupSettingsExportTests
             Appearance = current.Appearance with { Theme = AppearanceTheme.Light, TextScalePercent = 150 },
         };
 
-        var diff = SetupSettingsDiff.Compare(current, incoming);
+        var diff = SetupSettingsDiff.Compare(current, incoming).Select(SetupSettingsDiffRow.From).ToArray();
 
-        Assert.Equal(2, diff.Count);
+        Assert.Equal(2, diff.Length);
         Assert.Contains(diff, entry => entry.Field == "Theme" && entry.CurrentValue == "Dark" && entry.NewValue == "Light");
         Assert.Contains(diff, entry => entry.Field == "Text size" && entry.NewValue == "150");
     }
@@ -37,7 +38,7 @@ public sealed class SetupSettingsExportTests
         var current = SetupSettingsSnapshot.Default;
         var incoming = current with { Notifications = current.Notifications with { SquadMark = false } };
 
-        var entry = Assert.Single(SetupSettingsDiff.Compare(current, incoming));
+        var entry = SetupSettingsDiffRow.From(Assert.Single(SetupSettingsDiff.Compare(current, incoming)));
 
         Assert.Equal("Squadmate marks", entry.Field);
         Assert.Equal("On", entry.CurrentValue);
@@ -53,7 +54,7 @@ public sealed class SetupSettingsExportTests
             Appearance = current.Appearance with { Theme = AppearanceTheme.HighContrast },
         };
 
-        var entry = Assert.Single(SetupSettingsDiff.Compare(current, incoming));
+        var entry = SetupSettingsDiffRow.From(Assert.Single(SetupSettingsDiff.Compare(current, incoming)));
 
         Assert.Equal("High Contrast", entry.NewValue);
     }
@@ -66,7 +67,7 @@ public sealed class SetupSettingsExportTests
         var current = SetupSettingsSnapshot.Default;
         var incoming = current with { Appearance = current.Appearance with { TextScalePercent = 900 } };
 
-        var entry = Assert.Single(SetupSettingsDiff.Compare(current, incoming));
+        var entry = SetupSettingsDiffRow.From(Assert.Single(SetupSettingsDiff.Compare(current, incoming)));
 
         Assert.Equal("200", entry.NewValue);
     }

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 namespace TarkovCompanion.App.Services.Updates;
 
 /// <summary>
@@ -16,21 +17,21 @@ public sealed record PendingUpdate(string Version, string? Reason)
 {
     /// <summary>The line on Setup > Updates.</summary>
     public string Status => string.IsNullOrWhiteSpace(Reason)
-        ? $"{Version} is downloaded but the last attempt did not apply"
-        : $"{Version} is downloaded but the last attempt did not apply · {Reason}";
+        ? SetupText.UpdateDidNotApply(Version)
+        : SetupText.UpdateDidNotApplyBecause(Version, Reason);
 }
 
 /// <summary>What Setup > Updates says beside a build that did not apply.</summary>
 public static class PendingUpdateText
 {
-    public const string ApplyNow = "Apply now";
+    public static string ApplyNow => SetupText.UpdateApplyNow;
 
-    public const string RunInstaller = "Run the installer instead";
+    public static string RunInstaller => SetupText.UpdateRunInstaller;
 
     /// <remarks>
     /// Not "close the game": that was the first theory and it was refuted. What held the install
     /// folder was a program the companion had started (a browser, a file manager) still standing
     /// in it, and those two things are what end that.
     /// </remarks>
-    public const string Advice = "Restart the PC or close programs opened from the companion, then Apply now.";
+    public static string Advice => SetupText.UpdateAdvice;
 }

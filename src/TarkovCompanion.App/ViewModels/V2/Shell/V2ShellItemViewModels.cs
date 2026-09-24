@@ -27,7 +27,7 @@ public sealed class V2CaptureIntentViewModel : BindableViewModel
 
     public string Label => IsSupported
         ? V2ShellText.Get($"V2.Shell.Intent.{Intent}")
-        : $"{V2ShellText.Get($"V2.Shell.Intent.{Intent}")} · {TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.NotSupportedYet}";
+        : TarkovCompanion.App.Localization.ShellText.CaptureIntentNotSupportedTag(V2ShellText.Get($"V2.Shell.Intent.{Intent}"));
     public string AutomationId => $"v2-shell-capture-intent-{Intent.ToString().ToLowerInvariant()}";
     public bool IsSelected
     {

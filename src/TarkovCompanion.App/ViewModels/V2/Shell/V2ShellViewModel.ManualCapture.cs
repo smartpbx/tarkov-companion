@@ -78,15 +78,15 @@ public sealed partial class V2ShellViewModel
     /// <summary>Opens the platform's file picker. Set by the view, which owns the window.</summary>
     public Func<Task<IReadOnlyList<string>>>? CaptureImagePicker { get; set; }
 
-    public string CaptureManualHeading => "Or use a picture you already have";
+    public string CaptureManualHeading => TarkovCompanion.App.Localization.ShellText.CaptureManualHeading;
 
-    public string CaptureManualHint => "Paste, drop, or choose one or more pictures.";
+    public string CaptureManualHint => TarkovCompanion.App.Localization.ShellText.CaptureManualHint;
 
-    public string CapturePickLabel => "Choose pictures";
+    public string CapturePickLabel => TarkovCompanion.App.Localization.ShellText.CapturePickPictures;
 
-    public string CaptureBatchCancelLabel => "Cancel remaining";
+    public string CaptureBatchCancelLabel => TarkovCompanion.App.Localization.ShellText.CaptureCancelRemaining;
 
-    public string CaptureCandidatesHeading => "Not that? Pick what it was";
+    public string CaptureCandidatesHeading => TarkovCompanion.App.Localization.ShellText.CaptureCandidatesHeading;
 
     public string CaptureManualStatus
     {
@@ -148,7 +148,7 @@ public sealed partial class V2ShellViewModel
 
         if (!TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.IsSupported(SelectedCaptureIntent))
         {
-            CaptureManualStatus = $"{IntentLabel(SelectedCaptureIntent)} is {TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.NotSupportedYet}";
+            CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureIntentNotSupported(IntentLabel(SelectedCaptureIntent));
             return;
         }
 
@@ -161,7 +161,7 @@ public sealed partial class V2ShellViewModel
         ArgumentNullException.ThrowIfNull(items);
         if (items.Count == 0)
         {
-            CaptureManualStatus = "No pictures were selected";
+            CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureNoPicturesSelected;
             return;
         }
 
@@ -173,13 +173,13 @@ public sealed partial class V2ShellViewModel
 
         if (!TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.IsSupported(SelectedCaptureIntent))
         {
-            CaptureManualStatus = $"{IntentLabel(SelectedCaptureIntent)} is {TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.NotSupportedYet}";
+            CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureIntentNotSupported(IntentLabel(SelectedCaptureIntent));
             return;
         }
 
         if (HasActiveManualImageBatch)
         {
-            CaptureManualStatus = "Cancel the current batch first";
+            CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureCancelBatchFirst;
             return;
         }
 
@@ -187,10 +187,10 @@ public sealed partial class V2ShellViewModel
         _activeManualBatchId = batchId;
         _captureBatchItems = [.. items.Select((item, index) => new V2ManualImageBatchItemViewModel(
             item.Id,
-            string.IsNullOrWhiteSpace(item.Label) ? $"Picture {index + 1}" : item.Label,
-            "Queued",
+            string.IsNullOrWhiteSpace(item.Label) ? TarkovCompanion.App.Localization.ShellText.CapturePicture(index + 1) : item.Label,
+            TarkovCompanion.App.Localization.ShellText.CaptureRowQueued,
             false))];
-        CaptureManualStatus = $"Queued {items.Count} picture{(items.Count == 1 ? string.Empty : "s")}";
+        CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureQueuedPictures(items.Count);
         OnPropertyChanged(nameof(CaptureBatchItems));
         OnPropertyChanged(nameof(HasCaptureBatchItems));
         OnPropertyChanged(nameof(HasActiveManualImageBatch));
@@ -244,9 +244,9 @@ public sealed partial class V2ShellViewModel
         _captureBatchItems = [.. labels.Select((label, index) => new V2ManualImageBatchItemViewModel(
             $"preview-{index + 1}",
             label,
-            "Queued",
+            TarkovCompanion.App.Localization.ShellText.CaptureRowQueued,
             false))];
-        CaptureManualStatus = $"Queued {labels.Count} pictures";
+        CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureQueuedPictures(labels.Count);
         OnPropertyChanged(nameof(CaptureBatchItems));
         OnPropertyChanged(nameof(HasCaptureBatchItems));
         OnPropertyChanged(nameof(HasActiveManualImageBatch));
@@ -270,7 +270,7 @@ public sealed partial class V2ShellViewModel
     {
         if (CaptureImagePicker is not { } pick)
         {
-            CaptureManualStatus = "No file picker is available here";
+            CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureNoFilePicker;
             return;
         }
 
@@ -300,8 +300,8 @@ public sealed partial class V2ShellViewModel
 
         _captureBatchItems = [.. CaptureBatchItems.Select(item => item.IsTerminal
             ? item
-            : item with { Status = "Cancelling" })];
-        CaptureManualStatus = "Cancelling remaining pictures";
+            : item with { Status = TarkovCompanion.App.Localization.ShellText.CaptureRowCancelling })];
+        CaptureManualStatus = TarkovCompanion.App.Localization.ShellText.CaptureCancellingRemaining;
         OnPropertyChanged(nameof(CaptureBatchItems));
         ManualImageBatchCancelRequested?.Invoke(this, batchId);
     }

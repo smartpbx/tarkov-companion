@@ -90,18 +90,7 @@ public static class ScanReadAs
     public static IReadOnlyList<ScanIntent> Intents { get; } =
         [ScanIntent.Loot, ScanIntent.Stash, ScanIntent.Flea, ScanIntent.QuestItems];
 
-    public static string Label(ScanIntent intent) => intent switch
-    {
-        ScanIntent.Loot => "Loot",
-        ScanIntent.Stash => "Stash",
-        ScanIntent.Flea => "Flea",
-        ScanIntent.QuestItems => "Quest items",
-        ScanIntent.Ammo => "Ammo",
-        ScanIntent.Keys => "Keys",
-        ScanIntent.ExtractsAndMap => "Extracts",
-        ScanIntent.HealthAndCharacter => "Health",
-        _ => "Auto",
-    };
+    public static string Label(ScanIntent intent) => TarkovCompanion.App.Localization.ShellText.ReadAsIntent(intent);
 }
 
 /// <param name="Started">Whether the frame went back in for a second reading.</param>
@@ -144,7 +133,7 @@ public sealed class CaptureReanalysis(
         ArgumentNullException.ThrowIfNull(arm);
         if (_frames.Describe(artifactId) is not { } hold || _frames.TakeCopy(artifactId) is not { } image)
         {
-            return new(false, "Image released · capture it again");
+            return new(false, TarkovCompanion.App.Localization.ShellText.ReadAsImageReleased);
         }
 
         var original = _sessions.Snapshot.Sessions
@@ -172,7 +161,7 @@ public sealed class CaptureReanalysis(
             source = null;
             if (receipt.Disposition != CaptureQueueDisposition.Accepted)
             {
-                return new(false, $"Could not read it again ({receipt.Code})");
+                return new(false, TarkovCompanion.App.Localization.ShellText.ReadAsFailed(receipt.Code));
             }
 
             _corrections.Record(new(
@@ -182,7 +171,7 @@ public sealed class CaptureReanalysis(
                 intent.ToString(),
                 now,
                 correlation));
-            return new(true, $"Reading again as {ScanReadAs.Label(intent)}", correlation);
+            return new(true, TarkovCompanion.App.Localization.ShellText.ReadAsReadingAgain(ScanReadAs.Label(intent)), correlation);
         }
         finally
         {

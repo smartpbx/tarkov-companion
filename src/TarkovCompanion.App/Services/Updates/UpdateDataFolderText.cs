@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 namespace TarkovCompanion.App.Services.Updates;
 
 /// <summary>
@@ -18,8 +19,8 @@ public static class UpdateDataFolderText
         ArgumentException.ThrowIfNullOrWhiteSpace(dataRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(applicationDirectory);
         return IsInside(dataRoot, applicationDirectory)
-            ? $"Data: {dataRoot} · beside this build, so it stays with this folder"
-            : $"Data: {dataRoot} · kept across updates";
+            ? SetupText.UpdateDataBesideBuild(dataRoot)
+            : SetupText.UpdateDataKept(dataRoot);
     }
 
     /// <summary>Whether <paramref name="path"/> is <paramref name="directory"/> or somewhere under it.</summary>

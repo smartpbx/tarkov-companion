@@ -1650,6 +1650,13 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#314] --palette opens the command palette, so its words can be rendered in each culture.
+            if (shell is not null && args.Contains("--palette"))
+            {
+                shell.PaletteCommand.Execute(null);
+                Pump(20);
+            }
+
             // [#283] --seed-owned id=n,id=n records owned counts as a stash or case scan would, and
             // --stash-subscan ammo|keys starts a guided case scan from the Stash page's chips, so
             // a following --capture-image with the same --capture-intent lands in it.

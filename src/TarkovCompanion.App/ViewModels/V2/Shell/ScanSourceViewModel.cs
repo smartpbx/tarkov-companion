@@ -66,11 +66,11 @@ public sealed class ScanSourceViewModel : BindableViewModel
 
     public string RetentionDetail => _retention.Detail;
 
-    public string ReadAsLabel => "Read as…";
+    public string ReadAsLabel => TarkovCompanion.App.Localization.ShellText.ReadAsMenu;
 
-    public string ReadAsHeading => $"Read as {ScanReadAs.Label(ReadAs)} · try instead";
+    public string ReadAsHeading => TarkovCompanion.App.Localization.ShellText.ReadAsHeading(ScanReadAs.Label(ReadAs));
 
-    public string ReadAsUnavailable => "Image released · capture it again";
+    public string ReadAsUnavailable => TarkovCompanion.App.Localization.ShellText.ReadAsImageReleased;
 
     public IReadOnlyList<ScanReadAsOptionViewModel> ReadAsOptions { get; }
 

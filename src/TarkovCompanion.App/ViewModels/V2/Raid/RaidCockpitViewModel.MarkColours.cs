@@ -91,7 +91,7 @@ public sealed partial class RaidCockpitViewModel
     public IReadOnlyList<MarkColourChoiceViewModel> MarkColourChoices => _markColourChoices ??=
     [
         new(null, RaidText.AutoColour, this),
-        .. MarkPalette.Colours.Select(colour => new MarkColourChoiceViewModel(colour.Hex, colour.Name, this)),
+        .. MarkPalette.Colours.Select(colour => new MarkColourChoiceViewModel(colour.Hex, RaidText.MarkColourName(colour), this)),
     ];
 
     internal void ChooseNewMarkColour(string? colour)

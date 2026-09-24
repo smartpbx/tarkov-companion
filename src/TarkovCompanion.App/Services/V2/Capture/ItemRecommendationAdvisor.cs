@@ -119,14 +119,6 @@ public sealed class ItemRecommendationAdvisor(
     private static EvidencedValue<T> Unread<T>(string fieldId, string code, EvidenceProvenance provenance) =>
         new(fieldId, default, new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current, code), provenance);
 
-    private static string Verdict(V2RecommendationAction action) => action switch
-    {
-        V2RecommendationAction.Keep => "Keep",
-        V2RecommendationAction.SellOnFlea or V2RecommendationAction.SellToTrader => "Sell",
-        V2RecommendationAction.UseSoon => "Use soon",
-        V2RecommendationAction.AvoidConsume => "Don't use",
-        V2RecommendationAction.Take => "Take",
-        V2RecommendationAction.Leave => "Leave",
-        _ => "Review",
-    };
+    private static string Verdict(V2RecommendationAction action) =>
+        TarkovCompanion.App.Localization.IntelText.RecommendationVerdict(action);
 }

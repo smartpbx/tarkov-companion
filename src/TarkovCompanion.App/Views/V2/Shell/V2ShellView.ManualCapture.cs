@@ -41,7 +41,7 @@ public sealed partial class V2ShellView
         var picked = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             AllowMultiple = true,
-            Title = "Choose screenshots",
+            Title = TarkovCompanion.App.Localization.ShellText.CaptureChooseScreenshots,
             FileTypeFilter = [FilePickerFileTypes.ImageAll],
         }).ConfigureAwait(true);
         return [.. picked.Select(file => file.TryGetLocalPath()).Where(path => path is not null).Cast<string>()];
@@ -120,7 +120,7 @@ public sealed partial class V2ShellView
         }
         catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or COMException)
         {
-            shell.ReportManualImage("The clipboard could not be read");
+            shell.ReportManualImage(TarkovCompanion.App.Localization.ShellText.CaptureClipboardUnreadable);
         }
     }
 

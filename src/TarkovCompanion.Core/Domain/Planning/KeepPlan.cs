@@ -68,7 +68,7 @@ public sealed record KeepEntry(
     KeepItemFacts Item,
     IReadOnlyList<KeepQuestNeed> QuestNeeds,
     IReadOnlyList<KeepHideoutNeed> HideoutNeeds,
-    string? KeyReason,
+    KeyReasonCode? KeyReason,
     int HideoutTotalBuild = 0,
     int QuestTotal = 0)
 {

@@ -223,9 +223,9 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         }
 
         reasons.AddRange(entry.HideoutNeeds.Select(need => PlanText.KeepForStation(Count(need.Required), need.StationName)));
-        if (entry.KeyReason is not null)
+        if (entry.KeyReason is { } keyReason)
         {
-            reasons.Add(entry.KeyReason);
+            reasons.Add(IntelText.KeyReason(keyReason));
         }
 
         if (entry.IsHighValue)

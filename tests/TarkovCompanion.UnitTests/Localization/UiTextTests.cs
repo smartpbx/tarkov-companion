@@ -182,19 +182,27 @@ public sealed class UiTextTests
         Assert.True(members.Length > atLeast, $"only {members.Length} accessors");
         foreach (var member in members)
         {
-            var arguments = member.GetParameters().Select(parameter => parameter.ParameterType switch
-            {
-                var type when type == typeof(string) || type == typeof(object) => (object)"x",
-                var type when type.IsEnum => Enum.GetValues(type).GetValue(0)!,
-                var type when type == typeof(CultureInfo) => CultureInfo.InvariantCulture,
-                var type => Activator.CreateInstance(type)!,
-            }).ToArray();
+            var arguments = member.GetParameters().Select(parameter => Sample(parameter.ParameterType)).ToArray();
             var text = (string)member.Invoke(null, arguments)!;
             Assert.False(string.IsNullOrWhiteSpace(text), member.Name);
         }
 
         Assert.Empty(log);
     }
+
+    /// <summary>An argument of any shape: a record of reason codes is built from its smallest constructor.</summary>
+    private static object Sample(Type type) => type switch
+    {
+        _ when type == typeof(string) || type == typeof(object) => "x",
+        { IsEnum: true } => Enum.GetValues(type).Cast<object>().Last(),
+        _ when type == typeof(CultureInfo) => CultureInfo.InvariantCulture,
+        { IsValueType: true } => Activator.CreateInstance(type)!,
+        { IsArray: true } => Array.CreateInstance(type.GetElementType()!, 0),
+        { IsInterface: true, IsGenericType: true } => Array.CreateInstance(type.GetGenericArguments()[0], 0),
+        _ => type.GetConstructors().OrderBy(constructor => constructor.GetParameters().Length).First() is var constructor
+            ? constructor.Invoke([.. constructor.GetParameters().Select(parameter => Sample(parameter.ParameterType))])
+            : throw new InvalidOperationException(type.Name),
+    };
 
     [Fact]
     public void A_scoped_table_does_not_leak_into_another_flow()

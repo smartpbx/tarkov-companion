@@ -173,7 +173,7 @@ public sealed class KeysWorkspaceViewModelTests
         "test",
         [])
     {
-        Verdict = new(call, "because"),
+        Verdict = new(call, new(TarkovCompanion.Core.Domain.Planning.KeyVerdictReason.Middle)),
     };
 
     private sealed class NamedMaps(params (string Id, string Name)[] maps) : IMapDataService

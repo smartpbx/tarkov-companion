@@ -28,10 +28,10 @@ public sealed class SetupNotificationRowViewModel : BindableViewModel
 
     public NotificationKind Kind { get; }
 
-    public string Title => NotificationSamples.Title(Kind);
+    public string Title => SetupText.NotificationTitle(Kind);
 
     /// <summary>One plain sentence saying when this happens.</summary>
-    public string Description => NotificationSamples.Describe(Kind);
+    public string Description => SetupText.NotificationDescription(Kind);
 
     /// <summary>
     /// Whether this one is allowed to interrupt a raid, said on the row rather than in a footnote.

@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Abstractions;
 
 namespace TarkovCompanion.Application.Services.Intelligence;
@@ -27,8 +28,8 @@ public enum KeepOrSell
 
 /// <summary>A verdict on one key, and the one fact that decided it.</summary>
 /// <param name="Call">Keep, sell, or neither.</param>
-/// <param name="Reason">Why, naming the fact rather than a score.</param>
-public sealed record KeyVerdict(KeepOrSell Call, string Reason);
+/// <param name="Reason">Why, naming the fact rather than a score; the App says it (#314).</param>
+public sealed record KeyVerdict(KeepOrSell Call, KeyReasonCode? Reason);
 
 /// <summary>
 /// Keep or sell, for keys, from what the synced data actually states.
@@ -99,9 +100,7 @@ public static class KeyValue
         // selling a key a hand-in needs is the mistake this whole verdict exists to prevent.
         if (needs is { TrackedQuestsNeedingIt: > 0 })
         {
-            return new(KeepOrSell.Keep, needs.TrackedQuestsNeedingIt == 1
-                ? "a quest you are on needs it"
-                : $"{needs.TrackedQuestsNeedingIt} quests you are on need it");
+            return new(KeepOrSell.Keep, new(KeyVerdictReason.TrackedQuestsNeedIt, needs.TrackedQuestsNeedingIt));
         }
 
         // Then the quests that are still ahead of you, which is a weaker claim and said as one.
@@ -113,14 +112,12 @@ public static class KeyValue
         // are tracking ask for it", beside a dorm key, on a profile tracking nothing.
         if (needs is { QuestsNeedingIt: > 0 })
         {
-            return new(KeepOrSell.KeepForLater, needs.QuestsNeedingIt == 1
-                ? "a quest ahead of you needs it"
-                : $"{needs.QuestsNeedingIt} quests ahead of you need it");
+            return new(KeepOrSell.KeepForLater, new(KeyVerdictReason.QuestsAheadNeedIt, needs.QuestsNeedingIt));
         }
 
         if (needs is { HideoutCount: > 0 })
         {
-            return new(KeepOrSell.Keep, "a hideout build asks for it");
+            return new(KeepOrSell.Keep, new(KeyVerdictReason.HideoutNeedsIt));
         }
 
         // Two different silences, said differently. A key nothing has priced and a key that
@@ -128,34 +125,33 @@ public static class KeyValue
         // and telling somebody the wrong reason is how they stop believing the right ones.
         if (roubles is not > 0)
         {
-            return new(KeepOrSell.NoCall, "no price is cached, so nothing here can rank it");
+            return new(KeepOrSell.NoCall, new(KeyVerdictReason.NoPrice));
         }
 
         if (dearerThan is not { } rank)
         {
-            return new(KeepOrSell.NoCall, "too few keys have cached prices to rank this one against");
+            return new(KeepOrSell.NoCall, new(KeyVerdictReason.TooFewPriced));
         }
 
-        var among = $"dearer than {Share(rank)} of priced keys";
         if (rank >= Dear)
         {
             // The use limit does not overturn the market; it qualifies it. A one-use key the
             // market prices highly is still worth carrying, once.
-            return new(KeepOrSell.Keep, maximumUses == 1
-                ? $"{among}, and it opens once"
-                : among);
+            return new(KeepOrSell.Keep, new(
+                maximumUses == 1 ? KeyVerdictReason.DearerOpensOnce : KeyVerdictReason.Dearer,
+                Share: Share(rank)));
         }
 
         if (rank <= Cheap)
         {
             // A key that opens nothing the projection knows about is the clearest sell there
             // is: cheap, and nothing cached says it goes anywhere.
-            return new(KeepOrSell.Sell, lockCount == 0
-                ? $"cheaper than {Share(1 - rank)} of priced keys, and no cached lock lists it"
-                : $"cheaper than {Share(1 - rank)} of priced keys");
+            return new(KeepOrSell.Sell, new(
+                lockCount == 0 ? KeyVerdictReason.CheaperNoLock : KeyVerdictReason.Cheaper,
+                Share: Share(1 - rank)));
         }
 
-        return new(KeepOrSell.NoCall, "the market prices it in the middle, so this is your call");
+        return new(KeepOrSell.NoCall, new(KeyVerdictReason.Middle));
     }
 
     /// <summary>
@@ -219,16 +215,16 @@ public static class KeyValue
     /// is not there: the input is a flea price that moves hourly and a key list that depends on
     /// what has synced.
     /// </remarks>
-    private static string Share(double fraction) => fraction switch
+    private static KeyShareBand Share(double fraction) => fraction switch
     {
-        >= 0.95 => "nearly every other key",
-        >= 0.88 => "nine keys in ten",
-        >= 0.78 => "four keys in five",
-        >= 0.70 => "three keys in four",
-        >= 0.60 => "two keys in three",
-        >= 0.45 => "half the keys",
-        >= 0.28 => "a third of the keys",
-        >= 0.15 => "a fifth of the keys",
-        _ => "almost no other key",
+        >= 0.95 => KeyShareBand.NearlyEvery,
+        >= 0.88 => KeyShareBand.NineInTen,
+        >= 0.78 => KeyShareBand.FourInFive,
+        >= 0.70 => KeyShareBand.ThreeInFour,
+        >= 0.60 => KeyShareBand.TwoInThree,
+        >= 0.45 => KeyShareBand.Half,
+        >= 0.28 => KeyShareBand.Third,
+        >= 0.15 => KeyShareBand.Fifth,
+        _ => KeyShareBand.AlmostNone,
     };
 }

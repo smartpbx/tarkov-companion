@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Raids;
 
 namespace TarkovCompanion.UnitTests;
@@ -14,7 +15,7 @@ public sealed class RaidClockTextTests
         var now = Start + new TimeSpan(0, 14, 3);
         var remaining = RaidTimer.Resolve(null, Start, TimeSpan.FromMinutes(35), now);
 
-        Assert.Equal("20:57 left", remaining.ClockText(Start, now));
+        Assert.Equal("20:57 left", RaidText.ClockText(remaining.Clock(Start, now)));
     }
 
     [Fact]
@@ -25,7 +26,7 @@ public sealed class RaidClockTextTests
         var remaining = RaidTimer.Resolve((new TimeSpan(0, 28, 10), read), Start, TimeSpan.FromMinutes(35), now);
 
         Assert.Equal(RaidTimeBasis.Observed, remaining.Basis);
-        Assert.Equal("27:00 left", remaining.ClockText(Start, now));
+        Assert.Equal("27:00 left", RaidText.ClockText(remaining.Clock(Start, now)));
     }
 
     [Fact]
@@ -34,7 +35,7 @@ public sealed class RaidClockTextTests
         var now = Start + new TimeSpan(0, 9, 5);
         var remaining = RaidTimer.Resolve(null, Start, length: null, now);
 
-        Assert.Equal("09:05 elapsed", remaining.ClockText(Start, now));
+        Assert.Equal("09:05 elapsed", RaidText.ClockText(remaining.Clock(Start, now)));
     }
 
     [Fact]
@@ -42,7 +43,7 @@ public sealed class RaidClockTextTests
     {
         var now = Start + TimeSpan.FromMinutes(50);
 
-        Assert.Equal(string.Empty, RaidTimeRemaining.Unknown.ClockText(null, now));
-        Assert.Equal("00:00 left", RaidTimer.Resolve(null, Start, TimeSpan.FromMinutes(35), now).ClockText(Start, now));
+        Assert.Equal(string.Empty, RaidText.ClockText(RaidTimeRemaining.Unknown.Clock(null, now)));
+        Assert.Equal("00:00 left", RaidText.ClockText(RaidTimer.Resolve(null, Start, TimeSpan.FromMinutes(35), now).Clock(Start, now)));
     }
 }

@@ -397,12 +397,12 @@ public sealed class RaidPageViewModel : PageViewModel
     private IReadOnlyList<TonightMapViewModel> _tonight = [];
     private string _tonightSignature = string.Empty;
     private string _timeLeft = "Unknown";
-    private string _timeLeftDetail = "No raid in progress";
+    private string _timeLeftDetail = RaidText.ClockNoRaid;
 
     /// <summary>Walking a finished raid back across the map, when one has been opened.</summary>
     public RaidReplayViewModel Replay { get; }
 
-    /// <summary>The raid clock every V2 surface shows, e.g. "20:56 left"; empty outside a raid. See <see cref="RaidTimeRemaining.ClockText"/>.</summary>
+    /// <summary>The raid clock every V2 surface shows, e.g. "20:56 left"; empty outside a raid. See <see cref="RaidTimeRemaining.Clock"/>.</summary>
     public string Clock
     {
         get => _clockText;
@@ -410,6 +410,9 @@ public sealed class RaidPageViewModel : PageViewModel
     }
 
     private string _clockText = string.Empty;
+
+    /// <summary>Whether <see cref="Clock"/> counts down to the raid's end, rather than up from its start.</summary>
+    public bool ClockCountsDown { get; private set; }
 
     /// <summary>How long is left, as the game would draw it.</summary>
     public string TimeLeft
@@ -865,8 +868,9 @@ public sealed class RaidPageViewModel : PageViewModel
     {
         if (raid.State != RaidLifecycleState.InRaid)
         {
-            TimeLeft = "Unknown";
-            TimeLeftDetail = "No raid in progress";
+            TimeLeft = RaidText.Unknown;
+            TimeLeftDetail = RaidText.ClockNoRaid;
+            ClockCountsDown = false;
             Clock = string.Empty;
             return;
         }
@@ -878,9 +882,11 @@ public sealed class RaidPageViewModel : PageViewModel
             raid.Side,
             Corrections.IsManual(RaidCorrectionField.Clock),
             nowUtc);
-        TimeLeft = remaining.Display;
-        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? "set by hand" : remaining.Detail;
-        Clock = remaining.ClockText(raid.StartedUtc, nowUtc);
+        TimeLeft = remaining.Remaining is null ? RaidText.Unknown : remaining.Display;
+        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? RaidText.ClockSetByHand : RaidText.ClockBasis(remaining.Basis);
+        var raidClock = remaining.Clock(raid.StartedUtc, nowUtc);
+        ClockCountsDown = raidClock.Direction == RaidClockDirection.Left;
+        Clock = RaidText.ClockText(raidClock);
     }
 
     /// <summary>
@@ -2028,7 +2034,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     private string _screenshotFolder = string.Empty;
     private string _logFolder = string.Empty;
     private string _gameFolderStatus = SetupText.SettingsGameFoldersAuto;
-    private string _watchedFolders = "Looking for the game…";
+    private string _watchedFolders = SetupText.FoldersLooking;
 
     /// <summary>
     /// Where the game keeps its screenshots, when the companion cannot work it out.
@@ -2703,14 +2709,14 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
         _snapshot = snapshot;
-        DataStatus = SetupText.SettingsDataStatus(snapshot.Data.Availability, snapshot.Data.ItemCount, snapshot.Data.Detail);
+        DataStatus = SetupText.SettingsDataStatus(SetupText.DataAvailabilityName(snapshot.Data.Availability), snapshot.Data.ItemCount, snapshot.Data.Detail);
         WatchedFolders = snapshot.Observation switch
         {
             { ScreenshotRoot: { Length: > 0 } shots, LogRoot: { Length: > 0 } logs } =>
-                $"Screenshots {shots} · logs {logs}",
-            { ScreenshotRoot: { Length: > 0 } shots } => $"Screenshots {shots} · no log folder",
-            { LogRoot: { Length: > 0 } logs } => $"Logs {logs} · no screenshot folder",
-            _ => "Nothing found yet",
+                SetupText.FoldersBoth(shots, logs),
+            { ScreenshotRoot: { Length: > 0 } shots } => SetupText.FoldersNoLogs(shots),
+            { LogRoot: { Length: > 0 } logs } => SetupText.FoldersNoScreenshots(logs),
+            _ => SetupText.FoldersNothing,
         };
         var profile = snapshot.Profile;
         if (_latestProfileChange is { } changed)
@@ -2752,7 +2758,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     }
 
     private static string DescribeProfile(PlayerProfile profile) =>
-        SetupText.SettingsProfile(profile.Name, profile.Level, profile.GameMode);
+        SetupText.SettingsProfile(profile.Name, profile.Level, GameModeLabel.Of(profile.GameMode));
 
     public async Task SyncAsync()
     {

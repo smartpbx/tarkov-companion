@@ -26,8 +26,8 @@ public sealed class TrafficRoutePlannerTests
         Assert.Equal(0, plan.LowerContact.PeakTraffic, 6);
         Assert.True(plan.LowerContact.Metres > plan.Direct.Metres, "The detour is the longer of the two.");
         Assert.True(plan.LowerContact.MeanTraffic < plan.Direct.MeanTraffic);
-        Assert.Contains(plan.Reasons, reason => reason.StartsWith("Avoids Dorms convergence", StringComparison.Ordinal));
-        Assert.Contains(plan.Reasons, reason => reason.Contains("m longer", StringComparison.Ordinal));
+        Assert.Contains(plan.Reasons, reason => reason is { Kind: TrafficRouteReasonKind.AvoidsPeak, Place: "Dorms" });
+        Assert.Contains(plan.Reasons, reason => reason.Kind == TrafficRouteReasonKind.Longer && reason.Metres > reason.OtherMetres);
         // The planner V1 shipped calls a graph with no walls in it imprecise, and so does this.
         Assert.Equal(0.45, plan.Confidence.Value, 6);
     }
@@ -40,8 +40,8 @@ public sealed class TrafficRoutePlannerTests
         var plan = Planner.Plan(graph, new(15, 165), new(305, 165), [], RaidPhase.Mid)!;
 
         Assert.Null(plan.Direct);
-        Assert.Equal("The direct line already has the lowest modelled contact", plan.Reasons[0]);
-        Assert.DoesNotContain(plan.Reasons, reason => reason.StartsWith("Avoids", StringComparison.Ordinal));
+        Assert.Equal(TrafficRouteReasonKind.DirectIsLowest, plan.Reasons[0].Kind);
+        Assert.DoesNotContain(plan.Reasons, reason => reason.Kind == TrafficRouteReasonKind.AvoidsPeak);
     }
 
     [Fact]

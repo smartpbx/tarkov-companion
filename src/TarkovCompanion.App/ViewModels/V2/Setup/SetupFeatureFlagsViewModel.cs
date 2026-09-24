@@ -73,9 +73,9 @@ public sealed class SetupFeatureFlagRowViewModel : BindableViewModel
 
     public string Key => _flag.Key;
 
-    public string Title => _flag.Title;
+    public string Title => SetupText.FlagTitle(_flag);
 
-    public string Description => _flag.Description;
+    public string Description => SetupText.FlagDescription(_flag);
 
     public string DetailLine => $"{_flag.Key} · #{_flag.OwnerIssue}";
 
