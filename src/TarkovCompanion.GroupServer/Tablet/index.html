@@ -891,17 +891,23 @@
   const KNOWN_WORKSPACES = ["Raid", "Intel", "Plan", "Team", "Debrief"];
   // #407: a short, fixed list — this page has no catalogue of its own to ask, and the desktop's
   // published surface only ever names the one map it is currently showing.
+  // [#800] Only for a desktop too old to publish its own picker (`surface.maps`). These are the
+  // desktop's ids, the map catalog's normalized names, in its picker's order. This list used to
+  // say "streets" and "labyrinth", which no desktop map is called, and it left three maps out.
   const KNOWN_MAPS = [
     ["customs", "Customs"],
-    ["woods", "Woods"],
     ["factory", "Factory"],
-    ["interchange", "Interchange"],
-    ["shoreline", "Shoreline"],
-    ["reserve", "Reserve"],
-    ["lighthouse", "Lighthouse"],
-    ["streets", "Streets of Tarkov"],
     ["ground-zero", "Ground Zero"],
-    ["labyrinth", "Labyrinth"],
+    ["icebreaker", "Icebreaker"],
+    ["interchange", "Interchange"],
+    ["lighthouse", "Lighthouse"],
+    ["reserve", "Reserve"],
+    ["shoreline", "Shoreline"],
+    ["streets-of-tarkov", "Streets Of Tarkov"],
+    ["terminal", "Terminal"],
+    ["the-lab", "The Lab"],
+    ["the-labyrinth", "The Labyrinth"],
+    ["woods", "Woods"],
   ];
   // [#290] The paired session, kept across a page reload and a browser restart. What is kept is
   // this one device's session: its relay credential (which the desktop revokes, and which expires
@@ -960,6 +966,11 @@
   let artwork = null;
   let artworkSha = null;
   let camera = null;
+  // [#800] The map this tablet asked the desktop for and has not seen yet. Until the desktop
+  // publishes it, a move would name the map being left (and send the desk straight back) in that
+  // map's coordinates, so none is sent.
+  let pendingMap = null;
+  const PENDING_MAP_MS = 8000;
   let localSelectionId = null;
   let localHiddenLayers = null;
   // A Move button arms exactly one existing mark. The next map tap upserts that mark's stable
@@ -1547,32 +1558,60 @@
   // which is what turns that into a real `RaidCockpitViewModel.SelectMapAsync`).
   function renderMapSwitcher() {
     const select = $("mapSwitch");
-    if (select.options.length === 0) {
-      for (const [id, name] of KNOWN_MAPS) {
+    // [#800] The desktop's own picker when it publishes one: same ids, same names, same order.
+    const maps = live?.surface?.maps?.length
+      ? live.surface.maps.map((item) => [item.id, item.name])
+      : KNOWN_MAPS;
+    const signature = JSON.stringify(maps);
+    if (select.dataset.maps !== signature) {
+      select.replaceChildren();
+      for (const [id, name] of maps) {
         const option = document.createElement("option");
         option.value = id;
         option.textContent = name;
         select.appendChild(option);
       }
+
+      select.dataset.maps = signature;
     }
 
-    const current = live?.surface?.mapId;
+    const current = pendingMap?.id ?? live?.surface?.mapId;
     if (current && select.value !== current) {
       if (![...select.options].some((option) => option.value === current)) {
         // The desktop is on a map this page's short list does not name; add it rather than
         // silently showing the wrong selection.
         const option = document.createElement("option");
         option.value = current;
-        option.textContent = live.surface.mapName || current;
+        option.textContent = live?.surface?.mapId === current ? live.surface.mapName || current : current;
         select.appendChild(option);
+        select.dataset.maps = "";
       }
 
       select.value = current;
     }
   }
 
+  function mapSwitchPending() {
+    if (!pendingMap) return false;
+    if (live?.surface?.mapId === pendingMap.id || Date.now() > pendingMap.until) {
+      pendingMap = null;
+      renderMapSwitcher();
+      return false;
+    }
+
+    return true;
+  }
+
+  // The desktop's view of its map, which is where a driving tablet starts from.
+  function deskCamera() {
+    const view = live?.surface?.view;
+    return view ? { x: view.centerX, y: view.centerY, zoom: view.zoom } : fitCamera();
+  }
+
   function switchMap(mapId) {
-    if (mode !== "Control" || !live?.surface || mapId === live.surface.mapId) return;
+    if (mode !== "Control" || !live?.surface || mapId === (pendingMap?.id ?? live.surface.mapId)) return;
+    pendingMap = { id: mapId, until: Date.now() + PENDING_MAP_MS };
+    moveStream.wanted = false;
     sendCommand({
       type: "controlWorkspace",
       ...commandHeader(live.workspaceRevision + 1),
@@ -1786,7 +1825,13 @@
         nowMs: Date.now(),
       });
       live.connected = live.desktopOnline;
+      const previousMapId = live.surface?.mapId ?? null;
       live.surface = surface;
+      // [#800] A camera belongs to one map's plan. Carried onto the next map it pointed the desk
+      // somewhere unrelated on the first touch, so a new map starts from the desk's own view.
+      if (surface.mapId !== previousMapId && mode !== "Follow") camera = deskCamera();
+      mapSwitchPending();
+      if (mode === "Control") renderMapSwitcher();
       takeSentView(surface);
       takeLoot(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
@@ -2544,6 +2589,9 @@
     if (next !== mode) {
       mode = next;
       if (mode !== "Follow" && !camera) camera = fitCamera();
+      // [#800] Driving starts from where the desk is. The tablet's own older view made the first
+      // touch jump the desk there, and until then the two screens disagreed on zoom.
+      if (mode === "Control" && live?.surface) camera = deskCamera();
       // Leaving Independent hands the view back to the desktop, layers included; keeping this
       // tablet's own set would quietly override what the desk is showing.
       if (mode !== "Independent") localHiddenLayers = null;
@@ -3229,7 +3277,7 @@
     }
 
     moveStream.wanted = false;
-    if (mode !== "Control" || !live?.surface || !live.authorityEpoch) return;
+    if (mode !== "Control" || !live?.surface || !live.authorityEpoch || mapSwitchPending()) return;
     moveStream.inFlight = true;
     moveStream.lastSentAt = performance.now();
     const command = navigateCommand(live.surface.view.floorId);
@@ -3294,6 +3342,8 @@
       streamNavigate();
       return;
     }
+
+    if (mapSwitchPending()) return;
 
     sendCommand({
       type: "controlWorkspace",
@@ -3884,6 +3934,7 @@
   // scripts/test-tablet-ping-expiry.cjs (PingExpiryBrowserTests), which reads pingIds to prove a
   // ping the surface named is actually gone from what this page is drawing, not merely filtered
   // out of a list the test itself is trusting blindly.
+  window.__tabletTestPlan = () => live?.surface?.plan ?? null;
   window.__tabletTestState = () => ({
     mode,
     camera: camera ? { x: camera.x, y: camera.y, zoom: camera.zoom } : null,

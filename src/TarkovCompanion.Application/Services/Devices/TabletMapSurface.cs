@@ -150,7 +150,13 @@ public sealed record TabletMapSurface(
     // #572: the last Loot Scan, shown on the tablet when it is new.
     TabletLootResult? Loot = null,
     // #701: explains why this exact set of potential-loot objects is present.
-    TabletMapLootFilter? LootFilter = null);
+    TabletMapLootFilter? LootFilter = null,
+    // #800: the desktop's own map picker, in its order, so a tablet in Control offers the same
+    // maps under the same ids. The tablet's built-in list named ids no desktop map carries.
+    IReadOnlyList<TabletMapChoice>? Maps = null);
+
+/// <summary>One entry of the desktop's map picker: the id a switch must name, and its label.</summary>
+public sealed record TabletMapChoice(string Id, string Name);
 
 /// <summary>
 /// Builds the tablet's surface from the desktop's assembled scene, so the two are the same scene
