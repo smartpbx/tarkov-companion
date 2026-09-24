@@ -149,9 +149,9 @@ public sealed class RaidContextTests
 
         var changes = ProfileBundleChanges.Compare(Bundle(identity, []), incoming);
 
-        Assert.Contains(changes, change => change.Area == "Raids" && change.After == "2");
-        Assert.Contains(changes, change => change.Area == "Raids from another mode" && change.Now == "1");
-        Assert.Contains(changes, change => change.Area == "Raids from another wipe" && change.Now == "1");
+        Assert.Contains(changes, change => change.Area == ProfileBundleArea.Raids && ProfileWords.After(change) == "2");
+        Assert.Contains(changes, change => change.Area == ProfileBundleArea.RaidsFromAnotherMode && change.Now == "1");
+        Assert.Contains(changes, change => change.Area == ProfileBundleArea.RaidsFromAnotherWipe && change.Now == "1");
     }
 
     [Fact]
