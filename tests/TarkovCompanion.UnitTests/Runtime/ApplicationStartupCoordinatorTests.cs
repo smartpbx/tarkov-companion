@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
@@ -362,7 +363,10 @@ public sealed class ApplicationStartupCoordinatorTests
         await fixture.Coordinator.RefreshAsync(force: true, default);
 
         Assert.Empty(fixture.Sync.Requests);
-        Assert.Contains("no game mode", fixture.State.Current.Data.Detail, StringComparison.OrdinalIgnoreCase);
+        using (UiText.Scope(UiText.Create("en", _ => { })))
+        {
+            Assert.Contains("no game mode", SetupText.DataDetail(fixture.State.Current.Data), StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]

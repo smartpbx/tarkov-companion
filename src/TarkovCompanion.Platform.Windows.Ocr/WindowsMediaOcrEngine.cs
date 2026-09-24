@@ -70,7 +70,7 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
                 ?? WindowsOcr.OcrEngine.TryCreateFromLanguage(new Language("en-US"));
             _recognizer = engine is null ? null : new WindowsOcrRecognizer(engine);
             Availability = engine is null
-                ? new(false, ProviderName, "Windows has no OCR language pack installed for this profile.")
+                ? OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.NoLanguagePack, "Windows has no OCR language pack installed for this profile.")
                 : new(true, ProviderName);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -79,7 +79,7 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
             // a Server SKU or a policy can remove. Said plainly rather than thrown, because the
             // whole point of this class is to be the one that might not be there.
             _recognizer = null;
-            Availability = new(false, ProviderName, Summarize(exception));
+            Availability = Unavailable(exception);
         }
     }
 
@@ -91,7 +91,9 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
         _recognizer = recognizer;
         _options = ValidateOptions(options ?? new WindowsMediaOcrOptions());
         Availability = recognizer is null
-            ? new(false, ProviderName, unavailableReason ?? "Windows OCR is unavailable.")
+            ? unavailableReason is null
+                ? OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.WindowsOcrUnavailable, "Windows OCR is unavailable.")
+                : new(false, ProviderName, unavailableReason)
             : new(true, ProviderName);
     }
 
@@ -638,13 +640,13 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
         return options;
     }
 
-    private static string Summarize(Exception exception) => exception switch
+    private static OcrEngineAvailability Unavailable(Exception exception) => exception switch
     {
         TypeLoadException or DllNotFoundException or EntryPointNotFoundException =>
-            "This Windows install does not carry the OCR component.",
+            OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.NoOcrComponent, "This Windows install does not carry the OCR component."),
         UnauthorizedAccessException =>
-            "Windows refused access to its OCR component.",
-        _ => "Windows could not start its OCR engine: " + exception.Message,
+            OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.AccessRefused, "Windows refused access to its OCR component."),
+        _ => OcrEngineAvailability.Unavailable(ProviderName, OcrUnavailableReason.CouldNotStart, "Windows could not start its OCR engine: " + exception.Message, exception.Message),
     };
 
     /// <summary>What a request measured before any native work, so every exit reports the same facts.</summary>

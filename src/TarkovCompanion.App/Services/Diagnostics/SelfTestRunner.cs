@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 
@@ -92,7 +93,7 @@ public static class SelfTestRunner
                 : new(
                     "cache",
                     "unavailable",
-                    $"No normalized item cache is present: {snapshot.Data.Detail}",
+                    $"No normalized item cache is present: {SetupText.DataDetail(snapshot.Data)}",
                     Required: false));
 
             checks.Add(services.GetService<IDataSyncService>() is not null

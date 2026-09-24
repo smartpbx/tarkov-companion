@@ -188,7 +188,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         {
             return ScanExecutionResult.Unavailable(
                 "Scanning is not available on this platform.",
-                now);
+                now) with { DetailPhrase = new(ScannerStatus.NotOnPlatform) };
         }
 
         var availability = _ocrStatus.Availability;
@@ -199,12 +199,20 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         return availability.IsAvailable
             ? ScanExecutionResult.Ready(
                 "Ready. Take a screenshot with the game's own key and it will be read.",
-                now)
+                now) with { DetailPhrase = new(ScannerStatus.Ready) }
             : ScanExecutionResult.Unavailable(
                 availability.Reason is { } reason
                     ? $"Scanning cannot run: {reason}"
                     : $"Scanning cannot run; {availability.Provider} did not start.",
-                now);
+                now) with
+            {
+                // [#314] The engine's own code where it has one; a reason with none is said as written.
+                DetailPhrase = availability.Why is { } why
+                    ? new(ScannerStatus.CannotRun, why)
+                    : availability.Reason is { } written
+                        ? new(ScannerStatus.CannotRun, written)
+                        : new(ScannerStatus.DidNotStart, availability.Provider),
+            };
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
@@ -337,7 +345,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             _stateStore.Update(current => current with
             {
                 IsOffline = _options.IsOffline,
-                Data = current.Data with { Availability = DataAvailability.Refreshing, Detail = "Refreshing stale game data in the background." },
+                Data = (current.Data with { Availability = DataAvailability.Refreshing }).Saying(DataDetail.Refreshing),
             });
 
             var scope = await ResolveSyncScopeAsync(operationCancellation.Token).ConfigureAwait(false);
@@ -402,15 +410,15 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             _stateStore.Update(current => current with
             {
                 IsOffline = _options.IsOffline,
-                Data = Describe(cached) with
-                {
-                    Detail = cached.ItemCount == 0
+                Data = Describe(cached).Saying(
+                    cached.ItemCount == 0
                         ? DescribeEmptyRefresh(errors)
                         : errors.Length == 0
                             ? stale == 0
-                                ? $"Refreshed from {report.Endpoints.Count} endpoints"
-                                : $"Refreshed from {report.Endpoints.Count} endpoints · {stale} served a cached copy"
-                            : $"{DescribeEndpointFailures(errors)} · local data stands",
+                                ? new Phrase(DataDetail.Refreshed, report.Endpoints.Count)
+                                : new Phrase(DataDetail.RefreshedWithStale, report.Endpoints.Count, stale)
+                            : new Phrase(DataDetail.LocalDataStands, DescribeEndpointFailures(errors))) with
+                {
                     // [V2 rough package 43] The same failures, as names rather than as prose, so
                     // a notification can say which endpoints without reading the line above.
                     FailedEndpoints = [.. errors.Select(error => error.Endpoint)],
@@ -430,7 +438,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             SetRefreshError(
-                "The background refresh exceeded its bounded timeout.",
+                DataDetail.TimedOut,
                 cached?.ItemCount);
             _logger.LogWarning("The game-data refresh exceeded {RefreshTimeout}.", _options.RefreshTimeout);
             return new(
@@ -444,15 +452,15 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         {
             SetRefreshError(
                 deadline.IsCancellationRequested
-                    ? "The background refresh exceeded its bounded timeout."
-                    : "The refresh was stopped; any existing local cache remains available.",
+                    ? DataDetail.TimedOut
+                    : DataDetail.Stopped,
                 cached?.ItemCount);
             throw;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             await SetRefreshErrorFromStoreAsync(
-                "The refresh failed; any existing local cache remains available.",
+                DataDetail.Failed,
                 cancellationToken).ConfigureAwait(false);
             _logger.LogError("The game-data refresh failed; a sanitized runtime state was published.");
             return RuntimeFault.FromException(
@@ -609,10 +617,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                         _stateStore.Update(current => current with
                         {
                             IsOffline = false,
-                            Data = current.Data with
-                            {
-                                Detail = "Connection restored; refreshing local game data.",
-                            },
+                            Data = current.Data.Saying(DataDetail.Reconnected),
                         });
                         await RefreshAfterReconnectAsync(cancellationToken).ConfigureAwait(false);
                         observedOffline = _options.IsOffline;
@@ -829,13 +834,12 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     {
         _stateStore.Update(current => current with
         {
-            Data = current.Data with
+            Data = (current.Data with
             {
                 Availability = current.Data.ItemCount > 0
                     ? DataAvailability.Cached
                     : DataAvailability.Unavailable,
-                Detail = "This profile has no game mode. Choose PvP, PvE or Seasonal to load game data.",
-            },
+            }).Saying(DataDetail.NoGameMode),
         });
     }
 
@@ -844,15 +848,12 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _stateStore.Update(current => current with
         {
             IsOffline = true,
-            Data = current.Data with
+            Data = (current.Data with
             {
                 Availability = current.Data.ItemCount > 0
                     ? DataAvailability.Cached
                     : DataAvailability.Unavailable,
-                Detail = current.Data.ItemCount > 0
-                    ? "Offline mode is enabled; using the local game-data cache."
-                    : "Offline, and no local game data",
-            },
+            }).Saying(current.Data.ItemCount > 0 ? DataDetail.OfflineCached : DataDetail.OfflineEmpty),
         });
     }
 
@@ -860,43 +861,41 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     {
         if (_options.DemoMode)
         {
-            return new(
+            return new RuntimeDataState(
                 DataAvailability.DemoFixture,
                 cached.ItemCount,
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
-                "Deterministic local demo fixtures are loaded.");
+                string.Empty).Saying(DataDetail.DemoFixtures);
         }
 
         if (cached.ItemCount == 0)
         {
-            return new(
+            return new RuntimeDataState(
                 cached.LastError is null ? DataAvailability.Unavailable : DataAvailability.Error,
                 0,
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
-                cached.LastError is null
-                    ? "No local game data"
-                    : "The last local game-data operation failed.");
+                string.Empty).Saying(cached.LastError is null ? DataDetail.NoLocalData : DataDetail.LastOperationFailed);
         }
 
         if (_options.IsOffline)
         {
-            return new(
+            return new RuntimeDataState(
                 DataAvailability.Cached,
                 cached.ItemCount,
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
-                "Offline mode is enabled; using the local game-data cache.");
+                string.Empty).Saying(DataDetail.OfflineCached);
         }
 
         var stale = cached.LastSuccessUtc is null || _timeProvider.GetUtcNow() - cached.LastSuccessUtc > _options.DataFreshFor;
-        return new(
+        return new RuntimeDataState(
             stale ? DataAvailability.Cached : DataAvailability.Current,
             cached.ItemCount,
             cached.SyncedEndpointCount,
             cached.LastSuccessUtc,
-            stale ? "Usable local data is loaded and marked stale." : "Usable local game data is loaded.");
+            string.Empty).Saying(stale ? DataDetail.UsableStale : DataDetail.Usable);
     }
 
     /// <summary>
@@ -923,29 +922,32 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _logParser.UpdateAliases(aliases);
     }
 
-    private static string DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)
+    private static Phrase DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)
     {
         if (errors.Count == 0)
         {
-            return "The refresh reported success but no game items were stored.";
+            return new(DataDetail.EmptyRefresh);
         }
 
-        return $"No game items are available; {DescribeEndpointFailures(errors)}.";
+        return new(DataDetail.NoItems, DescribeEndpointFailures(errors));
     }
 
     /// <summary>
     /// Names the endpoint and reason for every failed refresh, short enough for a one-line
     /// banner. "2 endpoint refresh(es) failed" with no names left this unreproducible for a day.
     /// </summary>
-    private static string DescribeEndpointFailures(IReadOnlyList<SyncEndpointResult> errors) =>
-        string.Join("; ", errors.Select(error => $"{error.Endpoint}: {ShortenReason(error.Error)}"));
+    private static Phrase DescribeEndpointFailures(IReadOnlyList<SyncEndpointResult> errors) =>
+        errors
+            .Select(error => new Phrase(DataDetail.EndpointFailed, error.Endpoint, ShortenReason(error.Error)))
+            .Aggregate((list, next) => new Phrase(DataDetail.AndAlso, list, next));
 
-    private static string ShortenReason(string? reason)
+    /// <summary>The sync's own reason, first line and bounded; it stays as the sync recorded it.</summary>
+    private static object ShortenReason(string? reason)
     {
         const int maximumLength = 120;
         if (string.IsNullOrWhiteSpace(reason))
         {
-            return "unknown reason";
+            return DataDetail.UnknownReason;
         }
 
         var firstLine = reason.Split('\n', 2)[0].Trim();
@@ -963,18 +965,17 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     /// have stored items. Reading the item count from the pre-refresh state reported zero and
     /// left item search disabled until the next restart even though the data was on disk.
     /// </remarks>
-    private void SetRefreshError(string detail, int? observedItemCount = null)
+    private void SetRefreshError(DataDetail detail, int? observedItemCount = null)
     {
         _stateStore.Update(current =>
         {
             var itemCount = observedItemCount ?? current.Data.ItemCount;
             return current with
             {
-                Data = current.Data with
+                Data = current.Data.Saying(detail) with
                 {
                     Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
                     ItemCount = itemCount,
-                    Detail = detail,
                     // [V2 rough package 43] A refresh that never reached an endpoint has no
                     // endpoint to name, and it is the worse failure of the two. Named as the
                     // whole refresh so it still reaches the player rather than being the one
@@ -985,7 +986,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         });
     }
 
-    private async Task SetRefreshErrorFromStoreAsync(string detail, CancellationToken cancellationToken)
+    private async Task SetRefreshErrorFromStoreAsync(DataDetail detail, CancellationToken cancellationToken)
     {
         var itemCount = _stateStore.Current.Data.ItemCount;
         try

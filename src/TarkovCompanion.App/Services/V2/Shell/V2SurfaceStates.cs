@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Runtime;
 
 namespace TarkovCompanion.App.Services.V2.Shell;
@@ -153,15 +154,15 @@ public static class V2SurfaceStateResolver
         return data.Availability switch
         {
             DataAvailability.DemoFixture => Ready(),
-            DataAvailability.Error => State(V2SurfaceStateKind.Failed, data.Detail, "V2.Shell.Remainder.Local", sync, setup),
+            DataAvailability.Error => State(V2SurfaceStateKind.Failed, SetupText.DataDetail(data), "V2.Shell.Remainder.Local", sync, setup),
             DataAvailability.Refreshing when data.ItemCount == 0 =>
-                State(V2SurfaceStateKind.Loading, data.Detail, "V2.Shell.Remainder.Local"),
+                State(V2SurfaceStateKind.Loading, SetupText.DataDetail(data), "V2.Shell.Remainder.Local"),
             DataAvailability.Unavailable when snapshot.IsOffline =>
-                State(V2SurfaceStateKind.Offline, data.Detail, "V2.Shell.Remainder.Local", setup),
+                State(V2SurfaceStateKind.Offline, SetupText.DataDetail(data), "V2.Shell.Remainder.Local", setup),
             DataAvailability.Unavailable when !snapshot.DatabaseReady =>
-                State(V2SurfaceStateKind.Loading, data.Detail, "V2.Shell.Remainder.Local"),
-            DataAvailability.Unavailable => State(V2SurfaceStateKind.Empty, data.Detail, "V2.Shell.Remainder.Local", sync),
-            _ when data.ItemCount == 0 => State(V2SurfaceStateKind.Empty, data.Detail, "V2.Shell.Remainder.Local", sync),
+                State(V2SurfaceStateKind.Loading, SetupText.DataDetail(data), "V2.Shell.Remainder.Local"),
+            DataAvailability.Unavailable => State(V2SurfaceStateKind.Empty, SetupText.DataDetail(data), "V2.Shell.Remainder.Local", sync),
+            _ when data.ItemCount == 0 => State(V2SurfaceStateKind.Empty, SetupText.DataDetail(data), "V2.Shell.Remainder.Local", sync),
             _ when snapshot.IsOffline => State(
                 V2SurfaceStateKind.Offline,
                 V2ShellText.Format("V2.Shell.Detail.OfflineCached", culture, data.ItemCount, Age(data, nowUtc, culture)),

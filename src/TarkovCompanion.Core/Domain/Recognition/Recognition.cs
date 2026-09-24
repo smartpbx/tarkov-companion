@@ -128,7 +128,41 @@ public sealed record OcrResult(
     bool IsAvailable = true,
     string? DiagnosticCode = null);
 
-public sealed record OcrEngineAvailability(bool IsAvailable, string Provider, string? Reason = null);
+/// <summary>Whether the OCR engine can run here, and why not when it cannot.</summary>
+/// <param name="Reason">Why not, in English: it goes to logs, probes and the headless self-test.</param>
+public sealed record OcrEngineAvailability(bool IsAvailable, string Provider, string? Reason = null)
+{
+    /// <summary>[#314] Why not, as a code the App words in Setup &gt; Recognition. Null for a reason with no code.</summary>
+    public Phrase? Why { get; init; }
+
+    /// <summary>Unavailable, saying why both ways: <paramref name="reason"/> in English, <paramref name="code"/> for the screen.</summary>
+    public static OcrEngineAvailability Unavailable(string provider, OcrUnavailableReason code, string reason, params object?[] arguments) =>
+        new(false, provider, reason) { Why = new Phrase(code, arguments) };
+}
+
+/// <summary>[#314] Why an OCR engine cannot run, as codes the App words.</summary>
+[PhraseCodes("Setup.OcrReason")]
+public enum OcrUnavailableReason
+{
+    NoAvailabilityState,
+    WindowsOnly,
+    NeedsX64,
+    TraineddataMissing,
+    NativeLibraryMissing,
+    ArchitectureMismatch,
+    CacheNotWritable,
+    CacheNotPrepared,
+
+    /// <summary>{0}: the failing exception's type name.</summary>
+    ProviderFailed,
+    NoLanguagePack,
+    WindowsOcrUnavailable,
+    NoOcrComponent,
+    AccessRefused,
+
+    /// <summary>{0}: the exception's message.</summary>
+    CouldNotStart,
+}
 
 public sealed record RecognitionCapabilityStatus(
     string Capability,
