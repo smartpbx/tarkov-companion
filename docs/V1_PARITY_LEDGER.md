@@ -39,8 +39,8 @@ removed `V2RouteContent.LegacyPage` and `V2RouteDefinition.LegacyPage`).
 | Flea | `#/intel/flea` — `FleaWorkspaceView` over V1's `FleaPageViewModel` | Carried | #284 | `KeysAndFleaWorkspaceViewModelTests`; gallery `v2-a-intel-flea-*` |
 | Quests | `#/plan` — `PlanWorkspaceView` | Replaced | #288 | `PlanWorkspaceViewModelTests`, `PlanQuestRulesTests`; gallery `v2-a-plan-*` |
 | Hideout | `#/plan/hideout` — `HideoutWorkspaceView` | Replaced | #307 | `HideoutWorkspaceViewModelTests`; gallery `v2-a-plan-hideout-*`, asserting `v2-hideout-status` |
-| Loadout | `#/plan/loadout` — `LoadoutWorkspaceView` over V1's `LoadoutPageViewModel` | Carried | #288 | gallery `v2-a-plan-loadout-*`, asserting `v2-loadout-search` and that `v2-loadout-clear` is inside the window. **No unit test of its own** — see the gaps below |
-| Events | `#/plan/events` — `EventsWorkspaceView` over V1's `EventsPageViewModel` | Carried | #288 | gallery `v2-a-plan-events-*`, asserting `v2-events-new-name` and that `v2-events-create` is inside the window. **No unit test of its own** — see the gaps below |
+| Loadout | `#/plan/loadout` — `LoadoutWorkspaceView` over V1's `LoadoutPageViewModel` | Carried | #288 | gallery `v2-a-plan-loadout-*`, asserting `v2-loadout-search` and that `v2-loadout-clear` is inside the window; `LoadoutBoardTests` (#501) |
+| Events | `#/plan/events` — `EventsWorkspaceView` over V1's `EventsPageViewModel` | Carried | #288 | gallery `v2-a-plan-events-*`, asserting `v2-events-new-name` and that `v2-events-create` is inside the window; `EventScheduleTests` (#501), `EventRuleEditorTests` (#790) |
 | Squad | `#/team` — `TeamWorkspaceView`: presence, marks, sharing, paired devices in one place | Replaced | #289 | `TeamWorkspaceViewModelTests`, `PairingInPlaceTests`; gallery `v2-a-team-*` |
 | Group | `#/team/group` — the same `TeamWorkspaceView`, reached as a section | Replaced | #289 | `TeamWorkspaceViewModelTests`; gallery `v2-a-team-group-*` |
 | History | `#/debrief` — `DebriefWorkspaceView`, including replay back onto the raid map | Replaced | #291 | `DebriefWorkspaceViewModelTests`; gallery `v2-a-debrief-*` |
@@ -73,7 +73,7 @@ the other thirteen resolved (#294 added it).
 | Ctrl+1..9 to reach a page | V2's own chord table (`V2ShellViewModel.HandleKey`), which is variant-aware | Replaced | #265 | `V2ShellCommandTests`; `V2ShellHostContractTests.Preview_lifecycle_keyboard_and_focus_stay_inside_the_preview_boundary` |
 | `/` to focus the page's search box | The header search, or the workspace search in variant A's Intel | Replaced | #265 | `V2ShellHostContractTests` |
 | Escape dismisses the map's selection | The shell's own dismiss, through the same chord table | Carried | #265 | `V2ShellCommandTests` |
-| A notice dot on the rail when an update is waiting | **Nothing.** An update is visible only by opening Setup › Updates | Not carried | #280 | — |
+| A notice dot on the rail when an update is waiting | The Setup destination carries a notice mark while a build waits (`V2ShellViewModel.MarkWhileUpdateWaits`) | Carried, **by #501** | #280 | `V2UpdateNoticeTests` |
 
 ## What #294 removed, exactly
 
@@ -108,16 +108,20 @@ What was duplicated was V1's *chrome*, and chrome is what stopped being built.
 
 ## Gaps this ledger will not paper over
 
-- **Loadout and Events have no unit tests of their own.** They are V2 views over V1 view models, so
-  V1's tests cover the logic and the gallery covers the rendering, but nothing covers the V2 view
-  models between them. Owner: #288.
-- **No update notice outside Setup.** V1 put a dot on the rail; V2 does not. The update channel is
-  live, so this is a build that arrives and says nothing. Owner: #280.
-- **Interface scale tops out at 130%.** `ShellLayout.Scales` is `[0.9, 1.0, 1.15, 1.3]`, which is
-  V1's ladder inherited. #279's acceptance asks for 100/150/200%; 150% and 200% are reachable by
-  the operating system's own display scaling on the Windows runner, but not from inside the
-  application. Owner: #266.
-- **`V2Appearance.Resolve` still has no caller** and `App.axaml` pins Dark, so light and
-  high-contrast cannot be chosen. Owner: #266.
-- **Variant B is still shipped.** Two V2 navigations exist behind `--ui-shell v2-a|v2-b`. Choosing
-  one and retiring the other is #265's comparison to conclude, not this ledger's.
+Checked against `main` on 2026-09-24. Closed since the list was written (2026-09-19):
+
+- ~~Loadout and Events have no unit tests of their own.~~ `LoadoutBoardTests` and
+  `EventScheduleTests` (#501), `EventRuleEditorTests` over `EventsPageViewModel` (#790).
+- ~~No update notice outside Setup.~~ The rail's Setup destination is marked while a build waits
+  (#501; `V2UpdateNoticeTests`).
+- ~~`V2Appearance.Resolve` has no caller.~~ `V2AppearanceApplier` calls it and sets the
+  application's theme variant, so light and high contrast can be chosen in Setup › Accessibility
+  (#485; `V2AppearanceApplierTests`). Renders: `docs/design/v2/revisions/` (#312).
+
+Still open:
+
+- **Interface scale tops out at 130%.** `ShellLayout.Scales` is still `[0.9, 1.0, 1.15, 1.3]`.
+  Text alone reaches 200% from Setup › Accessibility › Text size (#485, `WorkspacePreferences.TextScales`),
+  and 150%/200% of the whole window only through the operating system's display scaling. Owner: #266.
+- **Variant B is still shipped.** Two V2 navigations exist behind `--ui-shell v2-a|v2-b`. #265
+  closed on 2026-09-17 without retiring either, so this has no open owner.
