@@ -452,7 +452,9 @@ The tablet keeps a confirmed **Pair again** escape visible throughout this wait,
 link always starts its new pairing attempt instead of restoring the remembered desktop (#708).
 The code form stays on screen while it reconnects, each pairing request gives up after 10 s, a
 failed or unanswered mailbox poll is asked again, and a returning tablet stops waiting on a step
-after 30 s (#840).
+after 30 s (#840). A desktop that will not have a returning tablet back says so (#846): the owner posts
+`POST …/resume/requests/{ticket}/refusal?reason=not-recognised|failed`, the ticket read carries
+`refused`, and the page shows the code form at once. An older page ignores the field and times out.
 `POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
 reaches the relay, and an owner registering a tablet whose device key is already known replaces
 that tablet's old record.

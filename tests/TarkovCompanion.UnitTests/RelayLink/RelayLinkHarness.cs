@@ -530,10 +530,14 @@ internal sealed class TabletSimulator : IDisposable
                 await whileWaiting();
             }
 
-            using var answer = await _relay.GetAsync($"v2/companion/relay/resume/requests/{ticketId:D}");
-            answer.EnsureSuccessStatusCode();
-            using var answered = JsonDocument.Parse(await answer.Content.ReadAsStringAsync());
-            code = answered.RootElement.GetProperty("pairingCode").GetString();
+            var (answeredCode, refused) = await ReadResumeTicketAsync(ticketId);
+            if (refused is not null)
+            {
+                // [#846] What the page reads: this desktop will not have it back.
+                return (System.Net.HttpStatusCode.OK, "refused:" + refused);
+            }
+
+            code = answeredCode;
             Assert.True(code is not null || DateTime.UtcNow < deadline, "Timed out waiting for the desktop to answer the resume ticket.");
             if (code is null)
             {
@@ -543,6 +547,51 @@ internal sealed class TabletSimulator : IDisposable
 
         await PairAsync(code, name, resuming: true);
         return (System.Net.HttpStatusCode.OK, "resumed");
+    }
+
+    /// <summary>What a resume ticket says now: the desktop's code, its refusal (#846), or neither yet.</summary>
+    public async Task<(string? Code, string? Refused)> ReadResumeTicketAsync(Guid ticketId)
+    {
+        using var answer = await _relay.GetAsync($"v2/companion/relay/resume/requests/{ticketId:D}");
+        answer.EnsureSuccessStatusCode();
+        using var answered = JsonDocument.Parse(await answer.Content.ReadAsStringAsync());
+        var refused = answered.RootElement.TryGetProperty("refused", out var said) ? said.GetString() : null;
+        return (answered.RootElement.GetProperty("pairingCode").GetString(), refused);
+    }
+
+    /// <summary>
+    /// Proves this tablet's key at the relay's door and returns the ticket, without waiting for an
+    /// answer: for a test that needs to act between the knock and the handshake.
+    /// </summary>
+    public async Task<Guid> KnockAsync()
+    {
+        using var asked = await _relay.PostAsync("v2/companion/relay/possession/challenge", null);
+        asked.EnsureSuccessStatusCode();
+        using var issued = JsonDocument.Parse(await asked.Content.ReadAsStringAsync());
+        var proof = new DeviceKeyProof(
+            new HandshakeChallengeId(issued.RootElement.GetProperty("challengeId").GetGuid()),
+            Assertion(RelayPossessionChallenges.DeviceDoorChallenge(issued.RootElement.GetProperty("nonceBase64Url").GetString()!)));
+        using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(proof));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var door = await _relay.PostAsync(
+            "v2/companion/relay/resume/requests?deviceKeyId=" + Uri.EscapeDataString(PublicDeviceKey().KeyId.Value),
+            content);
+        door.EnsureSuccessStatusCode();
+        using var ticket = JsonDocument.Parse(await door.Content.ReadAsStringAsync());
+        return ticket.RootElement.GetProperty("ticketId").GetGuid();
+    }
+
+    /// <summary>Resolves a code and leaves this tablet's pairing request, and goes no further.</summary>
+    public async Task SubmitPairingRequestAsync(string pairingCode, string name)
+    {
+        using var resolve = new HttpRequestMessage(HttpMethod.Post, "v2/companion/pairing/offers/resolve");
+        resolve.Headers.Add("Tarkov-Pairing-Code", pairingCode.Replace("-", string.Empty, StringComparison.Ordinal));
+        using var resolved = await _relay.SendAsync(resolve);
+        Assert.Equal(System.Net.HttpStatusCode.OK, resolved.StatusCode);
+        var offer = CompanionProtocolJson.Deserialize<PairingOffer>(await resolved.Content.ReadAsByteArrayAsync());
+        using var ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var request = PairingRequestFor(offer, ephemeral, name);
+        await PostMailboxAsync($"v2/companion/pairing/requests/{offer.AttemptId.Value:D}", CompanionProtocolJson.Serialize(request));
     }
 
     /// <summary>Whether the desktop got this tablet registered on the relay and handed it a credential.</summary>

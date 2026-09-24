@@ -115,7 +115,13 @@ public sealed class PairedDeviceResumeService : IDisposable
                     Microsoft.Extensions.Logging.LogLevel.Warning);
                 // A handshake that did not finish leaves the tablet where it was: it asks again,
                 // or the player pairs it by code. Nothing half-done is kept by the coordinator
-                // past the offer's own few minutes.
+                // past the offer's own few minutes. [#846] It is told so, rather than left to time out.
+                if (!_lifetime.IsCancellationRequested)
+                {
+                    await RefuseAsync(
+                        ticket,
+                        exception is UnauthorizedAccessException ? NotRecognised : Failed).ConfigureAwait(false);
+                }
             }
             finally
             {
@@ -142,6 +148,7 @@ public sealed class PairedDeviceResumeService : IDisposable
                     ? "resume ticket ignored: that device is not paired with this desktop."
                     : $"resume ticket ignored: that device is {known.Status} here.",
                 Microsoft.Extensions.Logging.LogLevel.Warning);
+            await RefuseAsync(ticket, NotRecognised).ConfigureAwait(false);
             return;
         }
 
@@ -238,6 +245,33 @@ public sealed class PairedDeviceResumeService : IDisposable
             }
 
             throw;
+        }
+    }
+
+    // The wire words of RelayResumeRefusals on the relay; this project does not reference it.
+    private const string NotRecognised = "not-recognised";
+    private const string Failed = "failed";
+
+    /// <summary>
+    /// [#846] Before this, a refusal was local: the relay and the tablet never learned, and the
+    /// tablet sat on "Reconnecting" for a minute (unanswered ticket) or 30 s (a failed step)
+    /// before it showed the code form again. Best effort and bounded: an old relay answers 404,
+    /// and the tablet then times out exactly as it used to.
+    /// </summary>
+    private async Task RefuseAsync(RelayResumeTicket ticket, string reason)
+    {
+        try
+        {
+            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            bounded.CancelAfter(TimeSpan.FromSeconds(10));
+            await _bridge.RefuseResumeTicketAsync(ticket.TicketId, reason, bounded.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _bridge.Log?.Write(
+                "resume:refusal-unsent",
+                $"resume refusal not delivered: {exception.GetType().Name}.",
+                Microsoft.Extensions.Logging.LogLevel.Warning);
         }
     }
 
