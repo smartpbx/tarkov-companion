@@ -72,9 +72,13 @@
               AutomationProperties.AutomationId="v2-events-detail">
         <!-- #288: the event itself on the left (name, days, typed effects, history) and the items it
              applies to on the right. Two columns because the effect rows and the item list both
-             grow, and stacked they squeezed the item list to nothing at 1080p. -->
-        <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
-          <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRuleInformation}">
+             grow, and stacked they squeezed the item list to nothing at 1080p.
+             [#832] On a narrow page (200% on 1080p) each half was about 310 and every picker was cut
+             to its first letter, so there they do stack, and the pane scrolls as one instead of
+             squeezing either; EventsWorkspaceView switches it, PageFit.EventsStacked decides. -->
+        <ScrollViewer x:Name="EventsDetailScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+        <Grid x:Name="EventsDetail" ColumnDefinitions="*,*" ColumnSpacing="18" RowSpacing="18">
+          <ScrollViewer x:Name="EventsEditor" Grid.Column="0" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRuleInformation}">
             <ScrollViewer.KeyBindings>
               <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveScheduleCommand}" />
             </ScrollViewer.KeyBindings>
@@ -220,7 +224,7 @@
             </StackPanel>
           </ScrollViewer>
 
-          <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
+          <Grid x:Name="EventsItems" Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
             <TextBlock Grid.Row="0" Classes="v2-heading-2" Text="Applicable items" AutomationProperties.HeadingLevel="2" />
             <StackPanel Grid.Row="1" Spacing="4">
               <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
@@ -293,6 +297,7 @@
             </ScrollViewer>
           </Grid>
         </Grid>
+        </ScrollViewer>
       </Border>
     </Grid>
   </Grid>
