@@ -116,7 +116,7 @@ Checked against `main` on 2026-09-24. Closed since the list was written (2026-09
   (#501; `V2UpdateNoticeTests`).
 - ~~`V2Appearance.Resolve` has no caller.~~ `V2AppearanceApplier` calls it and sets the
   application's theme variant, so light and high contrast can be chosen in Setup › Accessibility
-  (#485; `V2AppearanceApplierTests`). Renders: `docs/design/v2/validated/`.
+  (#485; `V2AppearanceApplierTests`). Renders: `docs/design/v2/revisions/` (#312).
 
 Still open:
 
