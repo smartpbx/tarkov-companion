@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Maps;
 
 namespace TarkovCompanion.UnitTests;
@@ -14,7 +15,7 @@ public sealed class SpawnReachTests
     {
         foreach (var metres in new double[] { 10, 40, 90, 150, 220, 300, 600 })
         {
-            var reach = SpawnReach.Describe(metres);
+            var reach = Describe(metres);
             Assert.Contains("away", reach, StringComparison.Ordinal);
             Assert.True(
                 reach.Contains('–', StringComparison.Ordinal) ||
@@ -28,7 +29,7 @@ public sealed class SpawnReachTests
     {
         // 150 m: about 27 seconds flat out, about 75 moving carefully. The band has to contain
         // both, and it is rounded outwards, so it may be wider and may never be narrower.
-        var reach = SpawnReach.Describe(150);
+        var reach = Describe(150);
 
         Assert.Equal("20–90 s away", reach);
     }
@@ -36,15 +37,15 @@ public sealed class SpawnReachTests
     [Fact]
     public void A_walk_of_minutes_is_said_in_minutes()
     {
-        Assert.Equal("90 s – 5 min away", SpawnReach.Describe(500));
-        Assert.Equal("45 s – 3 min away", SpawnReach.Describe(250));
-        Assert.Equal("2–7 min away", SpawnReach.Describe(800));
+        Assert.Equal("90 s – 5 min away", Describe(500));
+        Assert.Equal("45 s – 3 min away", Describe(250));
+        Assert.Equal("2–7 min away", Describe(800));
     }
 
     [Fact]
     public void Standing_on_it_is_not_a_walk_at_all()
     {
-        Assert.Equal("about 10 s away", SpawnReach.Describe(0));
+        Assert.Equal("about 10 s away", Describe(0));
     }
 
     [Fact]
@@ -55,7 +56,7 @@ public sealed class SpawnReachTests
         foreach (var metres in new double[] { 60, 150, 220, 300 })
         {
             var sprintSeconds = metres / SpawnReach.SprintMetresPerSecond;
-            var floor = LowerBoundSeconds(SpawnReach.Describe(metres));
+            var floor = LowerBoundSeconds(Describe(metres));
             Assert.True(floor <= sprintSeconds, $"{metres} m claims a slower sprint than the model's own.");
             Assert.True(floor >= sprintSeconds * 0.6, $"{metres} m rounded the sprint down to something impossible.");
         }
@@ -64,8 +65,8 @@ public sealed class SpawnReachTests
     [Fact]
     public void A_distance_that_is_not_a_distance_says_nothing()
     {
-        Assert.Equal(string.Empty, SpawnReach.Describe(double.NaN));
-        Assert.Equal(string.Empty, SpawnReach.Describe(-1));
+        Assert.Equal(string.Empty, Describe(double.NaN));
+        Assert.Equal(string.Empty, Describe(-1));
     }
 
     [Fact]
@@ -74,13 +75,20 @@ public sealed class SpawnReachTests
         var previousFloor = 0;
         foreach (var metres in Enumerable.Range(0, 60).Select(step => step * 12.0))
         {
-            var reach = SpawnReach.Describe(metres);
+            var reach = Describe(metres);
             Assert.NotEqual(string.Empty, reach);
             // The lower end of the band can only ever move outwards as the distance grows.
             var floor = LowerBoundSeconds(reach);
             Assert.True(floor >= previousFloor, $"{metres} m came back sooner than the step before it.");
             previousFloor = floor;
         }
+    }
+
+    /// <summary>The band in English, as the spawn panel says it.</summary>
+    private static string Describe(double metres)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        return RaidText.SpawnReach(SpawnReach.Reach(metres));
     }
 
     /// <summary>The first number in the band, in seconds, whichever unit it was written in.</summary>

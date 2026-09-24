@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace TarkovCompanion.Application.Services.Maps;
 
 /// <summary>
@@ -48,19 +46,16 @@ public static class SpawnReach
     /// How long until somebody from a spawn area that far away could be standing here.
     /// </summary>
     /// <param name="metres">How far the area is, in a straight line.</param>
-    /// <returns>A band such as "30–45 s away", or nothing for a distance that makes no sense.</returns>
-    public static string Describe(double metres)
+    /// <returns>A band of two ladder rungs, or null for a distance that makes no sense. The App
+    /// says it ("30–45 s away", "about 10 s away").</returns>
+    public static SpawnReachBand? Reach(double metres)
     {
         if (!double.IsFinite(metres) || metres < 0)
         {
-            return string.Empty;
+            return null;
         }
 
-        var fastest = RoundDown(metres / SprintMetresPerSecond);
-        var slowest = RoundUp(metres / CarefulMetresPerSecond);
-        return fastest == slowest
-            ? string.Create(CultureInfo.CurrentCulture, $"about {Label(slowest)} away")
-            : string.Create(CultureInfo.CurrentCulture, $"{Range(fastest, slowest)} away");
+        return new SpawnReachBand(RoundDown(metres / SprintMetresPerSecond), RoundUp(metres / CarefulMetresPerSecond));
     }
 
     /// <summary>The largest rung at or below this many seconds.</summary>
@@ -91,19 +86,17 @@ public static class SpawnReach
 
         return Ladder[^1];
     }
+}
 
+/// <summary>
+/// Somebody from that spawn could be here no sooner than <see cref="FastestSeconds"/> and could
+/// take as long as <see cref="SlowestSeconds"/>; both are rungs of the ladder.
+/// </summary>
+public sealed record SpawnReachBand(int FastestSeconds, int SlowestSeconds)
+{
     /// <summary>Where seconds stop reading better than minutes.</summary>
-    private const int MinutesFrom = 120;
+    public const int MinutesFrom = 120;
 
-    /// <summary>"20–90 s", "1–3 min", "45 s – 3 min": the unit is written once where it can be.</summary>
-    private static string Range(int fromSeconds, int toSeconds) =>
-        fromSeconds < MinutesFrom && toSeconds < MinutesFrom
-            ? string.Create(CultureInfo.CurrentCulture, $"{fromSeconds}–{toSeconds} s")
-            : fromSeconds >= MinutesFrom && toSeconds >= MinutesFrom
-                ? string.Create(CultureInfo.CurrentCulture, $"{fromSeconds / 60}–{toSeconds / 60} min")
-                : string.Create(CultureInfo.CurrentCulture, $"{Label(fromSeconds)} – {Label(toSeconds)}");
-
-    private static string Label(int seconds) => seconds < MinutesFrom
-        ? string.Create(CultureInfo.CurrentCulture, $"{seconds} s")
-        : string.Create(CultureInfo.CurrentCulture, $"{seconds / 60} min");
+    /// <summary>Both ends are the same rung, so the band reads "about".</summary>
+    public bool IsSingle => FastestSeconds == SlowestSeconds;
 }

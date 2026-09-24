@@ -3744,5 +3744,16 @@
   "Setup.Language.Hint": "Only languages with a translation are listed.",
   "Setup.Language.Pseudo": "Pseudo (for testing)",
   "Setup.Language.Restart": "Restart to apply",
-  "Setup.Language.NotSaved": "The language could not be saved."
+  "Setup.Language.NotSaved": "The language could not be saved.",
+  "Units.Roubles": "₽{0}",
+  "Units.Thousands": "{0}k",
+  "Units.Millions": "{0}M",
+  "Units.Kilograms": "{0} kg",
+  "Raid.SpawnReach.About": "about {0} away",
+  "Raid.SpawnReach.Away": "{0} away",
+  "Raid.SpawnReach.SecondsRange": "{0}–{1} s",
+  "Raid.SpawnReach.MinutesRange": "{0}–{1} min",
+  "Raid.SpawnReach.MixedRange": "{0} – {1}",
+  "Raid.SpawnReach.Seconds": "{0} s",
+  "Raid.SpawnReach.Minutes": "{0} min"
 }

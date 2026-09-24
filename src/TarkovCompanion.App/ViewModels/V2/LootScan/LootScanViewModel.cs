@@ -1332,13 +1332,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         ? Message(_text.GivesUpTemplate, ("value", CompactRoubles(cost, _culture)))
         : string.Empty;
 
-    internal static string CompactRoubles(long value, CultureInfo culture) => Math.Abs(value) switch
-    {
-        >= 1_000_000 => "₽" + (value / 1_000_000d).ToString("0.#", culture) + "M",
-        >= 10_000 => "₽" + (value / 1_000d).ToString("0", culture) + "k",
-        >= 1_000 => "₽" + (value / 1_000d).ToString("0.#", culture) + "k",
-        _ => "₽" + value.ToString(culture),
-    };
+    internal static string CompactRoubles(long value, CultureInfo culture) => UnitText.RoublesShort(value, culture);
 
     public DateTimeOffset EvaluatedUtc { get; private set; }
 

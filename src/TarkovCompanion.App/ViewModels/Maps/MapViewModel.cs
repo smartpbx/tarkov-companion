@@ -4915,7 +4915,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 // Measured from where the player actually is when a screenshot has said so, and
                 // from where they started otherwise: the question is "how long until somebody
                 // from there could be here", and "here" moves.
-                SpawnReach.Describe(spawn.MetresFromPlayer ?? spawn.MetresFromStart)))
+                RaidText.SpawnReach(SpawnReach.Reach(spawn.MetresFromPlayer ?? spawn.MetresFromStart))))
             .ToArray();
         // [V2 rough package 39] Says what is in the list as well as what it is measured from:
         // player spawns inside the radius, and nothing beyond it. Without the radius, a short

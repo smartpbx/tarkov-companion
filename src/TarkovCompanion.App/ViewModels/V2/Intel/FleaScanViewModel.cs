@@ -120,7 +120,7 @@ public sealed class FleaScanRowViewModel
 
     public bool IsGoodBuy => Verdict is FleaRowVerdict.ProfitToTrader or FleaRowVerdict.ProfitOnFlea;
 
-    internal static string Roubles(long value, CultureInfo culture) => "₽" + value.ToString("N0", culture);
+    internal static string Roubles(long value, CultureInfo culture) => UnitText.Roubles(value, culture);
 
     private static string OriginalPrice(FleaScanRow row, CultureInfo culture) => row.CurrencyCode switch
     {
