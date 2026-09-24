@@ -1554,6 +1554,15 @@ foreach ($Scene in @("route", "squad", "marks")) {
         seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
     })
 }
+# [#797] Reserve's objectives stood under one "3" count box: the same route scene on Reserve
+# shows each objective's lettered pin, fanned apart where they share a bunker, and zone outlines.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-reserve-route-1920"
+    args = @("--ui-shell", "v2-a", "--map", "reserve")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "route"
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+})
 # [#573] The loot layer on real data: Customs with "High-value loot only" pressed, fitted. It
 # drew 232 identical diamonds over every building before it was ranked by value; the spawns
 # arrive with the loot publication, which a clean runner downloads first.

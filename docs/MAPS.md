@@ -97,7 +97,8 @@ does not fetch a manifest URL from the view. Point features use fixed-size acces
 while line, area, and region geometry remains geometry. Coordinates outside reviewed bounds are
 not clamped into a false edge marker. Point drawings, including hand waypoints and pings, shrink
 at fit zoom while their hit targets stay accessible; three nearby marks become one count badge
-until the player opens it or zooms in. Dense point layers are deterministically grouped; opening a
+until the player opens it or zooms in. Quest objectives never join a count badge or a cluster
+(#797): each keeps its lettered pin, fanned around the shared spot. Dense point layers are deterministically grouped; opening a
 cluster exposes every source record through the searchable, paged list. That list includes every
 visible object even when a layer opts out of the older scene list summary. Bare-map hit testing
 considers only the individual markers and geometry actually drawn, so selecting a cluster cannot

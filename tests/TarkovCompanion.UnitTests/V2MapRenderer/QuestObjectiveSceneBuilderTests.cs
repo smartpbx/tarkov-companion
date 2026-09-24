@@ -25,7 +25,7 @@ public sealed class QuestObjectiveSceneBuilderTests
 
         Assert.Equal(QuestObjectivePlacement.Area, entry.Placement);
         Assert.Equal(1, entry.PlaceCount);
-        Assert.Equal("Area", entry.PlacementLabel);
+        Assert.Equal("Somewhere in this area", entry.PlacementLabel);
         var area = Assert.Single(scene.Objects, item => item.Id.Value.StartsWith("quest:5a3fc032", StringComparison.Ordinal) &&
             item.Geometry.Kind == MapSceneGeometryKind.Area);
         Assert.Equal(4, area.Geometry.Points.Count);
@@ -72,10 +72,22 @@ public sealed class QuestObjectiveSceneBuilderTests
     [Fact]
     public void A_single_possible_location_is_a_marked_spot_and_not_one_of_one_places()
     {
-        var entry = Entry(Build("customs"), "5968ec99");
+        var model = Zones.Model("customs");
+        var projected = Zones.Project("customs", model);
+        var scene = new QuestObjectiveSceneBuilder().Build(projected, model.Floors, null, NowUtc);
+        var entry = Entry(scene, "5968ec99");
 
         Assert.Equal(QuestObjectivePlacement.Point, entry.Placement);
         Assert.Equal("Marked spot", entry.PlacementLabel);
+
+        // [#797] The catalog's own spawn position is the pin, exactly, and no area is drawn
+        // around it: an exact spot never reads as "somewhere in this area".
+        var exact = projected.Single(item => item.ObjectiveId.StartsWith("5968ec99", StringComparison.Ordinal) && item.HasExactGeometry);
+        var pin = Assert.Single(scene.Objects, item => item.Id.Value.StartsWith("quest:5968ec99", StringComparison.Ordinal));
+        Assert.Equal(MapSceneGeometryKind.Point, pin.Geometry.Kind);
+        Assert.Equal(exact.Points[0].X, pin.Geometry.Points[0].X);
+        Assert.Equal(exact.Points[0].Y, pin.Geometry.Points[0].Y);
+        Assert.DoesNotContain("Somewhere in", pin.Detail, StringComparison.Ordinal);
     }
 
     [Fact]

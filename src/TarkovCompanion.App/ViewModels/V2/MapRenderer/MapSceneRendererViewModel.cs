@@ -2045,12 +2045,30 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 .ToArray();
         }
 
-        return points
+        // [#797] Quest objectives are never part of an anonymous grid cell either: each keeps its
+        // own lettered pin and only the rest of a crowded scene is counted.
+        var objectives = points.Where(item => item.Kind == MapSceneObjectKind.QuestObjective).ToArray();
+        var rest = points.Where(item => item.Kind != MapSceneObjectKind.QuestObjective).ToArray();
+        var objectiveOffsets = ResolvePinOverlap(objectives);
+        var objectiveMarkers = objectives
+            .Select((item, index) => MapSceneRendererObjectViewModel.ForObject(
+                item,
+                _projection,
+                _scene.View.Camera,
+                _presentation,
+                item.Id == _selectedObjectId,
+                () => SelectObject(item.Id),
+                _styleResolver?.Invoke(item),
+                objectiveOffsets[index].DeltaX,
+                objectiveOffsets[index].DeltaY,
+                _canvasWidth,
+                _canvasHeight));
+        return objectiveMarkers.Concat(rest
             .GroupBy(item => ClusterCell(item.Geometry.Points[0]))
             .OrderBy(group => group.Key.Row)
             .ThenBy(group => group.Key.Column)
             .Select(group => BuildClusterMarker(group.Key.Column, group.Key.Row, group.ToArray()))
-            .Take(MaximumPointMarkers)
+            .Take(Math.Max(0, MaximumPointMarkers - objectives.Length)))
             .ToArray();
     }
 
@@ -2100,7 +2118,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return result;
         }
 
-        var resolved = MapMarkerOverlapLayout.Resolve(anchors);
+        var resolved = MapMarkerOverlapLayout.Resolve(anchors, MapMarkerScale.For(_scene.View.Camera.Zoom));
         for (var slot = 0; slot < eligible.Count; slot++)
         {
             result[eligible[slot]] = resolved[slot];
@@ -2200,7 +2218,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             // [#307] A spot the objective route stops at is never folded into a count: on Customs
             // the "5" and "7" boxes were stacks that had swallowed the route's numbered stops, and
             // a count drawn over the stop's badge hid it just the same.
-            if (members.Any(member => member.HasPinBadge))
+            // [#797] Nor is one holding a quest objective. On Reserve a "3" box stood where three
+            // objectives were, and the player lost which quest and where: an objective keeps its
+            // lettered pin at every zoom, and ResolvePinOverlap fans pins that land together.
+            if (members.Any(member => member.HasPinBadge || member.Icon == MapSceneMarkerIcon.Objective))
             {
                 continue;
             }

@@ -133,6 +133,65 @@ public sealed class MapMarkerZoomTests
     }
 
     [Fact]
+    public void Quest_objectives_on_one_spot_are_never_one_count_badge_and_are_fanned_apart()
+    {
+        // [#797] On Reserve three objectives on one bunker read as an anonymous "3".
+        var renderer = Renderer(
+            At("A", MapSceneObjectKind.QuestObjective, 100, 100),
+            At("B", MapSceneObjectKind.QuestObjective, 104, 102),
+            At("C", MapSceneObjectKind.QuestObjective, 98, 105),
+            At("D", MapSceneObjectKind.QuestObjective, 101, 99),
+            At("E", MapSceneObjectKind.QuestObjective, 103, 104));
+
+        Assert.Empty(renderer.StackMarkers);
+        Assert.Empty(renderer.ClusterMarkers);
+        Assert.All(renderer.PointMarkers, marker => Assert.True(marker.IsShownOnPlan));
+        Assert.Equal(["A", "B", "C", "D", "E"], renderer.PointMarkers.Select(marker => marker.Label).Order());
+        var drawn = renderer.PointMarkers
+            .Select(marker => (X: marker.AnchorLeft + (marker.PinOffsetX * marker.MarkerScale), Y: marker.AnchorTop + (marker.PinOffsetY * marker.MarkerScale)))
+            .ToArray();
+        for (var i = 0; i < drawn.Length; i++)
+        {
+            for (var j = i + 1; j < drawn.Length; j++)
+            {
+                var distance = Math.Sqrt(Math.Pow(drawn[i].X - drawn[j].X, 2) + Math.Pow(drawn[i].Y - drawn[j].Y, 2));
+                Assert.True(distance >= MapMarkerOverlapLayout.MinimumRingSpacing * MapMarkerScale.AtFit * 0.8, $"{i},{j}: {distance}");
+            }
+        }
+    }
+
+    [Fact]
+    public void Extracts_beside_an_objective_still_share_a_badge_but_the_objective_is_never_in_it()
+    {
+        var renderer = Renderer(
+            Extract("a", 100, 100), Extract("b", 104, 102), Extract("c", 98, 105),
+            At("objective", MapSceneObjectKind.QuestObjective, 102, 103));
+
+        Assert.Empty(renderer.StackMarkers);
+        Assert.True(renderer.PointMarkers.Single(marker => marker.Label == "objective").IsShownOnPlan);
+    }
+
+    [Fact]
+    public void A_crowded_scene_counts_everything_but_the_objectives()
+    {
+        var hazards = MapSceneRendererViewModel.MaximumPointMarkers + 20;
+        var objects = Enumerable.Range(0, hazards)
+            .Select(index => At($"x{index}", MapSceneObjectKind.Hazard, 5 + ((index % 20) * 20), 5 + ((index / 20) * 19)))
+            .Append(At("A", MapSceneObjectKind.QuestObjective, 5, 5))
+            .Append(At("B", MapSceneObjectKind.QuestObjective, 6, 6))
+            .ToArray();
+
+        var renderer = Renderer(objects);
+
+        Assert.NotEmpty(renderer.ClusterMarkers);
+        Assert.All(["A", "B"], letter => Assert.True(renderer.PointMarkers.Single(marker => marker.Label == letter).IsShownOnPlan));
+        // Every count is hazards alone: the objectives are drawn and never counted.
+        var counted = renderer.ClusterMarkers.Sum(cluster => int.Parse(cluster.MarkerGlyph, CultureInfo.InvariantCulture)) +
+            renderer.PointMarkers.Count(marker => marker.Label.StartsWith('x'));
+        Assert.Equal(hazards, counted);
+    }
+
+    [Fact]
     public void A_route_step_badge_keeps_its_screen_size_at_every_zoom()
     {
         var renderer = Renderer(

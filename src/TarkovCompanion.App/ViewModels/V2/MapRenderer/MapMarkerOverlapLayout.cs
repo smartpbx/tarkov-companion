@@ -26,11 +26,28 @@ internal static class MapMarkerOverlapLayout
     /// <summary>How far a collided marker is nudged from the shared point, in the same DIPs.</summary>
     public const double RingRadius = 16;
 
+    /// <summary>How far apart two neighbours on the ring are at the least, in the same DIPs.</summary>
+    public const double MinimumRingSpacing = 22;
+
+    /// <summary>
+    /// [#797] The ring grows with its group: once objectives stopped folding into a count badge,
+    /// five or six of them on one Reserve bunker overlapped each other on the fixed 16-DIP ring.
+    /// Up to four keep the old ring; beyond that neighbours stay at least one pin apart.
+    /// </summary>
+    public static double RadiusFor(int count) =>
+        count < 2 ? 0 : Math.Max(RingRadius, MinimumRingSpacing / (2 * Math.Sin(Math.PI / count)));
+
     /// <summary>
     /// The (dx, dy) to add to each anchor's own drawn position, in the same order as
     /// <paramref name="anchors"/>. Zero for a marker with nothing else near it.
     /// </summary>
-    public static IReadOnlyList<(double DeltaX, double DeltaY)> Resolve(IReadOnlyList<(double X, double Y)> anchors)
+    /// <param name="markerScale">
+    /// The marks' drawn scale. The nudge is applied inside it, so the pull toward the group's
+    /// middle, which is in canvas DIPs, is divided by it to land where it means to.
+    /// </param>
+    public static IReadOnlyList<(double DeltaX, double DeltaY)> Resolve(
+        IReadOnlyList<(double X, double Y)> anchors,
+        double markerScale = 1)
     {
         ArgumentNullException.ThrowIfNull(anchors);
         var result = new (double DeltaX, double DeltaY)[anchors.Count];
@@ -68,10 +85,18 @@ internal static class MapMarkerOverlapLayout
             // Spread the colliding group evenly around the ring: a pair sits left and right of
             // the shared point, a trio at the points of a triangle, and so on. The order is the
             // order they were given in, so it is stable for the same input every time.
+            // [#797] Around the group's middle, not each pin's own anchor: anchors a few DIPs
+            // apart each nudged around themselves could land right back on one another.
+            var radius = RadiusFor(group.Count);
+            var middleX = group.Average(index => anchors[index].X);
+            var middleY = group.Average(index => anchors[index].Y);
             for (var slot = 0; slot < group.Count; slot++)
             {
                 var angle = (2 * Math.PI * slot / group.Count) - (Math.PI / 2);
-                result[group[slot]] = (RingRadius * Math.Cos(angle), RingRadius * Math.Sin(angle));
+                var anchor = anchors[group[slot]];
+                result[group[slot]] = (
+                    (radius * Math.Cos(angle)) + ((middleX - anchor.X) / markerScale),
+                    (radius * Math.Sin(angle)) + ((middleY - anchor.Y) / markerScale));
             }
         }
 
