@@ -97,9 +97,9 @@ public sealed class SetupDataDetailViewModel : BindableViewModel, IDisposable
 
     private static string ModeText(ProfileGameMode mode) => mode switch
     {
-        ProfileGameMode.Pve => "PvE",
-        ProfileGameMode.Seasonal => "Seasonal",
-        _ => "PvP",
+        ProfileGameMode.Pve => GameModeLabel.Of(ProfileGameMode.Pve),
+        ProfileGameMode.Seasonal => GameModeLabel.Of(ProfileGameMode.Seasonal),
+        _ => GameModeLabel.Of(ProfileGameMode.Pvp),
     };
 
     private string ScopeText()
@@ -110,12 +110,7 @@ public sealed class SetupDataDetailViewModel : BindableViewModel, IDisposable
             return $"{ModeText(current.ActiveProfile!.Context.Mode)} · {scope.Language}";
         }
 
-        var mode = _options.GameMode switch
-        {
-            GameMode.Pve => "PvE",
-            GameMode.PvpSeason => "Seasonal",
-            _ => "PvP",
-        };
+        var mode = GameModeLabel.Of(_options.GameMode);
         return $"{mode} · {_options.Language}";
     }
 }

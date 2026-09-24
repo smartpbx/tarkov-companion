@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -58,13 +59,13 @@ public sealed class SelfTestSession
     /// <summary>The capabilities in the order the report shows them, before any of them has run.</summary>
     public static IReadOnlyList<(string Id, string Title)> Capabilities { get; } =
     [
-        (SelfTestProbes.FoldersId, "Game folders"),
-        (SelfTestProbes.LogsId, "Logs"),
-        (SelfTestProbes.ScreenshotsId, "Screenshots"),
-        (SelfTestProbes.GameDataId, "Game data"),
-        (SelfTestProbes.DatabaseId, "Database"),
-        (SelfTestProbes.RelayId, "Relay"),
-        (SelfTestProbes.TabletId, "Tablet"),
+        (SelfTestProbes.FoldersId, SetupText.ProbeTitleGameFolders),
+        (SelfTestProbes.LogsId, SetupText.ProbeTitleLogs),
+        (SelfTestProbes.ScreenshotsId, SetupText.ProbeTitleScreenshots),
+        (SelfTestProbes.GameDataId, SetupText.ProbeTitleGameData),
+        (SelfTestProbes.DatabaseId, SetupText.ProbeTitleDatabase),
+        (SelfTestProbes.RelayId, SetupText.ProbeTitleRelay),
+        (SelfTestProbes.TabletId, SetupText.ProbeTitleTablet),
     ];
 
     public async Task<SelfTestSummary> RunAsync(Action<SelfTestCapability>? report, CancellationToken cancellationToken)
@@ -77,14 +78,14 @@ public sealed class SelfTestSession
 
         var folders = MeasureAsync(
             SelfTestProbes.FoldersId,
-            "Game folders",
+            SetupText.ProbeTitleGameFolders,
             _readings.ReadFoldersAsync,
             (reading, took) => SelfTestProbes.Folders(reading, _clock.GetUtcNow(), took, _culture),
             report,
             token);
         var logs = MeasureAsync(
             SelfTestProbes.LogsId,
-            "Logs",
+            SetupText.ProbeTitleLogs,
             _readings.ReadLogsAsync,
             (reading, took) => SelfTestProbes.Logs(reading, _clock.GetUtcNow(), took, _culture),
             report,
@@ -94,35 +95,35 @@ public sealed class SelfTestSession
         // way of the rest of the run.
         var screenshots = MeasureAsync(
             SelfTestProbes.ScreenshotsId,
-            "Screenshots",
+            SetupText.ProbeTitleScreenshots,
             inner => _readings.RecentScreenshotAsync(ScreenshotLookBack, inner),
             (reading, took) => SelfTestProbes.Screenshots(reading, took, _culture),
             report,
             token);
         var gameData = MeasureAsync(
             SelfTestProbes.GameDataId,
-            "Game data",
+            SetupText.ProbeTitleGameData,
             _readings.ReadGameDataAsync,
             (reading, took) => SelfTestProbes.GameData(reading, _clock.GetUtcNow(), took, _culture),
             report,
             token);
         var database = MeasureAsync(
             SelfTestProbes.DatabaseId,
-            "Database",
+            SetupText.ProbeTitleDatabase,
             _readings.ReadDatabaseAsync,
             (reading, took) => SelfTestProbes.Database(reading, took, _culture),
             report,
             token);
         var relay = MeasureAsync(
             SelfTestProbes.RelayId,
-            "Relay",
+            SetupText.ProbeTitleRelay,
             _readings.ReadRelayAsync,
             (reading, took) => SelfTestProbes.Relay(reading, _clock.GetUtcNow(), took, _culture),
             report,
             token);
         var tablet = MeasureAsync(
             SelfTestProbes.TabletId,
-            "Tablet",
+            SetupText.ProbeTitleTablet,
             _readings.ReadTabletAsync,
             (reading, took) => SelfTestProbes.Tablet(reading, _clock.GetUtcNow(), took, _culture),
             report,
@@ -142,10 +143,8 @@ public sealed class SelfTestSession
         {
             var waiting = SelfTestCapability.WaitingFor(
                 SelfTestProbes.ScreenshotsId,
-                "Screenshots",
-                string.Create(
-                    _culture,
-                    $"Waiting for a screenshot — take one in a raid any time in the next {ScreenshotPatience.TotalMinutes:0} minutes."),
+                SetupText.ProbeTitleScreenshots,
+                SetupText.ProbeWaitingForScreenshot(ScreenshotPatience.TotalMinutes),
                 shot.Facts);
             capabilities = [.. capabilities.Select(capability =>
                 capability.Id == SelfTestProbes.ScreenshotsId ? waiting : capability)];
@@ -183,9 +182,9 @@ public sealed class SelfTestSession
         {
             capability = new(
                 SelfTestProbes.ScreenshotsId,
-                "Screenshots",
+                SetupText.ProbeTitleScreenshots,
                 SelfTestOutcome.Unknown,
-                "Stopped before a screenshot arrived.",
+                SetupText.ProbeStoppedBeforeScreenshot,
                 [],
                 _clock.GetElapsedTime(startedAt));
         }
@@ -193,10 +192,10 @@ public sealed class SelfTestSession
         {
             capability = new(
                 SelfTestProbes.ScreenshotsId,
-                "Screenshots",
+                SetupText.ProbeTitleScreenshots,
                 SelfTestOutcome.Unknown,
-                $"Could not be tested: {exception.Message}",
-                [new(exception.GetType().Name, "the exception this probe raised")],
+                SetupText.ProbeCouldNotBeTested(exception.Message),
+                [new(exception.GetType().Name, SetupText.ProbeSourceException)],
                 _clock.GetElapsedTime(startedAt));
         }
 
@@ -225,7 +224,7 @@ public sealed class SelfTestSession
                 id,
                 title,
                 SelfTestOutcome.Unknown,
-                "Stopped before this finished.",
+                SetupText.ProbeStoppedBeforeFinished,
                 [],
                 _clock.GetElapsedTime(startedAt));
         }
@@ -235,8 +234,8 @@ public sealed class SelfTestSession
                 id,
                 title,
                 SelfTestOutcome.Unknown,
-                $"Could not be tested: {exception.Message}",
-                [new(exception.GetType().Name, "the exception this probe raised")],
+                SetupText.ProbeCouldNotBeTested(exception.Message),
+                [new(exception.GetType().Name, SetupText.ProbeSourceException)],
                 _clock.GetElapsedTime(startedAt));
         }
 

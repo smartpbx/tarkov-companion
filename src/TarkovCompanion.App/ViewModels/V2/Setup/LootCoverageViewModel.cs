@@ -1,4 +1,4 @@
-using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Common;
@@ -23,7 +23,7 @@ public sealed class LootCoverageViewModel : BindableViewModel
     // attempt that quarantined and published nothing. Null in call sites that predate it.
     private readonly IHighValueLootRuntimeSource? _runtimeSource;
     private IReadOnlyList<LootCoverageRowViewModel> _rows = [];
-    private string _status = "Not measured yet.";
+    private string _status = SetupText.CoverageNotMeasured;
     private int _generation;
 
     public LootCoverageViewModel(
@@ -36,7 +36,7 @@ public sealed class LootCoverageViewModel : BindableViewModel
         _runtimeSource = runtimeSource;
     }
 
-    public string Title => "Loot spawns on the map";
+    public string Title => SetupText.CoverageLootTitle;
 
     public string Status
     {
@@ -69,7 +69,7 @@ public sealed class LootCoverageViewModel : BindableViewModel
             {
                 Publish(
                     generation,
-                    "No loot-spawn data imported yet. It arrives with the next data sync." + LastErrorNote(),
+                    SetupText.CoverageLootNoData + LastErrorNote(),
                     []);
                 return;
             }
@@ -85,16 +85,16 @@ public sealed class LootCoverageViewModel : BindableViewModel
             var published = report.Sum(row => row.Published);
             Publish(
                 generation,
-                string.Create(
-                    CultureInfo.CurrentCulture,
-                    $"{positioned:N0} of {published:N0} published spawn records have a position · " +
-                    $"data through {LocalTime.Date(bundle.Identity.DataThroughUtc)} · " +
-                    $"imported {LocalTime.Date(bundle.Identity.ImportedUtc)}.") + LastErrorNote(),
+                SetupText.CoverageLootSummary(
+                    positioned,
+                    published,
+                    LocalTime.Date(bundle.Identity.DataThroughUtc),
+                    LocalTime.Date(bundle.Identity.ImportedUtc)) + LastErrorNote(),
                 rows);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Publish(generation, $"Could not read the loot-spawn data: {exception.Message}", []);
+            Publish(generation, SetupText.CoverageLootFailed(exception.Message), []);
         }
     }
 
@@ -124,10 +124,8 @@ public sealed class LootCoverageViewModel : BindableViewModel
 
         var reason = outcome.Diagnostics.Count > 0
             ? outcome.Diagnostics[0].Detail
-            : "the refresh did not publish a usable snapshot.";
-        return string.Create(
-            CultureInfo.CurrentCulture,
-            $" Last import attempt failed ({LocalTime.Moment(outcome.AttemptedUtc)}): {reason}");
+            : SetupText.CoverageLootNoSnapshot;
+        return SetupText.CoverageLootLastError(LocalTime.Moment(outcome.AttemptedUtc), reason);
     }
 
     /// <summary>"812 of 900 positioned · 610 on a known floor · 88 map-only · 41 left out", leaving out what is zero.</summary>
@@ -135,17 +133,17 @@ public sealed class LootCoverageViewModel : BindableViewModel
     {
         var parts = new List<string>
         {
-            string.Create(CultureInfo.CurrentCulture, $"{row.Positioned:N0} of {row.Published:N0} positioned"),
-            string.Create(CultureInfo.CurrentCulture, $"{row.FloorResolved:N0} on a known floor"),
+            SetupText.CoverageLootPositioned(row.Positioned, row.Published),
+            SetupText.CoverageLootOnFloor(row.FloorResolved),
         };
         if (row.Unresolved > 0)
         {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{row.Unresolved:N0} map-only"));
+            parts.Add(SetupText.CoverageLootMapOnly(row.Unresolved));
         }
 
         if (row.LeftOut > 0)
         {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{row.LeftOut:N0} left out"));
+            parts.Add(SetupText.CoverageLootLeftOut(row.LeftOut));
         }
 
         return string.Join(" · ", parts);

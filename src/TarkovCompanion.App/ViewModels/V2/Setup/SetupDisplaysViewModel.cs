@@ -1,6 +1,5 @@
 using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -159,9 +158,7 @@ public sealed class SetupDisplaysViewModel : BindableViewModel
             Displays.Add(new(
                 display.Id,
                 display.Name,
-                string.Create(
-                    CultureInfo.CurrentCulture,
-                    $"{display.Bounds.Width}×{display.Bounds.Height} · {display.Scale:P0} · {display.Id}"),
+                SetupText.DisplaysDetail(display.Bounds.Width, display.Bounds.Height, display.Scale, display.Id),
                 display.IsPrimary,
                 ReferenceEquals(display, holding),
                 display.Id == _placement?.CurrentDisplayId,

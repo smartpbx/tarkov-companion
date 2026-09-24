@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -112,14 +113,10 @@ public sealed record SelfTestSummary(
     {
         ArgumentNullException.ThrowIfNull(culture);
         return Capabilities.Count == 0
-            ? "Nothing has been tested yet."
+            ? SetupText.ProbeNothingTested
             : WaitingCount > 0
-                ? string.Create(
-                    culture,
-                    $"{PassCount} working, {FailCount} not working, {UnknownCount} could not be tested, {WaitingCount} waiting for you · took {Duration(Took, culture)}")
-                : string.Create(
-                    culture,
-                    $"{PassCount} working, {FailCount} not working, {UnknownCount} could not be tested · took {Duration(Took, culture)}");
+                ? SetupText.ProbeHeadlineWaiting(culture, PassCount, FailCount, UnknownCount, WaitingCount, Duration(Took, culture))
+                : SetupText.ProbeHeadline(culture, PassCount, FailCount, UnknownCount, Duration(Took, culture));
     }
 
     /// <summary>
@@ -135,11 +132,11 @@ public sealed record SelfTestSummary(
     {
         ArgumentNullException.ThrowIfNull(culture);
         var text = new StringBuilder(capacity: 2_000);
-        text.Append("## Tarkov Companion self-test").AppendLine();
+        text.Append(SetupText.ProbeTextHeading).AppendLine();
         text.AppendLine();
         // Every time in this text is the player's own clock. The offset is named once, here, because
         // the text is pasted to someone in another zone who has to know which clock it means.
-        text.Append(string.Create(culture, $"Started {LocalTime.SortableSeconds(StartedUtc)} ({LocalTime.Offset(StartedUtc)}) · ")).Append(Headline(culture)).AppendLine();
+        text.Append(SetupText.ProbeTextStarted(culture, LocalTime.SortableSeconds(StartedUtc), LocalTime.Offset(StartedUtc))).Append(Headline(culture)).AppendLine();
         foreach (var capability in Capabilities)
         {
             text.AppendLine();
@@ -170,12 +167,12 @@ public sealed record SelfTestSummary(
         ArgumentNullException.ThrowIfNull(culture);
         return
         [
-            ("self-test run", Capabilities.Count == 0 ? "never" : Word(Outcome)),
+            ("self-test run", Capabilities.Count == 0 ? "never" : SupportWord(Outcome)),
             .. Capabilities.Select(capability => (
                 capability.Id,
                 string.Create(
                     culture,
-                    $"{Word(capability.Outcome)} · {Math.Min(capability.Facts.Count, 99)} fact(s) · {Math.Min(capability.Took.TotalSeconds, 999):0.0} s"))),
+                    $"{SupportWord(capability.Outcome)} · {Math.Min(capability.Facts.Count, 99)} fact(s) · {Math.Min(capability.Took.TotalSeconds, 999):0.0} s"))),
         ];
     }
 
@@ -184,11 +181,22 @@ public sealed record SelfTestSummary(
     {
         ArgumentNullException.ThrowIfNull(culture);
         return took < TimeSpan.FromSeconds(1)
-            ? string.Create(culture, $"{took.TotalMilliseconds:N0} ms")
-            : string.Create(culture, $"{took.TotalSeconds:0.0} s");
+            ? SetupText.ProbeDurationMs(culture, took.TotalMilliseconds)
+            : SetupText.ProbeDurationSeconds(culture, took.TotalSeconds);
     }
 
     public static string Word(SelfTestOutcome outcome) => outcome switch
+    {
+        SelfTestOutcome.Pass => SetupText.ProbeWordWorking,
+        SelfTestOutcome.Fail => SetupText.ProbeWordNotWorking,
+        SelfTestOutcome.Unknown => SetupText.ProbeWordUntestable,
+        SelfTestOutcome.Running => SetupText.ProbeWordTesting,
+        SelfTestOutcome.Waiting => SetupText.ProbeWordWaiting,
+        _ => SetupText.ProbeWordNotTested,
+    };
+
+    /// <summary>The verdict words the outbound report carries, which stay English: its vocabulary is closed.</summary>
+    private static string SupportWord(SelfTestOutcome outcome) => outcome switch
     {
         SelfTestOutcome.Pass => "working",
         SelfTestOutcome.Fail => "not working",

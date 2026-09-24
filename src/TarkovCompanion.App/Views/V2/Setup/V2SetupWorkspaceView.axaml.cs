@@ -3,6 +3,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using System.Threading.Tasks;
 using Avalonia.Markup.Xaml;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 
 namespace TarkovCompanion.App.Views.V2.Setup;
@@ -75,7 +76,7 @@ public sealed partial class V2SetupWorkspaceView : UserControl
         var picked = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             AllowMultiple = true,
-            Title = "Choose TASKS screenshots",
+            Title = SetupText.WorkspaceQuestSyncPickerTitle,
             FileTypeFilter = [FilePickerFileTypes.ImageAll],
         }).ConfigureAwait(true);
         return picked.Select(file => file.TryGetLocalPath()).Where(path => path is not null).Select(path => path!).ToArray();

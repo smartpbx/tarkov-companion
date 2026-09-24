@@ -1,4 +1,4 @@
-using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
@@ -26,7 +26,7 @@ public sealed class QuestCoverageViewModel : BindableViewModel
     private readonly Func<IReadOnlyList<MapLocation>> _locations;
     private readonly IProfileRuntimeContextService _profile;
     private IReadOnlyList<QuestCoverageRowViewModel> _rows = [];
-    private string _status = "Not measured yet.";
+    private string _status = SetupText.CoverageNotMeasured;
     private int _generation;
 
     public QuestCoverageViewModel(
@@ -43,7 +43,7 @@ public sealed class QuestCoverageViewModel : BindableViewModel
         _profile = profile ?? throw new ArgumentNullException(nameof(profile));
     }
 
-    public string Title => "Quest objectives on the map";
+    public string Title => SetupText.CoverageQuestTitle;
 
     public string Status
     {
@@ -74,14 +74,14 @@ public sealed class QuestCoverageViewModel : BindableViewModel
             var scope = _profile.Current.CatalogScope;
             if (scope is null)
             {
-                Publish(generation, "Choose a game mode in Setup to see this.", []);
+                Publish(generation, SetupText.CoverageQuestNoMode, []);
                 return;
             }
 
             var catalog = await _catalog.GetAsync(scope.GameMode, scope.Language, cancellationToken).ConfigureAwait(true);
             if (catalog is null)
             {
-                Publish(generation, "No quest data synced yet.", []);
+                Publish(generation, SetupText.CoverageQuestNoData, []);
                 return;
             }
 
@@ -124,7 +124,7 @@ public sealed class QuestCoverageViewModel : BindableViewModel
                 .Concat(unknown.Length == 0
                     ? []
                     : [new QuestCoverageRowViewModel(
-                        "Other maps",
+                        SetupText.CoverageQuestOtherMaps,
                         Summarize(new QuestMapCoverage(
                             "other",
                             unknown.Sum(row => row.Objectives),
@@ -138,15 +138,13 @@ public sealed class QuestCoverageViewModel : BindableViewModel
             Publish(
                 generation,
                 total == 0
-                    ? "The synced quests name no map objectives."
-                    : string.Create(
-                        CultureInfo.CurrentCulture,
-                        $"{drawable:N0} of {total:N0} map objectives have a place in the quest data ({(double)drawable / total:P0})."),
+                    ? SetupText.CoverageQuestNoObjectives
+                    : SetupText.CoverageQuestSummary(drawable, total, (double)drawable / total),
                 rows);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Publish(generation, $"Could not measure quest coverage: {exception.Message}", []);
+            Publish(generation, SetupText.CoverageQuestFailed(exception.Message), []);
         }
     }
 
@@ -166,16 +164,16 @@ public sealed class QuestCoverageViewModel : BindableViewModel
     {
         var parts = new List<string>
         {
-            string.Create(CultureInfo.CurrentCulture, $"{row.Placed + row.CandidatesOnly:N0} of {row.Objectives:N0} placed"),
+            SetupText.CoverageQuestPlaced(row.Placed + row.CandidatesOnly, row.Objectives),
         };
         if (row.NoLocation > 0)
         {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{row.NoLocation:N0} with no place"));
+            parts.Add(SetupText.CoverageQuestNoPlace(row.NoLocation));
         }
 
         if (row.PlacedByPlayer > 0)
         {
-            parts.Add(string.Create(CultureInfo.CurrentCulture, $"{row.PlacedByPlayer:N0} placed by you"));
+            parts.Add(SetupText.CoverageQuestByPlayer(row.PlacedByPlayer));
         }
 
         return string.Join(" · ", parts);

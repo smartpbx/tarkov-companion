@@ -106,13 +106,13 @@ public sealed class SetupRollbackViewModel : BindableViewModel
     /// <summary>The installer route, for a build that cannot go back by itself.</summary>
     public bool ShowsInstallerNote => Stage is RollbackStage.Unavailable or RollbackStage.Nothing;
 
-    public string StartLabel => "Go back to the previous version";
+    public string StartLabel => SetupText.RollbackStartLabel;
 
-    public string CancelLabel => "Cancel";
+    public string CancelLabel => SetupText.RollbackCancelLabel;
 
-    public string ResumeLabel => "Resume updates";
+    public string ResumeLabel => SetupText.RollbackResumeLabel;
 
-    public string ProvenanceHeading => "This build";
+    public string ProvenanceHeading => SetupText.RollbackProvenanceHeading;
 
     public string GoingBackHeading => SetupText.UpdatesGoingBackHeading;
 
@@ -152,7 +152,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
     }
 
     public string ConfirmHeading => Offer is { Previous: { } target }
-        ? $"Go back from {Offer.Installed} to {target.Version}?"
+        ? SetupText.RollbackConfirmHeading(Offer.Installed, target.Version)
         : string.Empty;
 
     /// <summary>What happens, in order, one short line each.</summary>
@@ -160,15 +160,15 @@ public sealed class SetupRollbackViewModel : BindableViewModel
         ?
         [
             target.Source == RollbackSource.Feed
-                ? $"Downloads {target.Version} from the update feed and checks its SHA-256."
-                : $"Uses the copy of {target.Version} kept on this PC and checks its SHA-256.",
-            $"Closes the companion, installs {target.Version}, and reopens it.",
-            "Your data and settings stay.",
-            $"Stays on {target.Version} until a build newer than {UpdateRollbackRules.PinFor(target.Version, offer.Installed, offer.LatestInFeed, default).HoldThrough} is published.",
+                ? SetupText.RollbackStepDownload(target.Version)
+                : SetupText.RollbackStepLocalCopy(target.Version),
+            SetupText.RollbackStepInstall(target.Version),
+            SetupText.RollbackStepDataStays,
+            SetupText.RollbackStepPin(target.Version, UpdateRollbackRules.PinFor(target.Version, offer.Installed, offer.LatestInFeed, default).HoldThrough),
         ]
         : [];
 
-    public string ConfirmLabel => Offer is { Previous: { } target } ? $"Go back to {target.Version}" : string.Empty;
+    public string ConfirmLabel => Offer is { Previous: { } target } ? SetupText.RollbackConfirmLabel(target.Version) : string.Empty;
 
     public IReadOnlyList<UpdateProvenanceRow> Provenance
     {
@@ -191,7 +191,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
 
     public bool HasPin => Pin is not null;
 
-    public string PinText => Pin is { } pin ? $"Staying on {pin.Version} until a build newer than {pin.HoldThrough}" : string.Empty;
+    public string PinText => Pin is { } pin ? SetupText.RollbackPinText(pin.Version, pin.HoldThrough) : string.Empty;
 
     /// <summary>First press: find the previous build and ask.</summary>
     public async Task StartAsync()
@@ -202,7 +202,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
         }
 
         Stage = RollbackStage.Looking;
-        Status = "Looking for the previous version…";
+        Status = SetupText.RollbackLooking;
         try
         {
             var offer = await _rollback.FindPreviousAsync(CancellationToken.None).ConfigureAwait(true);
@@ -210,7 +210,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
             if (offer.Previous is null)
             {
                 Offer = null;
-                Status = offer.Reason ?? "No older build to go back to";
+                Status = offer.Reason ?? SetupText.RollbackNoOlder;
                 Stage = RollbackStage.Nothing;
                 return;
             }
@@ -221,7 +221,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            Status = $"Could not look for the previous version · {exception.Message}";
+            Status = SetupText.RollbackLookFailed(exception.Message);
             Stage = RollbackStage.Failed;
         }
     }
@@ -236,7 +236,7 @@ public sealed class SetupRollbackViewModel : BindableViewModel
 
         Stage = RollbackStage.Downloading;
         Percent = 0;
-        Status = $"Fetching {target.Version}…";
+        Status = SetupText.RollbackFetching(target.Version);
         var progress = new Progress<int>(percent => Percent = percent);
         var fetched = await _rollback
             .DownloadPreviousAsync(offer, ((IProgress<int>)progress).Report, CancellationToken.None)
@@ -249,14 +249,14 @@ public sealed class SetupRollbackViewModel : BindableViewModel
         }
 
         Stage = RollbackStage.Applying;
-        Status = $"Installing {target.Version} · it will close and reopen";
+        Status = SetupText.RollbackInstalling(target.Version);
         try
         {
             _rollback.ApplyAndRestart();
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
-            Status = $"Going back could not be started: {exception.Message}";
+            Status = SetupText.RollbackStartFailed(exception.Message);
             Stage = RollbackStage.Failed;
         }
     }

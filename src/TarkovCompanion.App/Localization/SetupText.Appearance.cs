@@ -10,23 +10,12 @@ public static partial class SetupText
     public static string AppearanceResetLabel => UiText.Get("Setup.Appearance.ResetLabel");
     public static string AppearanceThemeLabel => UiText.Get("Setup.Appearance.ThemeLabel");
     public static string AppearanceThemeHint => UiText.Get("Setup.Appearance.ThemeHint");
-    public static string AppearanceThemeSystem => UiText.Get("Setup.Appearance.Theme.System");
-    public static string AppearanceThemeDark => UiText.Get("Setup.Appearance.Theme.Dark");
-    public static string AppearanceThemeLight => UiText.Get("Setup.Appearance.Theme.Light");
-    public static string AppearanceThemeHighContrast => UiText.Get("Setup.Appearance.Theme.HighContrast");
     public static string AppearanceVisionLabel => UiText.Get("Setup.Appearance.VisionLabel");
     public static string AppearanceVisionHint => UiText.Get("Setup.Appearance.VisionHint");
-    public static string AppearanceVisionStandard => UiText.Get("Setup.Appearance.Vision.Standard");
-    public static string AppearanceVisionRedGreen => UiText.Get("Setup.Appearance.Vision.RedGreen");
-    public static string AppearanceVisionBlueYellow => UiText.Get("Setup.Appearance.Vision.BlueYellow");
-    public static string AppearanceVisionMonochrome => UiText.Get("Setup.Appearance.Vision.Monochrome");
     public static string AppearanceTextScaleLabel => UiText.Get("Setup.Appearance.TextScaleLabel");
     public static string AppearanceTextScaleHint => UiText.Get("Setup.Appearance.TextScaleHint");
     public static string AppearanceTextScaleOption(object? arg0) => UiText.Format("Setup.Appearance.TextScaleOption", arg0);
     public static string AppearanceDensityLabel => UiText.Get("Setup.Appearance.DensityLabel");
-    public static string AppearanceDensityStandard => UiText.Get("Setup.Appearance.Density.Standard");
-    public static string AppearanceDensityCompact => UiText.Get("Setup.Appearance.Density.Compact");
-    public static string AppearanceDensityComfortable => UiText.Get("Setup.Appearance.Density.Comfortable");
     public static string AppearanceMotionLabel => UiText.Get("Setup.Appearance.MotionLabel");
     public static string AppearanceMotionHint => UiText.Get("Setup.Appearance.MotionHint");
     public static string AppearanceMotionFull => UiText.Get("Setup.Appearance.Motion.Full");
@@ -63,4 +52,5 @@ public static partial class SetupText
     public static string DisplaysCaptureMinimized => UiText.Get("Setup.Displays.CaptureMinimized");
     public static string DisplaysCaptureNote => UiText.Get("Setup.Displays.CaptureNote");
     public static string DisplaysUnknownDisplay => UiText.Get("Setup.Displays.UnknownDisplay");
+    public static string DisplaysDetail(int width, int height, double scale, string id) => UiText.Format("Setup.Displays.Detail", width, height, scale, id);
 }

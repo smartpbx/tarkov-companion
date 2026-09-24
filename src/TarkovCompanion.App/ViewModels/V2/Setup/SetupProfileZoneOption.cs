@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
@@ -20,7 +21,7 @@ public sealed record SetupProfileZoneOption(string Id, string Label)
             return known;
         }
 
-        return [.. known, new(stored!, $"{stored} (not on this computer)")];
+        return [.. known, new(stored!, SetupText.ZoneNotOnThisComputer(stored!))];
     }
 
     public static SetupProfileZoneOption Find(IReadOnlyList<SetupProfileZoneOption> options, string? stored) =>
@@ -29,11 +30,11 @@ public sealed record SetupProfileZoneOption(string Id, string Label)
             : options.FirstOrDefault(option => option.Id == stored) ?? options[0];
 
     /// <summary>"System time", or the zone's id, for the one-line profile summary.</summary>
-    public static string ShortLabel(string? stored) => ProfileTimeZone.IsSystem(stored) ? "System time" : stored!;
+    public static string ShortLabel(string? stored) => ProfileTimeZone.IsSystem(stored) ? SetupText.ZoneSystemTime : stored!;
 
     private static IReadOnlyList<SetupProfileZoneOption> Build()
     {
-        var list = new List<SetupProfileZoneOption> { new(ProfileTimeZone.System, "System time"), new("UTC", "UTC") };
+        var list = new List<SetupProfileZoneOption> { new(ProfileTimeZone.System, SetupText.ZoneSystemTime), new("UTC", "UTC") };
         foreach (var zone in TimeZoneInfo.GetSystemTimeZones())
         {
             // The placeholder id reads as "system" (see ProfileTimeZone); UTC is offered once, above.

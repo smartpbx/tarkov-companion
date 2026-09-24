@@ -1,19 +1,17 @@
 namespace TarkovCompanion.App.Localization;
 
+/// <summary>Every word the Setup workspace shows, typed, from Localization/Strings (#314).</summary>
+/// <remarks>
+/// One partial per part of the page: Home (Overview), Profiles and Progress, Data, Privacy,
+/// Appearance (with Accessibility and Displays), Updates, Notifications, Diagnostics with the
+/// self-test probes, About with Data &amp; Privacy, Settings (the V1 settings and quest-exchange
+/// lines Setup binds) and Language. Members carry their part's name as a prefix. A key picked at
+/// run time (a section tab, a theme, a Home step) keeps its old V2ShellText name in code and is
+/// read from here through <see cref="Moved"/>, so it has no member of its own.
+/// </remarks>
 public static partial class SetupText
 {
     public static string SectionsRegion => UiText.Get("Setup.Sections.Region");
-    public static string SectionOverview => UiText.Get("Setup.Section.Overview");
-    public static string SectionGameProfile => UiText.Get("Setup.Section.GameProfile");
-    public static string SectionRecognition => UiText.Get("Setup.Section.Recognition");
-    public static string SectionData => UiText.Get("Setup.Section.Data");
-    public static string SectionTeamDevices => UiText.Get("Setup.Section.TeamDevices");
-    public static string SectionUpdates => UiText.Get("Setup.Section.Updates");
-    public static string SectionPrivacy => UiText.Get("Setup.Section.Privacy");
-    public static string SectionAccessibility => UiText.Get("Setup.Section.Accessibility");
-    public static string SectionDisplays => UiText.Get("Setup.Section.Displays");
-    public static string SectionDiagnostics => UiText.Get("Setup.Section.Diagnostics");
-    public static string SectionNotifications => UiText.Get("Setup.Section.Notifications");
     public static string NotificationsIntro => UiText.Get("Setup.Notifications.Intro");
     public static string NotificationsRaidNote => UiText.Get("Setup.Notifications.RaidNote");
     public static string NotificationsTestLabel => UiText.Get("Setup.Notifications.TestLabel");
@@ -22,7 +20,6 @@ public static partial class SetupText
     public static string GameProfileSaveLabel => UiText.Get("Setup.GameProfile.SaveLabel");
     public static string RecognitionRuntimeWarning => UiText.Get("Setup.Recognition.RuntimeWarning");
     public static string TeamDevicesOpenLabel => UiText.Get("Setup.TeamDevices.OpenLabel");
-    public static string SectionProgress => UiText.Get("Setup.Section.Progress");
     public static string GameProfileFolderPlaceholder => UiText.Get("Setup.GameProfile.FolderPlaceholder");
     public static string RecognitionScanHint => UiText.Get("Setup.Recognition.ScanHint");
     public static string DiagnosticsLogLabel => UiText.Get("Setup.Diagnostics.LogLabel");
@@ -39,8 +36,6 @@ public static partial class SetupText
     public static string ReportDestination => UiText.Get("Setup.Report.Destination");
     public static string ReportConsent => UiText.Get("Setup.Report.Consent");
     public static string ReportNeedsConsent => UiText.Get("Setup.Report.NeedsConsent");
-    public static string SectionDataPrivacy => UiText.Get("Setup.Section.DataPrivacy");
-    public static string SectionAbout => UiText.Get("Setup.Section.About");
     public static string InfoMore => UiText.Get("Setup.Info.More");
     public static string InfoLess => UiText.Get("Setup.Info.Less");
     public static string InfoOpenPrivacy => UiText.Get("Setup.Info.OpenPrivacy");

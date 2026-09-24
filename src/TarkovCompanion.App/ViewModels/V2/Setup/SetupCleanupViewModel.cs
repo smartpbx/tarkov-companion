@@ -157,7 +157,7 @@ public sealed class SetupCleanupViewModel : BindableViewModel
             LastRuns.Add(DescribeEntry(entry));
             foreach (var (reason, count) in entry.FailureReasons.OrderByDescending(pair => pair.Value))
             {
-                LastRuns.Add(string.Create(CultureInfo.CurrentCulture, $"   {count} × {reason}"));
+                LastRuns.Add(SetupText.CleanupFailureLine(count, reason));
             }
         }
 
@@ -289,9 +289,9 @@ public sealed class SetupCleanupViewModel : BindableViewModel
     /// <summary>Bytes as a person reads them: 38.2 MB, not 40054812.</summary>
     public static string FormatBytes(long bytes) => bytes switch
     {
-        < 1_024 => string.Create(CultureInfo.CurrentCulture, $"{bytes} B"),
-        < 1_048_576 => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1_024.0:0.#} KB"),
-        < 1_073_741_824 => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1_048_576.0:0.#} MB"),
-        _ => string.Create(CultureInfo.CurrentCulture, $"{bytes / 1_073_741_824.0:0.##} GB"),
+        < 1_024 => SetupText.CleanupBytes(bytes),
+        < 1_048_576 => SetupText.CleanupKilobytes(bytes / 1_024.0),
+        < 1_073_741_824 => SetupText.CleanupMegabytes(bytes / 1_048_576.0),
+        _ => SetupText.CleanupGigabytes(bytes / 1_073_741_824.0),
     };
 }

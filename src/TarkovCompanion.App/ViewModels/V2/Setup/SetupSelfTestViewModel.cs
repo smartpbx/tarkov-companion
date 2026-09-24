@@ -14,7 +14,7 @@ public sealed class SelfTestRowViewModel : BindableViewModel
 
     public SelfTestRowViewModel(string id, string title)
     {
-        _capability = SelfTestCapability.Waiting(id, title, "Not tested yet.");
+        _capability = SelfTestCapability.Waiting(id, title, SetupText.SelfTestNotTested);
         Facts = [];
     }
 
@@ -61,7 +61,7 @@ public sealed class SelfTestRowViewModel : BindableViewModel
     /// </remarks>
     public string Took => _capability.Took < TimeSpan.FromMilliseconds(100)
         ? string.Empty
-        : string.Create(CultureInfo.CurrentCulture, $"{_capability.Took.TotalSeconds:0.0} s");
+        : SetupText.SelfTestTook(_capability.Took.TotalSeconds);
 
     public ObservableCollection<SelfTestFactViewModel> Facts { get; }
 
@@ -117,7 +117,7 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
     private CancellationTokenSource? _running;
     private Task? _settling;
     private SelfTestSummary _summary = SelfTestSummary.Empty;
-    private string _status = "Press Run self-test to check every part of this installation.";
+    private string _status = SetupText.SelfTestPrompt;
     private string _copyStatus = string.Empty;
     private bool _isRunning;
 
@@ -224,7 +224,7 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
             row.Outcome is SelfTestOutcome.Running or SelfTestOutcome.Waiting);
 
     public string ScreenshotPrompt =>
-        "Take a screenshot in a raid any time in the next few minutes — this settles on its own. Nothing is wrong.";
+        SetupText.SelfTestScreenshotPrompt;
 
     public SelfTestSummary Summary => _summary;
 
@@ -248,10 +248,10 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
         _running = cancellation;
         IsRunning = true;
         CopyStatus = string.Empty;
-        Status = "Testing every capability…";
+        Status = SetupText.SelfTestTesting;
         foreach (var row in Rows)
         {
-            row.Apply(SelfTestCapability.Running(row.Id, row.Title, "Testing…"));
+            row.Apply(SelfTestCapability.Running(row.Id, row.Title, SetupText.SelfTestRowTesting));
         }
 
         OnPropertyChanged(nameof(AsksForScreenshot));
@@ -273,7 +273,7 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"The self-test itself failed: {exception.Message}";
+            Status = SetupText.SelfTestFailed(exception.Message);
         }
         finally
         {
@@ -309,7 +309,7 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"The screenshot check failed: {exception.Message}";
+            Status = SetupText.SelfTestScreenshotFailed(exception.Message);
             return;
         }
         catch (OperationCanceledException)
@@ -343,14 +343,14 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
     public void Stop()
     {
         _running?.Cancel();
-        Status = "Stopped.";
+        Status = SetupText.SelfTestStopped;
     }
 
     public async Task CopyAsync()
     {
         if (_summary.Capabilities.Count == 0)
         {
-            CopyStatus = "There is nothing to copy yet.";
+            CopyStatus = SetupText.SelfTestNothingToCopy;
             return;
         }
 
@@ -358,11 +358,11 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
         {
             var text = _summary.ToText(CultureInfo.CurrentCulture);
             await Clipboard(text).ConfigureAwait(true);
-            CopyStatus = string.Create(CultureInfo.CurrentCulture, $"Copied · {text.Length:N0} characters.");
+            CopyStatus = SetupText.SelfTestCopied(text.Length);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            CopyStatus = $"Could not copy: {exception.Message}";
+            CopyStatus = SetupText.SelfTestCopyFailed(exception.Message);
         }
     }
 

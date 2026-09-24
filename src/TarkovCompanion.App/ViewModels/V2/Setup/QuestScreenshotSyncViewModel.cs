@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
@@ -66,7 +67,7 @@ public sealed class QuestScreenshotLineViewModel : BindableViewModel
         }
     }
 
-    public string ConfirmLabel => IsConfirmed ? "Included" : "Use match";
+    public string ConfirmLabel => IsConfirmed ? SetupText.QuestSyncIncluded : SetupText.QuestSyncUseMatch;
     public ICommand ConfirmCommand { get; }
 
     internal string? ConfirmedTaskId => IsConfirmed ? SelectedCandidate?.TaskId : null;
@@ -96,7 +97,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
     private QuestHistoryInferencePreview? _history;
     private bool _hasPreview;
     private bool _showEmptyOffer;
-    private string _status = "Choose TASKS screenshots to begin.";
+    private string _status = SetupText.QuestSyncChooseScreenshots;
     private int _recentMinutes = 10;
 
     public QuestScreenshotSyncViewModel(
@@ -161,7 +162,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         get
         {
             var count = _burstOffers?.Current.ScreenshotCount ?? 0;
-            return $"Quest list seen · {count} screenshot{(count == 1 ? string.Empty : "s")}";
+            return SetupText.QuestSyncPassiveOffer(count);
         }
     }
 
@@ -192,12 +193,12 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
     public bool HasMatched => Matched.Count > 0;
     public bool HasAmbiguous => Ambiguous.Count > 0;
     public bool HasUnmatched => Unmatched.Count > 0;
-    public string MatchedHeading => $"Matched · {Matched.Count}";
-    public string AmbiguousHeading => $"Confirm these · {Ambiguous.Count}";
-    public string UnmatchedHeading => $"Not found · {Unmatched.Count}";
+    public string MatchedHeading => SetupText.QuestSyncMatchedHeading(Matched.Count);
+    public string AmbiguousHeading => SetupText.QuestSyncAmbiguousHeading(Ambiguous.Count);
+    public string UnmatchedHeading => SetupText.QuestSyncUnmatchedHeading(Unmatched.Count);
     public string HistorySummary => _history is null
-        ? "No progress changes previewed."
-        : $"{_history.ActiveChanges} active · {_history.EarlierQuestChanges} earlier completed";
+        ? SetupText.QuestSyncNoChanges
+        : SetupText.QuestSyncChanges(_history.ActiveChanges, _history.EarlierQuestChanges);
 
     public async Task RefreshOfferAsync()
     {
@@ -207,7 +208,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Quest progress is not ready: {exception.Message}";
+            Status = SetupText.QuestSyncNotReady(exception.Message);
         }
     }
 
@@ -237,11 +238,11 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         var paths = await ChooseFiles().ConfigureAwait(true);
         if (paths.Count == 0)
         {
-            Status = "No screenshots selected.";
+            Status = SetupText.QuestSyncNoneSelected;
             return;
         }
 
-        Status = $"Reading {paths.Count} screenshot{(paths.Count == 1 ? string.Empty : "s")}…";
+        Status = SetupText.QuestSyncReading(paths.Count);
         var loaded = await _images.LoadFilesAsync(paths, CancellationToken.None).ConfigureAwait(true);
         await AnalyzeLoadedAsync(loaded).ConfigureAwait(true);
     }
@@ -249,7 +250,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
     private async Task RecentAsync()
     {
         ShowEmptyOffer = false;
-        Status = "Looking for recent screenshots…";
+        Status = SetupText.QuestSyncLooking;
         var loaded = await _images.LoadRecentAsync(
             _screenshotRoot(),
             _clock.GetUtcNow().AddMinutes(-RecentMinutes),
@@ -266,7 +267,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         }
 
         OpenPassiveReview();
-        Status = $"Reading {offer.ScreenshotCount} screenshot{(offer.ScreenshotCount == 1 ? string.Empty : "s")}…";
+        Status = SetupText.QuestSyncReading(offer.ScreenshotCount);
         var loaded = await _images.LoadFilesAsync(offer.Paths, CancellationToken.None).ConfigureAwait(true);
         await AnalyzeLoadedAsync(loaded).ConfigureAwait(true);
     }
@@ -298,7 +299,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
 
         if (loaded.Images.Count == 0)
         {
-            Status = loaded.Skipped > 0 ? "No readable screenshots found." : "No recent screenshots found.";
+            Status = loaded.Skipped > 0 ? SetupText.QuestSyncNoReadable : SetupText.QuestSyncNoRecent;
             return;
         }
 
@@ -307,12 +308,12 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
             await LoadPreviewAsync(_sync.AnalyzeAsync(loaded.Images, CancellationToken.None)).ConfigureAwait(true);
             if (loaded.Skipped > 0)
             {
-                Status += $" · {loaded.Skipped} skipped";
+                Status += SetupText.QuestSyncSkipped(loaded.Skipped);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Could not read quests: {exception.Message}";
+            Status = SetupText.QuestSyncReadFailed(exception.Message);
         }
     }
 
@@ -330,7 +331,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
 
         _history = preview.History;
         HasPreview = true;
-        Status = $"Read {preview.ImageCount} screenshot{(preview.ImageCount == 1 ? string.Empty : "s")} · {preview.OcrEngine}";
+        Status = SetupText.QuestSyncRead(preview.ImageCount, preview.OcrEngine);
         NotifyPreview();
     }
 
@@ -339,26 +340,26 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         var ids = ConfirmedTaskIds();
         if (ids.Count == 0)
         {
-            Status = "Confirm at least one quest first.";
+            Status = SetupText.QuestSyncConfirmFirst;
             return;
         }
 
         try
         {
             var applied = await _sync.ApplyAsync(ids, CancellationToken.None).ConfigureAwait(true);
-            Status = $"Quest progress synced · {applied.Changed} changes";
+            Status = SetupText.QuestSyncSynced(applied.Changed);
             ClearPreview();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Quest progress was not synced: {exception.Message}";
+            Status = SetupText.QuestSyncNotSynced(exception.Message);
         }
     }
 
     private void Cancel()
     {
         ClearPreview();
-        Status = "Sync cancelled. Nothing changed.";
+        Status = SetupText.QuestSyncCancelled;
     }
 
     private void ClearPreview()

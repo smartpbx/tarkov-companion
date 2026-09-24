@@ -2,6 +2,7 @@
              x:DataType="vm:SetupProfileCompareViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
   <UserControl.Styles>
     <Style Selector="Border.v2-compare">
@@ -19,14 +20,14 @@
   <!-- [#269] Two profiles side by side. Read-only: nothing here switches or writes. -->
   <StackPanel Spacing="8" AutomationProperties.AutomationId="v2-setup-profile-compare">
     <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
-    <TextBlock Classes="v2-label" Text="Add a second profile to compare." IsVisible="{Binding !CanCompare}" />
+    <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceCompareNeedsSecond}" IsVisible="{Binding !CanCompare}" />
     <Border Classes="v2-compare" IsVisible="{Binding CanCompare}">
       <StackPanel Spacing="6">
         <Grid ColumnDefinitions="220,*,*" ColumnSpacing="12">
-          <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="Profiles" />
+          <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:SetupText.WorkspaceCompareProfilesLabel}" />
           <ComboBox Grid.Column="1" ItemsSource="{Binding Choices}" SelectedItem="{Binding Left}" HorizontalAlignment="Stretch"
                     AutomationProperties.AutomationId="v2-setup-profile-compare-left"
-                    AutomationProperties.Name="First profile">
+                    AutomationProperties.Name="{x:Static l:SetupText.WorkspaceCompareFirstName}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="vm:SetupProfileCompareChoice">
                 <TextBlock Text="{Binding Label}" />
@@ -35,7 +36,7 @@
           </ComboBox>
           <ComboBox Grid.Column="2" ItemsSource="{Binding Choices}" SelectedItem="{Binding Right}" HorizontalAlignment="Stretch"
                     AutomationProperties.AutomationId="v2-setup-profile-compare-right"
-                    AutomationProperties.Name="Second profile">
+                    AutomationProperties.Name="{x:Static l:SetupText.WorkspaceCompareSecondName}">
             <ComboBox.ItemTemplate>
               <DataTemplate x:DataType="vm:SetupProfileCompareChoice">
                 <TextBlock Text="{Binding Label}" />

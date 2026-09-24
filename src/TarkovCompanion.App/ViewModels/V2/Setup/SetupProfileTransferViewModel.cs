@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Core.Common;
@@ -40,25 +41,25 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
         AsNewCommand = new AsyncDelegateCommand(() => ChooseTargetAsync(asNew: true));
     }
 
-    public string Heading => "Move progress";
+    public string Heading => SetupText.TransferHeading;
 
-    public string FileLabel => "Profile file";
+    public string FileLabel => SetupText.TransferFileLabel;
 
-    public string FilePlaceholder => "Path to a profile .json file";
+    public string FilePlaceholder => SetupText.TransferFilePlaceholder;
 
-    public string ExportLabel => "Export this profile";
+    public string ExportLabel => SetupText.TransferExportLabel;
 
-    public string PreviewLabel => "Preview import";
+    public string PreviewLabel => SetupText.TransferPreviewLabel;
 
-    public string ImportLabel => "Import";
+    public string ImportLabel => SetupText.TransferImportLabel;
 
-    public string CancelLabel => "Cancel";
+    public string CancelLabel => SetupText.TransferCancelLabel;
 
-    public string IntoActiveLabel => "Into this profile";
+    public string IntoActiveLabel => SetupText.TransferIntoActive;
 
-    public string AsNewLabel => "As a new profile";
+    public string AsNewLabel => SetupText.TransferAsNew;
 
-    public string NoChangesLabel => "Nothing in this file differs from the profile.";
+    public string NoChangesLabel => SetupText.TransferNoChanges;
 
     public AsyncDelegateCommand ExportCommand { get; }
 
@@ -116,12 +117,12 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
 
     /// <summary>"Main (PvP · 0.16) → Alt": whose file it is, and where it would land.</summary>
     public string PreviewHeading => _preview is { } preview
-        ? $"{preview.Bundle.Profile.Name} ({SetupProfilesViewModel.ModeLabel(preview.Bundle.Profile.Mode)} · {preview.Bundle.Profile.Wipe}) → " +
-          (preview.Target == ProfileBundleTarget.NewProfile ? $"new profile \"{preview.TargetName}\"" : preview.TargetName)
+        ? SetupText.TransferPreviewHeading(preview.Bundle.Profile.Name, SetupProfilesViewModel.ModeLabel(preview.Bundle.Profile.Mode), preview.Bundle.Profile.Wipe,
+          preview.Target == ProfileBundleTarget.NewProfile ? SetupText.TransferNewProfileTarget(preview.TargetName) : preview.TargetName)
         : string.Empty;
 
     public string PreviewDetail => _preview is { } preview
-        ? $"Exported {LocalTime.Date(preview.Bundle.ExportedUtc)}"
+        ? SetupText.TransferExportedOn(LocalTime.Date(preview.Bundle.ExportedUtc))
         : string.Empty;
 
     public IReadOnlyList<SetupProfileTransferChangeViewModel> Changes => _preview?.Changes
@@ -147,11 +148,11 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
                 $"{LocalTime.FileStamp(_clock.GetUtcNow())}-profile-{SafeName(bundle.Profile.Name)}.json");
             await File.WriteAllTextAsync(path, ProfileBundleCodec.Write(bundle)).ConfigureAwait(true);
             FilePath = path;
-            Say($"Exported to {path}", isError: false);
+            Say(SetupText.TransferExportedTo(path), isError: false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Say($"Export failed: {exception.Message}", isError: true);
+            Say(SetupText.TransferExportFailed(exception.Message), isError: true);
         }
     }
 
@@ -161,7 +162,7 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
         var path = FilePath.Trim().Trim('"');
         if (path.Length == 0)
         {
-            Say("Enter the path of a profile file first.", isError: true);
+            Say(SetupText.TransferNeedPath, isError: true);
             return;
         }
 
@@ -170,13 +171,13 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
             var info = new FileInfo(path);
             if (!info.Exists)
             {
-                Say($"No file at {path}", isError: true);
+                Say(SetupText.TransferNoFile(path), isError: true);
                 return;
             }
 
             if (info.Length > ProfileBundleCodec.MaximumLength)
             {
-                Say("That file is too large to be a profile.", isError: true);
+                Say(SetupText.TransferTooLarge, isError: true);
                 return;
             }
 
@@ -229,11 +230,11 @@ public sealed class SetupProfileTransferViewModel : BindableViewModel
         {
             var name = await _service.ImportAsync(preview, CancellationToken.None).ConfigureAwait(true);
             SetPreview(null);
-            Say($"Imported into {name}.", isError: false);
+            Say(SetupText.TransferImported(name), isError: false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Say($"Import failed: {exception.Message}", isError: true);
+            Say(SetupText.TransferImportFailed(exception.Message), isError: true);
         }
     }
 

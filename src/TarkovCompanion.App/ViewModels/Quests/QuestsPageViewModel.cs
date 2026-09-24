@@ -10,6 +10,7 @@ using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.ViewModels.Quests;
 
@@ -44,11 +45,11 @@ public sealed class QuestImportProposalViewModel(
 
     public string Classification => proposal.Classification switch
     {
-        QuestImportClassification.SafeMonotonic => "Safe",
-        QuestImportClassification.Conflict => "Conflict",
-        QuestImportClassification.IgnoredUnchanged => "Unchanged",
-        QuestImportClassification.UnresolvedUnknownId => "Unknown id",
-        QuestImportClassification.UnresolvedSourceRecord => "Unreadable record",
+        QuestImportClassification.SafeMonotonic => SetupText.QuestsClassSafe,
+        QuestImportClassification.Conflict => SetupText.QuestsClassConflict,
+        QuestImportClassification.IgnoredUnchanged => SetupText.QuestsClassUnchanged,
+        QuestImportClassification.UnresolvedUnknownId => SetupText.QuestsClassUnknownId,
+        QuestImportClassification.UnresolvedSourceRecord => SetupText.QuestsClassUnreadable,
         _ => proposal.Classification.ToString(),
     };
 
@@ -56,18 +57,18 @@ public sealed class QuestImportProposalViewModel(
 
     public string Detail => proposal.Reason;
 
-    public string LocalValue => $"Local: {FormatValue(proposal.LocalValue)}";
+    public string LocalValue => SetupText.QuestsLocalValue(FormatValue(proposal.LocalValue));
 
-    public string IncomingValue => $"Incoming: {FormatValue(proposal.IncomingValue)}";
+    public string IncomingValue => SetupText.QuestsIncomingValue(FormatValue(proposal.IncomingValue));
 
     public string Resolution => resolution?.ToString() ??
-        (proposal.Classification == QuestImportClassification.Conflict ? "Unresolved" : "Automatic");
+        (proposal.Classification == QuestImportClassification.Conflict ? SetupText.QuestsUnresolved : SetupText.QuestsAutomatic);
 
     private static string FormatValue(QuestImportValue? value)
     {
         if (value is null)
         {
-            return "no record";
+            return SetupText.QuestsNoRecord;
         }
 
         if (value.TaskState is { } taskState)
@@ -78,22 +79,22 @@ public sealed class QuestImportProposalViewModel(
         if (value.ObjectiveState is { } objectiveState)
         {
             return value.ObjectiveCount is { } count
-                ? string.Create(CultureInfo.InvariantCulture, $"{objectiveState} · count {count:0.##}")
+                ? SetupText.QuestsValueCount(objectiveState, count)
                 : objectiveState.ToString();
         }
 
         if (value.HoldingCount is { } holdingCount && value.HoldingFoundInRaid is { } foundInRaid)
         {
-            return $"{holdingCount} · {(foundInRaid ? "found in raid" : "not found in raid")}";
+            return $"{holdingCount} · {(foundInRaid ? SetupText.QuestsFoundInRaid : SetupText.QuestsNotFoundInRaid)}";
         }
 
         if (value.PinTargetKind is { } pinKind && value.PinSortOrder is { } sortOrder)
         {
-            var note = string.IsNullOrWhiteSpace(value.PinNote) ? "no note" : $"“{value.PinNote}”";
-            return $"{pinKind} pin · order {sortOrder} · {note}";
+            var note = string.IsNullOrWhiteSpace(value.PinNote) ? SetupText.QuestsNoNote : $"“{value.PinNote}”";
+            return SetupText.QuestsPinValue(pinKind, sortOrder, note);
         }
 
-        return "unsupported value";
+        return SetupText.QuestsUnsupportedValue;
     }
 }
 
@@ -416,14 +417,14 @@ public sealed class QuestsPageViewModel : PageViewModel
     private DateTimeOffset? _lastRuntimeDataUtc;
     private bool _initialized;
     private string _exchangePath;
-    private string _exchangeStatus = "Not run";
-    private string _importPreviewSummary = "No import preview loaded.";
+    private string _exchangeStatus = SetupText.QuestsExchangeNotRun;
+    private string _importPreviewSummary = SetupText.QuestsNoPreview;
     private IReadOnlyList<QuestImportProposalViewModel> _importProposals = [];
     private QuestProgressImportPreview? _importPreview;
     private Dictionary<string, QuestImportResolution> _importResolutions = new(StringComparer.Ordinal);
     private Guid? _lastImportId;
     private string _tarkovTrackerToken = string.Empty;
-    private string _tarkovTrackerStatus = "Not checked";
+    private string _tarkovTrackerStatus = SetupText.QuestsTrackerNotChecked;
     private bool _canConnectTarkovTracker;
     private bool _canRefreshTarkovTracker;
     private bool _canDisconnectTarkovTracker;
@@ -1198,7 +1199,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            TarkovTrackerStatus = "Load a profile first";
+            TarkovTrackerStatus = SetupText.QuestsLoadProfileFirst;
             return;
         }
 
@@ -1209,11 +1210,11 @@ public sealed class QuestsPageViewModel : PageViewModel
                 TarkovTrackerToken,
                 CancellationToken.None).ConfigureAwait(true);
             UpdateTarkovTrackerStatus(status,
-                "Token checked and saved");
+                SetupText.QuestsTrackerTokenSaved);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            TarkovTrackerStatus = $"Not connected · {exception.Message}";
+            TarkovTrackerStatus = SetupText.QuestsTrackerNotConnected(exception.Message);
         }
         finally
         {
@@ -1225,7 +1226,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            TarkovTrackerStatus = "Load a profile first";
+            TarkovTrackerStatus = SetupText.QuestsLoadProfileFirst;
             return;
         }
 
@@ -1235,14 +1236,14 @@ public sealed class QuestsPageViewModel : PageViewModel
                 .ConfigureAwait(true);
             if (_importPreview?.Source == QuestProgressImportSource.TarkovTracker)
             {
-                ClearImportPreview("Disconnected · the pending preview went with it");
+                ClearImportPreview(SetupText.QuestsPreviewDisconnected);
             }
 
-            UpdateTarkovTrackerStatus(status, "Disconnected · token deleted");
+            UpdateTarkovTrackerStatus(status, SetupText.QuestsTrackerDisconnected);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            TarkovTrackerStatus = $"Disconnect failed: {exception.Message}";
+            TarkovTrackerStatus = SetupText.QuestsTrackerDisconnectFailed(exception.Message);
         }
     }
 
@@ -1250,7 +1251,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            TarkovTrackerStatus = "Load a profile first";
+            TarkovTrackerStatus = SetupText.QuestsLoadProfileFirst;
             return;
         }
 
@@ -1264,12 +1265,12 @@ public sealed class QuestsPageViewModel : PageViewModel
             UpdateTarkovTrackerStatus(
                 result.Status,
                 result.NotModified
-                    ? "Unchanged since last time · still counted against your quota"
-                    : "Fetched · review it, then apply");
+                    ? SetupText.QuestsTrackerUnchanged
+                    : SetupText.QuestsTrackerFetched);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            TarkovTrackerStatus = $"Not refreshed · {exception.Message}";
+            TarkovTrackerStatus = SetupText.QuestsTrackerNotRefreshed(exception.Message);
         }
     }
 
@@ -1287,7 +1288,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             CanConnectTarkovTracker = false;
             CanRefreshTarkovTracker = false;
             CanDisconnectTarkovTracker = false;
-            TarkovTrackerStatus = $"Unavailable · {exception.Message}";
+            TarkovTrackerStatus = SetupText.QuestsTrackerUnavailable(exception.Message);
         }
     }
 
@@ -1299,21 +1300,21 @@ public sealed class QuestsPageViewModel : PageViewModel
         CanRefreshTarkovTracker = status.CanRefresh;
         CanDisconnectTarkovTracker = status.SecureStorageAvailable && status.Connected;
         var availability = !status.SecureStorageAvailable
-            ? "Off · this machine has no protected storage for the token"
+            ? SetupText.QuestsTrackerNoStorage
             : !status.FeatureEnabled
-                ? "Off"
+                ? SetupText.QuestsTrackerOff
                 : !status.NetworkAccessEnabled
-                    ? "Off in offline mode"
+                    ? SetupText.QuestsTrackerOffline
                     : status.RequiresReconnect
-                        ? "Token rejected · reconnect"
+                        ? SetupText.QuestsTrackerRejected
                         : status.Connected
-                            ? $"Connected · {status.GameMode}"
-                            : $"Not connected · {status.GameMode}";
+                            ? SetupText.QuestsTrackerConnected(status.GameMode)
+                            : SetupText.QuestsTrackerNotConnected(status.GameMode);
         var quota = status.Quota.Remaining is { } remaining
-            ? $" Read quota remaining: {remaining}/{status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?"}."
-            : " Read quota is unknown.";
+            ? " " + SetupText.QuestsTrackerQuota(remaining, status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?")
+            : " " + SetupText.QuestsTrackerQuotaUnknown;
         var backoff = status.NextEligibleRefreshUtc is { } next
-            ? $" Next eligible refresh: {LocalTime.Moment(next)}."
+            ? " " + SetupText.QuestsTrackerNextRefresh(LocalTime.Moment(next))
             : string.Empty;
         TarkovTrackerStatus = string.Join(" ", new[] { operation, availability }
                 .Where(value => !string.IsNullOrWhiteSpace(value))) + quota + backoff;
@@ -1323,7 +1324,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            ExchangeStatus = "Load a profile first";
+            ExchangeStatus = SetupText.QuestsLoadProfileFirst;
             return;
         }
 
@@ -1333,11 +1334,11 @@ public sealed class QuestsPageViewModel : PageViewModel
                 _scope,
                 ExchangePath,
                 CancellationToken.None).ConfigureAwait(true);
-            ExchangeStatus = $"Exported {result.RecordCount} records";
+            ExchangeStatus = SetupText.QuestsExported(result.RecordCount);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ExchangeStatus = $"Not exported · {exception.Message}";
+            ExchangeStatus = SetupText.QuestsExportFailed(exception.Message);
         }
     }
 
@@ -1345,7 +1346,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            ExchangeStatus = "Load a profile first";
+            ExchangeStatus = SetupText.QuestsLoadProfileFirst;
             return;
         }
 
@@ -1359,8 +1360,8 @@ public sealed class QuestsPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ClearImportPreview("No valid import preview loaded.");
-            ExchangeStatus = $"No preview · {exception.Message}";
+            ClearImportPreview(SetupText.QuestsNoValidPreview);
+            ExchangeStatus = SetupText.QuestsPreviewFailed(exception.Message);
         }
     }
 
@@ -1368,7 +1369,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_importPreview is null)
         {
-            ExchangeStatus = "Preview something first";
+            ExchangeStatus = SetupText.QuestsPreviewFirst;
             return;
         }
 
@@ -1378,15 +1379,15 @@ public sealed class QuestsPageViewModel : PageViewModel
             StringComparer.Ordinal);
         RefreshImportProposalRows();
         ExchangeStatus = _importPreview.Conflicts.Count == 0
-            ? "No conflicts · ready to apply"
-            : $"{resolution} for {_importPreview.Conflicts.Count} conflicts · review, then apply";
+            ? SetupText.QuestsNoConflictsReady
+            : SetupText.QuestsConflictsResolved(resolution, _importPreview.Conflicts.Count);
     }
 
     private async Task ApplyImportAsync()
     {
         if (_importPreview is null)
         {
-            ExchangeStatus = "Preview something first";
+            ExchangeStatus = SetupText.QuestsPreviewFirst;
             return;
         }
 
@@ -1398,14 +1399,14 @@ public sealed class QuestsPageViewModel : PageViewModel
                 CancellationToken.None).ConfigureAwait(true);
             _lastImportId = result.ImportId;
             ExchangeStatus = result.AlreadyApplied
-                ? $"Already applied as import {result.ImportId}"
-                : $"Applied {result.AppliedChangeCount} · kept {result.KeptLocalCount} local · {result.UnresolvedCount} unresolved";
-            ClearImportPreview("Applied · preview again for another");
+                ? SetupText.QuestsAlreadyApplied(result.ImportId)
+                : SetupText.QuestsApplied(result.AppliedChangeCount, result.KeptLocalCount, result.UnresolvedCount);
+            ClearImportPreview(SetupText.QuestsAppliedSummary);
             await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ExchangeStatus = $"Not applied · {exception.Message}";
+            ExchangeStatus = SetupText.QuestsNotApplied(exception.Message);
         }
     }
 
@@ -1435,7 +1436,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             // The record of past imports is an extra. A database that will not answer must not
             // cost the player the quest board, which is the rest of this page.
             ImportHistory = [];
-            ExchangeStatus = $"Past imports could not be read: {exception.Message}";
+            ExchangeStatus = SetupText.QuestsHistoryUnreadable(exception.Message);
         }
     }
 
@@ -1446,23 +1447,21 @@ public sealed class QuestsPageViewModel : PageViewModel
         string.Create(
             CultureInfo.CurrentCulture,
             $"{record.ProfileName} · {LocalTime.Moment(record.ImportedUtc)}"),
-        string.Create(
-            CultureInfo.CurrentCulture,
-            $"Applied {record.AppliedChangeCount} · kept {record.KeptLocalCount} local · {record.Unresolved.Count} unresolved · from {record.SourceAppVersion}"),
+        SetupText.QuestsHistoryDetail(record.AppliedChangeCount, record.KeptLocalCount, record.Unresolved.Count, record.SourceAppVersion),
         [.. record.Conflicts.Select(conflict => new QuestImportHistoryLineViewModel(
             $"{conflict.EntityKind} {conflict.EntityId}",
             conflict.Resolution == QuestImportResolution.KeepLocal
-                ? $"Kept what was here · {conflict.Reason}"
-                : $"Took what arrived · {conflict.Reason}")),
+                ? SetupText.QuestsKeptHere(conflict.Reason)
+                : SetupText.QuestsTookIncoming(conflict.Reason))),
          .. record.Unresolved.Select(unresolved => new QuestImportHistoryLineViewModel(
             $"{unresolved.EntityKind} {unresolved.EntityId}",
-            $"Not applied · {unresolved.Reason}"))]);
+            SetupText.QuestsNotApplied(unresolved.Reason)))]);
 
     private async Task UndoLastImportAsync()
     {
         if (_scope is null || _lastImportId is null)
         {
-            ExchangeStatus = "Nothing to undo";
+            ExchangeStatus = SetupText.QuestsNothingToUndo;
             return;
         }
 
@@ -1473,13 +1472,13 @@ public sealed class QuestsPageViewModel : PageViewModel
                 _lastImportId.Value,
                 CancellationToken.None).ConfigureAwait(true);
             ExchangeStatus = result.AlreadyUndone
-                ? "Already undone"
-                : $"Undid {result.RestoredChangeCount} changes";
+                ? SetupText.QuestsAlreadyUndone
+                : SetupText.QuestsUndid(result.RestoredChangeCount);
             await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ExchangeStatus = $"Not undone · {exception.Message}";
+            ExchangeStatus = SetupText.QuestsUndoFailed(exception.Message);
         }
     }
 
@@ -1499,15 +1498,15 @@ public sealed class QuestsPageViewModel : PageViewModel
         ImportPreviewSummary = preview.Source switch
         {
             QuestProgressImportSource.LegacyProfileJsonV1 =>
-                $"Legacy profile · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts",
+                SetupText.QuestsPreviewLegacy(preview.SafeProposals.Count, preview.Conflicts.Count),
             QuestProgressImportSource.TarkovTracker =>
-                $"TarkovTracker · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
+                SetupText.QuestsPreviewTracker(preview.SafeProposals.Count, preview.Conflicts.Count, preview.Ignored.Count, preview.Unresolved.Count),
             _ =>
-                $"JSON file · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
+                SetupText.QuestsPreviewJson(preview.SafeProposals.Count, preview.Conflicts.Count, preview.Ignored.Count, preview.Unresolved.Count),
         };
         ExchangeStatus = preview.Conflicts.Count == 0
-            ? "Ready · nothing missing from the source is ever deleted here"
-            : "Choose Keep local or Use incoming for every conflict";
+            ? SetupText.QuestsPreviewReady
+            : SetupText.QuestsPreviewChoose;
     }
 
     private void ClearImportPreview(string summary)

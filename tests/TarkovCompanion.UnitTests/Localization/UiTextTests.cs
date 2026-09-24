@@ -170,6 +170,7 @@ public sealed class UiTextTests
     [InlineData(typeof(IntelText), 300)]
     [InlineData(typeof(RaidText), 280)]
     [InlineData(typeof(ShellText), 10)]
+    [InlineData(typeof(SetupText), 600)]
     public void Every_label_a_workspace_accessor_offers_has_an_English_value(Type accessor, int atLeast)
     {
         var log = new List<string>();
@@ -185,6 +186,7 @@ public sealed class UiTextTests
             {
                 var type when type == typeof(string) || type == typeof(object) => (object)"x",
                 var type when type.IsEnum => Enum.GetValues(type).GetValue(0)!,
+                var type when type == typeof(CultureInfo) => CultureInfo.InvariantCulture,
                 var type => Activator.CreateInstance(type)!,
             }).ToArray();
             var text = (string)member.Invoke(null, arguments)!;

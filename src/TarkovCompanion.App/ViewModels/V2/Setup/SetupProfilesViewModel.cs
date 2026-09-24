@@ -89,7 +89,7 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
     /// <summary>The stored setting: "system" or a zone id.</summary>
     public string ZoneId { get; }
 
-    public string EditZoneFieldLabel => "Time zone";
+    public string EditZoneFieldLabel => SetupText.ProfilesTimeZoneLabel;
 
     public ICommand BeginEditCommand { get; }
 

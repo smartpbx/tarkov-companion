@@ -36,4 +36,12 @@ public static partial class SetupText
     public static string DataBackingUp => UiText.Get("Setup.Data.BackingUp");
     public static string DataBackedUp => UiText.Get("Setup.Data.BackedUp");
     public static string DataBackupFailed(object? arg0) => UiText.Format("Setup.Data.BackupFailed", arg0);
+    public static string HorizonHeading => UiText.Get("Setup.Horizon.Heading");
+    public static string HorizonHint => UiText.Get("Setup.Horizon.Hint");
+    public static string HorizonQuestLabel => UiText.Get("Setup.Horizon.QuestLabel");
+    public static string HorizonHideoutLabel => UiText.Get("Setup.Horizon.HideoutLabel");
+    public static string HorizonNextOnly => UiText.Get("Setup.Horizon.NextOnly");
+    public static string HorizonNextThree => UiText.Get("Setup.Horizon.NextThree");
+    public static string HorizonNextFive => UiText.Get("Setup.Horizon.NextFive");
+    public static string HorizonAll => UiText.Get("Setup.Horizon.All");
 }

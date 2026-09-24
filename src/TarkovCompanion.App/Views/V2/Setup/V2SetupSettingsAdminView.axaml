@@ -2,6 +2,7 @@
              x:DataType="vm:SetupSettingsAdminViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:setupSvc="using:TarkovCompanion.Application.Services.Setup">
   <!-- #292 task 2: "Reset this section", "Reset everything", export and import. Shown on every
@@ -13,22 +14,22 @@
     <StackPanel Classes="v2-stack">
       <WrapPanel Classes="v2-toolbar">
         <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-reset-section"
-                Content="Reset this section" Command="{Binding ResetSectionCommand}" />
+                Content="{x:Static l:SetupText.AdminResetSection}" Command="{Binding ResetSectionCommand}" />
         <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-reset-all"
-                Content="Reset everything" Command="{Binding ResetAllCommand}" />
+                Content="{x:Static l:SetupText.AdminResetAll}" Command="{Binding ResetAllCommand}" />
       </WrapPanel>
       <StackPanel Classes="v2-field">
-        <TextBlock Classes="v2-label" Text="Preferences file" />
+        <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.AdminFileLabel}" />
         <TextBox Classes="v2-field-input" Text="{Binding ExchangePath}"
-                  PlaceholderText="Preferences JSON file path"
+                  PlaceholderText="{x:Static l:SetupText.AdminFilePlaceholder}"
                   AutomationProperties.AutomationId="v2-setup-settings-path"
-                  AutomationProperties.Name="Preferences file" />
+                  AutomationProperties.Name="{x:Static l:SetupText.AdminFileLabel}" />
       </StackPanel>
       <WrapPanel Classes="v2-toolbar">
         <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-settings"
-                Content="Export preferences" Command="{Binding ExportCommand}" />
+                Content="{x:Static l:SetupText.AdminExport}" Command="{Binding ExportCommand}" />
         <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import-settings"
-                Content="Preview import" Command="{Binding PreviewImportCommand}" />
+                Content="{x:Static l:SetupText.AdminPreviewImport}" Command="{Binding PreviewImportCommand}" />
       </WrapPanel>
       <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding StatusMessage}"
                  IsVisible="{Binding !HasPendingChange}"
@@ -53,9 +54,9 @@
           </ItemsControl>
           <WrapPanel Classes="v2-toolbar">
             <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-confirm-settings-change"
-                    Content="Confirm" Command="{Binding ConfirmCommand}" />
+                    Content="{x:Static l:SetupText.AdminConfirm}" Command="{Binding ConfirmCommand}" />
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-cancel-settings-change"
-                    Content="Cancel" Command="{Binding CancelCommand}" />
+                    Content="{x:Static l:SetupText.AdminCancel}" Command="{Binding CancelCommand}" />
           </WrapPanel>
         </StackPanel>
       </Border>

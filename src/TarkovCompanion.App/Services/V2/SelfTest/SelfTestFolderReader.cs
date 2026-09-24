@@ -1,3 +1,5 @@
+using TarkovCompanion.App.Localization;
+
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
 /// <summary>What one folder holds, without reading a single file in it.</summary>
@@ -25,14 +27,14 @@ public sealed class SelfTestFolderReader
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            return new(false, 0, null, "no folder was chosen");
+            return new(false, 0, null, SetupText.ProbeFolderNoneChosen);
         }
 
         try
         {
             if (!Directory.Exists(path))
             {
-                return new(false, 0, null, "that folder does not exist");
+                return new(false, 0, null, SetupText.ProbeFolderMissing);
             }
 
             var entries = 0;
@@ -55,7 +57,7 @@ public sealed class SelfTestFolderReader
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new(false, 0, null, $"that folder could not be read: {exception.Message}");
+            return new(false, 0, null, SetupText.ProbeFolderUnreadable(exception.Message));
         }
     }
 
