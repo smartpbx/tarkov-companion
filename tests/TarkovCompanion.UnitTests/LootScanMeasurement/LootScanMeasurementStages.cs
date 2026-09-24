@@ -12,9 +12,12 @@ namespace TarkovCompanion.UnitTests.LootScanMeasurement;
 /// <summary>Opens (and on first use fills) a real on-disk icon index built from the corpus.</summary>
 internal static class LootScanMeasurementIndex
 {
+    public static string DirectoryFor(IconCorpus corpus) =>
+        Path.Combine(Path.GetDirectoryName(corpus.Directory.TrimEnd(Path.DirectorySeparatorChar))!, "icon-evidence-cache");
+
     public static async Task<IIconEvidenceCache> OpenAsync(IconCorpus corpus, DateTimeOffset nowUtc)
     {
-        var directory = Path.Combine(Path.GetDirectoryName(corpus.Directory.TrimEnd(Path.DirectorySeparatorChar))!, "icon-evidence-cache");
+        var directory = DirectoryFor(corpus);
         var cache = new FileIconEvidenceCache(new FileIconEvidenceCacheOptions(directory) { MaximumEntries = 8192 });
         var present = (await cache.ListEvidenceAsync(CancellationToken.None))
             .Select(entry => entry.CanonicalItemId)
@@ -43,8 +46,17 @@ internal static class LootScanMeasurementIndex
     }
 
     /// <summary>Lists once. The on-disk cache re-decodes every document on every listing.</summary>
-    private sealed class SnapshotCache(IIconEvidenceCache inner, IReadOnlyList<IconContentEvidence> evidence) : IIconEvidenceCache
+    private sealed class SnapshotCache(IIconEvidenceCache inner, IReadOnlyList<IconContentEvidence> evidence)
+        : IIconEvidenceCache, IIconEvidenceBatchReader
     {
+        public Task<IReadOnlyDictionary<IconEvidenceKey, T>> ReadDecodedAsync<T>(
+            IReadOnlyList<IconEvidenceKey> keys,
+            Func<IconContentEvidence, CapturedImage, T?> project,
+            int maximumParallelism,
+            CancellationToken cancellationToken)
+            where T : class =>
+            ((IIconEvidenceBatchReader)inner).ReadDecodedAsync(keys, project, maximumParallelism, cancellationToken);
+
         public Task<IconContentEvidenceAsset> StoreAsync(IconContentWriteRequest request, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

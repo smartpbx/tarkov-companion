@@ -318,7 +318,8 @@ public sealed class GridPixelReconstructionBuilder(
                 new ParallelOptions
                 {
                     CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
+                    // Half the machine: the game is running beside this on the player's PC.
+                    MaxDegreeOfParallelism = IconReferenceIndex.Snapshot.DecodeParallelism,
                 },
                 async (index, cellCancellationToken) =>
                 {
@@ -679,14 +680,19 @@ public sealed class GridPixelReconstructionBuilder(
 
         async Task ScoreAsync(IconPixelDescriptor query, IReadOnlyList<IconReference> candidates)
         {
-            foreach (var reference in candidates)
+            // Described a whole shape at a time and kept (#572); index for index with candidates.
+            var descriptors = await references
+                .DescribeShapeAsync(query.WidthCells, query.HeightCells, cancellationToken)
+                .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            for (var index = 0; index < candidates.Count; index++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (await references.DescribeAsync(reference, cancellationToken).ConfigureAwait(false) is not { } descriptor)
+                if (descriptors[index] is not { } descriptor)
                 {
                     continue;
                 }
 
+                var reference = candidates[index];
                 var score = query.Correlate(descriptor);
                 if (!scores.TryGetValue(reference.Definition.Id, out var best) || score > best.Score)
                 {
