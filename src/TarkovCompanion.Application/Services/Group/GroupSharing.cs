@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Group;
@@ -39,9 +40,9 @@ public sealed record GroupSharingSettings(
     /// also written non-atomically, a kill at the wrong moment left a truncated one — and the
     /// player was silently not sharing, with every field blank and no way to tell that from
     /// never having set it up. Null whenever the file was read properly, which is almost
-    /// always.
+    /// always. [#314] A <see cref="GroupStatus"/> phrase the App words.
     /// </remarks>
-    public string? ResetReason { get; init; }
+    public Phrase? ResetReason { get; init; }
 
     /// <summary>
     /// Whether this is complete enough to try, as opposed to merely switched on.
@@ -142,7 +143,23 @@ public sealed record GroupSharingSettings(
         Key.Trim().Length >= GroupKeyLimits.Minimum &&
         Key.Trim().Length <= GroupKeyLimits.Maximum;
 
+    /// <summary>
+    /// [#314] What is missing, as a <see cref="GroupSettingsGap"/> phrase the App words; the same
+    /// order as <see cref="MissingPiece"/>.
+    /// </summary>
+    public Phrase? Gap =>
+        !IsEnabled ? null
+        : string.IsNullOrWhiteSpace(ServerUri) ? new(GroupSettingsGap.ServerAddress)
+        : !Uri.TryCreate(ServerUri, UriKind.Absolute, out var address) ? new(GroupSettingsGap.ValidServerAddress)
+        : !IsTransportAcceptable(address) ? new(GroupSettingsGap.HttpsAddress)
+        : string.IsNullOrWhiteSpace(DisplayName) ? new(GroupSettingsGap.DisplayName)
+        : string.IsNullOrWhiteSpace(Key) ? new(GroupSettingsGap.Key)
+        : Key.Trim().Length < GroupKeyLimits.Minimum ? new(GroupSettingsGap.KeyTooShort, GroupKeyLimits.Minimum)
+        : !IsKeyWithinLimits ? new(GroupSettingsGap.KeyTooLong, GroupKeyLimits.Maximum)
+        : null;
+
     /// <summary>Says what is missing, in the order a person would fill it in.</summary>
+    /// <remarks>English on purpose: it goes into the problem report sent to the relay. The screen uses <see cref="Gap"/>.</remarks>
     public string? MissingPiece =>
         !IsEnabled ? null
         : string.IsNullOrWhiteSpace(ServerUri) ? "the group's server address"
@@ -434,11 +451,24 @@ public sealed record GroupSnapshot(
     /// </remarks>
     public GroupPositionLatencySnapshot PositionLatency { get; init; } = GroupPositionLatencySnapshot.None;
 
+    /// <summary>
+    /// [#314] The status line as a <see cref="GroupStatus"/> phrase, which the App words. Where it
+    /// is set, <see cref="Detail"/> is empty; <see cref="Detail"/> is shown only where this is
+    /// null, which is a fixture or a demo that wrote its own line.
+    /// </summary>
+    public Phrase? Status { get; init; }
+
     public static GroupSnapshot Off { get; } = new(
         false,
         [],
-        "Not sharing",
-        DateTimeOffset.UnixEpoch);
+        string.Empty,
+        DateTimeOffset.UnixEpoch)
+    {
+        Status = new(GroupStatus.NotSharing),
+    };
+
+    /// <summary>This snapshot saying <paramref name="status"/>, with no free text beside it.</summary>
+    public GroupSnapshot Saying(Phrase status) => this with { Detail = string.Empty, Status = status };
 }
 
 /// <summary>

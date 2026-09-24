@@ -367,8 +367,8 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(LeaveLabel));
         Status = !settings.IsEnabled
             ? TeamText.SavedSharingOff
-            : settings.MissingPiece is { } missing
-                ? TeamText.SavedStillNeeds(missing)
+            : settings.Gap is { } missing
+                ? TeamText.SavedStillNeeds(PhraseText.Say(missing))
                 : TeamText.SavedSharingStarts;
     }
 
@@ -648,7 +648,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             : group.StaleSince is not null
                 ? TeamText.Reconnecting
                 : TeamText.Connected;
-        ConnectionDetail = group.Detail;
+        ConnectionDetail = SetupText.GroupStatus(group);
         IsConnected = group.IsSharing && group.StaleSince is null;
         IsReconnecting = group.IsSharing && group.StaleSince is not null;
 

@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
@@ -68,7 +69,7 @@ public sealed class GroupSessionServiceTests
         Assert.NotEmpty(group.Members);
         Assert.Equal("Geo", group.Members[0].Name);
         Assert.NotNull(group.StaleSince);
-        Assert.Contains("last heard", group.Detail, StringComparison.Ordinal);
+        Assert.Contains("last heard", Words(group), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -129,7 +130,7 @@ public sealed class GroupSessionServiceTests
 
         Assert.Equal(
             $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
-            store.Current.Group.Detail);
+            Words(store.Current.Group));
         Assert.Empty(store.Current.Group.Members);
         Assert.Null(store.Current.Group.StaleSince);
     }
@@ -207,12 +208,19 @@ public sealed class GroupSessionServiceTests
         Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
     };
 
+    /// <summary>[#314] The status line in the English the player reads.</summary>
+    private static string Words(GroupSnapshot group)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        return SetupText.GroupStatus(group);
+    }
+
     /// <summary>Polls the store rather than sleeping a fixed time, so the test is not a race.</summary>
     private static async Task<bool> WaitForDetailAsync(RuntimeStateStore store, Func<string, bool> matches)
     {
         for (var attempt = 0; attempt < 200; attempt++)
         {
-            if (matches(store.Current.Group.Detail))
+            if (matches(Words(store.Current.Group)))
             {
                 return true;
             }

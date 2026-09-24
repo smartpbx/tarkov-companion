@@ -249,7 +249,7 @@ public sealed class GroupPageViewModel : PageViewModel
         }
 
         _rendered = group.UpdatedUtc;
-        Status = group.Detail;
+        Status = SetupText.GroupStatus(group);
         Members = group.Members.Select(Describe).ToArray();
         MyLoadout = group.MyLoadout.Count > 0
             ? string.Join(" · ", group.MyLoadout)

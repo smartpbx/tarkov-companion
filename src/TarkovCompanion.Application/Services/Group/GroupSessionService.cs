@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Feedback;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -375,9 +376,8 @@ public sealed class GroupSessionService : IAsyncDisposable
                 // was nothing to read: the whole diagnosis had to come from reading a config
                 // file on the machine and probing the server from outside. Every other part of
                 // this application says what it did; this one was silent.
-                var detail = Explain(exception);
-                _logger.LogWarning(exception, "Group publish failed: {Detail}", detail);
-                PublishStale(detail);
+                _logger.LogWarning(exception, "Group publish failed: {Detail}", Explain(exception));
+                PublishStale(StatusOf(exception));
                 // A relay that is unwell goes back on the slow tick, which is the existing
                 // backoff and the thing that stops a failure becoming a busy loop.
                 _roomRevision = null;
@@ -483,6 +483,21 @@ public sealed class GroupSessionService : IAsyncDisposable
             "Server did not answer in time",
         _ => $"Sharing failed · {exception.Message}",
     };
+
+    /// <summary>[#314] <see cref="Explain"/> for the status line, as a code the App words.</summary>
+    /// <remarks><see cref="Explain"/> stays English: it goes to the log and into the problem report.</remarks>
+    private static Phrase StatusOf(Exception exception) => exception switch
+    {
+        HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } => KeyLength,
+        HttpRequestException { StatusCode: HttpStatusCode.Forbidden } => new(GroupStatus.OperatorRegisteredOnly),
+        HttpRequestException { StatusCode: HttpStatusCode.BadRequest } => new(GroupStatus.ServerRejected),
+        HttpRequestException { StatusCode: { } status } => new(GroupStatus.ServerAnswered, (int)status),
+        HttpRequestException => new(GroupStatus.ServerUnreachable, exception.Message),
+        TaskCanceledException => new(GroupStatus.NoAnswerInTime),
+        _ => new(GroupStatus.SharingFailed, exception.Message),
+    };
+
+    private static Phrase KeyLength => new(GroupStatus.KeyLength, GroupKeyLimits.Minimum, GroupKeyLimits.Maximum);
 
     /// <summary>
     /// Marks a place for the group: a waypoint that stays, or a ping that fades.
@@ -736,8 +751,8 @@ public sealed class GroupSessionService : IAsyncDisposable
             await WithdrawRegisteredAsync().ConfigureAwait(false);
             // Deliberate, not a failure, so there is nothing to keep warm.
             _lastGood = null;
-            Publish(settings.ResetReason is { Length: > 0 } reason
-                ? GroupSnapshot.Off with { Detail = reason, UpdatedUtc = _clock.GetUtcNow() }
+            Publish(settings.ResetReason is { } reason
+                ? GroupSnapshot.Off.Saying(reason) with { UpdatedUtc = _clock.GetUtcNow() }
                 : GroupSnapshot.Off);
             return;
         }
@@ -750,9 +765,8 @@ public sealed class GroupSessionService : IAsyncDisposable
             _relayHolds = false;
             _waitOutTheTick = true;
             await WithdrawRegisteredAsync().ConfigureAwait(false);
-            Publish(GroupSnapshot.Off with
+            Publish(GroupSnapshot.Off.Saying(new(GroupStatus.Needs, settings.Gap)) with
             {
-                Detail = $"Needs {settings.MissingPiece}",
                 UpdatedUtc = _clock.GetUtcNow(),
             });
             return;
@@ -829,17 +843,16 @@ public sealed class GroupSessionService : IAsyncDisposable
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 _lastGood = null;
-                Publish(GroupSnapshot.Off with
+                Publish(GroupSnapshot.Off.Saying(response.StatusCode == HttpStatusCode.Forbidden
+                        ? new(GroupStatus.OperatorRegisteredOnly)
+                        : KeyLength) with
                 {
-                    Detail = response.StatusCode == HttpStatusCode.Forbidden
-                        ? "This relay only serves rooms its operator registered"
-                        : $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
                     UpdatedUtc = _clock.GetUtcNow(),
                 });
                 return;
             }
 
-            PublishStale($"Server answered {(int)response.StatusCode}");
+            PublishStale(new(GroupStatus.ServerAnswered, (int)response.StatusCode));
             return;
         }
 
@@ -900,9 +913,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         var published = new GroupSnapshot(
             true,
             members,
-            Skew(room?.Protocol) is { } skew ? $"{describe} · {skew}" : describe,
+            string.Empty,
             _clock.GetUtcNow())
         {
+            Status = Skew(room?.Protocol) is { } skew ? new(GroupStatus.WithSkew, describe, skew) : describe,
             // The things this companion cannot read about its own player, handed back by the
             // people whose game named them.
             MyLoadout = mine?.Loadout ?? [],
@@ -1209,12 +1223,12 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// Past <see cref="StaleLimit"/> it gives them up, because by then the relay has dropped
     /// them too and drawing them would be inventing a group rather than remembering one.
     /// </remarks>
-    private void PublishStale(string detail)
+    private void PublishStale(Phrase detail)
     {
         var now = _clock.GetUtcNow();
         if (_lastGood is not { } good)
         {
-            Publish(GroupSnapshot.Off with { Detail = detail, UpdatedUtc = now });
+            Publish(GroupSnapshot.Off.Saying(detail) with { UpdatedUtc = now });
             return;
         }
 
@@ -1226,13 +1240,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         if (staleFor > StaleLimit)
         {
             _lastGood = null;
-            Publish(GroupSnapshot.Off with { Detail = detail, UpdatedUtc = now });
+            Publish(GroupSnapshot.Off.Saying(detail) with { UpdatedUtc = now });
             return;
         }
 
-        var stale = good with
+        var stale = good.Saying(new(GroupStatus.LastHeard, detail, Ago(staleFor))) with
         {
-            Detail = $"{detail} · last heard {Ago(staleFor)} ago",
             StaleSince = since,
             UpdatedUtc = now,
         };
@@ -1256,14 +1269,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// Only while something is actually wrong. Outside a raid there is no position to have,
     /// and nagging about it would make the normal state look broken.
     /// </remarks>
-    public static string DescribeSharing(string? name, int others, ApplicationRuntimeSnapshot snapshot)
+    public static Phrase DescribeSharing(string? name, int others, ApplicationRuntimeSnapshot snapshot)
     {
-        var sharing = others switch
-        {
-            0 => $"Sharing as {name} · nobody else here",
-            1 => $"Sharing as {name} · 1 other",
-            _ => $"Sharing as {name} · {others} others",
-        };
+        var sharing = others == 0
+            ? new Phrase(GroupStatus.SharingAlone, name)
+            : Phrase.Counted(GroupStatus.SharingWith, others, name);
 
         if (snapshot.Raid.LastKnownPosition is not null)
         {
@@ -1272,7 +1282,7 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         if (!snapshot.Observation.IsSupported)
         {
-            return $"{sharing} · no position: watching the game is not supported here";
+            return new(GroupStatus.NoPositionUnsupported, sharing);
         }
 
         // The screenshot folder specifically, not "the folders". A position comes only from a
@@ -1283,7 +1293,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         // what OneDrive does, and Settings takes an explicit path for it.
         if (!snapshot.Observation.IsWatchingScreenshots)
         {
-            return $"{sharing} · no position: the game's screenshot folder has not been found, set it in Settings";
+            return new(GroupStatus.NoPositionFolder, sharing);
         }
 
         if (snapshot.Raid.State != RaidLifecycleState.InRaid)
@@ -1302,8 +1312,8 @@ public sealed class GroupSessionService : IAsyncDisposable
         // That is indistinguishable from "has not taken one yet" without saying so, and it
         // cost a player an evening. Rebinding either key, or turning the overlay off, fixes it.
         return HasBeenInRaidLongEnoughToExpectOne(snapshot)
-            ? $"{sharing} · no screenshot has arrived this raid · if the game is on Steam, the overlay takes F12 before the game does — rebind the screenshot key or turn the overlay off"
-            : $"{sharing} · no position yet: take a screenshot in the raid and it will be read";
+            ? new(GroupStatus.NoScreenshotSteam, sharing)
+            : new(GroupStatus.NoPositionYet, sharing);
     }
 
     /// <summary>
@@ -1688,8 +1698,8 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     public const int Protocol = 1;
 
-    private static string? Skew(int? relay) => relay is { } spoken && spoken != Protocol
-        ? $"Relay speaks {spoken}, this build speaks {Protocol} · it updates itself within half an hour"
+    private static Phrase? Skew(int? relay) => relay is { } spoken && spoken != Protocol
+        ? new(GroupStatus.RelaySkew, spoken, Protocol)
         : null;
 
     private sealed record RoomStateDto(
