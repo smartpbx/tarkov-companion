@@ -26,4 +26,28 @@ public sealed class WindowSizeOverrideTests
 
         Assert.Contains("--window-size", exception.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Sizes_the_client_so_the_whole_frame_matches_the_gallery_move()
+    {
+        // A Windows 11 frame: 8 px invisible borders left, right and bottom, a 31 px caption.
+        var (width, height) = new WindowSizeOverride(1920, 1080).ClientSizeFor(1936, 1119, 1920, 1080);
+
+        Assert.Equal(1904, width);
+        Assert.Equal(1041, height);
+    }
+
+    [Fact]
+    public void Asking_again_once_the_frame_fits_changes_nothing()
+    {
+        var size = new WindowSizeOverride(1920, 1080);
+
+        Assert.Equal((1904d, 1041d), size.ClientSizeFor(1920, 1080, 1904, 1041));
+    }
+
+    [Fact]
+    public void A_window_without_a_frame_keeps_the_requested_size()
+    {
+        Assert.Equal((560d, 720d), new WindowSizeOverride(560, 720).ClientSizeFor(560, 720, 560, 720));
+    }
 }

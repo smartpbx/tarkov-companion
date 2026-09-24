@@ -312,7 +312,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         // No relay on a verification machine: the session's "not sharing" would replace the demo squad.
         await services.GetRequiredService<GroupSessionService>().DisposeAsync().ConfigureAwait(true);
         var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
-        var demo = GallerySquad.Build(model);
+        var demo = GallerySquad.Build(model, services.GetRequiredService<TimeProvider>().GetUtcNow());
         var store = services.GetRequiredService<IRuntimeStateStore>();
         store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
         var shared = await GallerySquad.ShareQuestsAsync(services, main.Map, demo.Group, cancellationToken).ConfigureAwait(true);
@@ -326,7 +326,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
     {
         // The squad scene's own raid, minus the squad: the store's group is left as it is.
         var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
-        var demo = GallerySquad.Build(model);
+        var demo = GallerySquad.Build(model, services.GetRequiredService<TimeProvider>().GetUtcNow());
         services.GetRequiredService<IRuntimeStateStore>().Update(snapshot => snapshot with { Raid = demo.Raid });
         await WaitForAsync(() => raid.ShowsStripPhase, StepTimeout, "the raid clock on the strip", cancellationToken)
             .ConfigureAwait(true);
@@ -342,7 +342,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         // No relay on a verification machine: the session's "not sharing" would replace the demo squad.
         await services.GetRequiredService<GroupSessionService>().DisposeAsync().ConfigureAwait(true);
         var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
-        var demo = GallerySquad.Build(model);
+        var demo = GallerySquad.Build(model, services.GetRequiredService<TimeProvider>().GetUtcNow());
         var members = demo.Group.Members.ToArray();
         var index = Array.FindIndex(members, member => member.Position is not null);
         if (index >= 0)
@@ -489,9 +489,9 @@ internal static class GallerySquad
     /// The player mid-raid on this map with a short trail, and three squadmates around them. The
     /// positions are world positions probed from the map's own transform, so they land on the plan.
     /// </summary>
-    public static (RaidSnapshot Raid, GroupSnapshot Group) Build(MapRenderModel model)
+    /// <param name="now">The app's own clock, which is what reads the raid clock and the ages back.</param>
+    public static (RaidSnapshot Raid, GroupSnapshot Group) Build(MapRenderModel model, DateTimeOffset now)
     {
-        var now = DateTimeOffset.UtcNow;
         var mapId = model.Location.Id;
         var candidates = new List<(double X, double Z, double PlanX, double PlanY)>();
         if (MapPlanProjection.For(model) is { IsValid: true } rect)

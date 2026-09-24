@@ -127,6 +127,15 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     window.MinHeight = 0;
                     window.Width = size.Width;
                     window.Height = size.Height;
+                    // [#858] The frame is only known once shown; see ClientSizeFor.
+                    window.Opened += (_, _) =>
+                    {
+                        if (window.FrameSize is not { } frame) return;
+                        var client = window.ClientSize;
+                        var (width, height) = size.ClientSizeFor(frame.Width, frame.Height, client.Width, client.Height);
+                        window.Width = width;
+                        window.Height = height;
+                    };
                 }
                 // #728 measures the shipped startup from CrashLog's first line to the first real
                 // window, rather than timing process setup or guessing from a screenshot.

@@ -72,6 +72,19 @@ public sealed class RaidCockpitMarksLayerTests
     }
 
     [Fact]
+    public void MarksPlacedInOneClockTickKeepThePlacementOrderWhateverTheirIds()
+    {
+        // [#858] Same timestamp (one tick, or a render's frozen clock) and ids that sort the other
+        // way: the numbers follow the store's order, so the same marks label the same every run.
+        var first = new RaidMark(Guid.Parse("ffffffff-0000-0000-0000-000000000000"), RaidMarkKind.Waypoint, new("factory", null, 1, 1, null, null), NowUtc);
+        var second = new RaidMark(Guid.Parse("00000000-0000-0000-0000-000000000001"), RaidMarkKind.Waypoint, new("factory", null, 2, 2, null, null), NowUtc);
+
+        var labeled = RaidCockpitViewModel.LabelMarksForMap([first, second], "factory");
+
+        Assert.Equal([(first.Id, "1"), (second.Id, "2")], labeled.Select(item => (item.Mark.Id, item.Label)));
+    }
+
+    [Fact]
     public void TheMapObjectAndTheListRowAlwaysAgreeOnTheSameLabel()
     {
         var marks = new[]

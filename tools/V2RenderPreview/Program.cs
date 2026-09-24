@@ -143,6 +143,9 @@ internal static class Program
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
                 : null;
+            // [#858] The demos' own "now": the frozen one when --now is given, so a raid clock
+            // and a squad's ages read the same on every run of the same arguments.
+            DemoClock = (TimeProvider?)now ?? TimeProvider.System;
             // [#454] --previous-run-died: a run that navigated to Plan, began loading Reserve and
             // never shut down, so Setup's Diagnostics can be photographed saying so.
             if (args.Contains("--previous-run-died"))
@@ -1911,6 +1914,9 @@ internal static class Program
             // the cockpit's scene build — so a render proves the wiring, not a fixture.
             if (shell is not null && args.Contains("--raid-demo"))
             {
+                // [#858] No relay here: the session's "not sharing" replaced the demo squad mid-render
+                // on some runs and not others. The gallery's squad scenes stop it the same way.
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.Application.Services.Group.GroupSessionService>().DisposeAsync().AsTask());
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
                 var demo = RaidDemo(viewModel.Map.RenderModel, IntOption(args, "--raid-minutes", 14));
                 if (args.Contains("--raid-left"))
@@ -2769,11 +2775,13 @@ internal static class Program
     /// <see cref="TeamDemoGroup"/> does, so they land on the plan rather than off its edge on
     /// whichever map is being rendered.
     /// </remarks>
+    private static TimeProvider DemoClock { get; set; } = TimeProvider.System;
+
     internal static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
         TarkovCompanion.Application.Services.Maps.MapRenderModel? model,
         int minutesAgo = 14)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = DemoClock.GetUtcNow();
         var mapId = model?.Location.Id ?? "customs";
         var candidates = new List<(double X, double Z, double PlanX, double PlanY)>();
         if (model is not null)
