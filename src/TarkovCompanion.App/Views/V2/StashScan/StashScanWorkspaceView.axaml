@@ -458,6 +458,8 @@
           </ItemsControl>
           <TextBlock Classes="v2-label" Text="{Binding RecommendationNotice}" TextWrapping="Wrap"
                      IsVisible="{Binding HasSelection}" />
+          <TextBlock Classes="v2-label" Text="{Binding RulesLabel}" TextWrapping="Wrap"
+                     IsVisible="{Binding HasRulesLabel}" AutomationProperties.AutomationId="v2-stash-rules" />
 
           <Border Classes="v2-section" IsVisible="{Binding HasSelection}">
             <StackPanel Spacing="8">

@@ -81,7 +81,9 @@ is omitted from scan counts and the exported scan list.
 
 ## Not in version 3
 
-Offered extracts, per-map coverage as a numerator and denominator, a recommendation version on each
-scan, and planned-versus-actual routes are not recorded yet, so they are not exported. Counts here
+Offered extracts (the `extracts` events an extract-list screenshot writes), the extract used
+(`extract-used`, typed or picked in Debrief) and archive state (`archive`) are recorded as raid
+events and shown in Debrief's Stats view, but are not exported yet; the export includes archived
+raids. Planned-versus-actual routes are not exported either. Counts here
 are per raid. Per-map totals for the manual fields are shown in Debrief's own "By map" panel, not
 in the export, which stays per-raid.

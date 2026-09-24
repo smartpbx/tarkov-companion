@@ -2,7 +2,8 @@
              x:DataType="vm:DebriefWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
+             xmlns:local="using:TarkovCompanion.App.Views.V2.Debrief">
   <UserControl.Styles>
     <!-- The search box and filter chip shapes Plan and Intel already use. -->
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
@@ -143,6 +144,18 @@
                   Content="Export CSV" Command="{Binding ExportCsvCommand}" />
           <Button Classes="v2-target v2-debrief-plain" AutomationProperties.AutomationId="v2-debrief-export-json"
                   Content="Export JSON" Command="{Binding ExportJsonCommand}" />
+        </StackPanel>
+        <!-- #291: the raid list, or coverage and charts over the same filtered raids. -->
+        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+          <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsListView}"
+                  AutomationProperties.AutomationId="v2-debrief-view-list"
+                  Content="Raids" Command="{Binding ShowListCommand}" />
+          <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsStatsView}"
+                  AutomationProperties.AutomationId="v2-debrief-view-stats"
+                  Content="Stats" Command="{Binding ShowStatsCommand}" />
+          <Button Classes="v2-target v2-debrief-plain" IsVisible="{Binding HasArchived}"
+                  AutomationProperties.AutomationId="v2-debrief-archived-toggle"
+                  Content="{Binding ArchiveToggleLabel}" Command="{Binding ToggleArchivedCommand}" />
         </StackPanel>
       </WrapPanel>
 
@@ -311,7 +324,7 @@
            85% of the card drawn empty and reads as a page that failed to load. VerticalAlignment
            Top with a stretch MaxHeight means a long history still fills the window and scrolls. -->
       <Border Grid.Row="3" Classes="v2-debrief-pane" VerticalAlignment="Top"
-              MaxHeight="{Binding $parent[Grid].Bounds.Height}"
+              MaxHeight="{Binding $parent[Grid].Bounds.Height}" IsVisible="{Binding IsListView}"
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-debrief-history">
         <Grid RowDefinitions="Auto,Auto,Auto">
@@ -324,12 +337,12 @@
               <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="Outcome" FontWeight="SemiBold" />
             </Grid>
           </Border>
-          <!-- V2 rough package 26 (log facts): per-map stats, measured from raid history. No
-               survival column: the game records no outcome and this does not invent one from a
-               field the player fills in by hand. Drawn above the raid table's column heads, not
+          <!-- V2 rough package 26 (log facts): per-map stats, measured from raid history. The
+               survival rate, which rests on outcomes the player types, is in Stats under a Manual
+               tag rather than here beside the measured columns. Drawn above the raid table's column heads, not
                between them and the rows: under "Mode" and "Started" its own columns read as a
                misaligned raid. -->
-          <Border Grid.Row="0" IsVisible="{Binding HasMapStats}" Background="{DynamicResource V2.Brush.Canvas}"
+          <Border Grid.Row="0" IsVisible="{Binding ShowsMapStatsStrip}" Background="{DynamicResource V2.Brush.Canvas}"
                   BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,10">
             <StackPanel Spacing="6">
               <TextBlock Classes="v2-debrief-muted" Text="By map" FontWeight="SemiBold" />
@@ -393,6 +406,157 @@
             <TextBlock Classes="v2-debrief-muted" Text="{Binding NoRaidsMessage}" HorizontalAlignment="Center" />
           </StackPanel>
         </Grid>
+      </Border>
+      <!-- #291: coverage by map and two charts, each with its table. Everything follows the
+           filters above and leaves archived raids out. Outcomes and the extract used are typed by
+           the player, so those columns carry the Manual tag; offered extracts come from
+           photographed extract lists, which older raids and raids with no photo do not have. -->
+      <Border Grid.Row="3" Classes="v2-debrief-pane" VerticalAlignment="Top" IsVisible="{Binding IsStatsView}"
+              MaxHeight="{Binding $parent[Grid].Bounds.Height}"
+              AutomationProperties.AutomationId="v2-debrief-stats">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="14" Margin="20,16">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Classes="v2-heading-3" Text="Coverage by map" AutomationProperties.HeadingLevel="3" VerticalAlignment="Center" />
+              <Border Classes="v2-debrief-kind">
+                <TextBlock Text="Manual outcomes" />
+              </Border>
+            </StackPanel>
+            <TextBlock Classes="v2-label" Text="Extracts used of those offered. Offered lists come from extract-list screenshots." TextWrapping="Wrap" />
+            <TextBlock Classes="v2-debrief-muted" Text="No raids to count." IsVisible="{Binding !HasMapCoverage}" />
+            <StackPanel Spacing="4" IsVisible="{Binding HasMapCoverage}" AutomationProperties.AutomationId="v2-debrief-coverage">
+              <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,*,*,*,2*,2*" ColumnSpacing="16">
+                <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="Raids" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="Extracted" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="Died" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="Survival" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="5" Classes="v2-debrief-muted" Text="Extracts" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="6" Classes="v2-debrief-muted" Text="Offered lists" FontWeight="SemiBold" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding MapCoverage}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DebriefMapCoverageRowViewModel">
+                    <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,*,*,*,2*,2*" ColumnSpacing="16" Margin="0,3">
+                      <TextBlock Grid.Column="0" Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
+                      <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding RaidsLabel}" />
+                      <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding ExtractedLabel}" />
+                      <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding DiedLabel}" />
+                      <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="{Binding SurvivalLabel}" />
+                      <TextBlock Grid.Column="5" Classes="v2-debrief-muted" Text="{Binding ExtractsLabel}" />
+                      <TextBlock Grid.Column="6" Classes="v2-debrief-muted" Text="{Binding OfferedNote}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+              <!-- Value brought out per raid: a line, oldest left; "Table" swaps in the same values. -->
+              <Border Grid.Column="0" Classes="v2-debrief-section" DataContext="{Binding ValueChart}"
+                      AutomationProperties.AutomationId="v2-debrief-value-chart">
+                <StackPanel Spacing="8" x:DataType="vm:DebriefValueChartViewModel">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                      <TextBlock Classes="v2-heading-3" Text="Value per raid" AutomationProperties.HeadingLevel="3" VerticalAlignment="Center" />
+                      <Border Classes="v2-debrief-kind">
+                        <TextBlock Text="Manual" />
+                      </Border>
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="v2-target v2-debrief-plain" Content="{Binding ToggleLabel}"
+                            AutomationProperties.AutomationId="v2-debrief-value-table-toggle"
+                            AutomationProperties.Name="Show value per raid as a table or chart"
+                            Command="{Binding ToggleTableCommand}" IsVisible="{Binding HasData}" />
+                  </Grid>
+                  <TextBlock Classes="v2-debrief-muted" Text="{Binding EmptyLabel}" IsVisible="{Binding HasNoData}" />
+                  <Grid RowDefinitions="Auto,160,Auto" IsVisible="{Binding ShowChart}">
+                    <TextBlock Grid.Row="0" Classes="v2-label" Text="{Binding MaxLabel}" />
+                    <local:DebriefLineChart Grid.Row="1" Values="{Binding Values}"
+                                            Stroke="{DynamicResource V2.Brush.Chart.Series1}"
+                                            Axis="{DynamicResource V2.Brush.Border}"
+                                            AutomationProperties.Name="{Binding Summary}" />
+                    <Grid Grid.Row="2" ColumnDefinitions="*,*">
+                      <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding FirstLabel}" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding LastLabel}" HorizontalAlignment="Right" />
+                    </Grid>
+                  </Grid>
+                  <StackPanel Spacing="2" IsVisible="{Binding ShowTable}" AutomationProperties.AutomationId="v2-debrief-value-table">
+                    <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,*" ColumnSpacing="12">
+                      <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Started" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="Value" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DebriefValueRowViewModel">
+                          <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,*" ColumnSpacing="12" Margin="0,2">
+                            <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="{Binding StartedLabel}" />
+                            <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding MapLabel}" />
+                            <TextBlock Grid.Column="2" Classes="v2-debrief-strong" Text="{Binding ValueLabel}" HorizontalAlignment="Right" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <!-- Survival per map: extracted over raids with an outcome, one bar per map. -->
+              <Border Grid.Column="1" Classes="v2-debrief-section" DataContext="{Binding SurvivalChart}"
+                      AutomationProperties.AutomationId="v2-debrief-survival-chart">
+                <StackPanel Spacing="8" x:DataType="vm:DebriefSurvivalChartViewModel">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                      <TextBlock Classes="v2-heading-3" Text="Survival by map" AutomationProperties.HeadingLevel="3" VerticalAlignment="Center" />
+                      <Border Classes="v2-debrief-kind">
+                        <TextBlock Text="Manual" />
+                      </Border>
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="v2-target v2-debrief-plain" Content="{Binding ToggleLabel}"
+                            AutomationProperties.AutomationId="v2-debrief-survival-table-toggle"
+                            AutomationProperties.Name="Show survival by map as a table or chart"
+                            Command="{Binding ToggleTableCommand}" IsVisible="{Binding HasData}" />
+                  </Grid>
+                  <TextBlock Classes="v2-debrief-muted" Text="{Binding EmptyLabel}" IsVisible="{Binding HasNoData}" />
+                  <ItemsControl ItemsSource="{Binding Bars}" IsVisible="{Binding ShowChart}"
+                                AutomationProperties.Name="{Binding Summary}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:DebriefSurvivalBarViewModel">
+                        <Grid ColumnDefinitions="110,Auto,Auto" ColumnSpacing="10" Margin="0,4">
+                          <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="{Binding MapLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                          <Border Grid.Column="1" Width="220" Height="14" VerticalAlignment="Center"
+                                  Background="{DynamicResource V2.Brush.SurfaceRaised}" CornerRadius="2">
+                            <Border HorizontalAlignment="Left" Width="{Binding BarWidth}" CornerRadius="2"
+                                    Background="{DynamicResource V2.Brush.Chart.Series1}" />
+                          </Border>
+                          <TextBlock Grid.Column="2" Classes="v2-debrief-strong" Text="{Binding RateLabel}" VerticalAlignment="Center" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <StackPanel Spacing="2" IsVisible="{Binding ShowTable}" AutomationProperties.AutomationId="v2-debrief-survival-table">
+                    <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,*" ColumnSpacing="12">
+                      <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="Extracted" FontWeight="SemiBold" />
+                      <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="Rate" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding Bars}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DebriefSurvivalBarViewModel">
+                          <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,*" ColumnSpacing="12" Margin="0,2">
+                            <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="{Binding MapLabel}" />
+                            <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding CountLabel}" />
+                            <TextBlock Grid.Column="2" Classes="v2-debrief-strong" Text="{Binding RateLabel}" HorizontalAlignment="Right" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </StackPanel>
+        </ScrollViewer>
       </Border>
     </Grid>
 
@@ -461,6 +625,17 @@
               </StackPanel>
             </Border>
 
+            <!-- #291: archive hides a raid from lists and totals and keeps it; restore any time. -->
+            <Border Classes="v2-debrief-section" AutomationProperties.AutomationId="v2-debrief-archive">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-heading-3" Text="Archive" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-label" Text="{Binding ArchiveHint}" TextWrapping="Wrap" />
+                <Button Classes="v2-target v2-debrief-plain" HorizontalAlignment="Left"
+                        AutomationProperties.AutomationId="v2-debrief-archive-toggle"
+                        Content="{Binding ArchiveActionLabel}" Command="{Binding ArchiveSelectedCommand}" />
+              </StackPanel>
+            </Border>
+
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
                 <StackPanel Classes="v2-icon-label">
@@ -482,6 +657,41 @@
                 <Button Classes="v2-target v2-debrief-plain" HorizontalAlignment="Left" IsVisible="{Binding CanWatch}"
                         AutomationProperties.AutomationId="v2-debrief-watch"
                         Content="Watch on map" Command="{Binding WatchOnMapCommand}" />
+              </StackPanel>
+            </Border>
+
+            <!-- #291: the extract left by. The game's logs never name it, so it is picked or typed
+                 here; the picks are what this raid's extract-list screenshots offered. -->
+            <Border Classes="v2-debrief-section" AutomationProperties.AutomationId="v2-debrief-extract-used">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Classes="v2-heading-3" Text="Extract used" AutomationProperties.HeadingLevel="3" VerticalAlignment="Center" />
+                  <Border Classes="v2-debrief-kind" IsVisible="{Binding HasSelectedExtractUsed}">
+                    <TextBlock Text="Manual" />
+                  </Border>
+                </StackPanel>
+                <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedExtractUsedLabel}" />
+                <TextBlock Classes="v2-label" Text="{Binding SelectedOfferedLabel}" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding SelectedExtractChoices}" IsVisible="{Binding HasSelectedExtractChoices}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DebriefExtractChoiceViewModel">
+                      <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Content="{Binding Label}"
+                              Classes.selected="{Binding IsSelected}" Command="{Binding SelectCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBox Classes="v2-field-input" Width="220" MaxLength="64" Text="{Binding ExtractUsedInput}"
+                           PlaceholderText="Type an extract"
+                           AutomationProperties.Name="Extract used"
+                           AutomationProperties.AutomationId="v2-debrief-extract-input" />
+                  <Button Classes="v2-target v2-debrief-plain" Content="Save" Command="{Binding SaveExtractUsedCommand}" />
+                </StackPanel>
               </StackPanel>
             </Border>
 

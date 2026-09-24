@@ -165,7 +165,7 @@ public sealed class DebriefFilterChipViewModel : BindableViewModel
 /// outcome, screenshot count), a correction for a wrong outcome or note, and export. Replaces the
 /// legacy History passthrough on the Debrief route.
 /// </summary>
-public sealed class DebriefWorkspaceViewModel : BindableViewModel
+public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 {
     private readonly IRaidHistoryService _raidHistoryService;
     private readonly ILootScanHistoryStore? _lootScans;
@@ -232,7 +232,16 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         RaidFactSources Sources,
         double? LoadSeconds,
         RaidManualMetadata? Manual,
-        IReadOnlyList<string> Tags);
+        IReadOnlyList<string> Tags)
+    {
+        /// <summary>What the raid's photographed extract lists offered; null when none was photographed.</summary>
+        public IReadOnlyList<string>? OfferedExtracts { get; init; }
+
+        /// <summary>The extract the player recorded leaving by, or null.</summary>
+        public string? UsedExtract { get; init; }
+
+        public bool IsArchived { get; init; }
+    }
 
     public DebriefWorkspaceViewModel(
         IRaidHistoryService raidHistoryService,
@@ -284,9 +293,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public bool HasNoRaids => !HasRaids;
 
     /// <summary>Distinguishes an empty history from a filter that matched nothing in it.</summary>
-    public string NoRaidsMessage => _allRecords.Count == 0
-        ? "No raids recorded yet."
-        : "No raids match these filters.";
+    public string NoRaidsMessage => _showArchived
+        ? "No archived raids."
+        : _allRecords.Count == 0
+            ? "No raids recorded yet."
+            : "No raids match these filters.";
 
     public bool HasSelection => _selected is not null;
 
@@ -867,7 +878,18 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             var tags = DebriefRaidTags.Resolve(await _raidHistoryService
                 .ListEventPayloadsAsync(raid.Id, DebriefRaidTags.EventType, cancellationToken)
                 .ConfigureAwait(false));
-            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds, manual, tags));
+            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds, manual, tags)
+            {
+                OfferedExtracts = RaidOfferedExtracts.Union(await _raidHistoryService
+                    .ListEventPayloadsAsync(raid.Id, RaidOfferedExtracts.EventType, cancellationToken)
+                    .ConfigureAwait(false)),
+                UsedExtract = RaidExtractUsed.Latest(await _raidHistoryService
+                    .ListEventPayloadsAsync(raid.Id, RaidExtractUsed.EventType, cancellationToken)
+                    .ConfigureAwait(false)),
+                IsArchived = RaidArchive.IsArchived(await _raidHistoryService
+                    .ListEventPayloadsAsync(raid.Id, RaidArchive.EventType, cancellationToken)
+                    .ConfigureAwait(false)),
+            });
         }
 
         return records;
@@ -911,7 +933,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     /// </summary>
     private void ApplyFilters()
     {
-        var filtered = _allRecords.Where(MatchesFilters).ToArray();
+        // An archived raid is out of the list and every total; the archive view lists only those.
+        var filtered = _allRecords.Where(record => record.IsArchived == _showArchived).Where(MatchesFilters).ToArray();
+        var active = _showArchived
+            ? _allRecords.Where(record => !record.IsArchived).Where(MatchesFilters).ToArray()
+            : filtered;
         var rows = new List<DebriefRaidRowViewModel>(filtered.Length);
         foreach (var record in filtered)
         {
@@ -933,8 +959,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         }
 
         Raids = rows;
-        MapStats = BuildMapStats(filtered);
-        Status = BuildStatusLabel(filtered.Length, _allRecords.Count);
+        MapStats = BuildMapStats(active);
+        RebuildCoverage(active);
+        Status = _showArchived
+            ? CountLabel(filtered.Length, "archived raid")
+            : BuildStatusLabel(filtered.Length, _allRecords.Count(record => !record.IsArchived));
         RaiseAll();
     }
 
@@ -1276,6 +1305,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         }
 
         SelectedFacts = BuildFacts();
+        RebuildExtractChoices();
 
         Raids = Raids.Select(row => row with { IsSelected = row.RaidId == raidId }).ToArray();
         RaiseAll();

@@ -82,6 +82,26 @@ public static class StashSortWording
         _ => 4,
     };
 
+    /// <summary>
+    /// The rules a sort plan was decided by, as "Rules x" (#291), the same words a saved loot scan
+    /// uses. An item the recommendation engine could not decide carries the planner's own version
+    /// with an ":unresolved" suffix; the planner's version is still what placed it, so it is named
+    /// without the suffix rather than hidden.
+    /// </summary>
+    public static string RulesLabel(IEnumerable<StashOrganizationItem> items)
+    {
+        const string unresolved = ":unresolved";
+        var versions = items
+            .Select(item => item.RecommendationVersion.EndsWith(unresolved, StringComparison.Ordinal)
+                ? item.RecommendationVersion[..^unresolved.Length]
+                : item.RecommendationVersion)
+            .Where(version => version.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        return versions.Length == 0 ? string.Empty : "Rules " + string.Join(", ", versions);
+    }
+
     public static string Why(StashOrganizationItem? planned, IReadOnlyList<RecommendationReason>? reasons)
     {
         if (planned is null)
@@ -733,6 +753,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         : _sortFailed
             ? "This snapshot couldn't be sorted, so everything is under Review."
             : "No profile is active, so nothing is sorted. Everything is under Review.";
+
+    /// <summary>Which recommendation ruleset sorted this snapshot, as a saved loot scan shows it.</summary>
+    public string RulesLabel { get; private set; } = string.Empty;
+
+    public bool HasRulesLabel => RulesLabel.Length > 0;
 
     public string CorrectionsNotice { get; } = "Saved with this snapshot.";
 
@@ -1395,7 +1420,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var sorted = await SortAsync(reconstruction, ammoByItemId, keyFactsByItemId, cancellationToken).ConfigureAwait(true);
         var plannedByKey = sorted?.Plan.Items.ToDictionary(item => item.ItemKey, StringComparer.Ordinal);
         _isSorted = sorted is not null;
+        RulesLabel = sorted is null ? string.Empty : StashSortWording.RulesLabel(sorted.Plan.Items);
         OnPropertyChanged(nameof(RecommendationNotice));
+        OnPropertyChanged(nameof(RulesLabel));
+        OnPropertyChanged(nameof(HasRulesLabel));
 
         var items = new List<StashItemRowViewModel>();
         var regions = new List<StashRegionViewModel>();
