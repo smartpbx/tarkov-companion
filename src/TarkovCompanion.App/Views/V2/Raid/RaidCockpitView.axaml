@@ -423,7 +423,9 @@
           </StackPanel>
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
-          <Button Grid.Column="5" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center" MaxWidth="160"
+          <!-- [#838] 200 rather than 160: "Layers · 12 on" on Interchange wrapped at 160 and made
+               the strip 12 pixels taller. The cap is still what makes it wrap at 200% text. -->
+          <Button Grid.Column="5" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center" MaxWidth="200"
                   DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
                   AutomationProperties.AutomationId="v2-raid-layers"
                   AutomationProperties.Name="{Binding LayersMenuLabel}"

@@ -31,6 +31,13 @@ public enum GallerySceneKind
 
     /// <summary>A mark of each scope and lifetime, and a tablet's short route (#785/#787).</summary>
     Marks,
+
+    /// <summary>The player in raid with the raid clock running, and nobody else (#838).</summary>
+    /// <remarks>
+    /// The strip under the map carries the clock only in raid, and on Customs that was the width
+    /// that wrapped it and took 32 pixels from the map. No other scene had a clock without a squad.
+    /// </remarks>
+    InRaid,
 }
 
 public static class GallerySceneKinds
@@ -38,7 +45,7 @@ public static class GallerySceneKinds
     public static GallerySceneKind Parse(string value) =>
         Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
             ? kind
-            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad or marks, not '{value}'.");
+            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks or inraid, not '{value}'.");
 }
 
 /// <summary>
@@ -105,6 +112,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                 GallerySceneKind.Route => await RouteAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.Squad => await SquadAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.Marks => await MarksAsync(raid, cancellationToken).ConfigureAwait(true),
+                GallerySceneKind.InRaid => await InRaidAsync(raid, cancellationToken).ConfigureAwait(true),
                 _ => $"{raid.MapExtracts.Count} extracts",
             };
 
@@ -254,6 +262,17 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         await WaitForAsync(() => raid.HasSquadObjectivesHere, StepTimeout, "the squad's objectives on the map", cancellationToken)
             .ConfigureAwait(true);
         return $"{demo.Group.Members.Count} squadmates, {shared}";
+    }
+
+    private async Task<string> InRaidAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
+    {
+        // The squad scene's own raid, minus the squad: the store's group is left as it is.
+        var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
+        var demo = GallerySquad.Build(model);
+        services.GetRequiredService<IRuntimeStateStore>().Update(snapshot => snapshot with { Raid = demo.Raid });
+        await WaitForAsync(() => raid.ShowsStripPhase, StepTimeout, "the raid clock on the strip", cancellationToken)
+            .ConfigureAwait(true);
+        return $"clock '{raid.RaidPhaseLabel}'";
     }
 
     private async Task<string> MarksAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)

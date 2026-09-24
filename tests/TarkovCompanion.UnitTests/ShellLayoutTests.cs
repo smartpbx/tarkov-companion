@@ -196,5 +196,25 @@ public sealed class ShellLayoutTests
         Assert.Equal(oneRow, ShellLayout.ControlStripFitsOneRow(column));
     }
 
+    [Theory]
+    [InlineData(1330, false)]
+    [InlineData(1479, false)]
+    [InlineData(1480, true)]
+    [InlineData(1850, true)]
+    [InlineData(double.PositiveInfinity, true)]
+    public void The_map_strip_shortens_the_mode_words_while_its_column_is_short_of_room(double column, bool full)
+    {
+        // [#838] 1330 is the map column in raid at 1920x1080 beside the default plan, where the
+        // strip wrapped on Windows; 1850 is the same window with the plan put away.
+        Assert.Equal(full, ShellLayout.ControlStripFitsFullModeLabels(column));
+    }
+
+    [Fact]
+    public void Short_mode_words_take_over_before_the_strip_takes_a_second_row()
+    {
+        // Otherwise there would be a band of widths where the strip wraps with the long words.
+        Assert.True(ShellLayout.ControlStripFullModeLabelsMinimumWidth > ShellLayout.ControlStripOneRowMinimumWidth);
+    }
+
     private static ShellLayout At(double left, double top) => new(1500, 900, left, top, false, false);
 }

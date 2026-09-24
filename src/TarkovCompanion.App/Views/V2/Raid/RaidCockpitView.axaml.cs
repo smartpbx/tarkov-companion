@@ -57,6 +57,8 @@ public sealed partial class RaidCockpitView : UserControl
         // column's width, so this cannot flip back and forth. A row of its own rather than a
         // second row of the same Grid: a control spanning its Auto columns widened them, and the
         // chip was left a column one letter wide.
+        // [#838] Width only as well, for the same reason: the column does not depend on the strip.
+        presentation.Classes.Set("v2-compact", !ShellLayout.ControlStripFitsFullModeLabels(eventArgs.NewSize.Width));
         var oneRow = ShellLayout.ControlStripFitsOneRow(eventArgs.NewSize.Width);
         var host = oneRow ? strip : secondRow;
         if (chip.Parent == host)

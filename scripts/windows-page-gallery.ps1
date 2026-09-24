@@ -1554,6 +1554,28 @@ foreach ($Scene in @("route", "squad", "marks")) {
         seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
     })
 }
+# [#838] In raid the strip under the map carries the raid clock, and on Customs at 1920 that was
+# the width that wrapped it onto a second row and took 32 px from the map (0.741 against 0.75).
+# No other shot had a clock without a squad. Interchange adds the floor ladder.
+foreach ($InRaidMap in @("customs", "interchange")) {
+    $Shots.Add([pscustomobject]@{
+        name = "v2-a-raid-$InRaidMap-inraid-1920"
+        args = @("--ui-shell", "v2-a", "--map", $InRaidMap)
+        shellMode = "v2-a"; width = 1920; height = 1080
+        galleryScene = "inraid"
+        seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+        captureBeforeInteraction = $true
+        interaction = [pscustomobject]@{ steps = @(
+            [pscustomobject]@{
+                action = "assert"; description = "the raid clock on the strip, and the map keeps its height in raid"
+                expectedAutomationIds = @("v2-map-plan", "v2-raid-phase", "v2-raid-layers", "v2-raid-traffic-chip")
+                expectedBounds = @([pscustomobject]@{
+                    automationId = "v2-map-plan"
+                    minimumWindowWidthFraction = 0.66
+                    minimumWindowHeightFraction = 0.75 })
+            }) }
+    })
+}
 # [#797] Reserve's objectives stood under one "3" count box: the same route scene on Reserve
 # shows each objective's lettered pin, fanned apart where they share a bunker, and zone outlines.
 $Shots.Add([pscustomobject]@{

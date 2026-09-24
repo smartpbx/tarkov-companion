@@ -179,6 +179,11 @@ public sealed class MapSceneRendererPresentation
             ["Map.Mode.Flat"] = "2D plan",
             ["Map.Mode.FloorStack"] = "Floor stack",
             ["Map.Mode.Interior"] = "3D interior",
+            // [#838] The Raid strip's words when its map column is short of room; the full ones
+            // above stay the tooltip and the accessible name.
+            ["Map.Mode.Flat.Short"] = "2D",
+            ["Map.Mode.FloorStack.Short"] = "Stack",
+            ["Map.Mode.Interior.Short"] = "3D",
             ["Map.Mode.Fallback"] = "{0} is active in the shared scene; this renderer is showing the floor-filtered 2D plan.",
             ["Map.Mode.FloorStackUnsupported"] = "Floor-stack view needs floor-specific artwork. Use the floor filter in the 2D plan.",
             ["Map.Mode.InteriorUnsupported"] = "Reviewed 3D rendering is not available in this renderer. Use the 2D plan.",
