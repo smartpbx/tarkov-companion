@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -47,13 +48,25 @@ public sealed partial class RaidCockpitView : UserControl
         }
 
         SyncDrawMode();
+        WatchRendererForInspect();
     }
 
     private void CockpitPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)
     {
-        if (eventArgs.PropertyName is nameof(RaidCockpitViewModel.IsDrawMode) or null)
+        if (eventArgs.PropertyName is nameof(RaidCockpitViewModel.IsDrawMode)
+            or nameof(RaidCockpitViewModel.IsClickMode) or null)
         {
             SyncDrawMode();
+        }
+
+        if (eventArgs.PropertyName is nameof(RaidCockpitViewModel.Renderer) or null)
+        {
+            WatchRendererForInspect();
+        }
+
+        if (eventArgs.PropertyName is nameof(RaidCockpitViewModel.Inspection) or null)
+        {
+            PlaceInspectPopover();
         }
     }
 
@@ -62,13 +75,75 @@ public sealed partial class RaidCockpitView : UserControl
         if (this.FindControl<MapSceneRendererView>("MapRenderer") is { } renderer)
         {
             renderer.IsDrawing = _cockpit?.IsDrawMode == true;
+            renderer.IsClickMode = _cockpit?.IsClickMode == true;
+        }
+    }
+
+    private System.ComponentModel.INotifyPropertyChanged? _inspectWatched;
+
+    /// <summary>[#286] The popover stays beside its spot through pan, zoom and a turn.</summary>
+    private void WatchRendererForInspect()
+    {
+        if (_inspectWatched is not null)
+        {
+            _inspectWatched.PropertyChanged -= InspectRendererChanged;
+        }
+
+        _inspectWatched = _cockpit?.Renderer;
+        if (_inspectWatched is not null)
+        {
+            _inspectWatched.PropertyChanged += InspectRendererChanged;
+        }
+    }
+
+    private void InspectRendererChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)
+    {
+        if (_cockpit?.HasInspection == true)
+        {
+            PlaceInspectPopover();
+        }
+    }
+
+    /// <summary>
+    /// [#286] Pins the Inspect popover just right of and below its spot, flipped to the other side
+    /// where the map card ends, so it never covers the spot it describes.
+    /// </summary>
+    private void PlaceInspectPopover()
+    {
+        if (_cockpit is not { Inspection: { } inspection, Renderer: { } scene } ||
+            this.FindControl<Canvas>("InspectLayer") is not { } layer ||
+            this.FindControl<Border>("InspectPopover") is not { } popover ||
+            this.FindControl<MapSceneRendererView>("MapRenderer")?.FindControl<Border>("PlanViewport") is not { } plan ||
+            !scene.TryViewportPointAt(inspection.Point, out var x, out var y) ||
+            plan.TranslatePoint(new Point(x, y), layer) is not { } at)
+        {
+            return;
+        }
+
+        const double Offset = 14;
+        popover.Measure(Size.Infinity);
+        var size = popover.DesiredSize;
+        var left = at.X + Offset + size.Width > layer.Bounds.Width ? at.X - Offset - size.Width : at.X + Offset;
+        var top = at.Y + Offset + size.Height > layer.Bounds.Height ? at.Y - Offset - size.Height : at.Y + Offset;
+        Canvas.SetLeft(popover, Math.Max(4, left));
+        Canvas.SetTop(popover, Math.Max(4, top));
+    }
+
+    private void RendererModeClicked(object? sender, MapScenePoint point) =>
+        _cockpit?.ModeClicked(point);
+
+    private void RouteSettingsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (_cockpit is { } cockpit && sender is Control button)
+        {
+            RaidMarkMenu.ForNewRoute(cockpit).ShowAt(button);
         }
     }
 
     private void RendererStrokeDrawn(object? sender, IReadOnlyList<MapScenePoint> points) =>
         _cockpit?.AddDrawing(points);
 
-    private void RendererDrawEscaped(object? sender, EventArgs eventArgs) =>
+    private void RendererModeEscaped(object? sender, EventArgs eventArgs) =>
         _cockpit?.SetInteractionMode(MapInteractionMode.Navigate);
 
     private void DrawSettingsClicked(object? sender, RoutedEventArgs eventArgs)

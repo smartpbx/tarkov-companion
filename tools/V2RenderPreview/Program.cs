@@ -1457,6 +1457,12 @@ internal static class Program
                     Console.WriteLine($"Drawings: {raid.DrawingStore.Drawings.Count}, points {string.Join("/", raid.DrawingStore.Drawings.Select(drawing => drawing.Points.Count))}, mode {raid.InteractionMode}");
                 }
 
+                // [#286] --mode-demo inspect|route|navigate: see ModesDemo.
+                if (StringOption(args, "--mode-demo") is { } modeDemo)
+                {
+                    ModesDemo.Run(raid, modeDemo, Pump);
+                }
+
                 // [Issue 508] Zoom and rotate the plan the way the zoom buttons and the keyboard
                 // rotate gesture do, so a render can show a pin's tip staying on the spot at a
                 // closer zoom and with the map turned. --map-zoom N presses "zoom in" N times

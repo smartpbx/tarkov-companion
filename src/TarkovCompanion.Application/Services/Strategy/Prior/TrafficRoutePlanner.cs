@@ -23,9 +23,19 @@ public sealed record TrafficRoute(
 
     public const double BriskPace = 3.2;
 
-    public int MinutesLow => Math.Max(1, (int)Math.Floor(Metres * ObstacleAllowance / BriskPace / 60));
+    public int MinutesLow => MinutesFor(Metres).Low;
 
-    public int MinutesHigh => Math.Max(MinutesLow + 1, (int)Math.Ceiling(Metres * ObstacleAllowance / CarefulPace / 60));
+    public int MinutesHigh => MinutesFor(Metres).High;
+
+    /// <summary>
+    /// [#286] The walking estimate for any measured length, so a planned route or an inspected
+    /// point says the same minutes a suggested route does for the same distance.
+    /// </summary>
+    public static (int Low, int High) MinutesFor(double metres)
+    {
+        var low = Math.Max(1, (int)Math.Floor(metres * ObstacleAllowance / BriskPace / 60));
+        return (low, Math.Max(low + 1, (int)Math.Ceiling(metres * ObstacleAllowance / CarefulPace / 60)));
+    }
 }
 
 /// <summary>Why the lower-contact route is suggested, as a code the App puts into words (#314).</summary>

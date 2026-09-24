@@ -60,8 +60,24 @@ public sealed partial class MapSceneRendererView : UserControl
     /// <summary>[#286] A line was drawn in Draw mode, as scene points in the order drawn.</summary>
     public event EventHandler<IReadOnlyList<MapScenePoint>>? StrokeDrawn;
 
-    /// <summary>[#286] Escape was pressed in Draw mode: the host goes back to Navigate.</summary>
-    public event EventHandler? DrawEscaped;
+    /// <summary>[#286] Escape was pressed in Draw, Inspect or Route mode: the host goes back to Navigate.</summary>
+    public event EventHandler? ModeEscaped;
+
+    /// <summary>
+    /// [#286] Inspect and Route modes: a plain left click is the host's (<see cref="ModeClicked"/>)
+    /// and never selects or clears a selection; a left-drag still pans.
+    /// </summary>
+    public static readonly StyledProperty<bool> IsClickModeProperty =
+        AvaloniaProperty.Register<MapSceneRendererView, bool>(nameof(IsClickMode));
+
+    public bool IsClickMode
+    {
+        get => GetValue(IsClickModeProperty);
+        set => SetValue(IsClickModeProperty, value);
+    }
+
+    /// <summary>[#286] A plain left click in Inspect or Route mode, at that scene point.</summary>
+    public event EventHandler<MapScenePoint>? ModeClicked;
 
     /// <summary>
     /// The host places the presentation and floor controls itself, so nothing is floated over the plan for them.
@@ -96,7 +112,12 @@ public sealed partial class MapSceneRendererView : UserControl
                 EndInk();
             }
 
-            Cursor = IsDrawing ? new Cursor(StandardCursorType.Cross) : null;
+            Cursor = IsDrawing || IsClickMode ? new Cursor(StandardCursorType.Cross) : null;
+        }
+
+        if (change.Property == IsClickModeProperty)
+        {
+            Cursor = IsDrawing || IsClickMode ? new Cursor(StandardCursorType.Cross) : null;
         }
     }
 
@@ -318,7 +339,7 @@ public sealed partial class MapSceneRendererView : UserControl
 
         var middle = current.Properties.IsMiddleButtonPressed;
         if (!middle && (!current.Properties.IsLeftButtonPressed ||
-            (eventArgs.Source as StyledElement)?.DataContext is MapSceneRendererObjectViewModel))
+            (!IsClickMode && (eventArgs.Source as StyledElement)?.DataContext is MapSceneRendererObjectViewModel)))
         {
             return;
         }
@@ -447,6 +468,15 @@ public sealed partial class MapSceneRendererView : UserControl
             {
                 renderer.CancelPan();
             }
+            else if (IsClickMode)
+            {
+                // [#286] Inspect and Route: the click is the mode's, and a selection stays as it was.
+                renderer.CancelPan();
+                if (renderer.TryScenePointAt(current.X, current.Y, out var modePoint))
+                {
+                    ModeClicked?.Invoke(this, modePoint);
+                }
+            }
             else
             {
                 renderer.CancelPan();
@@ -562,10 +592,10 @@ public sealed partial class MapSceneRendererView : UserControl
             return;
         }
 
-        if (eventArgs.Key == Key.Escape && IsDrawing && !eventArgs.Handled)
+        if (eventArgs.Key == Key.Escape && (IsDrawing || IsClickMode) && !eventArgs.Handled)
         {
             EndInk();
-            DrawEscaped?.Invoke(this, EventArgs.Empty);
+            ModeEscaped?.Invoke(this, EventArgs.Empty);
             eventArgs.Handled = true;
         }
     }

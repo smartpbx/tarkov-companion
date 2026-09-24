@@ -131,7 +131,7 @@ public sealed class MapPanGestureTests
             var strokes = new List<IReadOnlyList<MapScenePoint>>();
             var escaped = 0;
             view.StrokeDrawn += (_, points) => strokes.Add(points);
-            view.DrawEscaped += (_, _) => escaped++;
+            view.ModeEscaped += (_, _) => escaped++;
             view.IsDrawing = true;
 
             var camera = renderer.Scene.View.Camera;
@@ -185,6 +185,67 @@ public sealed class MapPanGestureTests
             Dispatcher.UIThread.RunJobs();
             Assert.Single(strokes);
             Assert.NotEqual(beforeNavigate, renderer.Scene.View.Camera);
+        });
+    }
+
+    /// <summary>
+    /// [#286] Inspect and Route modes: a plain click is handed to the host at the scene point under
+    /// it and selects nothing; a left-drag still pans and is not a click; Escape asks to leave.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    public void In_a_click_mode_a_click_is_the_modes_and_a_drag_still_pans(double bearing)
+    {
+        Run(bearing, (window, view, renderer) =>
+        {
+            var plan = view.FindControl<Border>("PlanViewport")!;
+            Point InWindow(double x, double y) => plan.TranslatePoint(new Point(x, y), window)!.Value;
+            for (var step = 0; step < 4; step++)
+            {
+                renderer.RequestZoom(1);
+            }
+
+            var clicks = new List<MapScenePoint>();
+            var escaped = 0;
+            view.ModeClicked += (_, point) => clicks.Add(point);
+            view.ModeEscaped += (_, _) => escaped++;
+            view.IsClickMode = true;
+
+            var camera = renderer.Scene.View.Camera;
+            Assert.True(renderer.TryScenePointAt(420, 310, out var expected));
+            window.MouseDown(InWindow(420, 310), MouseButton.Left);
+            window.MouseUp(InWindow(420, 310), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            var click = Assert.Single(clicks);
+            Assert.Equal(expected.X, click.X, 3);
+            Assert.Equal(expected.Y, click.Y, 3);
+            Assert.Equal(camera, renderer.Scene.View.Camera);
+            Assert.False(renderer.HasSelection);
+
+            // The popover follows the spot: the scene point projects back to where it was clicked.
+            Assert.True(renderer.TryViewportPointAt(click, out var backX, out var backY));
+            Assert.Equal(420, backX, 3);
+            Assert.Equal(310, backY, 3);
+
+            // A drag pans and is not a click.
+            window.MouseDown(InWindow(400, 300), MouseButton.Left);
+            window.MouseMove(InWindow(340, 260));
+            window.MouseUp(InWindow(300, 240), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(clicks);
+            Assert.NotEqual(camera, renderer.Scene.View.Camera);
+
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+            Assert.Equal(1, escaped);
+
+            view.IsClickMode = false;
+            window.MouseDown(InWindow(420, 310), MouseButton.Left);
+            window.MouseUp(InWindow(420, 310), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Single(clicks);
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
+            Assert.Equal(1, escaped);
         });
     }
 
