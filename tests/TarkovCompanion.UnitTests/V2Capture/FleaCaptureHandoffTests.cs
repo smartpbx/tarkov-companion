@@ -2,6 +2,7 @@ using System.Globalization;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -54,7 +55,11 @@ public sealed class FleaCaptureHandoffTests
 
         // The engine chooses the stronger resale path rather than stopping at the first profitable one.
         Assert.Equal(FleaRowVerdict.ProfitOnFlea, page.Rows[0].Verdict);
-        Assert.Contains("roubles more than it costs", page.Rows[0].WhyLabel, StringComparison.Ordinal);
+        Assert.EndsWith("profit reselling on flea after fee", page.Rows[0].WhyLabel, StringComparison.Ordinal);
+        Assert.Contains("roubles more than it costs", page.Rows[0].DetailsLabel, StringComparison.Ordinal);
+        Assert.Contains("Rules recommendation-274.2", page.Rows[0].DetailsLabel, StringComparison.Ordinal);
+        Assert.Contains("Read: Graphics card 100 000", page.Rows[0].DetailsLabel, StringComparison.Ordinal);
+        Assert.Equal("read 90 % sure", page.Rows[0].ConfidenceLabel);
         // Under what the average returns after its fee: pays to resell. Three units, priced each.
         Assert.Equal(FleaRowVerdict.ProfitOnFlea, page.Rows[1].Verdict);
         Assert.Equal("₽290,000 each", page.Rows[1].PriceLabel);
@@ -63,7 +68,7 @@ public sealed class FleaCaptureHandoffTests
         Assert.False(page.Rows[2].IsGoodBuy);
         // The 70%-sure row is below the shared policy's confidence floor and is ranked for review.
         Assert.Equal(FleaRowVerdict.Unknown, page.Rows[4].Verdict);
-        Assert.Contains("ambiguous", page.Rows[4].WhyLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Price read uncertain · check", page.Rows[4].WhyLabel);
         Assert.Equal("count not read", page.Rows[4].StackLabel);
         Assert.All(read.Rows, row => Assert.Equal("recommendation-274.2", row.Recommendation.RulesetVersion));
     }
@@ -172,6 +177,77 @@ public sealed class FleaCaptureHandoffTests
     }
 
     [Fact]
+    public async Task OldComparisonPricesSayHowOldAndTheOffersStayRankedCheapestFirst()
+    {
+        // #842: the catalog was stamped an hour before Now; the screenshot is ten days later.
+        var at = Now.AddDays(10);
+        var catalog = new LootScanFactFixtures.Catalog();
+        var read = await new FleaCaptureHandoff(catalog, catalog).BuildAsync(
+            RequestAt(
+                [new("gpu", "Graphics card", new Confidence(0.91), "Graphics card")],
+                at,
+                new CaptureFleaListing(300_000, 1, new Confidence(0.9), "b"),
+                new CaptureFleaListing(90_000, 1, new Confidence(0.9), "a"),
+                new CaptureFleaListing(310_000, 2, new Confidence(0.9), "c")),
+            CancellationToken.None);
+
+        var page = new FleaScanViewModel(read, CultureInfo.InvariantCulture, offline: true, timeProvider: new FixedClock(at));
+
+        Assert.All(read.Rows, row => Assert.Equal(RecommendationAction.Review, row.Recommendation.Decision.Value!.Action));
+        Assert.Equal(["₽90,000 each", "₽300,000 each", "₽310,000 each"], page.Rows.Select(row => row.PriceLabel));
+        Assert.Equal("#1 best buy", page.Rows[0].RankLabel);
+        Assert.All(page.Rows, row => Assert.Equal("Prices 10 days old · refresh to compare", row.WhyLabel));
+        Assert.All(page.Rows, row => Assert.Equal("No comparison", row.VerdictLabel));
+        Assert.All(page.Rows, row => Assert.DoesNotContain("recommendation-", row.ConfidenceLabel, StringComparison.Ordinal));
+        // The fee is still worked out from the synced rates; only the comparison waits for fresh prices.
+        Assert.Contains("fee", page.AverageLabel, StringComparison.Ordinal);
+        Assert.DoesNotContain("not", page.AverageLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutSyncedFeeRatesTheHeaderAndRowsSaySo()
+    {
+        var catalog = new LootScanFactFixtures.Catalog();
+        var read = await new FleaCaptureHandoff(catalog, new NoRates(catalog)).BuildAsync(
+            Request(
+                [new("gpu", "Graphics card", new Confidence(0.91), "Graphics card")],
+                new CaptureFleaListing(300_000, 1, new Confidence(0.9), "row")),
+            CancellationToken.None);
+
+        var page = new FleaScanViewModel(read, CultureInfo.InvariantCulture, timeProvider: new FixedClock(Now));
+
+        Assert.Null(read.FeeRates);
+        Assert.Null(read.AverageFeeRoubles);
+        Assert.EndsWith("fee rates not synced, refresh", page.AverageLabel, StringComparison.Ordinal);
+        Assert.Equal("Flea fee not known · no comparison", Assert.Single(page.Rows).WhyLabel);
+    }
+
+    [Fact]
+    public async Task AnUncertainItemNameAsksThePlayerToCheck()
+    {
+        var catalog = new LootScanFactFixtures.Catalog();
+        var read = await new FleaCaptureHandoff(catalog, catalog).BuildAsync(
+            Request(
+                [new("gpu", "Graphics card", new Confidence(0.5), "Graphics card")],
+                new CaptureFleaListing(100_000, 1, new Confidence(0.9), "row")),
+            CancellationToken.None);
+
+        var page = new FleaScanViewModel(read, CultureInfo.InvariantCulture, timeProvider: new FixedClock(Now));
+
+        Assert.Equal("Item name uncertain · check", Assert.Single(page.Rows).WhyLabel);
+    }
+
+    [Theory]
+    [InlineData(40, "40 min")]
+    [InlineData(5 * 60 + 10, "5 h")]
+    [InlineData(26 * 60, "1 day")]
+    [InlineData(10 * 24 * 60 + 3, "10 days")]
+    public void AnAgeIsSaidInItsCoarsestUnit(int minutes, string expected)
+    {
+        Assert.Equal(expected, FleaRowReason.Age(TimeSpan.FromMinutes(minutes), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task ACaptureWithNoLegibleRowsPublishesNothing()
     {
         var catalog = new LootScanFactFixtures.Catalog();
@@ -194,8 +270,12 @@ public sealed class FleaCaptureHandoffTests
         Assert.Equal(expected, CaptureRecognitionPipeline.ReadsFleaRows(intent, detected));
     }
 
-    private static CaptureHandoffRequest Request(CaptureIdentifiedItem[] identified, params CaptureFleaListing[] rows)
+    private static CaptureHandoffRequest Request(CaptureIdentifiedItem[] identified, params CaptureFleaListing[] rows) =>
+        RequestAt(identified, Now, rows);
+
+    private static CaptureHandoffRequest RequestAt(CaptureIdentifiedItem[] identified, DateTimeOffset now, params CaptureFleaListing[] rows)
     {
+        var Now = now;
         var provenance = new EvidenceProvenance(
             EvidenceSourceClass.GameWrittenScreenshot,
             "fixture://flea",
@@ -218,6 +298,18 @@ public sealed class FleaCaptureHandoffTests
             CaptureReviewAction.UseDetected,
             ScanIntent.Flea,
             new CaptureCorrection(CaptureReviewAction.UseDetected, ScanIntent.Flea, RecognizedContext.Flea, 0, Now, "fixture"));
+    }
+
+    private sealed class NoRates(IItemMarketFactSource inner) : IItemMarketFactSource
+    {
+        public Task<ItemMarketFacts?> GetAsync(string itemId, CancellationToken cancellationToken) =>
+            inner.GetAsync(itemId, cancellationToken);
+
+        public Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<FleaMarketRates?>(null);
+
+        public Task<IReadOnlyDictionary<string, CurrencyRoubleRate>> GetCurrencyRoubleRatesAsync(CancellationToken cancellationToken) =>
+            inner.GetCurrencyRoubleRatesAsync(cancellationToken);
     }
 
     private sealed class MovingClock(DateTimeOffset now) : TimeProvider
