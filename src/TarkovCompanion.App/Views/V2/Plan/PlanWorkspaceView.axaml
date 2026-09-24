@@ -434,6 +434,17 @@
                                       ToolTip.Tip="{Binding WikiAttribution}"
                                       AutomationProperties.AutomationId="v2-plan-objective-wiki"
                                       AutomationProperties.Name="Open this quest's page on the wiki" />
+                              <!-- [#802] Marks the quest active and pins it, so the Raid map draws it. -->
+                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="On it" Padding="6,0"
+                                      Command="{Binding OnItCommand}" IsVisible="{Binding CanPutOnIt}"
+                                      ToolTip.Tip="Mark active and show on the Raid map"
+                                      AutomationProperties.AutomationId="v2-plan-objective-on-it"
+                                      AutomationProperties.Name="I'm on this quest" />
+                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="Show in Raid" Padding="6,0"
+                                      Command="{Binding ShowInRaidCommand}" IsVisible="{Binding CanShowInRaid}"
+                                      ToolTip.Tip="Open the Raid map on this objective"
+                                      AutomationProperties.AutomationId="v2-plan-objective-show-in-raid"
+                                      AutomationProperties.Name="Show this objective in Raid" />
                             </WrapPanel>
                             <TextBlock Classes="v2-label" IsVisible="{Binding HasRouteReason}" TextWrapping="Wrap">
                               <Run Text="{Binding RouteDistanceLabel}" />

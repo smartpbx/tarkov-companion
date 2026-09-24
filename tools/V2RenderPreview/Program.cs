@@ -404,6 +404,35 @@ internal static class Program
                 Pump(80);
             }
 
+            // [#802] Press "On it" on the selected map's first untracked quest, and/or "Open in Raid".
+            if (args.Contains("--plan-on-it") || args.Contains("--plan-open-in-raid"))
+            {
+                var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+                if (args.Contains("--plan-objectives-layer-off"))
+                {
+                    viewModel.Map.ToggleOverlay(TarkovCompanion.Application.Services.Maps.MapOverlayKind.QuestObjectives, false);
+                    Pump(40);
+                    Console.WriteLine("Quest layer before: " + viewModel.Map.QuestLayerStatus);
+                }
+
+                if (args.Contains("--plan-on-it"))
+                {
+                    var row = plan.SelectedGroup?.Objectives.FirstOrDefault(candidate => candidate.CanPutOnIt)
+                        ?? throw new ArgumentException("The selected Plan map has no quest to put on.");
+                    DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)row.OnItCommand).ExecuteAsync());
+                    Pump(80);
+                    Console.WriteLine($"On it: {row.TaskName}");
+                }
+
+                if (args.Contains("--plan-open-in-raid"))
+                {
+                    var group = plan.SelectedGroup ?? throw new ArgumentException("--plan-open-in-raid needs --plan-map.");
+                    DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)group.OpenInRaidCommand).ExecuteAsync());
+                    Pump(80);
+                    Console.WriteLine($"Open in Raid: {group.MapLabel}");
+                }
+            }
+
             // [V2 rough package 46] The chrome the player can now collapse, so a render can show
             // the map at each of the widths it can have.
             if (shell is not null && StringOption(args, "--nav-rail") is { } railMode)
