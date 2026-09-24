@@ -2364,8 +2364,12 @@ internal static class Program
             {
                 var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()
                     .Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
-                var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
-                    profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
+                // The workspace lists by the profile context's scope ("Pvp"), not the legacy one ("Regular").
+                var scope = services.GetService<TarkovCompanion.Application.Services.Profiles.IProfileRuntimeContextService>()?.Current.ActiveProfile is { } active
+                    ? new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
+                        active.Context.Identity.ProfileId, active.Context.Identity.Generation, active.Context.Mode.ToString())
+                    : new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
+                        profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
                 var store = services.GetRequiredService<TarkovCompanion.Core.Domain.Stash.IStashSnapshotStore>();
                 // The demo's items carry invented ids. Over a seeded catalog each is looked up by
                 // name, so the sort plan is made from real prices and real needs or not at all.

@@ -783,6 +783,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         : IntelText.UnknownItem;
     public bool IntelIsLoading => _intelLoading;
     public bool IntelIsNotFound => !_intelLoading && _intelResult is { Kind: V2IntelKind.Unknown };
+    /// <summary>[#279] The item's intel has been read (found or not); the gallery waits for it.</summary>
+    public bool IntelHasAnswer => !_intelLoading && _intelResult is not null;
     public string IntelStatusLabel => IntelIsLoading
         ? IntelText.Loading
         : IntelIsNotFound ? IntelText.NotFound : string.Empty;

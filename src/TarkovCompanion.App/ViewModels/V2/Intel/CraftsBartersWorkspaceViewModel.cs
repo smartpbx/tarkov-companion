@@ -190,6 +190,9 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     }
 
     public bool IsLoading => _loading;
+
+    /// <summary>[#279] The first read has finished and none is running; the gallery waits for it.</summary>
+    public bool HasLoaded => LoadTask.IsCompleted && !_loading;
     public bool ShowsEmpty => _loaded && !_loading && Rows.Count == 0;
 
     public IReadOnlyList<IntelTradeRowViewModel> Rows => Filtered()

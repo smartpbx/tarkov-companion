@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:v2="using:TarkovCompanion.App.Views.V2"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan">
   <UserControl.Resources>
     <!-- One reconstructed container, at a fixed square size, scaled down as a whole to fit. -->
@@ -319,12 +320,15 @@
 
     <!-- The reconstructed stash. -->
     <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
-      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+      <!-- [#314] The heading keeps its width: in qps-ploc the button row squeezed "Reconstructed
+           stash" to four lines. The buttons now drop under it, and wrap, when both do not fit. -->
+      <prim:V2FitRow Spacing="12" RowSpacing="8">
         <StackPanel Spacing="2">
           <TextBlock Classes="v2-heading-2" Text="{x:Static l:IntelText.StashReconstructed}" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-label" Text="{Binding ReconstructionLabel}" />
         </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <WrapPanel ItemSpacing="12" LineSpacing="8" VerticalAlignment="Center" HorizontalAlignment="Right">
+        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <Button Classes="v2-chip" Classes.v2-selected="{Binding IsGridView}" Width="46"
                   Command="{Binding ShowGridCommand}" AutomationProperties.Name="{x:Static l:IntelText.StashGridView}"
                   AutomationProperties.AutomationId="v2-stash-grid-view">
@@ -336,8 +340,8 @@
             <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.List}" />
           </Button>
         </StackPanel>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
-                    IsVisible="{Binding HasSelection}">
+        <WrapPanel ItemSpacing="8" LineSpacing="8" VerticalAlignment="Center"
+                   IsVisible="{Binding HasSelection}">
           <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashExportCsv}" Command="{Binding ExportCsvCommand}"
                   AutomationProperties.AutomationId="v2-stash-export-csv" />
           <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashExportJson}" Command="{Binding ExportJsonCommand}"
@@ -349,8 +353,9 @@
                   AutomationProperties.AutomationId="v2-stash-merge-previous" />
           <Button Classes="v2-plain" Content="{x:Static l:IntelText.StashDelete}" Command="{Binding DeleteSelectedCommand}"
                   AutomationProperties.AutomationId="v2-stash-delete" />
-        </StackPanel>
-      </Grid>
+        </WrapPanel>
+        </WrapPanel>
+      </prim:V2FitRow>
 
       <Border Grid.Row="1" Classes="v2-pane">
         <Panel>
