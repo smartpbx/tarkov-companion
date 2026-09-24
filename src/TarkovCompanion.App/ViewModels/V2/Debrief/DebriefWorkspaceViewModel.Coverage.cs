@@ -69,7 +69,7 @@ public sealed partial class DebriefWorkspaceViewModel
         }
     }
 
-    public int ArchivedCount => _allRecords.Count(record => record.IsArchived);
+    public int ArchivedCount => ContextRecords.Count(record => record.IsArchived);
 
     public bool HasArchived => ArchivedCount > 0 || ShowArchived;
 
@@ -139,6 +139,7 @@ public sealed partial class DebriefWorkspaceViewModel
         OnPropertyChanged(nameof(ArchivedCount));
         OnPropertyChanged(nameof(HasArchived));
         OnPropertyChanged(nameof(ArchiveToggleLabel));
+        RaiseContext();
     }
 
     private string CoverageMapLabel(string? mapId) => mapId is { Length: > 0 } id ? MapLabel(id) : "Unknown map";

@@ -2046,6 +2046,11 @@ internal static class Program
                     DebriefCoverageDemo.Seed(services, DrainUntilComplete);
                 }
 
+                if (args.Contains("--debrief-context-demo"))
+                {
+                    DebriefContextDemo.Seed(services, DrainUntilComplete);
+                }
+
                 if (args.Contains("--debrief-tags-demo"))
                 {
                     var history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
@@ -2108,6 +2113,7 @@ internal static class Program
                 DrainUntilComplete(debrief.SelectRaidAsync(seeded.Result, CancellationToken.None));
                 Pump(20);
                 DebriefCoverageDemo.Show(debrief, args, Pump);
+                DebriefContextDemo.Show(debrief, args);
                 if (args.Contains("--debrief-tags-demo"))
                 {
                     debrief.SelectedTagFilterOption = debrief.TagFilterOptions.First(option => option.Tag == "Tasks");

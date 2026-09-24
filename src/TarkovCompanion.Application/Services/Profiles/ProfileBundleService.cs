@@ -40,7 +40,9 @@ public sealed class ProfileBundleService(
     IRaidHistoryService raids,
     Func<CancellationToken, Task<ProfileBundleIdentity?>> activeIdentity,
     Func<ProfileBundleIdentity, CancellationToken, Task> createAndActivate,
-    TimeProvider? clock = null)
+    TimeProvider? clock = null,
+    // [#269] Places each exported raid in a wipe; absent, every raid is the profile's one wipe.
+    Core.Domain.Profiles.IRaidContextSource? raidContext = null)
 {
     private const string ImportSource = "ProfileImport";
 
@@ -131,8 +133,12 @@ public sealed class ProfileBundleService(
         await players.SaveAsync(player, cancellationToken).ConfigureAwait(false);
 
         await ImportQuestsAsync(identity, player, before.Quests, bundle.Quests, now, cancellationToken).ConfigureAwait(false);
-        // [#269] Only the raids played in this profile's mode; the preview said how many are left out.
-        await ImportRaidsAsync(player, before.Raids, ProfileBundleChanges.SameMode(bundle.Raids, identity.Mode), cancellationToken).ConfigureAwait(false);
+        // [#269] Only the raids played in this profile's mode and wipe; the preview said how many are left out.
+        await ImportRaidsAsync(
+            player,
+            before.Raids,
+            ProfileBundleChanges.SameWipe(ProfileBundleChanges.SameMode(bundle.Raids, identity.Mode), identity.Wipe),
+            cancellationToken).ConfigureAwait(false);
         return identity.Name;
     }
 
@@ -219,10 +225,12 @@ public sealed class ProfileBundleService(
     {
         var snapshot = await quests.GetAsync(Scope(player), cancellationToken).ConfigureAwait(false);
         var bundleRaids = new List<ProfileBundleRaid>();
+        var context = raidContext?.Current();
         foreach (var raid in (await raids.ListAsync(cancellationToken).ConfigureAwait(false)).Where(raid => raid.ProfileId == player.Id))
         {
             var manual = await raids.GetManualMetadataAsync(raid.Id, cancellationToken).ConfigureAwait(false);
-            bundleRaids.Add(new(raid.Id, raid.MapId, raid.Mode, raid.StartedUtc, raid.EndedUtc, raid.Outcome, raid.Notes, manual));
+            var wipe = context is null ? identity.Wipe : context.WipeOf(raid);
+            bundleRaids.Add(new(raid.Id, raid.MapId, raid.Mode, raid.StartedUtc, raid.EndedUtc, raid.Outcome, raid.Notes, manual, wipe));
         }
 
         return new(

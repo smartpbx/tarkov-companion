@@ -871,6 +871,8 @@ public static class AppComposition
         services.AddSingleton<ProfileRuntimeContextService>();
         services.AddSingleton<IProfileRuntimeContextService>(provider =>
             TarkovCompanion.App.Services.V2.Profile.ProfileTimeZoneBinder.Attach(provider.GetRequiredService<ProfileRuntimeContextService>()));
+        // #269: which profile, mode and wipe each raid belongs to, for Debrief and the raid export.
+        services.AddSingleton<TarkovCompanion.Core.Domain.Profiles.IRaidContextSource, ProfileRaidContextSource>();
         services.AddSingleton<IBackgroundWorkSupervisor>(_ => new BackgroundWorkSupervisor(timeProvider));
         services.AddSingleton<ICaptureWorkScheduler>(provider =>
             new SupervisedCaptureWorkScheduler(provider.GetRequiredService<IBackgroundWorkSupervisor>()));

@@ -14,7 +14,9 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 public sealed class SqliteRaidHistoryService(
     SqliteConnectionFactory connectionFactory,
-    TimeProvider? timeProvider = null) : IRaidHistoryService, IRaidHistoryOperationStore
+    TimeProvider? timeProvider = null,
+    // [#269] Names each exported raid's wipe; absent (tests, tools) the column is left empty.
+    TarkovCompanion.Core.Domain.Profiles.IRaidContextSource? raidContext = null) : IRaidHistoryService, IRaidHistoryOperationStore
 {
     internal const string RaidHistoryListSql = """
         SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
@@ -776,6 +778,7 @@ public sealed class SqliteRaidHistoryService(
             entry => entry.Key,
             entry => RaidScanCorrection.WrongScanIds(entry.Value));
 
+        var context = raidContext?.Current();
         return
         [
             .. raids.Select(raid => new RaidExportRecord(
@@ -783,7 +786,10 @@ public sealed class SqliteRaidHistoryService(
                 RaidFactRules.Classify(raid, RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []))),
                 [.. scans.GetValueOrDefault(raid.Id, []).Where(scan =>
                     !wrongScanIds.GetValueOrDefault(raid.Id, EmptyWrongScanIds).Contains(scan.Id))],
-                manual.GetValueOrDefault(raid.Id))),
+                manual.GetValueOrDefault(raid.Id))
+            {
+                Wipe = context?.WipeOf(raid),
+            }),
         ];
     }
 

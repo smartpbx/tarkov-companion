@@ -30,7 +30,8 @@ internal static class ProfileTransferComposition
                 identity.Mode,
                 identity.Wipe,
                 cancellationToken),
-            provider.GetRequiredService<TimeProvider>());
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<TarkovCompanion.Core.Domain.Profiles.IRaidContextSource>());
         return new SetupProfileTransferViewModel(
             service,
             Path.Combine(paths.Root, "Exports"),

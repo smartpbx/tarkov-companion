@@ -19,7 +19,7 @@ using TarkovCompanion.UnitTests.PlayerTime;
 
 namespace TarkovCompanion.UnitTests.Debrief;
 
-public sealed class DebriefWorkspaceViewModelTests
+public sealed partial class DebriefWorkspaceViewModelTests
 {
     private static readonly Guid RaidId = Guid.Parse("40000000-0000-0000-0000-000000000001");
     private static readonly DateTimeOffset Started = new(2026, 9, 15, 18, 0, 0, TimeSpan.Zero);
