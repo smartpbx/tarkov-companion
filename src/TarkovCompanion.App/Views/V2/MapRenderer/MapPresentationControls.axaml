@@ -2,7 +2,8 @@
              x:DataType="vm:MapSceneRendererViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer"
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
   <!-- How the plan is presented and which floor is read: the mode segment, the folded floor ladder
        and the chip that says something is off the plan. It was markup inside the renderer's
        floating pill, which meant it could only ever sit on top of the map. It is its own control so
@@ -40,6 +41,17 @@
       <Setter Property="Padding" Value="10,0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
+    <!-- [#838] A host short of room (the Raid strip in raid at 1920) sets v2-compact: the segment
+         says "2D / Stack / 3D", and the full words are its tooltip and accessible name. -->
+    <Style Selector="TextBlock.v2-mode-short">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="map|MapPresentationControls.v2-compact TextBlock.v2-mode-short">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="map|MapPresentationControls.v2-compact TextBlock.v2-mode-full">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
   </UserControl.Styles>
 
   <StackPanel Spacing="8">
@@ -54,7 +66,13 @@
                         AutomationProperties.AutomationId="{Binding AutomationId}"
                         AutomationProperties.Name="{Binding Label}"
                         AutomationProperties.HelpText="{Binding UnavailableReason}"
-                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        ToolTip.Tip="{Binding Label}"
+                        Command="{Binding SelectCommand}">
+            <Panel>
+              <TextBlock Classes="v2-mode-full" Text="{Binding Label}" />
+              <TextBlock Classes="v2-mode-short" Text="{Binding ShortLabel}" />
+            </Panel>
+          </ToggleButton>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>

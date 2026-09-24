@@ -1731,7 +1731,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             mode == _scene.View.Mode,
             CanRenderMode(mode),
             RendererUnavailableReason(mode),
-            () => RequestMode(mode)))
+            () => RequestMode(mode),
+            DescribeModeShort(mode)))
         .ToArray();
 
     // [V2 rough package 39] Top floor first, the way a lift's buttons and a building's section
@@ -2713,6 +2714,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         _ => throw new ArgumentOutOfRangeException(nameof(mode)),
     });
 
+    internal string DescribeModeShort(MapSceneMode mode) => Text(mode switch
+    {
+        MapSceneMode.Flat2D => "Map.Mode.Flat.Short",
+        MapSceneMode.FloorStack2D => "Map.Mode.FloorStack.Short",
+        MapSceneMode.Interior3D => "Map.Mode.Interior.Short",
+        _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+    });
+
     internal string DescribeKind(MapSceneObjectKind kind) => Text($"Map.Kind.{kind}");
 
     internal string DescribeTruth(MapSceneTruthKind truth) => Text(Enum.IsDefined(truth)
@@ -3086,10 +3095,12 @@ public sealed class MapSceneRendererModeViewModel
         bool isSelected,
         bool isAvailable,
         string unavailableReason,
-        Action select)
+        Action select,
+        string? shortLabel = null)
     {
         Mode = mode;
         Label = label;
+        ShortLabel = shortLabel ?? label;
         IsSelected = isSelected;
         IsAvailable = isAvailable;
         UnavailableReason = unavailableReason;
@@ -3098,6 +3109,9 @@ public sealed class MapSceneRendererModeViewModel
 
     public MapSceneMode Mode { get; }
     public string Label { get; }
+
+    /// <summary>[#838] "2D", "Stack", "3D": what a compact strip shows, with <see cref="Label"/> as its tooltip.</summary>
+    public string ShortLabel { get; }
     public bool IsSelected { get; }
     public bool IsAvailable { get; }
     public string UnavailableReason { get; }

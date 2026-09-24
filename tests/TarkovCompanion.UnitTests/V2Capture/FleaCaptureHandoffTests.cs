@@ -88,6 +88,32 @@ public sealed class FleaCaptureHandoffTests
     }
 
     [Fact]
+    public async Task TheRankingSaysWhenItsOffersWereSeenAndAgesWhileShown()
+    {
+        using var zone = LocalTime.UseZone(TimeZoneInfo.Utc);
+        var catalog = new LootScanFactFixtures.Catalog();
+        var read = await new FleaCaptureHandoff(catalog, catalog).BuildAsync(
+            Request(
+                [new("gpu", "Graphics card", new Confidence(0.91), "Graphics card")],
+                new CaptureFleaListing(100_000, 1, new Confidence(0.9), "row")),
+            CancellationToken.None);
+        var clock = new MovingClock(read.ObservedUtc.AddMinutes(1));
+        var page = new FleaScanViewModel(read, CultureInfo.InvariantCulture, timeProvider: clock);
+        var changed = new List<string?>();
+        page.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        Assert.Equal($"Offers as seen at {LocalTime.ShortTime(read.ObservedUtc, CultureInfo.InvariantCulture)}", page.ObservedLabel);
+        Assert.False(page.IsOfferStale);
+
+        clock.Now = read.ObservedUtc.AddMinutes(12);
+        page.RefreshAge();
+
+        Assert.EndsWith("12 min ago, may be gone", page.ObservedLabel, StringComparison.Ordinal);
+        Assert.True(page.IsOfferStale);
+        Assert.Contains(nameof(FleaScanViewModel.ObservedLabel), changed);
+    }
+
+    [Fact]
     public async Task RowsWhoseItemWasNotLegibleAreShownWithoutAComparison()
     {
         var catalog = new LootScanFactFixtures.Catalog();
@@ -192,6 +218,13 @@ public sealed class FleaCaptureHandoffTests
             CaptureReviewAction.UseDetected,
             ScanIntent.Flea,
             new CaptureCorrection(CaptureReviewAction.UseDetected, ScanIntent.Flea, RecognizedContext.Flea, 0, Now, "fixture"));
+    }
+
+    private sealed class MovingClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider

@@ -299,7 +299,8 @@
                     <TextBlock IsVisible="{Binding IsAttention}" Text="!" />
                   </Panel>
                 </Border>
-                <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                <!-- #833: wraps rather than trims; at 200% text "Game log fo…" said nothing. -->
+                <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextWrapping="Wrap"
                            Foreground="{DynamicResource V2.Brush.TextPrimary}" />
                 <TextBlock Grid.Column="2" Classes="v2-home-muted" VerticalAlignment="Center"
                            Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}"

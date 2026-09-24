@@ -17,6 +17,9 @@
     <Style Selector="Border.v2-flea-verdict.good TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
+    <Style Selector="TextBlock.v2-flea-offer-stale">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <Style Selector="Border.v2-flea-scan-row">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
@@ -40,6 +43,10 @@
             <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding SummaryLabel}" />
           </Grid>
           <StackPanel Grid.Row="1" Spacing="2">
+            <!-- #284: the ranking is of offers as they stood in the screenshot, never live ones. -->
+            <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding ObservedLabel}" TextWrapping="Wrap"
+                       Classes.v2-flea-offer-stale="{Binding IsOfferStale}"
+                       AutomationProperties.AutomationId="v2-flea-scan-observed" />
             <TextBlock Classes="v2-body" Text="{Binding TraderLabel}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-body" Text="{Binding AverageLabel}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-label" Text="{Binding ItemLabel}" TextWrapping="Wrap" />
