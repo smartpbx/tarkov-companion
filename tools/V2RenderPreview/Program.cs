@@ -1921,6 +1921,11 @@ internal static class Program
                 var shownRaid = RaidDemo(viewModel.Map.RenderModel).Raid;
                 var seeded = SeedDebriefAsync(services, shownRaid);
                 DrainUntilComplete(seeded);
+                if (args.Contains("--debrief-coverage-demo"))
+                {
+                    DebriefCoverageDemo.Seed(services, DrainUntilComplete);
+                }
+
                 if (args.Contains("--debrief-tags-demo"))
                 {
                     var history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
@@ -1982,6 +1987,7 @@ internal static class Program
                 // the one Debrief selects; pick the seeded one, the one with a trail to look at.
                 DrainUntilComplete(debrief.SelectRaidAsync(seeded.Result, CancellationToken.None));
                 Pump(20);
+                DebriefCoverageDemo.Show(debrief, args, Pump);
                 if (args.Contains("--debrief-tags-demo"))
                 {
                     debrief.SelectedTagFilterOption = debrief.TagFilterOptions.First(option => option.Tag == "Tasks");

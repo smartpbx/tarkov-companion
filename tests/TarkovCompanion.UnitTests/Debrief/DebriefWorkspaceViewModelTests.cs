@@ -197,6 +197,69 @@ public sealed class DebriefWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task Archiving_a_raid_takes_it_out_of_the_list_stats_and_charts_until_it_is_restored()
+    {
+        var service = new FakeRaidHistoryService();
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "customs", "Pmc", Started.AddHours(1), Started.AddHours(1).AddMinutes(9), "Died", null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths(), new FixedClock(Started.AddHours(2)));
+        await viewModel.LoadAsync();
+        Assert.Equal("50%", Assert.Single(viewModel.MapCoverage).SurvivalLabel);
+
+        await viewModel.SelectRaidAsync(otherRaidId, CancellationToken.None);
+        await viewModel.ToggleArchiveSelectedAsync();
+
+        Assert.Equal([RaidId], viewModel.Raids.Select(row => row.RaidId));
+        Assert.Equal("1 raid", Assert.Single(viewModel.MapStats).RaidsLabel);
+        Assert.Equal("100%", Assert.Single(viewModel.MapCoverage).SurvivalLabel);
+        Assert.Equal("Archived (1)", viewModel.ArchiveToggleLabel);
+        Assert.True(viewModel.SelectedIsArchived);
+
+        viewModel.ShowArchived = true;
+        Assert.Equal([otherRaidId], viewModel.Raids.Select(row => row.RaidId));
+        // The archive list shows what is archived; the totals still count only raids in play.
+        Assert.Equal("100%", Assert.Single(viewModel.MapCoverage).SurvivalLabel);
+
+        await viewModel.ToggleArchiveSelectedAsync();
+        viewModel.ShowArchived = false;
+
+        Assert.Equal(2, viewModel.Raids.Count);
+        Assert.Equal("50%", Assert.Single(viewModel.MapCoverage).SurvivalLabel);
+        Assert.False(viewModel.HasArchived);
+    }
+
+    [Fact]
+    public async Task The_extract_used_is_picked_from_what_the_raid_offered_and_counted_in_coverage()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", null));
+        service.SeedEvent(RaidId, RaidOfferedExtracts.EventType, JsonSerializer.Serialize(new[]
+        {
+            new ActiveExtract("a", "Crossroads", new Confidence(0.9), "extract-list"),
+            new ActiveExtract("b", "RUAF Roadblock", new Confidence(0.9), "extract-list"),
+        }));
+        await service.SetManualMetadataAsync(RaidId, new RaidManualMetadata(null, null, null, 250_000), CancellationToken.None);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths(), new FixedClock(Started.AddHours(1)));
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        Assert.Equal("0 of 2 used", Assert.Single(viewModel.MapCoverage).ExtractsLabel);
+        Assert.Equal(["Crossroads", "RUAF Roadblock"], viewModel.SelectedExtractChoices.Select(choice => choice.Label));
+
+        await viewModel.SaveExtractUsedAsync(viewModel.SelectedExtractChoices[1].Label);
+
+        Assert.Equal("RUAF Roadblock", viewModel.SelectedExtractUsedLabel);
+        Assert.True(viewModel.SelectedExtractChoices[1].IsSelected);
+        Assert.Equal("1 of 2 used", Assert.Single(viewModel.MapCoverage).ExtractsLabel);
+        Assert.Equal([250_000d], viewModel.ValueChart.Values);
+        Assert.Single(viewModel.ValueChart.Rows);
+        Assert.False(viewModel.ValueChart.ShowTable);
+        viewModel.ValueChart.ToggleTableCommand.Execute(null);
+        Assert.True(viewModel.ValueChart.ShowTable);
+        Assert.False(viewModel.ValueChart.ShowChart);
+    }
+
+    [Fact]
     public async Task Saving_a_correction_writes_through_to_the_service()
     {
         var service = new FakeRaidHistoryService();

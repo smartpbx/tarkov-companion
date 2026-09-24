@@ -42,6 +42,23 @@ public sealed class StashPlanSourceTests
     }
 
     [Fact]
+    public async Task TheRulesLabelNamesEachRulesetThatPlacedAnItemWithoutTheUnresolvedSuffix()
+    {
+        var sorted = await SortAsync([Tile(0, 0, "gpu", 2, 1), Tile(1, 0, "keycard", 1, 1)]);
+
+        var label = StashSortWording.RulesLabel(sorted.Plan.Items);
+
+        Assert.StartsWith("Rules ", label, StringComparison.Ordinal);
+        Assert.DoesNotContain("unresolved", label, StringComparison.Ordinal);
+        foreach (var version in sorted.Plan.Items.Select(item => item.RecommendationVersion))
+        {
+            Assert.Contains(version.Replace(":unresolved", string.Empty, StringComparison.Ordinal), label, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(string.Empty, StashSortWording.RulesLabel([]));
+    }
+
+    [Fact]
     public async Task WhatAQuestStillNeedsIsKeptAndTheReasonNamesTheQuest()
     {
         var sorted = await SortAsync(
