@@ -57,7 +57,11 @@ public sealed record FleaScanResult(
     long? Average24HourRoubles,
     long? AverageFeeRoubles,
     DateTimeOffset? PriceUpdatedUtc,
-    IReadOnlyList<FleaScanRow> Rows);
+    IReadOnlyList<FleaScanRow> Rows)
+{
+    /// <summary>The published flea fee rates the fee was worked out from; null when none were synced.</summary>
+    public FleaMarketRates? FeeRates { get; init; }
+}
 
 /// <summary>
 /// The reviewed-result consumer for a flea screen the player opened and photographed (#284).
@@ -186,7 +190,10 @@ public sealed class FleaCaptureHandoff(
             best?.AverageRoubles,
             best?.FeeRoubles,
             best?.Price?.Provenance.SourceUpdatedUtc ?? best?.Price?.Provenance.ObservedUtc,
-            ranked);
+            ranked)
+        {
+            FeeRates = rates,
+        };
     }
 
     private async Task<FleaMarketRates?> ReadFleaRatesAsync(CancellationToken cancellationToken)

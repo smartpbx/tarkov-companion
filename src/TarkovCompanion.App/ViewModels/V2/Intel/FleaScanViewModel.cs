@@ -28,6 +28,11 @@ public enum FleaRowVerdict
 public sealed class FleaScanRowViewModel
 {
     public FleaScanRowViewModel(FleaScanRow row, FleaScanResult scan, int rank, CultureInfo culture)
+        : this(row, scan, rank, culture, scan.ObservedUtc)
+    {
+    }
+
+    public FleaScanRowViewModel(FleaScanRow row, FleaScanResult scan, int rank, CultureInfo culture, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(row);
         ArgumentNullException.ThrowIfNull(scan);
@@ -60,8 +65,10 @@ public sealed class FleaScanRowViewModel
             FleaRowVerdict.OverAverage => "Over average",
             _ => "No comparison",
         };
-        WhyLabel = economicReason?.Explanation ?? decision?.Reasons.FirstOrDefault()?.Explanation ?? "The catalog has no trader or flea price for it";
-        ConfidenceLabel = $"read {row.Confidence.ToString("P0", culture)} sure · {row.Recommendation.RulesetVersion}";
+        // #842: the line is the player's; the engine's sentence, its rules version and the raw
+        // read are the row's details, shown on hover.
+        WhyLabel = FleaRowReason.Describe(row, scan, now, culture);
+        ConfidenceLabel = $"read {row.Confidence.ToString("P0", culture)} sure";
         ConditionLabel = row.Condition is { } condition
             ? $"{ConditionName(condition.Kind)} {condition.Current!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0])}/{condition.Maximum!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0])}"
             : "condition not read";
@@ -69,6 +76,14 @@ public sealed class FleaScanRowViewModel
             ? string.Empty
             : $"Other reads: {string.Join(" · ", row.Alternatives.Take(2).Select(alternative => $"{alternative.ItemName} — {ActionLabel(alternative.Recommendation)}"))}";
         EvidenceLabel = row.SourceText is { Length: > 0 } source ? $"Read: {source}" : string.Empty;
+        DetailsLabel = string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                economicReason?.Explanation ?? decision?.Reasons.FirstOrDefault()?.Explanation,
+                $"Rules {row.Recommendation.RulesetVersion}",
+                EvidenceLabel,
+            }.Where(line => !string.IsNullOrEmpty(line)));
     }
 
     public string AutomationId { get; }
@@ -96,6 +111,9 @@ public sealed class FleaScanRowViewModel
     public string EvidenceLabel { get; }
 
     public bool HasEvidence => EvidenceLabel.Length > 0;
+
+    /// <summary>The engine's own explanation, its rules version and the raw read, for the tooltip.</summary>
+    public string DetailsLabel { get; }
 
     public bool IsGoodBuy => Verdict is FleaRowVerdict.ProfitToTrader or FleaRowVerdict.ProfitOnFlea;
 
@@ -155,11 +173,15 @@ public sealed class FleaScanViewModel : BindableViewModel
         {
             ({ } average, { } fee) =>
                 $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · {FleaScanRowViewModel.Roubles(average - fee, format)} after a {FleaScanRowViewModel.Roubles(fee, format)} fee",
-            ({ } average, null) => $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · fee not known",
+            // #842: the fee is worked out from the rates an items refresh keeps; a catalog synced
+            // before they were kept has none, and a refresh is what fixes it.
+            ({ } average, null) when scan.FeeRates is null =>
+                $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · fee rates not synced, refresh",
+            ({ } average, null) => $"24 h average {FleaScanRowViewModel.Roubles(average, format)} · no base price for the fee",
             _ => "No 24 h flea average",
         };
-        Rows = [.. scan.Rows.Select((row, index) => new FleaScanRowViewModel(row, scan, index + 1, format))];
         var now = _clock.GetUtcNow();
+        Rows = [.. scan.Rows.Select((row, index) => new FleaScanRowViewModel(row, scan, index + 1, format, now))];
         RefreshAge();
         var stale = scan.PriceUpdatedUtc is { } priceTime && now - priceTime > TimeSpan.FromDays(1);
         MarketDataNote = (offline, stale, scan.PriceUpdatedUtc) switch

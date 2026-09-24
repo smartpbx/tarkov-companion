@@ -82,6 +82,11 @@ this", which lets the trader's offer be weighed alone.
 The fee is a calculation and is as old as the oldest thing it was calculated from. A fee worked
 out now from yesterday's price is refused like yesterday's price.
 
+In Intel > Flea each photographed row carries one short line chosen from the engine's reason
+codes (`FleaRowReason`), such as "Prices 9 days old · refresh to compare"; the engine's sentence,
+rules version and raw read are the row's tooltip. Rows without a comparison stay ranked cheapest
+first. A catalog synced before the fee rates were kept says "fee rates not synced, refresh".
+
 ## How old a price is
 
 The source stamps an item only when its market figures move. On 2026-09-19 every one of the
