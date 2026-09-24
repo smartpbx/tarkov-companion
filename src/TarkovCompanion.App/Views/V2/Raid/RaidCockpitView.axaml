@@ -302,6 +302,7 @@
                and the two things a player drawing wants next: another lifetime, or a clean map. -->
           <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
                   Margin="12,12,12,12" IsVisible="{Binding IsDrawMode}"
+                  AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.AutomationId="v2-raid-draw-bar"
                   AutomationProperties.Name="Draw mode">
             <StackPanel Orientation="Horizontal" Spacing="8">
