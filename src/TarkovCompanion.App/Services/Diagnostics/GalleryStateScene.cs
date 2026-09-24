@@ -4,6 +4,7 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.Plan;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.Application.Services.Group;
@@ -166,13 +167,36 @@ internal sealed class GalleryStateScene(IServiceProvider services, MainWindowVie
                 Dispatcher.UIThread.Post(Apply);
             }
         };
+        // Only pages drawn from game data turn the banner offline; Team and Setup show it in their own lines.
         await GallerySceneRunner.WaitForAsync(
-            () => shell.Surface.Kind is V2SurfaceStateKind.Offline or V2SurfaceStateKind.Stale,
+            () => store.Current.Data.UpdatedUtc <= clock.GetUtcNow() - DegradedAge + TimeSpan.FromMinutes(1) &&
+                store.Current.Group.StaleSince is not null,
             Timeout,
-            "an offline or stale surface",
+            "old data and a lost relay published",
             cancellationToken).ConfigureAwait(true);
+        var map = string.Empty;
+        if (shell.ShowsRaidCockpit)
+        {
+            // Offline over a cached catalog the map should still draw. Waited for, not required:
+            // the picture then says which it was, and the detail names it.
+            var raid = services.GetRequiredService<RaidCockpitViewModel>();
+            try
+            {
+                await GallerySceneRunner.WaitForAsync(
+                    () => raid.Renderer is { BackgroundImage: not null } && raid.MapExtracts.Count > 0,
+                    TimeSpan.FromSeconds(60),
+                    "map drawn offline",
+                    cancellationToken).ConfigureAwait(true);
+                map = ", map drawn";
+            }
+            catch (InvalidOperationException exception)
+            {
+                map = $", {exception.Message}";
+            }
+        }
+
         var loaded = await GallerySceneRunner.PageLoadedAsync(shell, cancellationToken).ConfigureAwait(true);
-        return $"{loaded}, {store.Current.Data.ItemCount} items, {shell.Surface.Kind}";
+        return $"{loaded}, {store.Current.Data.ItemCount} items, {shell.Surface.Kind}{map}";
     }
 
     /// <summary>

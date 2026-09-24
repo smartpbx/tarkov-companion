@@ -1867,7 +1867,7 @@ $StateShots = @(
     @{ state = "empty"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status" },
     @{ state = "empty"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status" },
     @{ state = "empty"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status" },
-    @{ state = "empty"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-surface-state" },
+    @{ state = "empty"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
     @{ state = "loading"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status"
         holding = '^Loading your quest board'; after = '^(?!Loading your quest board)' },
     @{ state = "loading"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status"
@@ -1878,7 +1878,7 @@ $StateShots = @(
     @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
     @{ state = "degraded"; key = "team"; address = "#/team"; heading = "Team"; message = "v2-team-group-status" },
     @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Tablet preview"; message = "v2-team-group-status"; also = @("v2-team-pair-tablet") },
-    @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-surface-state"; holding = '(?i)offline' },
+    @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
     @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true },
     @{ state = "error"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status" },
     @{ state = "error"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-stash-status" }
@@ -1923,7 +1923,8 @@ foreach ($State in $StateShots) {
     }
     $Shot = [ordered]@{
         name = "v2-a-state-$($State.state)-$($State.key)-1920"
-        args = @("--ui-shell", "v2-a")
+        # Raid on Customs, like the map scenes, not whichever map the runner last left open.
+        args = @("--ui-shell", "v2-a") + $(if ($State.key -eq "raid") { @("--map", "customs") } else { @() })
         shellMode = "v2-a"; width = 1920; height = 1080
         galleryScene = $State.state
         seedPreview = [pscustomobject]@{ variant = "v2-a"; address = $State.address }
