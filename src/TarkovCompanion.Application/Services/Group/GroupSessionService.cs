@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.Feedback;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
@@ -1276,15 +1277,29 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// person with the problem can get the report out — and a relay they cannot reach is one
     /// of the problems they might be reporting.
     /// </remarks>
-    public async Task<string> ReportProblemAsync(string report, CancellationToken cancellationToken)
+    public async Task<string> ReportProblemAsync(string report, CancellationToken cancellationToken) =>
+        (await TrySendReportAsync(report, cancellationToken).ConfigureAwait(false)).Message;
+
+    /// <summary>
+    /// <see cref="ReportProblemAsync"/> with the outcome kept apart from its sentence, so the
+    /// problem-report outbox (#314) can tell "the relay was not there" (worth retrying later)
+    /// from "the relay said no" (not worth retrying at all).
+    /// </summary>
+    /// <remarks>
+    /// A 502, 503 or 504 is a proxy in front of a relay that is down, so it counts as unreachable.
+    /// The 30-second send timeout does too; before this it escaped as a bare cancellation.
+    /// </remarks>
+    public async Task<ReportSendResult> TrySendReportAsync(string report, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(report);
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsUsable)
         {
-            return settings.MissingPiece is { } missing
-                ? $"Cannot send: the group needs {missing}. Use Copy diagnostics instead."
-                : "Cannot send: group sharing is not set up. Use Copy diagnostics instead.";
+            return new(
+                ReportDelivery.Refused,
+                settings.MissingPiece is { } missing
+                    ? $"Cannot send: the group needs {missing}. Use Copy diagnostics instead."
+                    : "Cannot send: group sharing is not set up. Use Copy diagnostics instead.");
         }
 
         try
@@ -1307,23 +1322,42 @@ public sealed class GroupSessionService : IAsyncDisposable
                 // had gone wrong.
                 if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
                 {
-                    return "Could not send: the report was too large for the relay. Use Copy diagnostics instead.";
+                    return new(ReportDelivery.Refused, "Could not send: the report was too large for the relay. Use Copy diagnostics instead.");
+                }
+
+                if (response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+                {
+                    return new(ReportDelivery.Unreachable, $"Could not reach the relay ({(int)response.StatusCode}).");
                 }
 
                 var detail = await response.Content.ReadAsStringAsync(sending.Token).ConfigureAwait(false);
-                return $"The relay refused it ({(int)response.StatusCode}). {detail}";
+                return new(ReportDelivery.Refused, $"The relay refused it ({(int)response.StatusCode}). {detail}");
             }
 
-            var outcome = await response.Content
-                .ReadFromJsonAsync<ReportOutcomeDto>(Json, sending.Token)
-                .ConfigureAwait(false);
-            return outcome is null
-                ? "Sent · the relay took it."
-                : $"Sent · reference {outcome.Reference} · {outcome.Detail}";
+            // The relay has the report from here on. A body that cannot be read must not turn
+            // this into "unreachable", or the outbox would send the same report a second time.
+            ReportOutcomeDto? outcome = null;
+            try
+            {
+                outcome = await response.Content
+                    .ReadFromJsonAsync<ReportOutcomeDto>(Json, sending.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is JsonException or NotSupportedException or OperationCanceledException or HttpRequestException or IOException &&
+                                              !cancellationToken.IsCancellationRequested)
+            {
+                outcome = null; // Taken, but without a reference to show.
+            }
+
+            return new(
+                ReportDelivery.Sent,
+                outcome is null
+                    ? "Sent · the relay took it."
+                    : $"Sent · reference {outcome.Reference} · {outcome.Detail}");
         }
-        catch (Exception exception) when (exception is not OperationCanceledException || cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return $"Could not reach the relay: {Explain(exception)}. Use Copy diagnostics instead.";
+            return new(ReportDelivery.Unreachable, $"Could not reach the relay: {Explain(exception)}. Use Copy diagnostics instead.");
         }
     }
 

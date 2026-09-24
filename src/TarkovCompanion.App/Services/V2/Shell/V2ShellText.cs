@@ -207,6 +207,9 @@ public static class V2ShellText
         ["V2.Setup.Report.Nothing"] = "Nothing to describe yet; the application is still starting.",
         ["V2.Setup.Report.Sending"] = "Sending…",
         ["V2.Setup.Report.Failed"] = "Could not send: {0}. Use Copy diagnostics instead.",
+        ["V2.Setup.Report.Destination"] = "Goes to your group relay, which files it as an issue. If offline, it is retried for up to 7 days.",
+        ["V2.Setup.Report.Consent"] = "Send this report, exactly as shown",
+        ["V2.Setup.Report.NeedsConsent"] = "Tick the box to agree before sending.",
 
         // [#292] Setup: paths, data detail, updates, displays, About and Data & Privacy.
         ["V2.Setup.Section.DataPrivacy"] = "Data & Privacy",

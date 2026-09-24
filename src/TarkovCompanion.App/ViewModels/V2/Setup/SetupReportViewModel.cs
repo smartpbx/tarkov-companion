@@ -13,6 +13,9 @@ namespace TarkovCompanion.App.ViewModels.V2.Setup;
 /// time, and the same string is what goes out, so nothing can change between what was read and what was sent.
 /// Pressing Send with nothing previewed does nothing, and the preview alone sends nothing. That is the separate,
 /// per-purpose consent #309 asks for: agreeing to the report is agreeing to this text, and to nothing else.
+///
+/// #314 made the agreement an act of its own: the preview says where the text goes, and Send does nothing until
+/// the box under it is ticked. The tick belongs to one preview; a new preview, a send or a discard clears it.
 /// </remarks>
 public sealed class SetupReportViewModel : BindableViewModel
 {
@@ -21,13 +24,20 @@ public sealed class SetupReportViewModel : BindableViewModel
     private string? _reviewed;
     private string _status = string.Empty;
     private bool _isSending;
+    private bool _consented;
+    private readonly Func<string>? _pending;
 
     /// <param name="build">Produces the report text; null when there is nothing to describe yet.</param>
     /// <param name="send">Sends exactly the text it is given, and returns a sentence saying what happened.</param>
-    public SetupReportViewModel(Func<string?> build, Func<string, CancellationToken, Task<string>> send)
+    /// <param name="pending">Describes reports queued for a retry; empty when there are none.</param>
+    public SetupReportViewModel(
+        Func<string?> build,
+        Func<string, CancellationToken, Task<string>> send,
+        Func<string>? pending = null)
     {
         _build = build ?? throw new ArgumentNullException(nameof(build));
         _send = send ?? throw new ArgumentNullException(nameof(send));
+        _pending = pending;
         PreviewCommand = new DelegateCommand(Preview);
         SendCommand = new AsyncDelegateCommand(SendAsync);
         DiscardCommand = new DelegateCommand(Discard);
@@ -44,6 +54,20 @@ public sealed class SetupReportViewModel : BindableViewModel
     public string DiscardLabel => V2ShellText.Get("V2.Setup.Report.Discard");
     public string Heading => V2ShellText.Get("V2.Setup.Report.Heading");
     public string Note => V2ShellText.Get("V2.Setup.Report.Note");
+    public string Destination => V2ShellText.Get("V2.Setup.Report.Destination");
+    public string ConsentLabel => V2ShellText.Get("V2.Setup.Report.Consent");
+
+    /// <summary>The player's agreement to send the report on screen; cleared whenever that report changes or goes.</summary>
+    public bool Consented
+    {
+        get => _consented;
+        set => SetProperty(ref _consented, value);
+    }
+
+    /// <summary>Reports waiting for the relay, e.g. "1 report queued · next try 14:05"; empty when none are.</summary>
+    public string Pending => _pending?.Invoke() ?? string.Empty;
+
+    public bool HasPending => Pending.Length > 0;
 
     /// <summary>The report as it would be sent; empty until the player asks to see it.</summary>
     public string ReportText => _reviewed ?? string.Empty;
@@ -72,6 +96,7 @@ public sealed class SetupReportViewModel : BindableViewModel
     {
         // Built once and kept: this string is what Send sends, not something rebuilt at the moment of sending.
         _reviewed = _build();
+        Consented = false;
         Status = _reviewed is null ? V2ShellText.Get("V2.Setup.Report.Nothing") : string.Empty;
         Changed();
     }
@@ -80,6 +105,12 @@ public sealed class SetupReportViewModel : BindableViewModel
     {
         if (_reviewed is not { } report || _isSending)
         {
+            return;
+        }
+
+        if (!Consented)
+        {
+            Status = V2ShellText.Get("V2.Setup.Report.NeedsConsent");
             return;
         }
 
@@ -100,12 +131,14 @@ public sealed class SetupReportViewModel : BindableViewModel
 
         // Sent, or failed: either way the next report is a new preview, so a second Send is a second consent.
         _reviewed = null;
+        Consented = false;
         Changed();
     }
 
     private void Discard()
     {
         _reviewed = null;
+        Consented = false;
         Status = string.Empty;
         Changed();
     }
@@ -115,5 +148,14 @@ public sealed class SetupReportViewModel : BindableViewModel
         OnPropertyChanged(nameof(ReportText));
         OnPropertyChanged(nameof(HasPreview));
         OnPropertyChanged(nameof(Size));
+        OnPropertyChanged(nameof(Pending));
+        OnPropertyChanged(nameof(HasPending));
+    }
+
+    /// <summary>For the outbox to call when a retry changes what is queued.</summary>
+    public void RefreshPending()
+    {
+        OnPropertyChanged(nameof(Pending));
+        OnPropertyChanged(nameof(HasPending));
     }
 }

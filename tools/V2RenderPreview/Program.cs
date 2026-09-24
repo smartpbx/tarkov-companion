@@ -700,7 +700,16 @@ internal static class Program
             // [#292/#309] The problem report as a player reads it before it is sent.
             if (shell?.SetupWorkspace is { Admin.Report: { } reportReview } && args.Contains("--report-demo"))
             {
+                // [#314] One report already waiting for the relay, and Send pressed before the consent tick.
+                var queuedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+                DrainUntilComplete(new TarkovCompanion.Infrastructure.Settings.JsonFileProblemReportOutboxStore(
+                        Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config, "problem-report-outbox.json"))
+                    .SaveAsync(new([new("demo", "An earlier report", queuedAt, 1, queuedAt.AddMinutes(4))], []), default));
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.Application.Services.Feedback.ProblemReportOutbox>()
+                    .RetryDueAsync(default));
                 reportReview.PreviewCommand.Execute(null);
+                Pump(10);
+                DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)reportReview.SendCommand).ExecuteAsync());
                 Pump(30);
             }
 

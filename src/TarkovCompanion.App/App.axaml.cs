@@ -159,6 +159,14 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     GalleryReadiness?.Failed("A gallery scene needs the V2 shell.");
                 }
                 services.GetRequiredService<DatabaseMaintenanceCoordinator>().Start();
+                // [#314] Retries problem reports the relay could not take, and keeps Setup's queued line current.
+                var reportOutbox = services.GetRequiredService<TarkovCompanion.Application.Services.Feedback.ProblemReportOutbox>();
+                if (services.GetService<TarkovCompanion.App.ViewModels.V2.Setup.SetupAdminViewModel>()?.Report is { } reportView)
+                {
+                    reportOutbox.Changed += () => Avalonia.Threading.Dispatcher.UIThread.Post(reportView.RefreshPending);
+                }
+
+                _ = reportOutbox.RunAsync(_stopping.Token);
                 // [#799] A clock set while running moves the held times rather than stranding them.
                 _clockJumps = ClockJumpWiring.Attach(services);
                 // [#453] From here on a dispatcher that stops answering for five seconds says so

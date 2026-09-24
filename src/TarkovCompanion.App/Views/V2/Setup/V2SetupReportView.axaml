@@ -17,13 +17,19 @@
                  AutomationProperties.AutomationId="v2-setup-report-text"
                  AutomationProperties.Name="{Binding Heading}" />
         <TextBlock Classes="v2-label" Text="{Binding Size}" />
+        <!-- [#314] Where it goes, and an agreement of its own; Send does nothing without the tick. -->
+        <TextBlock Classes="v2-label" Text="{Binding Destination}" TextWrapping="Wrap" />
+        <CheckBox IsChecked="{Binding Consented}" Content="{Binding ConsentLabel}"
+                  AutomationProperties.AutomationId="v2-setup-report-consent" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-send"
-                  Content="{Binding SendLabel}" Command="{Binding SendCommand}" />
+                  Content="{Binding SendLabel}" Command="{Binding SendCommand}" IsEnabled="{Binding Consented}" />
           <Button Classes="v2-target" Content="{Binding DiscardLabel}" Command="{Binding DiscardCommand}" />
         </WrapPanel>
       </StackPanel>
     </Border>
+    <TextBlock Classes="v2-label" Text="{Binding Pending}" IsVisible="{Binding HasPending}"
+               AutomationProperties.AutomationId="v2-setup-report-pending" />
     <TextBlock Classes="v2-body" Text="{Binding Status}" IsVisible="{Binding HasStatus}" TextWrapping="Wrap"
                AutomationProperties.AutomationId="v2-setup-report-status" />
   </StackPanel>
