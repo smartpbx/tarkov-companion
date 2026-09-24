@@ -440,14 +440,53 @@ function Wait-AutomationNamePattern {
     return $null
 }
 
+function Get-AutomationElementState {
+    param([System.Windows.Automation.AutomationElement] $Element)
+
+    try {
+        $Current = $Element.Current
+        return "id '$($Current.AutomationId)', name '$($Current.Name)', enabled $($Current.IsEnabled), offscreen $($Current.IsOffscreen), bounds $($Current.BoundingRectangle)"
+    }
+    catch {
+        return "state unreadable ($($_.Exception.Message))"
+    }
+}
+
 function Invoke-AutomationElement {
-    param([System.Windows.Automation.AutomationElement] $Element, [string] $Description)
+    param([System.Windows.Automation.AutomationElement] $Element, [string] $Description, [int] $TimeoutSeconds = 15)
+
+    # Gallery shell-v2-a (dispatch run 36042422221) failed with only 'Exception calling "Invoke"
+    # with "0" argument(s): "Exception of type 'System.Exception' was thrown."'. That is Avalonia's
+    # button peer refusing an element that is not enabled yet (its ElementNotEnabledException
+    # crosses COM as a bare System.Exception), and the message named neither the step nor the
+    # element. A peer is in the tree before the view model has enabled its command, so the
+    # element being found is not the element being ready: wait for enabled, and say which one.
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ($true) {
+        $Enabled = $false
+        try { $Enabled = $Element.Current.IsEnabled }
+        catch [System.Windows.Automation.ElementNotAvailableException] {
+            throw "'$Description' left the automation tree before it could be invoked."
+        }
+        if ($Enabled) { break }
+        if ([DateTime]::UtcNow -ge $Deadline) {
+            throw "'$Description' was never enabled within $TimeoutSeconds s: $(Get-AutomationElementState -Element $Element)."
+        }
+        Start-Sleep -Milliseconds 100
+    }
 
     $Pattern = $null
     if (-not $Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref] $Pattern)) {
         throw "$Description does not expose the UI Automation Invoke pattern."
     }
-    ([System.Windows.Automation.InvokePattern] $Pattern).Invoke()
+    try {
+        ([System.Windows.Automation.InvokePattern] $Pattern).Invoke()
+    }
+    catch {
+        $Refusal = $_.Exception
+        if ($null -ne $Refusal.InnerException) { $Refusal = $Refusal.InnerException }
+        throw "'$Description' refused Invoke ($($Refusal.GetType().FullName), HRESULT 0x$('{0:X8}' -f $Refusal.HResult): $($Refusal.Message)): $(Get-AutomationElementState -Element $Element)."
+    }
 }
 
 function Toggle-AutomationElement {
@@ -517,7 +556,7 @@ function Invoke-ShellInteraction {
                 -TimeoutSeconds $StepTimeout
             if ($null -eq $Target) { throw "Interaction target '$Description' was not in the packaged app's automation tree." }
             switch ($Action) {
-                "invoke" { Invoke-AutomationElement -Element $Target -Description $Description }
+                "invoke" { Invoke-AutomationElement -Element $Target -Description $Description -TimeoutSeconds $StepTimeout }
                 "toggle" { Toggle-AutomationElement -Element $Target -Description $Description }
                 "focus" { $Target.SetFocus() }
                 "set-value" {
