@@ -294,11 +294,13 @@ async function main() {
 
     await controlStep("zoom-in", () => page.click("#zoomIn"));
     await controlStep("zoom-out", () => page.click("#zoomOut"));
-    await controlStep("fit", () => page.click("#fit"));
+    // Fit after the wheel: Control starts from the desk's view (#800), which here is the fitted
+    // one, and + then - lands back on it, so a fit straight after would change nothing.
     await controlStep("wheel", async () => {
       await page.mouse.move(center.x, center.y);
       await page.mouse.wheel(0, -120);
     });
+    await controlStep("fit", () => page.click("#fit"));
     await controlStep("drag", () => drag(center, { x: center.x + 70, y: center.y + 30 }));
     await controlStep("pinch", () => pinch(offCentre, 40, 95));
     await controlStep("double-tap", () => doubleTap(offCentre));

@@ -28,7 +28,7 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 public sealed class TabletTouchGestureTests : RealBrowserTestHarness
 {
     private static readonly string[] ControlSteps =
-        ["zoom-in", "zoom-out", "fit", "wheel", "drag", "pinch", "double-tap"];
+        ["zoom-in", "zoom-out", "wheel", "fit", "drag", "pinch", "double-tap"];
 
     [RealBrowserFact]
     public async Task GesturesMoveTheRightViewInEachMode()

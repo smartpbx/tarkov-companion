@@ -73,7 +73,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private object? _artworkSource;
     private int _artworkWidth;
     private int _artworkHeight;
-    private bool _applyingRemoteView;
+    private readonly TabletRemoteWorkspaceApplier _remote;
     private bool _disposed;
     private WorkspaceProjection? _remoteTarget;
     private int _remotePosted;
@@ -100,6 +100,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         _prices = prices;
         _eventStates = eventStates;
         _clock = timeProvider ?? TimeProvider.System;
+        _remote = new TabletRemoteWorkspaceApplier(new CockpitRemoteMap(this));
         _cockpit.SceneRebuilt += OnSceneRebuilt;
         if (_bridge is not null)
         {
@@ -160,7 +161,10 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                     ? new(
                         highValueLoot.FilterState.Filter.EffectiveMinimumValueRoubles,
                         highValueLoot.FilterState.Filter.ValueBasis.ToString())
-                    : null);
+                    : null) with
+            {
+                Maps = [.. _cockpit.MapPicker.Select(item => new TabletMapChoice(item.MapId, item.Name))],
+            };
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
 
             // The scene is rebuilt on every runtime tick and most ticks change nothing a tablet
@@ -275,7 +279,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     /// </summary>
     private async Task PushDesktopWorkspaceAsync(MapSceneSnapshot scene, CancellationToken cancellationToken)
     {
-        if (_bridge is null || _applyingRemoteView || _ease?.IsMoving == true)
+        if (_bridge is null || _remote.IsApplying || _ease?.IsMoving == true)
         {
             return;
         }
@@ -443,36 +447,24 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 return;
             }
 
-            ApplyRemoteWorkspace(projection);
+            _ = _remote.SubmitAsync(projection);
         }
     }
 
-    private async void ApplyRemoteWorkspace(WorkspaceProjection projection)
+    /// <summary>The cockpit's map, as the tablet's Control requests see it.</summary>
+    private sealed class CockpitRemoteMap(TabletMapSurfacePublisher owner) : ITabletRemoteMap
     {
-        if (_disposed || _cockpit.Renderer is not { } renderer || projection.Viewport is not { } viewport)
-        {
-            return;
-        }
+        public string? CurrentMapId => owner._disposed ? null : owner._cockpit.Renderer?.Scene.LocationId;
 
-        // Guarded so the change this makes to the cockpit does not come straight back out as a
-        // desktop workspace command, which would be the desktop echoing the tablet's own move.
-        _applyingRemoteView = true;
-        try
+        // [#407] Switching rebuilds the renderer (RaidCockpitViewModel.SelectMapAsync -> V1's own
+        // FollowRaidAsync), so ApplyView reads whichever renderer comes out the other side.
+        public Task SelectMapAsync(string mapId) => owner._cockpit.SelectMapAsync(mapId);
+
+        public void ApplyView(WorkspaceProjection projection, WorkspaceViewport? camera)
         {
-            // [#407] A tablet in Control always sent workspace: "Raid" and its own current map,
-            // and this read only the floor/viewport/selection fields below — a request to switch
-            // maps went nowhere. Switching rebuilds the renderer (RaidCockpitViewModel.
-            // SelectMapAsync -> V1's own FollowRaidAsync), so everything after this applies to
-            // whichever renderer instance comes out the other side, not the one this started with.
-            if (!string.Equals(renderer.Scene.LocationId, viewport.Center.MapId, StringComparison.Ordinal))
+            if (owner._disposed || owner._cockpit.Renderer is not { } renderer)
             {
-                await _cockpit.SelectMapAsync(viewport.Center.MapId).ConfigureAwait(true);
-                if (_disposed || _cockpit.Renderer is not { } switched)
-                {
-                    return;
-                }
-
-                renderer = switched;
+                return;
             }
 
             if (!string.Equals(renderer.Scene.View.SelectedFloorId, projection.FloorId, StringComparison.Ordinal))
@@ -480,9 +472,13 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 renderer.SelectFloor(projection.FloorId);
             }
 
-            // [#604] Eased, and exactly: FocusOn only ever zoomed in.
-            _ease ??= new DesktopViewportEase(_clock);
-            _ease.MoveTo(renderer, new EasedCamera(viewport.Center.X, viewport.Center.Z, viewport.Zoom));
+            if (camera is not null)
+            {
+                // [#604] Eased, and exactly: FocusOn only ever zoomed in.
+                owner._ease ??= new DesktopViewportEase(owner._clock);
+                owner._ease.MoveTo(renderer, new EasedCamera(camera.Center.X, camera.Center.Z, camera.Zoom));
+            }
+
             if (projection.Selection is { Kind: WorkspaceSelectionKind.Landmark or WorkspaceSelectionKind.Objective } selection)
             {
                 renderer.SelectObject(new MapSceneObjectId(selection.ReferenceId));
@@ -503,10 +499,6 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                     renderer.SetLayerVisibility(layer.Id, wanted);
                 }
             }
-        }
-        finally
-        {
-            _applyingRemoteView = false;
         }
     }
 
