@@ -88,6 +88,15 @@ internal static class Program
             File.Copy(seedLootCache, Path.Combine(lootCacheDirectory, "publication.cache"));
         }
 
+        // --seed-loadouts <file> copies a loadouts.json (saved kits) into Config, so a render can
+        // show a kit saved in an earlier session without anything on the page saving one first.
+        if (StringOption(args, "--seed-loadouts") is { } seedLoadouts)
+        {
+            var configDirectory = AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config;
+            Directory.CreateDirectory(configDirectory);
+            File.Copy(seedLoadouts, Path.Combine(configDirectory, "loadouts.json"));
+        }
+
         // [#283] --seed-icon-cache <dir> copies an icon evidence cache (the local icon corpus's
         // icon-evidence-cache) into the throwaway data root, so a real screenshot handed to
         // --capture-image is named the way it would be on a machine whose cache has filled.

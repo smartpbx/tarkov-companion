@@ -102,7 +102,7 @@ public static class V2Readiness
                 "V2.Shell.Check.Profile",
                 snapshot.Profile is null ? V2CheckStatus.Unconfirmed : V2CheckStatus.Ready,
                 snapshot.Profile is { } profile
-                    ? V2ShellText.Format("V2.Shell.Detail.Profile", culture, profile.Name, profile.GameMode)
+                    ? V2ShellText.Format("V2.Shell.Detail.Profile", culture, profile.Name, GameModeLabel.Of(profile.GameMode))
                     : V2ShellText.Get("V2.Shell.Detail.ProfileNotLoaded"),
                 V2Routes.Plan,
                 Required: true),

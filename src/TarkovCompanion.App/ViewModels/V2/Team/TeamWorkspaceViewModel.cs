@@ -785,17 +785,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     /// The relay carries the slug EftLogParser normalises every map to, not a display name, and
     /// this view model has no map catalog to look one up in; the slugs are the names hyphenated.
     /// </remarks>
-    internal static string MapLabel(string? mapId)
-    {
-        if (string.IsNullOrWhiteSpace(mapId))
-        {
-            return string.Empty;
-        }
-
-        var words = mapId.Trim().Split(['-', '_', ' '], StringSplitOptions.RemoveEmptyEntries);
-        return string.Join(' ', words.Select((word, index) =>
-            index > 0 && word is "of" ? word : char.ToUpperInvariant(word[0]) + word[1..]));
-    }
+    internal static string MapLabel(string? mapId) => TarkovCompanion.Core.Domain.Maps.MapDisplayName.FromId(mapId);
 
     private static string RaidStateLabel(RaidLifecycleState state) => state switch
     {

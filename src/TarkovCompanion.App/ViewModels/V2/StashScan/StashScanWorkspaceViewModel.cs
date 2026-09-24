@@ -441,6 +441,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private ScanIntent _scanTarget = ScanIntent.Stash;
     private bool _isGridView = true;
     private Func<IReadOnlyCollection<string>, Task>? _openLoadout;
+    private int _savingHere;
 
     public StashScanWorkspaceViewModel(
         IStashSnapshotStore store,
@@ -486,6 +487,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         {
             _captureStatus.Changed += OnCaptureStatusChanged;
         }
+
+        _workflow.SnapshotSaved += OnSnapshotSaved;
 
         FinishScanCommand = new AsyncDelegateCommand(FinishScanAsync);
         UndoLastScreenshotCommand = new AsyncDelegateCommand(UndoLastScreenshotAsync);
@@ -865,7 +868,17 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var finished = await _guidedScan.FinishAsync(CancellationToken.None).ConfigureAwait(true);
+        GuidedStashScanFinished? finished;
+        Interlocked.Increment(ref _savingHere);
+        try
+        {
+            finished = await _guidedScan.FinishAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _savingHere);
+        }
+
         if (finished is null)
         {
             return;
@@ -906,6 +919,38 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
 
         _ = ShowScanProgressAsync();
+    }
+
+    /// <summary>
+    /// A capture saved a snapshot while this page may be open: show it now, not on the next visit.
+    /// The page's own Finish reloads and then writes its "saved" headline, so it is left alone.
+    /// </summary>
+    private void OnSnapshotSaved(object? sender, StashSnapshotRecord saved)
+    {
+        // Read on the saving thread: by the time a posted callback runs, Finish may have returned.
+        if (Volatile.Read(ref _savingHere) > 0)
+        {
+            return;
+        }
+
+        // Always posted, never run inline: the guided scan raises this while it still holds its
+        // lock, and the reload's first step waits for that same lock.
+        Dispatcher.UIThread.Post(() => ReloadForSaved(saved));
+    }
+
+    private void ReloadForSaved(StashSnapshotRecord saved)
+    {
+        if (CurrentScope() is not { } scope || saved.ProfileScope != scope)
+        {
+            return;
+        }
+
+        if (saved.IsCurrent)
+        {
+            _selected = null;
+        }
+
+        _ = LoadAsync(CancellationToken.None);
     }
 
     private void OnCaptureStatusChanged(object? sender, EventArgs eventArgs)

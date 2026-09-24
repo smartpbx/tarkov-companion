@@ -333,13 +333,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
         private set => SetProperty(ref _messageIsError, value);
     }
 
-    public static string ModeLabel(ProfileGameMode mode) => mode switch
-    {
-        ProfileGameMode.Pvp => "PvP",
-        ProfileGameMode.Pve => "PvE",
-        ProfileGameMode.Seasonal => "Seasonal",
-        _ => V2ShellText.Get("V2.Setup.Profiles.ModeUnset"),
-    };
+    public static string ModeLabel(ProfileGameMode mode) => GameModeLabel.Of(mode);
 
     /// <summary>Loads the workspace and draws it, for a caller that wants the list before any event has.</summary>
     /// <remarks>

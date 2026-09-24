@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.Infrastructure.Maps;
 
@@ -92,7 +93,7 @@ public static class TarkovDevMapCatalogParser
     {
         RequireObject(element, "location");
         var locationId = RequiredString(element, "normalizedName", "location");
-        var name = OptionalString(element, "name") ?? Humanize(locationId);
+        var name = OptionalString(element, "name") ?? MapDisplayName.FromId(locationId);
         if (!element.TryGetProperty("maps", out var mapsElement) || mapsElement.ValueKind != JsonValueKind.Array)
         {
             throw new InvalidDataException($"Map location '{locationId}' requires a maps array.");
@@ -470,10 +471,6 @@ public static class TarkovDevMapCatalogParser
             throw new InvalidDataException($"The {context} must be an object.");
         }
     }
-
-    private static string Humanize(string value) =>
-        string.Join(' ', value.Split('-', StringSplitOptions.RemoveEmptyEntries).Select(word =>
-            char.ToUpperInvariant(word[0]) + word[1..]));
 
     private static string Slug(string value) =>
         string.Join('-', value.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));

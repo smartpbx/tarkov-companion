@@ -218,6 +218,68 @@ public sealed class StashScanWorkspaceViewModelTests
         Assert.True(Assert.Single(Assert.Single(viewModel.Regions).Tiles).IsUnresolved);
     }
 
+    /// <summary>A snapshot saved outside the page (a capture) shows without leaving and coming back.</summary>
+    [Fact]
+    public async Task A_snapshot_saved_while_the_page_is_open_appears_without_navigating()
+    {
+        // On the UI thread, as in the app: the page reloads from the dispatcher, not from the saver.
+        using var session = Avalonia.Headless.HeadlessUnitTestSession.StartNew(
+            typeof(TarkovCompanion.UnitTests.V2MapRenderer.MapMarkClipTests.MarkClipApp));
+        Assert.True(await session.Dispatch(SavedWhileOpenAsync, CancellationToken.None));
+    }
+
+    private static async Task<bool> SavedWhileOpenAsync()
+    {
+        var store = new FakeSnapshotStore();
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var workflow = Workflow(store, reviewCommands);
+        var guided = new GuidedStashScanService(
+            new StashScanAssembler(),
+            new StashLayoutAligner(),
+            new StashReconstructionProjector(),
+            workflow,
+            new StashOwnedCountsApplier(new StubProfileService(RuntimeSnapshot().Profile!)),
+            new MemoryPendingStore());
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            workflow,
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()),
+            guidedScan: guided);
+        await viewModel.LoadAsync();
+        await ((AsyncDelegateCommand)viewModel.StartSelectedScanCommand).ExecuteAsync();
+        var image = StashScanFixtures.SyntheticStashPainter.RenderFrame(
+            StashScanFixtures.SyntheticStashLayout.Of(
+                14,
+                new StashScanFixtures.SyntheticStashPlacement(StashScanFixtures.SyntheticStashLayout.Catalog[10], 2, 3)),
+            firstRow: 0);
+        var request = await new TarkovCompanion.Infrastructure.Recognition.Grid.GridPixelReconstructionBuilder(
+                new StashScanMeasurement.FixedIconEvidenceCache([]),
+                new StashScanMeasurement.FixedItemRepository(new Dictionary<string, ItemDefinition>()),
+                new StashScanMeasurement.UnavailableOcrEngine())
+            .BuildAsync(image, TarkovCompanion.Core.Domain.Recognition.Grid.InventoryGridSurface.Stash, StashScanMeasurement.ObservedUtc, cancellationToken: CancellationToken.None);
+        await guided.AddScreenshotAsync(
+            "artifact-open-page",
+            TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New(),
+            new(null, null, null, null, null, null, "desktop"),
+            new string('c', 64),
+            StashScanMeasurement.ObservedUtc,
+            0,
+            new TarkovCompanion.Infrastructure.Recognition.Grid.InventoryGridReconstructor().Reconstruct(request, CancellationToken.None),
+            CancellationToken.None);
+        Assert.False(viewModel.HasSnapshots);
+
+        // Saved by the capture side, not by this page's Finish button; nothing calls LoadAsync.
+        Assert.NotNull(await guided.FinishAsync(CancellationToken.None));
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.True(viewModel.HasSnapshots);
+        Assert.True(viewModel.HasSelection);
+        Assert.Single(viewModel.Snapshots);
+        return true;
+    }
+
     [Fact]
     public async Task Selecting_a_snapshot_splits_ammo_keys_and_general_items()
     {
