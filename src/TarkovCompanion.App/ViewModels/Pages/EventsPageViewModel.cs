@@ -458,7 +458,7 @@ public sealed class EventsPageViewModel : PageViewModel
             // An empty catalog is the ordinary out-of-season state. Saying so in the same tone as
             // a successful read is the whole point; the view shows the guidance panel instead.
             Status = HasEvents
-                ? $"{Events.Count} definitions loaded"
+                ? Events.Count == 1 ? "1 definition loaded" : $"{Events.Count} definitions loaded"
                 : "No definitions configured";
             Detail = HasEvents
                 ? "Select an event to see the items it applies to."
@@ -1166,7 +1166,9 @@ public sealed class EventsPageViewModel : PageViewModel
             window,
             definition.ApplicableItemIds.Count == 0
                 ? "No applicable items listed"
-                : $"{definition.ApplicableItemIds.Count:N0} applicable item(s)",
+                : definition.ApplicableItemIds.Count == 1
+                    ? "1 applicable item"
+                    : $"{definition.ApplicableItemIds.Count:N0} applicable items",
             $"{definition.Provenance.Source} · confidence {confidence} · {definition.Provenance.Reference ?? "no reference given"}");
     }
 

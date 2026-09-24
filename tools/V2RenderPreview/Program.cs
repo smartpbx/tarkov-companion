@@ -820,11 +820,13 @@ internal static class Program
                         effects = new object[]
                         {
                             new { type = "trader-price-multiplier", traderId = "54cb50c76803fa8b248b4571", traderName = "Prapor", multiplier = 0.8 },
-                            new { type = "map-availability", mapId = "laboratory", mapName = "Labs", available = false },
+                            // The game id, as the Events map picker saves it; Plan closes maps by this id,
+                            // so the old "laboratory" slug closed nothing.
+                            new { type = "map-availability", mapId = "5b0fc42d86f7744a585f9105", mapName = "The Lab", available = false },
                             new
                             {
                                 type = "map-availability",
-                                mapId = closedPlanMap?.MapId ?? "interchange",
+                                mapId = closedPlanMap?.MapId ?? "5714dbc024597771384a510d",
                                 mapName = closedPlanMap?.MapLabel ?? "Interchange",
                                 available = false,
                             },
@@ -851,6 +853,9 @@ internal static class Program
 
                 DrainUntilComplete(plan.RefreshAsync());
                 Pump(40);
+                Console.WriteLine("Plan maps closed by events: " + string.Join(", ", plan.Groups
+                    .Where(group => !group.IsAvailable)
+                    .Select(group => $"{group.MapLabel} ({group.AvailabilityLabel})")));
             }
 
             // #288: the rule editor with an effect being typed, one field wrong, to show the inline error.
