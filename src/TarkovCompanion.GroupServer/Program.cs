@@ -176,6 +176,10 @@ builder.Services.AddSingleton(provider => new RelayMapSurfaceStore(
     provider.GetRequiredService<TimeProvider>()));
 
 var app = builder.Build();
+// [#819] First, so every limiter below counts the player behind the tunnel rather than the
+// tunnel. Honoured only from the proxies TARKOV_RELAY_TRUSTED_PROXIES names; see RelayForwardedHeaders.
+app.UseForwardedHeaders(RelayForwardedHeaders.CreateOptions(
+    Environment.GetEnvironmentVariable(RelayForwardedHeaders.TrustedProxiesVariable)));
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 // v2r-fast-positions (package 31).
