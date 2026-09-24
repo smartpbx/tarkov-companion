@@ -117,12 +117,21 @@
               </StackPanel>
 
               <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.EventsEffects}" AutomationProperties.HeadingLevel="3" />
+              <!-- [#314] The kind column is as wide as its longest label, never under 112, and the
+                   same on every row: at a fixed 112 "Trader prices" wrapped in a longer language. -->
               <ItemsControl ItemsSource="{Binding RuleEditor.Rows}" IsVisible="{Binding CanEditSchedule}"
+                            Grid.IsSharedSizeScope="True"
                             AutomationProperties.AutomationId="v2-events-effects">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="pages:EventEffectRowViewModel">
                     <Border Classes="v2-intel-fact" Padding="0,6">
-                      <Grid ColumnDefinitions="112,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8">
+                      <Grid RowDefinitions="Auto,Auto" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto" MinWidth="112" SharedSizeGroup="EventEffectKind" />
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding KindLabel}" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                           <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice, Mode=TwoWay}"

@@ -5,7 +5,8 @@
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
              xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
-             xmlns:intel="using:TarkovCompanion.App.Views.V2.Intel">
+             xmlns:intel="using:TarkovCompanion.App.Views.V2.Intel"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
   </UserControl.Styles>
@@ -463,15 +464,19 @@
               <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelPricesHeading}" />
               <TextBlock Classes="v2-label" IsVisible="{Binding IntelHasNoPrices}" Text="{Binding IntelNoPricesLabel}" TextWrapping="Wrap" />
               <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="18" IsVisible="{Binding IntelHasPrices}">
-                <StackPanel Grid.Column="0" Spacing="2">
-                  <TextBlock Classes="v2-intel-price v2-intel-best" Text="{Binding IntelFleaPriceLabel}" />
+                <!-- [#314] Both headline prices wrap: "Not sold on flea" is words, not a number,
+                     and half the card was too narrow for it in a longer language. With no trader
+                     price beside it the flea side takes the whole row. -->
+                <StackPanel Grid.Column="0" Spacing="2"
+                            Grid.ColumnSpan="{Binding IntelHasTraderPrice, Converter={x:Static prim:V2LayoutConverters.SpanUnlessBeside}, ConverterParameter=3}">
+                  <TextBlock Classes="v2-intel-price v2-intel-best" Text="{Binding IntelFleaPriceLabel}" TextWrapping="Wrap" />
                   <TextBlock Classes="v2-body" Text="{Binding IntelFleaCaption}" />
                   <TextBlock Classes="v2-label" Text="{Binding IntelPriceUpdatedLabel}" />
                 </StackPanel>
                 <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.Divider}"
                            IsVisible="{Binding IntelHasTraderPrice}" />
                 <StackPanel Grid.Column="2" Spacing="2" IsVisible="{Binding IntelHasTraderPrice}">
-                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelTraderPriceLabel}" />
+                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelTraderPriceLabel}" TextWrapping="Wrap" />
                   <TextBlock Classes="v2-body" Text="{Binding IntelTraderCaption}" />
                   <TextBlock Classes="v2-label" Text="{Binding IntelTraderDetail}" />
                 </StackPanel>

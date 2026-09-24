@@ -552,7 +552,9 @@
                           Command="{Binding SelectCommand}"
                           AutomationProperties.AutomationId="{Binding AutomationId}"
                           AutomationProperties.Name="{Binding AutomationSummary}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,0,54,0">
+                    <!-- [#314] The last column keeps the Wiki button's own width clear, so the button
+                         can be as wide as its label: at a fixed 50 it read "Wik" in English. -->
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                       <Border Classes="loot-edge"
                               Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
                               Classes.review="{Binding IsReview}" Classes.pending="{Binding IsPending}" />
@@ -570,10 +572,11 @@
                       </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-body loot-strong" VerticalAlignment="Center"
                                  Text="{Binding ShortValuePerSquareLabel}" />
+                      <Panel Grid.Column="3" Width="{Binding #LootWiki.Bounds.Width}" Margin="-8,0,0,0" />
                     </Grid>
                   </Button>
-                  <Button Classes="v2-plain" HorizontalAlignment="Right" VerticalAlignment="Stretch"
-                          Width="50" Margin="0,7,7,7"
+                  <Button x:Name="LootWiki" Classes="v2-plain" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                          MinWidth="50" Margin="0,7,7,7"
                           Content="{x:Static l:RaidText.LootWiki}"
                           Command="{Binding OpenWikiCommand}" IsEnabled="{Binding CanOpenWiki}"
                           AutomationProperties.Name="{x:Static l:RaidText.LootOpenWiki}" />

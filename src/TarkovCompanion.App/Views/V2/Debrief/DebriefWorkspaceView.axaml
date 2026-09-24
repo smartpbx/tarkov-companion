@@ -446,7 +446,9 @@
                 <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{x:Static l:DebriefText.Died}" FontWeight="SemiBold" />
                 <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="{x:Static l:DebriefText.Survival}" FontWeight="SemiBold" />
                 <TextBlock Grid.Column="5" Classes="v2-debrief-muted" Text="{x:Static l:DebriefText.Extracts}" FontWeight="SemiBold" />
-                <TextBlock Grid.Column="6" Classes="v2-debrief-muted" Text="{x:Static l:DebriefText.OfferedLists}" FontWeight="SemiBold" />
+                <!-- [#314] The last column wraps rather than ellipsising: its notes run long. -->
+                <TextBlock Grid.Column="6" Classes="v2-debrief-muted" Text="{x:Static l:DebriefText.OfferedLists}" FontWeight="SemiBold"
+                           TextWrapping="Wrap" TextTrimming="None" />
               </Grid>
               <ItemsControl ItemsSource="{Binding MapCoverage}">
                 <ItemsControl.ItemTemplate>
@@ -458,7 +460,8 @@
                       <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding DiedLabel}" />
                       <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="{Binding SurvivalLabel}" />
                       <TextBlock Grid.Column="5" Classes="v2-debrief-muted" Text="{Binding ExtractsLabel}" />
-                      <TextBlock Grid.Column="6" Classes="v2-debrief-muted" Text="{Binding OfferedNote}" />
+                      <TextBlock Grid.Column="6" Classes="v2-debrief-muted" Text="{Binding OfferedNote}"
+                                 TextWrapping="Wrap" TextTrimming="None" />
                     </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>

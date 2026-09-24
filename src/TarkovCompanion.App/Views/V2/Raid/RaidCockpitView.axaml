@@ -1310,13 +1310,16 @@
                             <Button Grid.Column="1" Classes="v2-target" Content="{x:Static l:RaidText.Options}" Click="MarkOptionsClicked"
                                     AutomationProperties.AutomationId="v2-raid-mark-options" />
                           </Grid>
-                          <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->
-                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding CanRename}">
+                          <!-- A ping is never named: see RaidMarkRowViewModel.CanRename.
+                               [#314] Rename drops under the box when the placeholder would be cut:
+                               "Name (blank = numbered)" did not fit beside it even in English. -->
+                          <prim:V2FitRow Spacing="6" IsVisible="{Binding CanRename}">
                             <TextBox Text="{Binding EditableName}" PlaceholderText="{x:Static l:RaidText.MarkNamePlaceholder}"
                                      AutomationProperties.AutomationId="v2-raid-mark-rename-input" />
-                            <Button Grid.Column="1" Classes="v2-target" Content="{x:Static l:RaidText.Rename}" Command="{Binding RenameCommand}"
+                            <Button Classes="v2-target" Content="{x:Static l:RaidText.Rename}" Command="{Binding RenameCommand}"
+                                    HorizontalAlignment="Right"
                                     AutomationProperties.AutomationId="v2-raid-mark-rename" />
-                          </Grid>
+                          </prim:V2FitRow>
                         </StackPanel>
                       </Border>
                     </DataTemplate>

@@ -49,6 +49,13 @@
                           Classes.v2-selected="{Binding IsSelected}"
                           Command="{Binding SelectCommand}"
                           AutomationProperties.Name="{Binding AutomationName}">
+                    <!-- [#314] A one-square tile cuts its name and its tag short; the whole of both on hover. -->
+                    <ToolTip.Tip>
+                      <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding AutomationName}" />
+                        <TextBlock Text="{Binding GroupTag}" IsVisible="{Binding HasGroupTag}" />
+                      </StackPanel>
+                    </ToolTip.Tip>
                     <Panel>
                       <TextBlock Classes="stash-tile-name" Text="{Binding Name}" VerticalAlignment="Top" />
                       <TextBlock Classes="stash-tile-tag" Classes.sell="{Binding IsSellTile}"
@@ -174,6 +181,8 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style Selector="TextBlock.stash-tile-tag">
+      <Setter Property="TextWrapping" Value="NoWrap" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="HorizontalAlignment" Value="Left" />

@@ -147,26 +147,30 @@
       <Grid>
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
+            <!-- [#314] The actions drop under the heading when both do not fit on one line: in a
+                 longer language "Next raid" wrapped a word a line beside them. -->
+            <prim:V2FitRow Spacing="4">
               <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.NextRaid}" AutomationProperties.HeadingLevel="2"
                          VerticalAlignment="Center" />
-              <ToggleButton Grid.Column="1" Classes="v2-target v2-intel-chip v2-intel-chip-small"
+              <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+              <ToggleButton Classes="v2-target v2-intel-chip v2-intel-chip-small"
                             Content="{x:Static l:PlanText.Learn}" IsChecked="{Binding LearnMode.IsEnabled}"
                             AutomationProperties.AutomationId="v2-plan-learn-mode"
                             AutomationProperties.Name="{x:Static l:PlanText.LearnMode}" />
               <!-- [V2 rough package 61 — plan export] #288/#315: the plan as text, on the
                    clipboard and in a file. Beside Refresh because both act on the whole board. -->
-              <Button Grid.Column="2" Classes="v2-target v2-plan-link" VerticalAlignment="Center"
+              <Button Classes="v2-target v2-plan-link" VerticalAlignment="Center"
                       Padding="8,2" Content="{x:Static l:PlanText.Export}"
                       AutomationProperties.AutomationId="v2-plan-export"
                       AutomationProperties.Name="{x:Static l:PlanText.ExportName}"
                       ToolTip.Tip="{x:Static l:PlanText.ExportTip}" Command="{Binding ExportCommand}" />
-              <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
+              <Button Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
                       AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="{x:Static l:PlanText.Refresh}"
                       ToolTip.Tip="{x:Static l:PlanText.Refresh}" Command="{Binding RefreshCommand}">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
               </Button>
-            </Grid>
+              </StackPanel>
+            </prim:V2FitRow>
             <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" />
             <StackPanel Spacing="2">
               <TextBlock Classes="v2-body" Text="{Binding Status}" TextWrapping="Wrap"
@@ -203,10 +207,20 @@
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                 <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
                       Data="{DynamicResource V2.Icon.Search}" />
+                <!-- [#314] One line in a 340 column: a longer placeholder ends in an ellipsis rather
+                     than mid-letter, and the whole of it is on hover. Wrapping it drew the second
+                     line over the box's border, since the box does not grow for its placeholder. -->
                 <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchText}"
+                         ToolTip.Tip="{x:Static l:PlanText.SearchPlaceholder}"
                          PlaceholderText="{x:Static l:PlanText.SearchPlaceholder}"
                          AutomationProperties.AutomationId="v2-plan-search"
-                         AutomationProperties.Name="{x:Static l:PlanText.SearchQuests}" />
+                         AutomationProperties.Name="{x:Static l:PlanText.SearchQuests}">
+                  <TextBox.Styles>
+                    <Style Selector="TextBox /template/ TextBlock#PART_Placeholder">
+                      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                    </Style>
+                  </TextBox.Styles>
+                </TextBox>
                 <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain" IsVisible="{Binding HasSearchText}"
                         AutomationProperties.AutomationId="v2-plan-search-clear"
                         AutomationProperties.Name="{x:Static l:PlanText.ClearSearch}" ToolTip.Tip="{x:Static l:PlanText.ClearSearch}"

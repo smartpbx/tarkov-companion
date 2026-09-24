@@ -130,7 +130,14 @@
             <TextBlock Grid.Row="2" Classes="v2-label" Margin="2,0" Text="{Binding RoundCountLabel}" />
 
             <Border Grid.Row="3" Classes="v2-intel-headrow" IsVisible="{Binding HasRounds}">
+              <!-- [#314] The number columns are fixed to line up with the rows, so a header that
+                   is longer than its column wraps inside it rather than being cut. -->
               <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" ColumnSpacing="10">
+                <Grid.Styles>
+                  <Style Selector="TextBlock.v2-intel-head">
+                    <Setter Property="TextWrapping" Value="Wrap" />
+                  </Style>
+                </Grid.Styles>
                 <TextBlock Grid.Column="0" Classes="v2-intel-head" Text="{x:Static l:IntelText.AmmoHeadRound}" />
                 <TextBlock Grid.Column="1" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadDamage}" />
                 <TextBlock Grid.Column="2" Classes="v2-intel-head v2-intel-num" Text="{x:Static l:IntelText.AmmoHeadPen}" />
