@@ -120,7 +120,7 @@ async function main() {
 
     // A: the QR link, exactly what a phone camera opens. Nothing typed at all.
     await tabletA.goto(`${relayOrigin}/tablet#${qrFragmentA}`, { waitUntil: "load" });
-    await tabletA.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await tabletA.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     await handOver("A_ASKED");
     await paired(tabletA);
 
@@ -129,7 +129,7 @@ async function main() {
     await tabletB.fill("#pairingCode", codeB);
     await tabletB.fill("#pairingName", "Bob's tablet");
     await tabletB.click("#pairingGo");
-    await tabletB.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await tabletB.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     await handOver("B_ASKED");
     await paired(tabletB);
 

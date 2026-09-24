@@ -102,7 +102,7 @@ async function main() {
     await page.click("#pairingGo");
     // Liveness bounds, not measurements: a browser starting on a machine running the rest of the
     // suite has taken longer than fifteen seconds to get this far.
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
 
     console.log("PAIRED");

@@ -116,7 +116,7 @@ async function main() {
     await page.fill("#pairingCode", firstCode);
     await page.fill("#pairingName", deviceName);
     await page.click("#pairingGo");
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     console.log("FIRST_PAIRING_ASKED");
     await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     console.log("INITIAL_PAIRED");
@@ -130,12 +130,18 @@ async function main() {
     if (await page.locator("#unpairHeader").textContent() !== "Forget this desktop") {
       throw new Error("the remembered desktop action is missing while reconnecting");
     }
+    // [#840] A desktop that never answers must not hide the way back in: a new code works from here.
+    if (!await page.locator("#pairingCode").isVisible()) {
+      throw new Error("the code form is hidden while reconnecting");
+    }
     await screenshot(page, outDir, "reconnecting", 1024, 768);
     await screenshot(page, outDir, "reconnecting", 390, 844);
     console.log("RECONNECTING_HAS_PAIR_AGAIN");
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.click("#pairAgain");
+    // The code form is already up while reconnecting (#840); the reconnect note going is the sign.
+    await page.locator("#pairingWaiting").waitFor({ state: "hidden", timeout: 5000 });
     await page.locator("#pairingIdle").waitFor({ state: "visible", timeout: 5000 });
     await page.locator("#pairingCode").waitFor({ state: "visible", timeout: 5000 });
     const stored = await storedPairingKeys(page);
@@ -155,7 +161,7 @@ async function main() {
     console.log("READY_FOR_FRESH_CODE");
     const freshQrUrl = await nextInput();
     await page.goto(freshQrUrl, { waitUntil: "load" });
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     if (await page.locator("#pairingCode").isVisible()) {
       throw new Error("the fresh QR fell back to code entry instead of starting pairing");
     }

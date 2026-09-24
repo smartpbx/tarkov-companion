@@ -56,7 +56,7 @@ async function main() {
     await page.click("#pairingGo");
     // Full UnitTests runs every browser harness on a busy shared host; pairing normally takes a
     // few seconds; the harness gives that first ceremony 45 seconds.
-    await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 45000 });
+    await page.waitForFunction(() => window.__tabletTestState().pairingStages.some((stage) => stage.endsWith(":pairingVerify")), null, { timeout: 45000 }); // [#840] shown, not still shown: an instant approval leaves the code step up for one frame
     await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 45000 });
     let current = await until(page, (value) => value.hasSurface && value.hasLive);
     check("the keyboard legend is visible", await page.locator("#keyboardHelp").isVisible());
@@ -112,6 +112,9 @@ async function main() {
       error: document.getElementById("pairingError")?.textContent || null,
       shown: ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]
         .filter((id) => document.getElementById(id) && document.getElementById(id).style.display !== "none"),
+      cardHidden: document.getElementById("pairing")?.hidden ?? null,
+      live: window.__tabletTestState?.().hasLive ?? null,
+      stages: window.__tabletTestState?.().pairingStages ?? null,
     })).catch(() => null);
     console.error(`PAIRING_PAGE: ${JSON.stringify(pairingPage)}`);
     process.exitCode = 1;

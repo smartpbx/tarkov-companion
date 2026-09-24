@@ -525,18 +525,77 @@
   // Relay calls. Bodies are the protocol's own JSON wire roots; the pairing code travels only
   // in the Tarkov-Pairing-Code header, never in JSON or a URL.
   // ---------------------------------------------------------------------------------------
+  // [#840] Every pairing call has its own time limit. A request a phone's network dropped on the
+  // floor never settles by itself, and the page used to wait on it for good: the code form stayed
+  // hidden behind "Reconnecting to the desktop…" until the player reloaded. A call that runs out
+  // rejects with a TimeoutError; one the caller cancels rejects with the caller's AbortError.
+  const RELAY_CALL_LIMIT_MS = 10_000;
+
+  async function relayFetch(path, init, signal, read) {
+    const controller = new AbortController();
+    const forward = () => controller.abort(signal.reason);
+    if (signal?.aborted) forward();
+    else signal?.addEventListener("abort", forward, { once: true });
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("The relay did not answer in time.", "TimeoutError")),
+      RELAY_CALL_LIMIT_MS,
+    );
+    try {
+      const response = await fetch(path, { ...init, signal: controller.signal });
+      return read ? await read(response) : response;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", forward);
+    }
+  }
+
   async function postJson(path, body, code, signal) {
     const headers = { "Content-Type": "application/json" };
     if (code) headers["Tarkov-Pairing-Code"] = code;
-    const response = await fetch(path, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined, signal });
-    return response;
+    return relayFetch(path, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined }, signal);
   }
 
   async function getJson(path, signal) {
-    const response = await fetch(path, { signal });
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error("The relay answered " + response.status);
-    return response.json();
+    return relayFetch(path, {}, signal, (response) => {
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error("The relay answered " + response.status);
+      return response.json();
+    });
+  }
+
+  const isAbort = (error) => error?.name === "AbortError";
+
+  function pause(ms, signal) {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(signal.reason);
+      const timer = setTimeout(resolve, ms);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      }, { once: true });
+    });
+  }
+
+  /**
+   * Polls one mailbox slot until it holds something or the deadline passes. A 404 means "not
+   * yet"; a timeout, a dropped connection or a 5xx is the relay or the network having a moment,
+   * and the next poll asks again rather than ending (or hanging) the ceremony.
+   */
+  async function pollMailbox(path, deadline, signal, between) {
+    while (Date.now() < deadline) {
+      try {
+        const value = await getJson(path, signal);
+        if (value) return value;
+        if (between) await between();
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason;
+        if (error?.stop) throw error;
+      }
+
+      await pause(2000, signal);
+    }
+
+    return null;
   }
 
   function normalizeCode(input) {
@@ -560,7 +619,10 @@
   // byte layouts are checked against tests/TarkovCompanion.CompanionProtocol.Tests/Golden/crypto
   // /paired-handshake-vectors.json in the package PR's scratch verification, not at runtime.
   // ---------------------------------------------------------------------------------------
+  const stageHistory = [];
   function setStage(stage, message) {
+    stageHistory.push(`${Math.round(performance.now())}:${stage}${message ? `:${message}` : ""}`);
+    if (stageHistory.length > 40) stageHistory.shift();
     for (const id of ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]) {
       $(id).style.display = id === stage ? "" : "none";
     }
@@ -573,16 +635,60 @@
 
   // What the ceremony in flight is: a first pairing, where a person compares six digits, or a
   // paired tablet coming back, where nobody does and the desktop's pinned key stands in for them.
-  let ceremony = { pinnedDesktopKeyId: null, deviceName: "Tablet" };
+  let ceremony = { pinnedDesktopKeyId: null, deviceName: "Tablet", signal: null, deadline: 0 };
+  let ceremonyAbort = null;
 
-  async function beginPairing(rawCode, deviceName, options) {
-    ceremony = { pinnedDesktopKeyId: options?.pinnedDesktopKeyId || null, deviceName };
+  // [#840] How long this tablet waits on each step, by its own clock. The offer's expiry is the
+  // desktop's clock, which is not this one (a dual-boot PC was once four hours fast), so only the
+  // offer's own lifetime is borrowed from it. A returning tablet has no person in the loop: its
+  // desktop answers each step within a couple of polls or not at all, so it gives up far sooner
+  // and goes back to a screen with the code form on it.
+  const FIRST_PAIRING_LIMIT_MS = 10 * 60_000;
+  const RESUME_STEP_LIMIT_MS = 30_000;
+
+  function ceremonyDeadline(offer) {
+    const lifetime = Date.parse(offer.expiresUtc) - Date.parse(offer.offeredUtc);
+    return Date.now() + (Number.isFinite(lifetime) && lifetime > 0 ? Math.min(lifetime, FIRST_PAIRING_LIMIT_MS) : FIRST_PAIRING_LIMIT_MS);
+  }
+
+  /** When the step now starting gives up: the offer's life, and for a returning tablet far less. */
+  function stepDeadline() {
+    return ceremony.pinnedDesktopKeyId
+      ? Math.min(ceremony.deadline, Date.now() + RESUME_STEP_LIMIT_MS)
+      : ceremony.deadline;
+  }
+
+  function showReconnecting() {
     setStage("pairingWaiting");
-    $("pairingWaitingText").textContent = ceremony.pinnedDesktopKeyId
-      ? "Reconnecting to the desktop…"
-      : "Waiting for the desktop…";
+    $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
+    // [#840] A returning tablet can be waiting on a desktop that will never answer. The code form
+    // stays on screen so a new code from the desktop's pairing panel always works from here.
+    $("pairingIdle").style.display = "";
+  }
+
+  /** Starts a ceremony, cancelling any other one still in flight: only the newest owns the page. */
+  async function beginPairing(rawCode, deviceName, options) {
+    ceremonyAbort?.abort();
+    const controller = new AbortController();
+    ceremonyAbort = controller;
+    ceremony = { pinnedDesktopKeyId: options?.pinnedDesktopKeyId || null, deviceName, signal: controller.signal };
+    try {
+      await runPairing(rawCode, deviceName);
+    } finally {
+      if (ceremonyAbort === controller) ceremonyAbort = null;
+    }
+  }
+
+  async function runPairing(rawCode, deviceName) {
+    const signal = ceremony.signal;
+    if (ceremony.pinnedDesktopKeyId) {
+      showReconnecting();
+    } else {
+      setStage("pairingWaiting");
+      $("pairingWaitingText").textContent = "Waiting for the desktop…";
+    }
     const code = normalizeCode(rawCode);
-    const resolveResponse = await postJson("/v2/companion/pairing/offers/resolve", null, code);
+    const resolveResponse = await postJson("/v2/companion/pairing/offers/resolve", null, code, signal);
     if (resolveResponse.status === 429) throw new Error("Too many attempts. Wait a few minutes and try again.");
     if (!resolveResponse.ok) throw new Error("That code was not accepted.");
     const offer = await resolveResponse.json();
@@ -654,31 +760,25 @@
       },
     };
 
-    const submitted = await postJson(`/v2/companion/pairing/requests/${offer.attemptId.value}`, request);
+    const submitted = await postJson(`/v2/companion/pairing/requests/${offer.attemptId.value}`, request, null, signal);
     if (!submitted.ok) throw new Error("The desktop did not accept the pairing request.");
 
+    ceremony.deadline = ceremonyDeadline(offer);
     await pollForApproval(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret);
   }
 
   async function pollForApproval(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret) {
     const attemptId = offer.attemptId.value;
-    const deadline = Date.parse(offer.expiresUtc);
-    while (Date.now() < deadline) {
-      const reveal = await getJson(`/v2/companion/pairing/reveals/${attemptId}`);
-      if (reveal) {
-        await showVerificationCode(offer, device, reveal, contextHash);
-        return pollForChallenge(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret, reveal);
-      }
-
-      const denied = await getJson(`/v2/companion/pairing/denied/${attemptId}`);
+    const signal = ceremony.signal;
+    const reveal = await pollMailbox(`/v2/companion/pairing/reveals/${attemptId}`, stepDeadline(), signal, async () => {
+      const denied = await getJson(`/v2/companion/pairing/denied/${attemptId}`, signal);
       if (denied && denied.denied) {
-        throw new Error("The desktop declined this pairing request.");
+        throw Object.assign(new Error("The desktop declined this pairing request."), { stop: true });
       }
-
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-
-    throw new Error("The pairing code expired. Start again.");
+    });
+    if (!reveal) throw new Error("The pairing code expired. Start again.");
+    await showVerificationCode(offer, device, reveal, contextHash);
+    return pollForChallenge(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret, reveal);
   }
 
   let pendingApproval = null;
@@ -705,6 +805,7 @@
     const code = (new DataView(commitment.buffer, commitment.byteOffset, 4).getUint32(0, false) % 1000000)
       .toString()
       .padStart(6, "0");
+    ceremony.signal?.throwIfAborted();
     $("pairingCodeDisplay").textContent = code;
     if (!ceremony.pinnedDesktopKeyId) setStage("pairingVerify");
   }
@@ -718,14 +819,9 @@
 
   async function pollForChallenge(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret, reveal) {
     const attemptId = offer.attemptId.value;
-    const deadline = Date.parse(offer.expiresUtc);
-    while (Date.now() < deadline) {
-      const challenge = await getJson(`/v2/companion/pairing/challenges/${attemptId}`);
-      if (challenge) {
-        return completeWithChallenge(offer, device, tabletEphemeralSpki, clientNonce, reveal, sharedSecret, challenge);
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    const challenge = await pollMailbox(`/v2/companion/pairing/challenges/${attemptId}`, stepDeadline(), ceremony.signal);
+    if (challenge) {
+      return completeWithChallenge(offer, device, tabletEphemeralSpki, clientNonce, reveal, sharedSecret, challenge);
     }
 
     throw new Error("Approval was not received in time. Start again.");
@@ -795,7 +891,7 @@
       assertion: await signAssertion(device, challenge.transcriptHashBase64Url),
     };
 
-    const submitted = await postJson(`/v2/companion/pairing/proofs/${offer.attemptId.value}`, proof);
+    const submitted = await postJson(`/v2/companion/pairing/proofs/${offer.attemptId.value}`, proof, null, ceremony.signal);
     if (!submitted.ok) throw new Error("Could not submit the device proof.");
 
     return pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey);
@@ -833,30 +929,26 @@
 
   async function pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey) {
     const attemptId = offer.attemptId.value;
-    const deadline = Date.parse(offer.expiresUtc);
-    while (Date.now() < deadline) {
-      const established = await getJson(`/v2/companion/pairing/established/${attemptId}`);
-      if (established) {
-        if (!bytesEqual(base64UrlDecode(established.transcriptHashBase64Url), transcriptHash)) {
-          throw new Error("The desktop's session confirmation did not match. This pairing was not completed.");
-        }
-
-        // Pairing is complete: the device is registered with the desktop's authority and (once
-        // the desktop has claimed the relay) with the relay's own device registry too, so
-        // OpaqueRelayFrameHub can route this session's traffic (v2r-relay-owner). Live sync
-        // (v2r-tablet-marks-sync) takes over from here in the background; the ceremony itself
-        // is done.
-        startLiveSync(
-          attemptId,
-          established,
-          tabletToDesktopKey,
-          desktopToTabletKey,
-          challenge.desktopIdentityKey.keyId.value,
-        );
-        return;
+    const established = await pollMailbox(`/v2/companion/pairing/established/${attemptId}`, stepDeadline(), ceremony.signal);
+    if (established) {
+      if (!bytesEqual(base64UrlDecode(established.transcriptHashBase64Url), transcriptHash)) {
+        throw new Error("The desktop's session confirmation did not match. This pairing was not completed.");
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Pairing is complete: the device is registered with the desktop's authority and (once
+      // the desktop has claimed the relay) with the relay's own device registry too, so
+      // OpaqueRelayFrameHub can route this session's traffic (v2r-relay-owner). Live sync
+      // (v2r-tablet-marks-sync) takes over from here in the background; the ceremony itself
+      // is done.
+      ceremony.signal?.throwIfAborted();
+      startLiveSync(
+        attemptId,
+        established,
+        tabletToDesktopKey,
+        desktopToTabletKey,
+        challenge.desktopIdentityKey.keyId.value,
+      );
+      return;
     }
 
     throw new Error("The desktop did not confirm the session in time. Start again.");
@@ -2096,8 +2188,7 @@
       if (!paired?.desktopKeyId) return "never-paired";
       if (!comeBackStartedAt) comeBackStartedAt = Date.now();
       showRememberedDesktopActions(true);
-      setStage("pairingWaiting");
-      $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
+      showReconnecting();
       const controller = new AbortController();
       comeBackAbort = controller;
       const device = await ensureDeviceIdentity();
@@ -2132,7 +2223,7 @@
         const answer = await getJson(`/v2/companion/relay/resume/requests/${ticket.ticketId}`, controller.signal);
         if (!answer) break;
         code = answer.pairingCode;
-        if (!code) await new Promise((resolve) => setTimeout(resolve, 1500));
+        if (!code) await pause(1500, controller.signal);
       }
 
       if (!code) return "waiting";
@@ -2151,13 +2242,18 @@
   /** Comes back by key, and keeps trying while the desktop is simply not there to answer. */
   async function comeBack(refusedMessage) {
     clearTimeout(comeBackTimer);
+    if (ceremonyAbort && !ceremony.pinnedDesktopKeyId) return;
     let outcome = "waiting";
     try {
       outcome = await comeBackByKey();
     } catch (error) {
-      if (error?.name === "AbortError") return;
+      if (isAbort(error)) return;
       outcome = "waiting";
     }
+
+    // [#840] The player typed a code while this was still asking: their pairing owns the page now,
+    // and "never paired" or "waiting" from the old attempt must not put the code form back over it.
+    if (ceremonyAbort && !ceremony.pinnedDesktopKeyId) return;
 
     if (outcome === "resumed" || live) return;
     // A tablet that has never been paired has nothing to say about it — this used to show "no
@@ -3868,6 +3964,7 @@
       $("pairedName").textContent = deviceName;
       setStage("pairingDone");
     } catch (error) {
+      if (isAbort(error) || ceremonyAbort) return; // a newer pairing owns the page
       setStage("pairingIdle", error.message || String(error));
     }
   });
@@ -3908,6 +4005,7 @@
     if (!confirm("Forget this desktop and pair again?")) return;
     clearTimeout(comeBackTimer);
     comeBackAbort?.abort();
+    ceremonyAbort?.abort();
     live = null;
     mode = "Follow";
     confirmedMode = "Follow";
@@ -3973,6 +4071,7 @@
     offlineSendingId,
     lastAcknowledgement,
     lootOpen: !$("lootSheet").hidden,
+    pairingStages: [...stageHistory],
     lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
   });
 
@@ -3987,7 +4086,9 @@
     // step rather than through restoreSession()'s own (fire-and-forget) attempt to reconnect a
     // cached or previously-paired session, which would otherwise race this and could overwrite
     // its stage change.
-    beginPairing(qrCode, "Tablet").catch((error) => setStage("pairingIdle", error.message || String(error)));
+    beginPairing(qrCode, "Tablet").catch((error) => {
+      if (!isAbort(error) && !ceremonyAbort) setStage("pairingIdle", error.message || String(error));
+    });
   } else {
     restoreSession();
   }
