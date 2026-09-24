@@ -1,8 +1,7 @@
-using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
-using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Core.Domain.Planning;
@@ -23,7 +22,12 @@ public sealed class IntelTradeSortViewModel(IntelTradeSort sort, Action<IntelTra
     private bool _isSelected;
 
     public IntelTradeSort Sort { get; } = sort;
-    public string Label => V2ShellText.Get($"V2.Shell.Intel.Trade.Sort.{Sort}");
+    public string Label => Sort switch
+    {
+        IntelTradeSort.Duration => IntelText.CraftsSortDuration,
+        IntelTradeSort.Name => IntelText.CraftsSortName,
+        _ => IntelText.CraftsSortProfit,
+    };
     public string AutomationId => $"v2-intel-trade-sort-{Sort.ToString().ToLowerInvariant()}";
     public ICommand SelectCommand { get; } = new DelegateCommand(() => select(sort));
 
@@ -38,7 +42,7 @@ public sealed class IntelTradeSortViewModel(IntelTradeSort sort, Action<IntelTra
 public sealed record IntelTradeIngredientRowViewModel(string ItemId, string Name, int Count)
 {
     public string Label => Count > 1
-        ? string.Create(CultureInfo.CurrentCulture, $"{Count}× {Name}")
+        ? IntelText.CraftsCount(Count, Name)
         : Name;
 }
 
@@ -72,20 +76,20 @@ public sealed record IntelTradeRowViewModel(
     public bool IsReady => Readiness == IntelTradeReadiness.Ready;
     public bool IsUnknownReadiness => Readiness == IntelTradeReadiness.Unknown;
     public bool HasRecordedLevel => RecordedLevelLabel.Length > 0;
-    public string ChainLabel => V2ShellText.Get("V2.Shell.Intel.Chain.Heading");
+    public string ChainLabel => IntelText.CraftsChainHeading;
     public string ReadinessLabel => Readiness switch
     {
-        IntelTradeReadiness.Ready => V2ShellText.Get("V2.Shell.Intel.Trade.Ready"),
-        IntelTradeReadiness.Locked => V2ShellText.Get("V2.Shell.Intel.Trade.Locked"),
-        IntelTradeReadiness.Unknown => V2ShellText.Get("V2.Shell.Intel.Trade.LevelUnknown"),
+        IntelTradeReadiness.Ready => IntelText.CraftsReady,
+        IntelTradeReadiness.Locked => IntelText.CraftsLocked,
+        IntelTradeReadiness.Unknown => IntelText.CraftsLevelUnknown,
         _ => string.Empty,
     };
 
     public string LearnReason => Readiness switch
     {
-        IntelTradeReadiness.Ready => $"Ready: {ProfitLabel}",
-        IntelTradeReadiness.Locked => $"Locked: needs {SourceName} {LevelLabel}".TrimEnd(),
-        _ => $"Check: {SourceName} {LevelLabel}".TrimEnd(),
+        IntelTradeReadiness.Ready => IntelText.CraftsLearnReady(ProfitLabel),
+        IntelTradeReadiness.Locked => IntelText.CraftsLearnLocked(SourceName, LevelLabel).TrimEnd(),
+        _ => IntelText.CraftsLearnCheck(SourceName, LevelLabel).TrimEnd(),
     };
 }
 
@@ -149,15 +153,15 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     /// </summary>
     internal Task LoadTask { get; private set; }
 
-    public string SearchPlaceholder => V2ShellText.Get("V2.Shell.Intel.Trade.SearchPlaceholder");
-    public string ReadyNowLabel => V2ShellText.Get("V2.Shell.Intel.Trade.ReadyNow");
-    public string SortHeading => V2ShellText.Get("V2.Shell.Intel.Trade.SortHeading");
-    public string EmptyLabel => V2ShellText.Get("V2.Shell.Intel.Trade.Empty");
-    public string LoadingLabel => V2ShellText.Get("V2.Shell.Intel.Trade.Loading");
+    public string SearchPlaceholder => IntelText.CraftsSearchPlaceholder;
+    public string ReadyNowLabel => IntelText.CraftsReadyNow;
+    public string SortHeading => IntelText.CraftsSortHeading;
+    public string EmptyLabel => IntelText.CraftsEmpty;
+    public string LoadingLabel => IntelText.CraftsLoading;
     public IReadOnlyList<IntelTradeSortViewModel> Sorts { get; }
     public AcquisitionChainViewModel Chain { get; }
     public ICommand CloseChainCommand { get; }
-    public string CloseChainLabel => V2ShellText.Get("V2.Shell.Intel.Chain.Close");
+    public string CloseChainLabel => IntelText.CraftsCloseChain;
 
     public Task ShowChainAsync(string itemId) => Chain.ShowAsync(itemId);
 
@@ -192,9 +196,7 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         .Select(Describe)
         .ToArray();
 
-    public string ResultCountLabel => Rows.Count == 1
-        ? V2ShellText.Get("V2.Shell.Intel.OneResult")
-        : V2ShellText.Format("V2.Shell.Intel.Results", CultureInfo.CurrentCulture, Rows.Count);
+    public string ResultCountLabel => IntelText.CraftsResults(Rows.Count);
 
     /// <summary>
     /// How many of the current search's matches "I can do this now" left out because their
@@ -206,7 +208,7 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         : 0;
     public bool HasReadyNowUnknownCount => ReadyNowUnknownCount > 0;
     public string ReadyNowUnknownLabel =>
-        V2ShellText.Format("V2.Shell.Intel.Trade.UnknownCount", CultureInfo.CurrentCulture, ReadyNowUnknownCount);
+        IntelText.CraftsUnknownCount(ReadyNowUnknownCount);
 
     /// <summary>Every row whose output is this item — the recipe(s) that make it.</summary>
     public IReadOnlyList<IntelTradeRowViewModel> MadeBy(string itemId) => _all
@@ -321,16 +323,16 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     private IntelTradeRowViewModel Describe(IntelTradeRow row) => new(
         row.TradeId,
         row.Kind == IntelTradeKind.Craft
-            ? V2ShellText.Get("V2.Shell.Intel.Trade.Craft")
-            : V2ShellText.Get("V2.Shell.Intel.Trade.Barter"),
+            ? IntelText.CraftsCraft
+            : IntelText.CraftsBarter,
         row.Inputs.Select(input => new IntelTradeIngredientRowViewModel(input.ItemId, input.Name, input.Count)).ToArray(),
         new IntelTradeIngredientRowViewModel(row.Output.ItemId, row.Output.Name, row.Output.Count),
         row.SourceName,
         row.LevelLabel,
         row.Duration is { } duration ? DurationLabel(duration) : string.Empty,
         row.ProfitRoubles is { } profit
-            ? V2ShellText.Format("V2.Shell.Intel.Trade.Profit", CultureInfo.CurrentCulture, Roubles(profit))
-            : V2ShellText.Get("V2.Shell.Intel.Trade.ProfitUnknown"),
+            ? IntelText.CraftsProfit(Roubles(profit))
+            : IntelText.CraftsProfitUnknown,
         row.ProfitRoubles is null,
         row.ProfitRoubles is < 0,
         row.Readiness,
@@ -341,17 +343,14 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     /// <summary>"you: Loyalty N"/"you: Level N" — only for a genuine Locked, never for an Unknown, which has nothing to report.</summary>
     private static string RecordedLevelLabel(IntelTradeRow row) =>
         row.Readiness == IntelTradeReadiness.Locked && row.RecordedLevel is { } level
-            ? V2ShellText.Format(
-                row.Kind == IntelTradeKind.Craft ? "V2.Shell.Intel.Trade.YourLevel" : "V2.Shell.Intel.Trade.YourLoyalty",
-                CultureInfo.CurrentCulture,
-                level)
+            ? row.Kind == IntelTradeKind.Craft ? IntelText.CraftsYourLevel(level) : IntelText.CraftsYourLoyalty(level)
             : string.Empty;
 
     private static string DurationLabel(TimeSpan duration) => duration.TotalHours >= 1
-        ? string.Create(CultureInfo.CurrentCulture, $"{(int)duration.TotalHours}h {duration.Minutes}m")
-        : string.Create(CultureInfo.CurrentCulture, $"{(int)duration.TotalMinutes}m");
+        ? IntelText.CraftsHoursMinutes((int)duration.TotalHours, duration.Minutes)
+        : IntelText.CraftsMinutes((int)duration.TotalMinutes);
 
-    private static string Roubles(long value) => V2ShellText.Format("V2.Shell.Intel.Roubles", CultureInfo.CurrentCulture, value);
+    private static string Roubles(long value) => IntelText.CraftsRoubles(value);
 }
 
 internal sealed class NullAcquisitionChainPlanningService : IAcquisitionChainPlanningService

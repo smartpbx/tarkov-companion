@@ -1,0 +1,59 @@
+namespace TarkovCompanion.App.Localization;
+
+// Intel > Keys (#314), and the V1 KeysPageViewModel lines that tab shows.
+public static partial class IntelText
+{
+    public static string KeysTitle => UiText.Get("Intel.Keys.Title");
+    public static string KeysSubtitle => UiText.Get("Intel.Keys.Subtitle");
+    public static string KeysNotLoaded => UiText.Get("Intel.Keys.NotLoaded");
+    public static string KeysFilterPlaceholder => UiText.Get("Intel.Keys.FilterPlaceholder");
+    public static string KeysFilterKeys => UiText.Get("Intel.Keys.FilterKeys");
+    public static string KeysReloadKeys => UiText.Get("Intel.Keys.ReloadKeys");
+    public static string KeysReload => UiText.Get("Intel.Keys.Reload");
+    public static string KeysNoKeySelected => UiText.Get("Intel.Keys.NoKeySelected");
+    public static string KeysOpenInIntel => UiText.Get("Intel.Keys.OpenInIntel");
+    public static string KeysPricesAndNeeds => UiText.Get("Intel.Keys.PricesAndNeeds");
+    public static string KeysKey => UiText.Get("Intel.Keys.Key");
+    public static string KeysMap => UiText.Get("Intel.Keys.Map");
+    public static string KeysLocks => UiText.Get("Intel.Keys.Locks");
+    public static string KeysUses => UiText.Get("Intel.Keys.Uses");
+    public static string KeysCost => UiText.Get("Intel.Keys.Cost");
+    public static string KeysLocksOpened => UiText.Get("Intel.Keys.LocksOpened");
+    public static string KeysFilterAll => UiText.Get("Intel.Keys.Filter.All");
+    public static string KeysFilterKeep => UiText.Get("Intel.Keys.Filter.Keep");
+    public static string KeysFilterKeepForLater => UiText.Get("Intel.Keys.Filter.KeepForLater");
+    public static string KeysFilterSell => UiText.Get("Intel.Keys.Filter.Sell");
+    public static string KeysFilterOwned => UiText.Get("Intel.Keys.Filter.Owned");
+    public static string KeysNoMatch => UiText.Get("Intel.Keys.NoMatch");
+    public static string KeysCount(long count) => UiText.Plural("Intel.Keys.KeyCount", count);
+    public static string KeysShownOf(int shown, int total) => UiText.Format("Intel.Keys.KeysShownOf", shown, total);
+    public static string KeysNoCall => UiText.Get("Intel.Keys.NoCall");
+    public static string KeysYouOwnIt => UiText.Get("Intel.Keys.YouOwnIt");
+    public static string KeysYouOwnCount(int count) => UiText.Format("Intel.Keys.YouOwnCount", count);
+    public static string KeysYouDontOwnIt => UiText.Get("Intel.Keys.YouDontOwnIt");
+    public static string KeysOwnedNotScanned => UiText.Get("Intel.Keys.OwnedNotScanned");
+    public static string KeysOwned => UiText.Get("Intel.Keys.Owned");
+    public static string KeysOwnedCount(int count) => UiText.Format("Intel.Keys.OwnedCount", count);
+    public static string KeysVerdictKeep => UiText.Get("Intel.Keys.Verdict.Keep");
+    public static string KeysVerdictKeepForLater => UiText.Get("Intel.Keys.Verdict.KeepForLater");
+    public static string KeysVerdictSell => UiText.Get("Intel.Keys.Verdict.Sell");
+    public static string KeysNoSingleMap => UiText.Get("Intel.Keys.NoSingleMap");
+    public static string KeysLoading => UiText.Get("Intel.Keys.Loading");
+    public static string KeysScoringNotice => UiText.Get("Intel.Keys.ScoringNotice");
+    public static string KeysNoLocksSynced(string key) => UiText.Format("Intel.Keys.NoLocksSynced", key);
+    public static string KeysOpensLocksDetail(string key, int locks) => UiText.Format("Intel.Keys.OpensLocksDetail", key, locks);
+    public static string KeysEvidence(object availability, int itemCount) => UiText.Format("Intel.Keys.Evidence", availability, itemCount);
+    public static string KeysReading => UiText.Get("Intel.Keys.Reading");
+    public static string KeysNoneCached => UiText.Get("Intel.Keys.NoneCached");
+    public static string KeysStatus(int keys, int keep, int sell) => UiText.Format("Intel.Keys.Status", keys, keep, sell);
+    public static string KeysStatusWithoutMap(int keys, int keep, int sell, int withoutMap) => UiText.Format("Intel.Keys.StatusWithoutMap", keys, keep, sell, withoutMap);
+    public static string KeysUnreadable(string reason) => UiText.Format("Intel.Keys.Unreadable", reason);
+    public static string KeysNoLockList => UiText.Get("Intel.Keys.NoLockList");
+    public static string KeysOpensLocks(long count) => UiText.Plural("Intel.Keys.OpensLocks", count);
+    public static string KeysUseCount(int uses) => UiText.Format("Intel.Keys.UseCount", uses);
+    public static string KeysNoUseLimit => UiText.Get("Intel.Keys.NoUseLimit");
+    public static string KeysNoPrice => UiText.Get("Intel.Keys.NoPrice");
+    public static string KeysRoubles(long roubles) => UiText.Format("Intel.Keys.Roubles", roubles);
+    public static string KeysProvenance(string updated) => UiText.Format("Intel.Keys.Provenance", updated);
+    public static string KeysNoTimestamp => UiText.Get("Intel.Keys.NoTimestamp");
+}

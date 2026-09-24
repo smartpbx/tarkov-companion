@@ -167,6 +167,7 @@ public sealed class UiTextTests
     [Theory]
     [InlineData(typeof(PlanText), 150)]
     [InlineData(typeof(TeamText), 60)]
+    [InlineData(typeof(IntelText), 300)]
     public void Every_label_a_workspace_accessor_offers_has_an_English_value(Type accessor, int atLeast)
     {
         var log = new List<string>();

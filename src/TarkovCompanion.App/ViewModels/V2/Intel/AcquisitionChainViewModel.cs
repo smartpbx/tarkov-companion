@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Application.Services.Planning;
@@ -30,11 +31,11 @@ public sealed class AcquisitionChainViewModel(IAcquisitionChainPlanningService p
     public bool IsLoading => _loading;
     public bool HasRoute => _plan?.Cheapest is not null;
     public bool ShowsEmpty => HasSelection && !_loading && !HasRoute;
-    public string Heading => V2ShellText.Get("V2.Shell.Intel.Chain.Heading");
-    public string LoadingLabel => V2ShellText.Get("V2.Shell.Intel.Chain.Loading");
-    public string EmptyLabel => V2ShellText.Get("V2.Shell.Intel.Chain.Empty");
+    public string Heading => IntelText.ChainHeading;
+    public string LoadingLabel => IntelText.ChainLoading;
+    public string EmptyLabel => IntelText.ChainEmpty;
     public string TotalLabel => _plan?.Cheapest is { } step
-        ? V2ShellText.Format("V2.Shell.Intel.Chain.Total", CultureInfo.CurrentCulture, Roubles(step.TotalRoubles))
+        ? IntelText.ChainTotal(Roubles(step.TotalRoubles))
         : string.Empty;
     public string LimitsLabel
     {
@@ -48,17 +49,17 @@ public sealed class AcquisitionChainViewModel(IAcquisitionChainPlanningService p
             var limits = new List<string>(3);
             if (_plan.CycleSkipped)
             {
-                limits.Add(V2ShellText.Get("V2.Shell.Intel.Chain.Cycle"));
+                limits.Add(IntelText.ChainCycle);
             }
 
             if (_plan.DepthLimitReached)
             {
-                limits.Add(V2ShellText.Get("V2.Shell.Intel.Chain.Depth"));
+                limits.Add(IntelText.ChainDepth);
             }
 
             if (_plan.SearchLimitReached)
             {
-                limits.Add(V2ShellText.Get("V2.Shell.Intel.Chain.SearchLimit"));
+                limits.Add(IntelText.ChainSearchLimit);
             }
 
             return string.Join(" · ", limits);
@@ -66,7 +67,7 @@ public sealed class AcquisitionChainViewModel(IAcquisitionChainPlanningService p
     }
     public bool HasLimits => LimitsLabel.Length > 0;
     public string UpdatedLabel => _plan?.OldestPriceUtc is { } updated
-        ? V2ShellText.Format("V2.Shell.Intel.Chain.Updated", CultureInfo.CurrentCulture, LocalTime.Moment(updated))
+        ? IntelText.ChainUpdated(LocalTime.Moment(updated))
         : string.Empty;
     public bool HasUpdated => UpdatedLabel.Length > 0;
     public IReadOnlyList<AcquisitionChainStepViewModel> Steps => _plan?.Cheapest is { } step
@@ -129,31 +130,31 @@ public sealed class AcquisitionChainViewModel(IAcquisitionChainPlanningService p
     {
         var verb = step.Method switch
         {
-            AcquisitionChainMethod.Craft => V2ShellText.Get("V2.Shell.Intel.Chain.Craft"),
-            AcquisitionChainMethod.Barter => V2ShellText.Get("V2.Shell.Intel.Chain.Barter"),
-            _ => V2ShellText.Get("V2.Shell.Intel.Chain.Buy"),
+            AcquisitionChainMethod.Craft => IntelText.ChainCraft,
+            AcquisitionChainMethod.Barter => IntelText.ChainBarter,
+            _ => IntelText.ChainBuy,
         };
         var source = step.Duration is { } duration
-            ? $"{step.SourceName} · {Duration(duration)}"
+            ? IntelText.ChainSourceDuration(step.SourceName, Duration(duration))
             : step.SourceName;
         var overhead = new List<string>(3);
         if (step.FuelCostRoubles > 0)
         {
-            overhead.Add(V2ShellText.Format("V2.Shell.Intel.Chain.Fuel", CultureInfo.CurrentCulture, Roubles(step.FuelCostRoubles)));
+            overhead.Add(IntelText.ChainFuel(Roubles(step.FuelCostRoubles)));
         }
 
         if (step.StationTimeCostRoubles > 0)
         {
-            overhead.Add(V2ShellText.Format("V2.Shell.Intel.Chain.Time", CultureInfo.CurrentCulture, Roubles(step.StationTimeCostRoubles)));
+            overhead.Add(IntelText.ChainTime(Roubles(step.StationTimeCostRoubles)));
         }
 
         if (step.InputOpportunityCostRoubles > 0)
         {
-            overhead.Add(V2ShellText.Format("V2.Shell.Intel.Chain.Opportunity", CultureInfo.CurrentCulture, Roubles(step.InputOpportunityCostRoubles)));
+            overhead.Add(IntelText.ChainOpportunity(Roubles(step.InputOpportunityCostRoubles)));
         }
 
         yield return new(
-            $"{verb} {step.Quantity.ToString(CultureInfo.CurrentCulture)}× {step.ItemName}",
+            IntelText.ChainStep(verb, step.Quantity, step.ItemName),
             source,
             Roubles(step.TotalRoubles),
             string.Join(" · ", overhead),
@@ -180,9 +181,9 @@ public sealed class AcquisitionChainViewModel(IAcquisitionChainPlanningService p
     }
 
     private static string Roubles(long value) =>
-        V2ShellText.Format("V2.Shell.Intel.Roubles", CultureInfo.CurrentCulture, value);
+        IntelText.Roubles(value);
 
     private static string Duration(TimeSpan duration) => duration.TotalHours >= 1
-        ? string.Create(CultureInfo.CurrentCulture, $"{(int)duration.TotalHours}h {duration.Minutes}m")
-        : string.Create(CultureInfo.CurrentCulture, $"{Math.Max(1, (int)Math.Ceiling(duration.TotalMinutes))}m");
+        ? IntelText.ChainHoursMinutes((int)duration.TotalHours, duration.Minutes)
+        : IntelText.ChainMinutes(Math.Max(1, (int)Math.Ceiling(duration.TotalMinutes)));
 }

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using System.Globalization;
 using TarkovCompanion.Core.Domain.Ammo;
 
@@ -64,15 +65,15 @@ public sealed class OwnedAmmo
     public static string Short(int? rounds) => rounds switch
     {
         null => string.Empty,
-        0 => "None owned",
-        var count => string.Create(CultureInfo.CurrentCulture, $"{count:N0} owned"),
+        0 => IntelText.AmmoNoneOwned,
+        int count => IntelText.AmmoOwnedShort(count),
     };
 
     /// <summary>The context panel's line, which also says how to find out.</summary>
     public static string Long(int? rounds) => rounds switch
     {
-        null => "Owned: not scanned. Stash › Ammo cases.",
-        0 => "You own none.",
-        var count => string.Create(CultureInfo.CurrentCulture, $"You own {count:N0} rounds."),
+        null => IntelText.AmmoOwnedNotScanned,
+        0 => IntelText.AmmoYouOwnNone,
+        int count => IntelText.AmmoYouOwnRounds(count),
     };
 }

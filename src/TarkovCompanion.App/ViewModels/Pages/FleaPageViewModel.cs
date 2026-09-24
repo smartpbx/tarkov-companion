@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.Application.Services;
@@ -51,7 +52,7 @@ public sealed class FleaPageViewModel : PageViewModel
     /// is running alongside the game. Saying so is better than an empty panel that looks
     /// broken.
     /// </remarks>
-    private const string SalesNotObserved = "Nothing sold since the companion started";
+    private static string SalesNotObserved => IntelText.FleaPageSalesNotObserved;
 
     private readonly IItemSearchService _searchService;
     private readonly IItemRepository _itemRepository;
@@ -62,11 +63,11 @@ public sealed class FleaPageViewModel : PageViewModel
     private DateTimeOffset _renderedSales = DateTimeOffset.MinValue;
     private string _searchQuery = string.Empty;
     /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
-    private const string ReadyToSearch = "Search an item";
+    private static string ReadyToSearch => IntelText.FleaPageReadyToSearch;
 
     private bool _showingNoData;
     private string _searchStatus = ReadyToSearch;
-    private string _historyStatus = "Pick an item";
+    private string _historyStatus = IntelText.FleaPagePickAnItem;
     private IReadOnlyList<FleaPriceViewModel> _results = [];
     private IReadOnlyList<FleaHistoryPointViewModel> _history = [];
     private FleaPriceViewModel? _selected;
@@ -76,7 +77,7 @@ public sealed class FleaPageViewModel : PageViewModel
         IItemSearchService searchService,
         IItemRepository itemRepository,
         IPriceHistoryService priceHistoryService)
-        : base("Flea", "Value, daily band, and where to sell", "Runtime state not loaded")
+        : base(IntelText.FleaPageTitle, IntelText.FleaPageSubtitle, IntelText.FleaPageNotLoaded)
     {
         _searchService = searchService;
         _itemRepository = itemRepository;
@@ -147,7 +148,7 @@ public sealed class FleaPageViewModel : PageViewModel
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         _snapshot = snapshot;
-        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        Evidence = IntelText.FleaPageEvidence(snapshot.Data.Availability, snapshot.Data.ItemCount);
         if (snapshot.Data.ItemCount == 0)
         {
             Results = [];
@@ -188,10 +189,7 @@ public sealed class FleaPageViewModel : PageViewModel
         SalesStatus = sales.Sales.Count switch
         {
             0 => SalesNotObserved,
-            1 => "1 offer sold · the game states no price",
-            var count => string.Create(
-                CultureInfo.CurrentCulture,
-                $"{count} offers sold · the game states no price"),
+            var count => IntelText.FleaPageOffersSold(count),
         };
         _ = ResolveSoldItemNamesAsync(sales);
     }
@@ -199,10 +197,8 @@ public sealed class FleaPageViewModel : PageViewModel
     private FleaSaleViewModel Describe(FleaSaleObservation sale) => new(
         sale.HandbookItemId is { } itemId && _soldItemNames.TryGetValue(itemId, out var name)
             ? name
-            : "Item not in the synced catalog",
-        sale.Count == 1
-            ? "1 sold"
-            : string.Create(CultureInfo.CurrentCulture, $"{sale.Count} sold"),
+            : IntelText.FleaPageItemNotInCatalog,
+        IntelText.FleaPageSold(sale.Count),
         LocalTime.ShortTime(sale.ObservedUtc));
 
     /// <summary>
@@ -257,20 +253,20 @@ public sealed class FleaPageViewModel : PageViewModel
         if (_snapshot?.Data.ItemCount is null or 0)
         {
             Results = [];
-            SearchStatus = _snapshot?.Data.Detail ?? "Runtime state is not loaded.";
+            SearchStatus = _snapshot?.Data.Detail ?? IntelText.FleaPageStateNotLoaded;
             return;
         }
 
         if (string.IsNullOrWhiteSpace(SearchQuery))
         {
             Results = [];
-            SearchStatus = "Enter an item name or short name.";
+            SearchStatus = IntelText.FleaPageEnterQuery;
             return;
         }
 
         try
         {
-            SearchStatus = "Searching the local item cache…";
+            SearchStatus = IntelText.FleaPageSearching;
             var hits = await _searchService.SearchAsync(SearchQuery, 20, cancellationToken).ConfigureAwait(true);
             var results = new List<FleaPriceViewModel>(hits.Count);
             foreach (var hit in hits)
@@ -283,25 +279,25 @@ public sealed class FleaPageViewModel : PageViewModel
                     hit.Item.Id,
                     hit.Item.Name,
                     hit.Item.ShortName,
-                    $"{hit.Item.Dimensions.Width} × {hit.Item.Dimensions.Height} · {hit.Item.Dimensions.Slots} slot(s)",
-                    price?.FleaPriceRoubles is { } flea ? Roubles(flea) : "Not sold on the flea",
+                    IntelText.FleaPageDimensions(hit.Item.Dimensions.Width, hit.Item.Dimensions.Height, hit.Item.Dimensions.Slots),
+                    price?.FleaPriceRoubles is { } flea ? Roubles(flea) : IntelText.FleaPageNotOnFlea,
                     DescribeBand(price),
                     DescribeBestSale(price),
                     DescribeValuePerSlot(hit.Item, price),
                     DescribeHistory(PriceHistorySummary.From(history)),
-                    $"json.tarkov.dev · {Describe(hit.Item.Provenance.SourceUpdatedUtc)}"));
+                    IntelText.FleaPageSource(Describe(hit.Item.Provenance.SourceUpdatedUtc))));
             }
 
             Results = results;
             Selected = results.Count == 1 ? results[0] : null;
             SearchStatus = results.Count == 0
-                ? "No local item matched that query."
-                : $"{results.Count} results from the local cache";
+                ? IntelText.FleaPageNoMatch
+                : IntelText.FleaPageResults(results.Count);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Results = [];
-            SearchStatus = $"Item search failed: {exception.Message}";
+            SearchStatus = IntelText.FleaPageSearchFailed(exception.Message);
         }
     }
 
@@ -309,7 +305,7 @@ public sealed class FleaPageViewModel : PageViewModel
     {
         try
         {
-            HistoryStatus = "Reading locally stored observations…";
+            HistoryStatus = IntelText.FleaPageReadingHistory;
             var points = await _priceHistoryService
                 .GetAsync(item.ItemId, HistoryWindow, cancellationToken)
                 .ConfigureAwait(true);
@@ -326,15 +322,15 @@ public sealed class FleaPageViewModel : PageViewModel
             // single point per item per run, so this fills in over days rather than at once.
             HistoryStatus = History.Count switch
             {
-                0 => $"No stored observations for {item.Name} yet.",
-                1 => $"1 observation of {item.Name}",
-                _ => $"{History.Count} observations of {item.Name} · last {HistoryWindow.TotalDays:N0} days",
+                0 => IntelText.FleaPageNoObservations(item.Name),
+                1 => IntelText.FleaPageOneObservation(item.Name),
+                _ => IntelText.FleaPageObservations(History.Count, item.Name, HistoryWindow.TotalDays),
             };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             History = [];
-            HistoryStatus = $"Unreadable · {exception.Message}";
+            HistoryStatus = IntelText.FleaPageUnreadable(exception.Message);
         }
     }
 
@@ -342,51 +338,52 @@ public sealed class FleaPageViewModel : PageViewModel
     {
         if (price is null)
         {
-            return "Value per slot unavailable";
+            return IntelText.FleaPagePerSlotUnavailable;
         }
 
         var perSlot = item.ValuePerSlot(price);
-        return perSlot > 0 ? $"{Roubles(perSlot)} per slot" : "Value per slot unavailable";
+        return perSlot > 0 ? IntelText.FleaPagePerSlot(Roubles(perSlot)) : IntelText.FleaPagePerSlotUnavailable;
     }
 
     internal static string DescribeHistory(PriceHistorySummary? summary) => summary is null
-        ? "7 d history not built yet"
+        ? IntelText.FleaPageHistoryNotBuilt
         : summary.ObservationCount < 2
-            ? "1 price so far"
-            : $"7 d low {Roubles(summary.LowRoubles)} · avg {Roubles(summary.AverageRoubles)} · high {Roubles(summary.HighRoubles)}";
+            ? IntelText.FleaPageOnePrice
+            : IntelText.FleaPageHistory(Roubles(summary.LowRoubles), Roubles(summary.AverageRoubles), Roubles(summary.HighRoubles));
 
     private static string DescribeBand(ItemPriceSnapshot? price)
     {
         if (price?.Low24HourRoubles is not { } low || price.High24HourRoubles is not { } high)
         {
-            return "No 24-hour range recorded upstream.";
+            return IntelText.FleaPageNoRange;
         }
 
-        var average = price.Average24HourRoubles is { } value ? $" · average {Roubles(value)}" : string.Empty;
-        return $"24h {Roubles(low)} to {Roubles(high)}{average}";
+        return price.Average24HourRoubles is { } value
+            ? IntelText.FleaPageBandAverage(Roubles(low), Roubles(high), Roubles(value))
+            : IntelText.FleaPageBand(Roubles(low), Roubles(high));
     }
 
     private static string DescribeBestSale(ItemPriceSnapshot? price)
     {
         if (price is null)
         {
-            return "No price is cached for this item.";
+            return IntelText.FleaPageNoPriceCached;
         }
 
         var best = price.BestEconomicValue;
         if (best <= 0)
         {
-            return "No sale value is cached for this item.";
+            return IntelText.FleaPageNoSaleValue;
         }
 
         var trader = price.BestTrader;
         return trader is null
-            ? $"Best {Roubles(best)} on the flea"
-            : $"Best {Roubles(best)} · {price.BestSaleChannel} ({trader.TraderName})";
+            ? IntelText.FleaPageBestOnFlea(Roubles(best))
+            : IntelText.FleaPageBestVia(Roubles(best), price.BestSaleChannel, trader.TraderName);
     }
 
     private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
 
     private static string Describe(DateTimeOffset? timestamp) =>
-        timestamp is { } value ? LocalTime.Moment(value) : "no timestamp";
+        timestamp is { } value ? LocalTime.Moment(value) : IntelText.FleaPageNoTimestamp;
 }

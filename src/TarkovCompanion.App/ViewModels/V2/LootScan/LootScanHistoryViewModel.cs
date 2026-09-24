@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.Application.Services.LootScan;
@@ -59,7 +60,7 @@ public sealed class LootScanHistoryViewModel : BindableViewModel
         _ = databaseReady is null ? RefreshSafelyAsync() : RefreshWhenReadyAsync(databaseReady);
     }
 
-    public string Heading => "Last scans";
+    public string Heading => IntelText.LootScanLastScans;
 
     public IReadOnlyList<LootScanHistoryRowViewModel> Rows
     {
@@ -178,25 +179,25 @@ public sealed class LootScanHistoryViewModel : BindableViewModel
     internal static string Summary(SavedLootScan scan, CultureInfo culture)
     {
         var parts = new List<string>(4);
-        foreach (var (verdict, label) in new[]
+        foreach (var (verdict, label) in new (LootScanVerdict, Func<string, string>)[]
                  {
-                     (LootScanVerdict.Take, "take"),
-                     (LootScanVerdict.Swap, "swap"),
-                     (LootScanVerdict.Leave, "leave"),
-                     (LootScanVerdict.Review, "review"),
+                     (LootScanVerdict.Take, IntelText.LootScanHistoryTake),
+                     (LootScanVerdict.Swap, IntelText.LootScanHistorySwap),
+                     (LootScanVerdict.Leave, IntelText.LootScanHistoryLeave),
+                     (LootScanVerdict.Review, IntelText.LootScanHistoryReview),
                  })
         {
             var count = scan.Count(verdict);
             if (count > 0)
             {
-                parts.Add(string.Create(culture, $"{count:N0} {label}"));
+                parts.Add(label(count.ToString("N0", culture)));
             }
         }
 
-        return parts.Count == 0 ? "Nothing read" : string.Join(" · ", parts);
+        return parts.Count == 0 ? IntelText.LootScanNothingRead : string.Join(" · ", parts);
     }
 
-    internal static string RulesLabel(SavedLootScan scan) => "Rules " + scan.RulesetVersion;
+    internal static string RulesLabel(SavedLootScan scan) => IntelText.LootScanRules(scan.RulesetVersion);
 
     internal static string MapLabel(string? mapId) => string.IsNullOrWhiteSpace(mapId)
         ? string.Empty
@@ -220,7 +221,7 @@ public sealed class LootScanHistoryRowViewModel
 
     public string SummaryLabel { get; }
 
-    public string AutomationName => $"Open scan from {TimeLabel}: {SummaryLabel}";
+    public string AutomationName => IntelText.LootScanOpenScanFrom(TimeLabel, SummaryLabel);
 
     public ICommand OpenCommand { get; }
 }
@@ -232,7 +233,7 @@ public sealed class SavedLootScanDetailViewModel
     {
         Scan = scan;
         CloseCommand = close;
-        Heading = "Saved scan · " + LocalTime.ShortTime(scan.EvaluatedUtc, culture);
+        Heading = IntelText.LootScanSavedScanHeading(LocalTime.ShortTime(scan.EvaluatedUtc, culture));
         var context = new List<string>(4);
         if (LootScanHistoryViewModel.MapLabel(scan.MapId) is { Length: > 0 } map)
         {
@@ -240,7 +241,7 @@ public sealed class SavedLootScanDetailViewModel
         }
 
         context.Add(LootScanHistoryViewModel.Summary(scan, culture));
-        context.Add(scan.IsComplete ? "Complete" : "Needed review");
+        context.Add(scan.IsComplete ? IntelText.LootScanSavedComplete : IntelText.LootScanSavedNeededReview);
         ContextLabel = string.Join(" · ", context);
         RulesLabel = LootScanHistoryViewModel.RulesLabel(scan);
         Items = scan.Items.Select(item => new SavedLootScanItemViewModel(item, culture)).ToArray();
@@ -254,7 +255,7 @@ public sealed class SavedLootScanDetailViewModel
 
     public string RulesLabel { get; }
 
-    public string Notice => "Saved result. Prices and loot may have changed.";
+    public string Notice => IntelText.LootScanSavedNotice;
 
     public ICommand? CloseCommand { get; }
 
@@ -266,7 +267,7 @@ public sealed class SavedLootScanItemViewModel
     public SavedLootScanItemViewModel(SavedLootScanItem item, CultureInfo culture)
     {
         Item = item;
-        VerdictLabel = item.Verdict.ToString().ToUpperInvariant();
+        VerdictLabel = LootScanPresentationText.Default.Verdict(item.Verdict);
         ValueLabel = item.ValueRoubles is { } value ? LootScanDecisionViewModel.CompactRoubles(value, culture) : string.Empty;
         var detail = new List<string>(3);
         if (item.Placement.Length > 0)
@@ -281,7 +282,7 @@ public sealed class SavedLootScanItemViewModel
 
         if (item.Confidence is { } confidence)
         {
-            detail.Add(string.Create(culture, $"{confidence:P0} sure"));
+            detail.Add(IntelText.LootScanSure(confidence.ToString("P0", culture)));
         }
 
         DetailLabel = string.Join(" · ", detail);

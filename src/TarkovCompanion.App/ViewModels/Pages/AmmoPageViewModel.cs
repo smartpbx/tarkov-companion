@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -18,8 +19,16 @@ public sealed record AmmoArmorRatingViewModel(
     bool IsMarginal,
     bool IsWeak)
 {
+    /// <summary>
+    /// The class as a number. <see cref="ArmorClass"/> is the translated label ("Class 4"), so
+    /// nothing may parse or compare it; this is what a filter matches on.
+    /// </summary>
+    public int ClassNumber { get; init; }
+
     /// <summary>The class on its own ("4"), for a table cell too small for the word.</summary>
-    public string Number => ArmorClass.StartsWith("Class ", StringComparison.Ordinal) ? ArmorClass["Class ".Length..] : ArmorClass;
+    public string Number => ClassNumber > 0
+        ? ClassNumber.ToString(CultureInfo.CurrentCulture)
+        : ArmorClass.StartsWith("Class ", StringComparison.Ordinal) ? ArmorClass["Class ".Length..] : ArmorClass;
 }
 
 public sealed record AmmoRoundViewModel(
@@ -68,7 +77,7 @@ public sealed class AmmoPageViewModel : PageViewModel
 {
     private int? _knownItemCount;
 
-    private const string NoRoundSelected = "Select a round to see how it ranks and why.";
+    private static string NoRoundSelected => IntelText.AmmoNoRoundSelected;
 
     private readonly IItemFactCatalog _catalog;
     private readonly IItemRepository _itemRepository;
@@ -84,9 +93,9 @@ public sealed class AmmoPageViewModel : PageViewModel
     private AmmoCaliberViewModel? _selectedCaliber;
     private AmmoRoundViewModel? _selectedRound;
     private string _searchQuery = string.Empty;
-    private string _status = "Loading the ammunition table…";
-    private string _detail = "Pick a caliber";
-    private string _roundHeading = "No round selected";
+    private string _status = IntelText.AmmoLoading;
+    private string _detail = IntelText.AmmoPickACaliber;
+    private string _roundHeading = IntelText.AmmoNoRoundHeading;
     private string _advice = NoRoundSelected;
     private string _explanation = string.Empty;
 
@@ -101,7 +110,7 @@ public sealed class AmmoPageViewModel : PageViewModel
         IItemFactCatalog catalog,
         IItemRepository itemRepository,
         IPlayerProfileService? profiles = null)
-        : base("Ammo", "Rounds ranked by what gets through armour", "Not loaded")
+        : base(IntelText.AmmoTitle, IntelText.AmmoSubtitle, IntelText.AmmoNotLoaded)
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
@@ -119,7 +128,7 @@ public sealed class AmmoPageViewModel : PageViewModel
     /// know of your traders. A player reading a penetration ranking mid-raid needs to know it
     /// compares two numbers; the rest was hedging.
     /// </remarks>
-    public string HeuristicNotice { get; } = "Penetration against armour class. Plates and durability are not modelled.";
+    public string HeuristicNotice { get; } = IntelText.AmmoHeuristicNotice;
 
     public string SearchQuery
     {
@@ -200,7 +209,7 @@ public sealed class AmmoPageViewModel : PageViewModel
             // Both strings are written by the intelligence service and carried through verbatim:
             // they are the only place the ranking explains itself, and paraphrasing them here
             // would let the page drift away from what the service actually computed.
-            RoundHeading = value?.Name ?? "No round selected";
+            RoundHeading = value?.Name ?? IntelText.AmmoNoRoundHeading;
             Advice = value?.PracticalAdvice ?? NoRoundSelected;
             Explanation = value?.LearnModeExplanation ?? string.Empty;
         }
@@ -219,7 +228,7 @@ public sealed class AmmoPageViewModel : PageViewModel
     /// </remarks>
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
-        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        Evidence = IntelText.AmmoEvidence(snapshot.Data.Availability, snapshot.Data.ItemCount);
         if (_knownItemCount == snapshot.Data.ItemCount)
         {
             return;
@@ -269,12 +278,12 @@ public sealed class AmmoPageViewModel : PageViewModel
     {
         try
         {
-            Status = "Reading the ammunition table…";
+            Status = IntelText.AmmoReading;
             var stats = await _catalog.GetAmmoAsync(cancellationToken).ConfigureAwait(true);
             if (stats.Count == 0)
             {
                 Reset();
-                Status = "No ammunition cached yet";
+                Status = IntelText.AmmoNoneCached;
                 return;
             }
 
@@ -298,7 +307,7 @@ public sealed class AmmoPageViewModel : PageViewModel
                 calibers.Add(new(
                     group.Key,
                     CaliberText.Describe(group.Key, sampleName),
-                    $"{Count(group.Count())} round(s) · best penetration {Count(group.Max(stat => stat.Penetration))}"));
+                    IntelText.AmmoCaliberSummary(group.Count(), group.Max(stat => stat.Penetration))));
             }
 
             _allCalibers = calibers
@@ -307,7 +316,7 @@ public sealed class AmmoPageViewModel : PageViewModel
 
             ApplyCaliberFilter();
             Status =
-                $"{Count(_allCalibers.Count)} calibers · {Count(stats.Count)} rounds";
+                IntelText.AmmoStatus(_allCalibers.Count, stats.Count);
 
             // A reload has to re-rank whatever is open, or the rounds on screen would still be the
             // ones the previous service instance produced while the status line claimed a refresh.
@@ -319,7 +328,7 @@ public sealed class AmmoPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Reset();
-            Status = $"Unreadable · {exception.Message}";
+            Status = IntelText.AmmoUnreadable(exception.Message);
         }
     }
 
@@ -329,13 +338,13 @@ public sealed class AmmoPageViewModel : PageViewModel
         if (intelligence is null)
         {
             Rounds = [];
-            Detail = "The ammunition table is not loaded yet.";
+            Detail = IntelText.AmmoTableNotLoaded;
             return;
         }
 
         try
         {
-            Detail = $"Ranking {caliber.Name}…";
+            Detail = IntelText.AmmoRanking(caliber.Name);
 
             // profile is null on purpose. GetCaliberAsync drops rounds the profile cannot obtain,
             // and no availability rule is ever loaded, so passing a profile would only risk the
@@ -354,13 +363,13 @@ public sealed class AmmoPageViewModel : PageViewModel
             Rounds = rows;
             SelectedRound = null;
             Detail = rows.Count == 0
-                ? $"No rounds cached for {caliber.Name}"
-                : $"{Count(rows.Count)} rounds in {caliber.Name}";
+                ? IntelText.AmmoNoRoundsFor(caliber.Name)
+                : IntelText.AmmoRoundsIn(rows.Count, caliber.Name);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Rounds = [];
-            Detail = $"Unreadable · {exception.Message}";
+            Detail = IntelText.AmmoUnreadable(exception.Message);
         }
     }
 
@@ -374,19 +383,18 @@ public sealed class AmmoPageViewModel : PageViewModel
         return new(
             stats.ItemId,
             await ResolveNameAsync(stats.ItemId, cancellationToken).ConfigureAwait(true),
-            $"#{Count(rank)} of {Count(total)}",
+            IntelText.AmmoRank(rank, total),
             round.Tier,
             Count(stats.Damage),
             Count(stats.Penetration),
-            stats.ArmorDamagePercent is { } armorDamage ? $"{Count(armorDamage)}%" : "not stated",
+            stats.ArmorDamagePercent is { } armorDamage ? IntelText.AmmoPercent(armorDamage) : IntelText.AmmoNotStated,
             stats.FragmentationChance is { } fragmentation
                 ? fragmentation.ToString("P0", CultureInfo.CurrentCulture)
-                : "not stated",
+                : IntelText.AmmoNotStated,
             DescribeTraits(stats),
             round.PracticalAdvice,
             round.LearnModeExplanation,
-            $"json.tarkov.dev · {Describe(stats.Provenance.SourceUpdatedUtc)} · " +
-            $"confidence {round.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture)}",
+            IntelText.AmmoProvenance(Describe(stats.Provenance.SourceUpdatedUtc), round.Confidence.Value),
             DescribeArmor(round.ArmorClassRatings))
         {
             DamageValue = stats.Damage,
@@ -445,16 +453,19 @@ public sealed class AmmoPageViewModel : PageViewModel
             // A class the service did not rate reads as a gap, not as a bad rating.
             if (!ratings.TryGetValue(armorClass, out var rating))
             {
-                strip.Add(new($"Class {armorClass}", "no rating", false, false, false));
+                strip.Add(new(IntelText.AmmoClass(armorClass), IntelText.AmmoNoRating, false, false, false) { ClassNumber = armorClass });
                 continue;
             }
 
             strip.Add(new(
-                $"Class {armorClass}",
-                rating.ToString(),
+                IntelText.AmmoClass(armorClass),
+                IntelText.AmmoRating(rating),
                 rating is ArmorEffectiveness.Excellent or ArmorEffectiveness.Good,
                 rating is ArmorEffectiveness.Fair or ArmorEffectiveness.Limited,
-                rating is ArmorEffectiveness.Poor));
+                rating is ArmorEffectiveness.Poor)
+            {
+                ClassNumber = armorClass,
+            });
         }
 
         return strip;
@@ -465,12 +476,12 @@ public sealed class AmmoPageViewModel : PageViewModel
         var traits = new List<string>(5);
         if (stats.ProjectileCount > 1)
         {
-            traits.Add($"{Count(stats.ProjectileCount)} projectiles");
+            traits.Add(IntelText.AmmoProjectiles(stats.ProjectileCount));
         }
 
         if (stats.VelocityMetresPerSecond is { } velocity)
         {
-            traits.Add($"{velocity.ToString("N0", CultureInfo.CurrentCulture)} m/s");
+            traits.Add(IntelText.AmmoVelocity(velocity));
         }
 
         // Recoil has been in the synced stats since the first sync and shown nowhere. A round
@@ -478,26 +489,24 @@ public sealed class AmmoPageViewModel : PageViewModel
         // which is the whole question this page exists to answer.
         if (stats.RecoilModifier is { } recoil && Math.Abs(recoil) > 0.001)
         {
-            traits.Add(string.Create(
-                CultureInfo.CurrentCulture,
-                $"{(recoil > 0 ? "+" : string.Empty)}{recoil:P0} recoil"));
+            traits.Add(IntelText.AmmoRecoil(recoil));
         }
 
         if (stats.IsSubsonic)
         {
-            traits.Add("subsonic");
+            traits.Add(IntelText.AmmoSubsonic);
         }
 
         if (stats.IsTracer)
         {
-            traits.Add("tracer");
+            traits.Add(IntelText.AmmoTracer);
         }
 
-        return traits.Count == 0 ? "No extra traits are recorded." : string.Join(" · ", traits);
+        return traits.Count == 0 ? IntelText.AmmoNoTraits : string.Join(" · ", traits);
     }
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
     private static string Describe(DateTimeOffset? timestamp) =>
-        timestamp is { } value ? LocalTime.Moment(value) : "no timestamp";
+        timestamp is { } value ? LocalTime.Moment(value) : IntelText.AmmoNoTimestamp;
 }

@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Intel;
 
@@ -9,13 +10,13 @@ public sealed record IntelCompareEntryViewModel(string ItemId, string Name, ICom
 {
     public string AutomationId => $"v2-intel-compare-entry-{ItemId}";
 
-    public string RemoveLabel => $"Remove {Name} from compare";
+    public string RemoveLabel => IntelText.CompareRemove(Name);
 }
 
 /// <summary>One value in the comparison table; the best in its row is marked in words as well as colour.</summary>
 public sealed record IntelCompareCellViewModel(string Text, bool IsBest)
 {
-    public string AccessibleText => IsBest ? $"{Text}, best" : Text;
+    public string AccessibleText => IsBest ? IntelText.CompareBest(Text) : Text;
 }
 
 public sealed record IntelCompareRowViewModel(string Label, IReadOnlyList<IntelCompareCellViewModel> Cells, bool IsAlternate);
@@ -64,15 +65,15 @@ public sealed class IntelCompareViewModel : BindableViewModel
 
     public bool CanOpen => _entries.Count >= 2;
 
-    public string OpenLabel => $"Compare {_entries.Count}";
+    public string OpenLabel => IntelText.CompareOpen(_entries.Count);
 
     public string TrayLabel => _entries.Count >= 2
-        ? "Compare"
-        : "Add one more to compare";
+        ? IntelText.Compare
+        : IntelText.CompareAddOneMore;
 
-    public string ClearLabel => "Clear";
+    public string ClearLabel => IntelText.CompareClear;
 
-    public string CloseLabel => "Back to item";
+    public string CloseLabel => IntelText.CompareBackToItem;
 
     public bool CurrentIsInTray => _currentItemId is not null && Contains(_currentItemId);
 
@@ -81,14 +82,14 @@ public sealed class IntelCompareViewModel : BindableViewModel
         (CurrentIsInTray || _entries.Count < ItemComparisonBuilder.MaximumItems);
 
     public string ToggleCurrentLabel => CurrentIsInTray
-        ? "Comparing"
-        : _entries.Count >= ItemComparisonBuilder.MaximumItems ? "Compare full" : "Compare";
+        ? IntelText.CompareComparing
+        : _entries.Count >= ItemComparisonBuilder.MaximumItems ? IntelText.CompareFull : IntelText.Compare;
 
     public string ToggleCurrentTip => CurrentIsInTray
-        ? $"Remove {_currentName} from compare"
+        ? IntelText.CompareRemove(_currentName)
         : _entries.Count >= ItemComparisonBuilder.MaximumItems
-            ? $"Compare holds {ItemComparisonBuilder.MaximumItems} items"
-            : $"Add {_currentName} to compare";
+            ? IntelText.CompareHolds(ItemComparisonBuilder.MaximumItems)
+            : IntelText.CompareAdd(_currentName);
 
     public bool IsOpen
     {
@@ -116,18 +117,18 @@ public sealed class IntelCompareViewModel : BindableViewModel
 
     public bool ShowsTable => IsOpen && !IsLoading && _table is not null;
 
-    public string LoadingLabel => "Comparing…";
+    public string LoadingLabel => IntelText.CompareLoading;
 
     public string Heading => _table?.Kind switch
     {
-        ItemComparisonKind.Ammo => "Ammo side by side",
-        ItemComparisonKind.Armor => "Armor side by side",
-        ItemComparisonKind.Key => "Keys side by side",
-        _ => "Items side by side",
+        ItemComparisonKind.Ammo => IntelText.CompareAmmoHeading,
+        ItemComparisonKind.Armor => IntelText.CompareArmorHeading,
+        ItemComparisonKind.Key => IntelText.CompareKeysHeading,
+        _ => IntelText.CompareItemsHeading,
     };
 
     /// <summary>Said when the chosen items are of different kinds and so compare on value alone.</summary>
-    public string KindNote => _table is { Kind: ItemComparisonKind.Item } && MixedKinds ? "Different kinds, compared as items." : string.Empty;
+    public string KindNote => _table is { Kind: ItemComparisonKind.Item } && MixedKinds ? IntelText.CompareMixedKinds : string.Empty;
 
     public bool HasKindNote => KindNote.Length > 0;
 

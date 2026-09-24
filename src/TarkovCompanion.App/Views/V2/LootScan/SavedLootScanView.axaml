@@ -2,6 +2,7 @@
              x:DataType="vm:LootScanHistoryViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan">
   <UserControl.Styles>
     <Style Selector="TextBlock.saved-verdict">
@@ -38,7 +39,7 @@
                        AutomationProperties.AutomationId="v2-loot-scan-saved-rules" />
           </StackPanel>
           <Button Grid.Column="1" Classes="v2-outline" VerticalAlignment="Top"
-                  Content="Back to live scan"
+                  Content="{x:Static l:IntelText.LootScanBackToLiveScan}"
                   Command="{Binding CloseCommand, FallbackValue={x:Null}}"
                   AutomationProperties.AutomationId="v2-loot-scan-saved-close" />
         </Grid>

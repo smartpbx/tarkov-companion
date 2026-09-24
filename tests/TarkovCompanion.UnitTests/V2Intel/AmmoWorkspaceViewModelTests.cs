@@ -226,7 +226,7 @@ public sealed class AmmoWorkspaceViewModelTests
             .. Enumerable.Range(1, 6).Select(armorClass =>
             {
                 var margin = penetration - (armorClass * 10);
-                return new AmmoArmorRatingViewModel($"Class {armorClass}", "rating", margin >= 0, margin is < 0 and >= -10, margin < -10);
+                return new AmmoArmorRatingViewModel($"Class {armorClass}", "rating", margin >= 0, margin is < 0 and >= -10, margin < -10) { ClassNumber = armorClass };
             }),
         ])
     {

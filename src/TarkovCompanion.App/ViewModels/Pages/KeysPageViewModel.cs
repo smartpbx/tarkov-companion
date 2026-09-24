@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.App.Services;
@@ -32,9 +33,9 @@ public sealed record KeyRowViewModel(
 
     public string VerdictLabel => Verdict.Call switch
     {
-        KeepOrSell.Keep => "Keep",
-        KeepOrSell.KeepForLater => "Keep for later",
-        KeepOrSell.Sell => "Sell",
+        KeepOrSell.Keep => IntelText.KeysVerdictKeep,
+        KeepOrSell.KeepForLater => IntelText.KeysVerdictKeepForLater,
+        KeepOrSell.Sell => IntelText.KeysVerdictSell,
         _ => "—",
     };
 
@@ -84,8 +85,8 @@ public sealed class KeysPageViewModel : PageViewModel
 {
     private int? _knownItemCount;
 
-    private const string NoKeySelected = "Select a key to see every lock it opens.";
-    private const string UnknownMap = "No single map";
+    private static string NoKeySelected => IntelText.KeysNoKeySelected;
+    private static string UnknownMap => IntelText.KeysNoSingleMap;
 
     private readonly IItemFactCatalog _catalog;
     private readonly IItemRepository _itemRepository;
@@ -98,7 +99,7 @@ public sealed class KeysPageViewModel : PageViewModel
     private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
     private KeyRowViewModel? _selected;
     private string _searchQuery = string.Empty;
-    private string _status = "Loading the key table…";
+    private string _status = IntelText.KeysLoading;
     private string _detail = NoKeySelected;
 
     public KeysPageViewModel(
@@ -119,7 +120,7 @@ public sealed class KeysPageViewModel : PageViewModel
         // #283: which keys the player owns, from stash and Key case scans. Without it the page
         // says nothing about ownership, as before.
         IPlayerProfileService? profiles = null)
-        : base("Keys", "Keep or sell, what each key opens, its uses and its price", "Not loaded")
+        : base(IntelText.KeysTitle, IntelText.KeysSubtitle, IntelText.KeysNotLoaded)
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
@@ -173,7 +174,7 @@ public sealed class KeysPageViewModel : PageViewModel
     /// The absence of a ranking is visible; the reason for it belongs in the repository rather
     /// than on a page somebody reads between raids.
     /// </remarks>
-    public string ScoringNotice { get; } = "Not ranked. Locks are named by the source's identifiers.";
+    public string ScoringNotice { get; } = IntelText.KeysScoringNotice;
 
     public string SearchQuery
     {
@@ -227,8 +228,8 @@ public sealed class KeysPageViewModel : PageViewModel
             Detail = value is null
                 ? NoKeySelected
                 : value.Locks.Count == 0
-                    ? $"{value.Name} · no locks synced for it"
-                    : $"{value.Name} opens {Count(value.Locks.Count)} locks";
+                    ? IntelText.KeysNoLocksSynced(value.Name)
+                    : IntelText.KeysOpensLocksDetail(value.Name, value.Locks.Count);
         }
     }
 
@@ -245,7 +246,7 @@ public sealed class KeysPageViewModel : PageViewModel
     /// </remarks>
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
-        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        Evidence = IntelText.KeysEvidence(snapshot.Data.Availability, snapshot.Data.ItemCount);
         if (_knownItemCount == snapshot.Data.ItemCount)
         {
             return;
@@ -294,12 +295,12 @@ public sealed class KeysPageViewModel : PageViewModel
     {
         try
         {
-            Status = "Reading the key table…";
+            Status = IntelText.KeysReading;
             var facts = await _catalog.GetKeyFactsAsync(cancellationToken).ConfigureAwait(true);
             if (facts.Count == 0)
             {
                 Reset();
-                Status = "No keys cached yet";
+                Status = IntelText.KeysNoneCached;
                 return;
             }
 
@@ -341,13 +342,13 @@ public sealed class KeysPageViewModel : PageViewModel
             var keep = _allKeys.Count(row => row.IsKeep);
             var sell = _allKeys.Count(row => row.IsSell);
             Status = withoutMap == 0
-                ? $"{Count(_allKeys.Count)} cached keys · {Count(keep)} to keep · {Count(sell)} to sell"
-                : $"{Count(_allKeys.Count)} keys · {Count(keep)} to keep · {Count(sell)} to sell · {Count(withoutMap)} without a single cached map";
+                ? IntelText.KeysStatus(_allKeys.Count, keep, sell)
+                : IntelText.KeysStatusWithoutMap(_allKeys.Count, keep, sell, withoutMap);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Reset();
-            Status = $"Unreadable · {exception.Message}";
+            Status = IntelText.KeysUnreadable(exception.Message);
         }
     }
 
@@ -371,17 +372,16 @@ public sealed class KeysPageViewModel : PageViewModel
             facts.MapId is not null,
             facts.Locks.Count switch
             {
-                0 => "No cached lock lists this key",
-                1 => "Opens 1 lock",
-                _ => $"Opens {Count(facts.Locks.Count)} locks",
+                0 => IntelText.KeysNoLockList,
+                var locks => IntelText.KeysOpensLocks(locks),
             },
             // A key with no stated use count is not the same as a key with unlimited uses; the
             // source simply does not say, so neither does the page.
-            facts.MaximumUses is { } uses ? $"{Count(uses)} use(s)" : "No use limit is stated",
+            facts.MaximumUses is { } uses ? IntelText.KeysUseCount(uses) : IntelText.KeysNoUseLimit,
             facts.AcquisitionCostRoubles is { } acquisitionCost && acquisitionCost > 0
                 ? Roubles(acquisitionCost)
-                : "No price is cached",
-            $"json.tarkov.dev · {Describe(facts.Provenance.SourceUpdatedUtc)}",
+                : IntelText.KeysNoPrice,
+            IntelText.KeysProvenance(Describe(facts.Provenance.SourceUpdatedUtc)),
             facts.Locks.Select(lockId => new KeyLockViewModel(lockId)).ToArray())
         {
             Verdict = KeyValue.Judge(
@@ -442,8 +442,8 @@ public sealed class KeysPageViewModel : PageViewModel
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
-    private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
+    private static string Roubles(long value) => IntelText.KeysRoubles(value);
 
     private static string Describe(DateTimeOffset? timestamp) =>
-        timestamp is { } value ? LocalTime.Moment(value) : "no timestamp";
+        timestamp is { } value ? LocalTime.Moment(value) : IntelText.KeysNoTimestamp;
 }

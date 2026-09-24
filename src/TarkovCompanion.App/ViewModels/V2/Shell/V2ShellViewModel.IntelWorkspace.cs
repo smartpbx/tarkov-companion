@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.Application.Services.Intel;
@@ -24,7 +25,13 @@ public sealed class V2IntelKindFilterViewModel(V2IntelKindFilter kind, Action<V2
     private bool _isSelected;
 
     public V2IntelKindFilter Kind { get; } = kind;
-    public string Label => V2ShellText.Get($"V2.Shell.Intel.Filter.{Kind}");
+    public string Label => Kind switch
+    {
+        V2IntelKindFilter.Items => IntelText.FilterItems,
+        V2IntelKindFilter.Ammo => IntelText.FilterAmmo,
+        V2IntelKindFilter.Keys => IntelText.FilterKeys,
+        _ => IntelText.FilterAll,
+    };
     public string AutomationId => $"v2-intel-filter-{Kind.ToString().ToLowerInvariant()}";
     public ICommand SelectCommand { get; } = new DelegateCommand(() => select(kind));
 
@@ -50,7 +57,13 @@ public sealed class V2IntelSortViewModel(V2IntelSort sort, Action<V2IntelSort> s
     private bool _isSelected;
 
     public V2IntelSort Sort { get; } = sort;
-    public string Label => V2ShellText.Get($"V2.Shell.Intel.Sort.{Sort}");
+    public string Label => Sort switch
+    {
+        V2IntelSort.Price => IntelText.SortPrice,
+        V2IntelSort.PerSlot => IntelText.SortPerSlot,
+        V2IntelSort.Name => IntelText.SortName,
+        _ => IntelText.SortRelevance,
+    };
     public string AutomationId => $"v2-intel-sort-{Sort.ToString().ToLowerInvariant()}";
     public ICommand SelectCommand { get; } = new DelegateCommand(() => select(sort));
 
@@ -166,8 +179,8 @@ public sealed partial class V2ShellViewModel
     /// <summary>The compact Intel card, for an item opened beside some other page.</summary>
     public bool ShowsIntelCard => ShowsIntel && !ShowsIntelWorkspace;
 
-    public string IntelSearchPlaceholder => V2ShellText.Get("V2.Shell.Intel.SearchPlaceholder");
-    public string IntelClearSearchLabel => V2ShellText.Get("V2.Shell.Intel.ClearSearch");
+    public string IntelSearchPlaceholder => IntelText.SearchPlaceholder;
+    public string IntelClearSearchLabel => IntelText.ClearSearch;
     public ICommand ClearIntelSearchCommand => _clearIntelSearch ??= new DelegateCommand(ClearIntelSearch);
     private ICommand? _clearIntelSearch;
 
@@ -197,7 +210,7 @@ public sealed partial class V2ShellViewModel
     public IReadOnlyList<V2IntelKindFilterViewModel> IntelKindFilters => _intelKindFilters ??= CreateIntelKindFilters();
 
     public IReadOnlyList<V2IntelSortViewModel> IntelSorts => _intelSorts ??= CreateIntelSorts();
-    public string IntelSortHeading => V2ShellText.Get("V2.Shell.Intel.SortHeading");
+    public string IntelSortHeading => IntelText.SortHeading;
 
     public IReadOnlyList<V2IntelResultRowViewModel> IntelResults
     {
@@ -222,12 +235,12 @@ public sealed partial class V2ShellViewModel
                         CategoryLabel(result.Category),
                         result.BestValueRoubles is { } roubles
                             ? Roubles(roubles)
-                            : V2ShellText.Get("V2.Shell.Intel.NoPrice"),
+                            : IntelText.NoPrice,
                         string.Equals(result.Id, selected, StringComparison.Ordinal),
                         new DelegateCommand(() => OpenSuggestedItem(result.Id, automationId)),
                         result.Size,
                         result.ValuePerSlotRoubles is { } perSlot
-                            ? V2ShellText.Format("V2.Shell.Intel.PerSlot", CultureInfo.CurrentCulture, perSlot)
+                            ? IntelText.PerSlot(perSlot)
                             : string.Empty,
                         MatchNote(result),
                         EventStateLabel(result.Id),
@@ -243,11 +256,9 @@ public sealed partial class V2ShellViewModel
     public bool HasIntelSearchResults => Legacy?.Items.Results.Count > 0;
     public bool ShowsIntelSuggestionList => !HasIntelSearchResults;
     public bool ShowsIntelNoKindMatch => HasIntelSearchResults && !HasIntelResults;
-    public string IntelNoKindMatchLabel => V2ShellText.Get("V2.Shell.Intel.NoKindMatch");
+    public string IntelNoKindMatchLabel => IntelText.NoKindMatch;
 
-    public string IntelResultCountLabel => IntelResults.Count == 1
-        ? V2ShellText.Get("V2.Shell.Intel.OneResult")
-        : V2ShellText.Format("V2.Shell.Intel.Results", CultureInfo.CurrentCulture, IntelResults.Count);
+    public string IntelResultCountLabel => IntelText.ResultCount(IntelResults.Count);
 
     /// <summary>The search's own status line (no data yet, nothing matched, failed), when it has one worth showing.</summary>
     public string IntelSearchStatus => Legacy is { } legacy && legacy.Items.Results.Count == 0 &&
@@ -258,7 +269,7 @@ public sealed partial class V2ShellViewModel
 
     public bool HasIntelSelection => IntelItem.Length > 0;
     public bool ShowsIntelNoSelection => !HasIntelSelection;
-    public string IntelNoSelectionLabel => V2ShellText.Get("V2.Shell.Intel.NoSelection");
+    public string IntelNoSelectionLabel => IntelText.NoSelection;
     public bool IntelHasResult => _intelResult is { Kind: not V2IntelKind.Unknown };
     public bool ShowsIntelDetailStatus => HasIntelSelection && !IntelHasResult;
 
@@ -281,15 +292,15 @@ public sealed partial class V2ShellViewModel
             new[]
             {
                 CategoryLabel(result.Category.ToString()),
-                V2ShellText.Format("V2.Shell.Intel.Slots", CultureInfo.CurrentCulture, result.Width, result.Height),
+                IntelText.Slots(result.Width, result.Height),
                 result.ShortName,
             }.Where(part => !string.IsNullOrWhiteSpace(part)).Distinct(StringComparer.Ordinal))
         : string.Empty;
 
     public string IntelItemDescription => _intelResult?.Description ?? string.Empty;
     public bool HasIntelItemDescription => IntelHasResult && !string.IsNullOrWhiteSpace(IntelItemDescription);
-    public string IntelKeyInfoHeading => V2ShellText.Get("V2.Shell.Intel.KeyInfo");
-    public string IntelCloseLabel => V2ShellText.Get("V2.Shell.Intel.Close");
+    public string IntelKeyInfoHeading => IntelText.KeyInfo;
+    public string IntelCloseLabel => IntelText.Close;
 
     /// <summary>The item's footprint as grid cells, the one picture of it the catalog can draw honestly.</summary>
     public IReadOnlyList<int> IntelSlotCells => _intelResult is { Kind: not V2IntelKind.Unknown } result
@@ -297,7 +308,7 @@ public sealed partial class V2ShellViewModel
         : [];
     public int IntelSlotColumns => _intelResult is { Kind: not V2IntelKind.Unknown } result ? Math.Clamp(result.Width, 1, 10) : 1;
     public string IntelSlotsLabel => _intelResult is { Kind: not V2IntelKind.Unknown } result
-        ? V2ShellText.Format("V2.Shell.Intel.Slots", CultureInfo.CurrentCulture, result.Width, result.Height)
+        ? IntelText.Slots(result.Width, result.Height)
         : string.Empty;
 
     // Need summary: the context panel's headline card.
@@ -320,10 +331,10 @@ public sealed partial class V2ShellViewModel
         : !IntelHasResult
         ? string.Empty
         : IntelKeepCount > 0
-            ? V2ShellText.Format("V2.Shell.Intel.Verdict.Keep", CultureInfo.CurrentCulture, IntelKeepCount)
+            ? IntelText.VerdictKeep(IntelKeepCount)
             : IntelIsNeeded
-                ? V2ShellText.Get("V2.Shell.Intel.Verdict.KeepSome")
-                : V2ShellText.Get("V2.Shell.Intel.Verdict.NoNeed");
+                ? IntelText.VerdictKeepSome
+                : IntelText.VerdictNoNeed;
 
     public string IntelRecommendationReason => _intelResult?.Recommendation?.Reason ?? string.Empty;
 
@@ -342,12 +353,12 @@ public sealed partial class V2ShellViewModel
             var hideout = result.Value?.HideoutCount ?? 0;
             var lines = new List<V2IntelNeedLineViewModel>
             {
-                new(V2ShellText.Format("V2.Shell.Intel.Need.Tracked", CultureInfo.CurrentCulture, tracked), tracked > 0),
-                new(V2ShellText.Format("V2.Shell.Intel.Need.Hideout", CultureInfo.CurrentCulture, hideout), hideout > 0),
+                new(IntelText.NeedTracked(tracked), tracked > 0),
+                new(IntelText.NeedHideout(hideout), hideout > 0),
             };
             if (result.Keep?.Quests.Where(row => row.FoundInRaidRequired).Sum(row => row.Remaining ?? 0) is > 0 and var foundInRaid)
             {
-                lines.Add(new(V2ShellText.Format("V2.Shell.Intel.Need.FoundInRaid", CultureInfo.CurrentCulture, foundInRaid), true));
+                lines.Add(new(IntelText.NeedFoundInRaid(foundInRaid), true));
             }
 
             return lines;
@@ -355,54 +366,49 @@ public sealed partial class V2ShellViewModel
     }
 
     public string IntelBestSaleLabel => _intelResult?.Value is { SaleChannelLabel: { } channel, ValueRoubles: not null }
-        ? V2ShellText.Format("V2.Shell.Intel.BestSale", CultureInfo.CurrentCulture, ChannelName(channel))
-        : V2ShellText.Get("V2.Shell.Intel.NoPrice");
+        ? IntelText.BestSale(ChannelName(channel))
+        : IntelText.NoPrice;
 
     // Prices card.
-    public string IntelPricesHeading => V2ShellText.Get("V2.Shell.Intel.Prices");
+    public string IntelPricesHeading => IntelText.Prices;
     public bool IntelHasPrices => _intelResult?.Prices is not null;
     public bool IntelHasNoPrices => IntelHasResult && !IntelHasPrices;
-    public string IntelNoPricesLabel => V2ShellText.Get("V2.Shell.Intel.NoPrices");
+    public string IntelNoPricesLabel => IntelText.NoPrices;
     public string IntelFleaPriceLabel => _intelResult?.Prices?.FleaRoubles is { } flea
         ? Roubles(flea)
-        : V2ShellText.Get("V2.Shell.Intel.NotOnFlea");
-    public string IntelFleaCaption => V2ShellText.Get("V2.Shell.Intel.FleaMarket");
+        : IntelText.NotOnFlea;
+    public string IntelFleaCaption => IntelText.FleaMarket;
     public string IntelPriceUpdatedLabel => _intelResult?.Prices is { } prices
-        ? V2ShellText.Format(
-            "V2.Shell.Intel.PriceUpdated",
-            CultureInfo.CurrentCulture,
-            ApproximateAgeOrJustNow(_clock.GetUtcNow() - prices.UpdatedUtc))
+        ? IntelText.PriceUpdated(ApproximateAgeOrJustNow(_clock.GetUtcNow() - prices.UpdatedUtc))
         : string.Empty;
     public bool IntelHasTraderPrice => _intelResult?.Prices?.Traders.Count > 0;
     public string IntelTraderPriceLabel => _intelResult?.Prices?.Traders.FirstOrDefault() is { } best
         ? Roubles(best.ValueRoubles)
         : string.Empty;
     public string IntelTraderCaption => _intelResult?.Prices?.Traders.FirstOrDefault()?.TraderName ?? string.Empty;
-    public string IntelTraderDetail => V2ShellText.Get("V2.Shell.Intel.BestTrader");
+    public string IntelTraderDetail => IntelText.BestTrader;
 
     public bool IntelHas24HourRange => _intelResult?.Prices is { Low24HourRoubles: not null, High24HourRoubles: not null };
-    public string Intel24HourLabel => V2ShellText.Get("V2.Shell.Intel.Last24Hours");
+    public string Intel24HourLabel => IntelText.Last24Hours;
     public string Intel24HourRange => _intelResult?.Prices is { Low24HourRoubles: { } low, High24HourRoubles: { } high } prices
         ? prices.Average24HourRoubles is { } average
-            ? V2ShellText.Format("V2.Shell.Intel.RangeWithAverage", CultureInfo.CurrentCulture, Roubles(low), Roubles(high), Roubles(average))
-            : V2ShellText.Format("V2.Shell.Intel.Range", CultureInfo.CurrentCulture, Roubles(low), Roubles(high))
+            ? IntelText.RangeWithAverage(Roubles(low), Roubles(high), Roubles(average))
+            : IntelText.Range(Roubles(low), Roubles(high))
         : string.Empty;
 
     public bool IntelHasSevenDayHistory => _intelResult?.Prices?.SevenDayHistory is not null;
-    public string IntelSevenDayLabel => V2ShellText.Get("V2.Shell.Intel.Last7Days");
+    public string IntelSevenDayLabel => IntelText.Last7Days;
     public string IntelSevenDayRange => _intelResult?.Prices?.SevenDayHistory is { } history
         ? history.ObservationCount < 2
-            ? "1 price so far"
-            : V2ShellText.Format(
-                "V2.Shell.Intel.HistoryRange",
-                CultureInfo.CurrentCulture,
+            ? IntelText.OnePriceSoFar
+            : IntelText.HistoryRange(
                 Roubles(history.LowRoubles),
                 Roubles(history.AverageRoubles),
                 Roubles(history.HighRoubles))
         : string.Empty;
 
     // Package 33 (#287): "what is it worth" also asks for a per-slot value and the flea fee.
-    public string IntelPerSlotHeading => V2ShellText.Get("V2.Shell.Intel.PerSlotHeading");
+    public string IntelPerSlotHeading => IntelText.PerSlotHeading;
     public bool HasIntelPerSlotValue => _intelResult is { Kind: not V2IntelKind.Unknown, Width: > 0, Height: > 0 } result &&
         result.Value?.ValueRoubles is > 0;
     public string IntelPerSlotValueLabel => _intelResult is { Kind: not V2IntelKind.Unknown, Width: > 0, Height: > 0 } result &&
@@ -410,25 +416,21 @@ public sealed partial class V2ShellViewModel
         ? Roubles(value / (result.Width * result.Height))
         : string.Empty;
 
-    public string IntelFeeHeading => V2ShellText.Get("V2.Shell.Intel.Fee");
+    public string IntelFeeHeading => IntelText.Fee;
     public string IntelFeeLabel => _intelResult?.Prices?.FeeRoubles is { } fee
         ? Roubles(fee)
-        : V2ShellText.Get("V2.Shell.Intel.FeeUnknown");
+        : IntelText.FeeUnknown;
 
     public bool IntelHasSellingComparison => _intelResult?.Prices?.Selling is not null;
     public string IntelSellingComparison => _intelResult?.Prices?.Selling is { } selling
         ? selling.TraderRoubles is { } trader && selling.TraderName is { } traderName
-            ? V2ShellText.Format(
-                "V2.Shell.Intel.SellingWithTrader",
-                CultureInfo.CurrentCulture,
+            ? IntelText.SellingWithTrader(
                 selling.HeldCount,
                 Roubles(selling.AskingRoubles),
                 Roubles(selling.NetRoubles),
                 traderName,
                 Roubles(trader))
-            : V2ShellText.Format(
-                "V2.Shell.Intel.SellingWithoutTrader",
-                CultureInfo.CurrentCulture,
+            : IntelText.SellingWithoutTrader(
                 selling.HeldCount,
                 Roubles(selling.AskingRoubles),
                 Roubles(selling.NetRoubles))
@@ -436,23 +438,19 @@ public sealed partial class V2ShellViewModel
 
     // Package 33 (#287): "should I keep it," named rather than counted — which quests and which
     // hideout levels, not just how many.
-    public string IntelKeepHeading => V2ShellText.Get("V2.Shell.Intel.Keep.Heading");
-    public string IntelKeepEmptyLabel => V2ShellText.Get("V2.Shell.Intel.Keep.None");
+    public string IntelKeepHeading => IntelText.KeepHeading;
+    public string IntelKeepEmptyLabel => IntelText.KeepNone;
 
     public IReadOnlyList<string> IntelKeepQuestLines => _intelResult?.Keep?.Quests
         .Select(row => row.Remaining is { } remaining
-            ? V2ShellText.Format(
-                row.FoundInRaidRequired ? "V2.Shell.Intel.Keep.QuestFoundInRaid" : "V2.Shell.Intel.Keep.Quest",
-                CultureInfo.CurrentCulture,
-                row.TaskName,
-                remaining)
+            ? row.FoundInRaidRequired
+                ? IntelText.KeepQuestFoundInRaid(row.TaskName, remaining)
+                : IntelText.KeepQuest(row.TaskName, remaining)
             : row.TaskName)
         .ToArray() ?? [];
 
     public IReadOnlyList<string> IntelKeepHideoutLines => _intelResult?.Keep?.Hideout
-        .Select(row => V2ShellText.Format(
-            "V2.Shell.Intel.Keep.Hideout",
-            CultureInfo.CurrentCulture,
+        .Select(row => IntelText.KeepHideout(
             row.StationName,
             row.TargetLevel,
             row.Remaining))
@@ -461,7 +459,7 @@ public sealed partial class V2ShellViewModel
     public bool HasIntelKeepDetail => IntelKeepQuestLines.Count > 0 || IntelKeepHideoutLines.Count > 0;
     public bool ShowsIntelKeepEmpty => IntelHasResult && _intelResult?.Keep is not null && !HasIntelKeepDetail;
 
-    public string IntelSourcesHeading => V2ShellText.Get("V2.Shell.Intel.Sources");
+    public string IntelSourcesHeading => IntelText.Sources;
 
     /// <summary>Flea and every trader side by side, each bar a share of the best of them.</summary>
     public IReadOnlyList<V2IntelPriceSourceViewModel> IntelPriceSources
@@ -477,13 +475,13 @@ public sealed partial class V2ShellViewModel
             var rows = new List<V2IntelPriceSourceViewModel>();
             if (prices.FleaRoubles is { } flea)
             {
-                rows.Add(new(V2ShellText.Get("V2.Shell.Intel.FleaMarket"), Roubles(flea), Share(flea, best), true, flea == best));
+                rows.Add(new(IntelText.FleaMarket, Roubles(flea), Share(flea, best), true, flea == best));
             }
             else
             {
                 rows.Add(new(
-                    V2ShellText.Get("V2.Shell.Intel.FleaMarket"),
-                    V2ShellText.Get(result.FleaEligible ? "V2.Shell.Intel.Unavailable" : "V2.Shell.Intel.NotOnFlea"),
+                    IntelText.FleaMarket,
+                    result.FleaEligible ? IntelText.Unavailable : IntelText.NotOnFlea,
                     0,
                     false,
                     false));
@@ -499,9 +497,9 @@ public sealed partial class V2ShellViewModel
         }
     }
 
-    public string IntelWhereToBuyHeading => "Where to buy";
+    public string IntelWhereToBuyHeading => IntelText.WhereToBuy;
     public bool HasIntelAcquisitionSources => IntelAcquisitionSources.Count > 0;
-    public string IntelNoAcquisitionSourcesLabel => "No trader source in the catalog.";
+    public string IntelNoAcquisitionSourcesLabel => IntelText.NoAcquisitionSources;
     public IReadOnlyList<V2IntelAcquisitionSourceViewModel> IntelAcquisitionSources =>
         _intelResult?.Acquisitions?.Select(DescribeAcquisition).ToArray() ?? [];
 
@@ -513,9 +511,9 @@ public sealed partial class V2ShellViewModel
             ItemAcquisitionKind.Cash when offer.PriceRoubles is { } price => Roubles(price),
             ItemAcquisitionKind.Barter when offer.BarterCost.Count > 0 =>
                 string.Join(" + ", offer.BarterCost.Select(input =>
-                    $"{input.Count.ToString(CultureInfo.CurrentCulture)} × {input.Name}")),
-            ItemAcquisitionKind.Barter => "Barter",
-            _ => "Price unknown",
+                    IntelText.AcquisitionBarterInput(input.Count, input.Name))),
+            ItemAcquisitionKind.Barter => IntelText.AcquisitionBarter,
+            _ => IntelText.AcquisitionPriceUnknown,
         };
         return new(offer.TraderName, cost, row.Availability.RequirementLabel, row.Availability.IsObtainable);
     }
@@ -523,19 +521,19 @@ public sealed partial class V2ShellViewModel
     // Kind-specific card: what a key opens, or an ammo's ballistics.
     public bool IntelIsKey => _intelResult?.Kind == V2IntelKind.Key;
     public bool IntelIsAmmo => _intelResult?.Kind == V2IntelKind.Ammo;
-    public string IntelOpensHeading => V2ShellText.Get("V2.Shell.Intel.Opens");
-    public string IntelKeyMapLabel => _intelResult?.Key?.MapName ?? V2ShellText.Get("V2.Shell.Intel.OpensUnknown");
+    public string IntelOpensHeading => IntelText.DetailOpens;
+    public string IntelKeyMapLabel => _intelResult?.Key?.MapName ?? IntelText.DetailOpensUnknown;
     public IReadOnlyList<string> IntelKeyLocks => _intelResult?.Key?.Locks ?? [];
-    public string IntelBallisticsHeading => V2ShellText.Get("V2.Shell.Intel.Ballistics");
+    public string IntelBallisticsHeading => IntelText.Ballistics;
     public bool IntelHasAmmoFacts => _intelResult?.Ammo is not null;
     public bool IntelHasNoAmmoFacts => IntelIsAmmo && !IntelHasAmmoFacts;
-    public string IntelAmmoUnknownLabel => V2ShellText.Get("V2.Shell.Intel.AmmoUnknown");
+    public string IntelAmmoUnknownLabel => IntelText.DetailAmmoUnknown;
     public string IntelAmmoCaliber => _intelResult?.Ammo?.Caliber ?? string.Empty;
     public string IntelAmmoDamage => _intelResult?.Ammo?.Damage.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
     public string IntelAmmoPenetration => _intelResult?.Ammo?.Penetration.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
     public string IntelAmmoTier => _intelResult?.Ammo?.Tier ?? string.Empty;
     public string IntelAmmoAdvice => _intelResult?.Ammo?.PracticalAdvice ?? string.Empty;
-    public string IntelArmorClassesHeading => V2ShellText.Get("V2.Shell.Intel.ArmorClasses");
+    public string IntelArmorClassesHeading => IntelText.ArmorClasses;
 
     /// <summary>Classes one to six, each rated by the same penetration comparison the Ammo page uses.</summary>
     public IReadOnlyList<V2IntelArmorClassViewModel> IntelArmorClasses
@@ -551,7 +549,7 @@ public sealed partial class V2ShellViewModel
                 .Select(armorClass => ammo.ArmorClassRatings.TryGetValue(armorClass, out var rating)
                     ? new V2IntelArmorClassViewModel(
                         armorClass.ToString(CultureInfo.CurrentCulture),
-                        rating.ToString(),
+                        IntelText.ArmorRating(rating),
                         rating is ArmorEffectiveness.Excellent or ArmorEffectiveness.Good,
                         rating is ArmorEffectiveness.Fair or ArmorEffectiveness.Limited,
                         rating is ArmorEffectiveness.Poor)
@@ -559,9 +557,9 @@ public sealed partial class V2ShellViewModel
                 .ToArray();
         }
     }
-    public string IntelDamageLabel => V2ShellText.Get("V2.Shell.Intel.Damage");
-    public string IntelPenetrationLabel => V2ShellText.Get("V2.Shell.Intel.Penetration");
-    public string IntelTierLabel => V2ShellText.Get("V2.Shell.Intel.Tier");
+    public string IntelDamageLabel => IntelText.DetailDamage;
+    public string IntelPenetrationLabel => IntelText.DetailPenetration;
+    public string IntelTierLabel => IntelText.DetailTier;
 
     private IReadOnlyList<V2IntelKindFilterViewModel> CreateIntelKindFilters()
     {
@@ -613,7 +611,7 @@ public sealed partial class V2ShellViewModel
         result.MatchedText.Length == 0 ||
         string.Equals(result.MatchedText, result.Name, StringComparison.OrdinalIgnoreCase)
             ? string.Empty
-            : V2ShellText.Format("V2.Shell.Intel.MatchedAs", CultureInfo.CurrentCulture, result.MatchedText);
+            : IntelText.MatchedAs(result.MatchedText);
 
     private void SelectIntelKindFilter(V2IntelKindFilter kind)
     {
@@ -674,35 +672,35 @@ public sealed partial class V2ShellViewModel
 
     private static string CategoryLabel(string category) => category switch
     {
-        "AmmunitionPack" => V2ShellText.Get("V2.Shell.Intel.Category.AmmunitionPack"),
-        "Unknown" => V2ShellText.Get("V2.Shell.Intel.Category.Unknown"),
+        "AmmunitionPack" => IntelText.CategoryAmmunitionPack,
+        "Unknown" => IntelText.CategoryUnknown,
         _ => category,
     };
 
     private static string ChannelName(string channel) => channel == "Flea"
-        ? V2ShellText.Get("V2.Shell.Intel.FleaMarket")
+        ? IntelText.FleaMarket
         : channel;
 
     private static string Roubles(long roubles) =>
-        V2ShellText.Format("V2.Shell.Intel.Roubles", CultureInfo.CurrentCulture, roubles);
+        IntelText.Roubles(roubles);
 
     private static double Share(long value, long best) => best <= 0 ? 0 : Math.Clamp((double)value / best, 0, 1);
 
     private static string ApproximateAgeOrJustNow(TimeSpan age) => age < TimeSpan.FromMinutes(1)
-        ? V2ShellText.Get("V2.Shell.Intel.JustNow")
+        ? IntelText.JustNow
         : age < TimeSpan.FromDays(2)
-            ? V2ShellText.Format("V2.Shell.Intel.Ago", CultureInfo.CurrentCulture, FormatApproximateAge(age))
-            : V2ShellText.Format("V2.Shell.Intel.Days", CultureInfo.CurrentCulture, (int)age.TotalDays);
+            ? IntelText.Ago(FormatApproximateAge(age))
+            : IntelText.DaysAgo((int)age.TotalDays);
 
     // Package 33 (#287): the Intel landing page. Four real sections instead of the address-book
     // "Suggested" list, which had nothing to show for a fresh profile and one junk row ("Items ·
     // Opened recently · Items") for a used one — every navigation to the Items route itself, with
     // no item selected, was recorded as a "recently opened" address and printed back with the
     // route's own heading standing in for a name.
-    public string IntelHomeNeededNowHeading => V2ShellText.Get("V2.Shell.Intel.Home.NeededNow");
-    public string IntelHomePinnedHeading => V2ShellText.Get("V2.Shell.Intel.Home.Pinned");
-    public string IntelHomeRecentHeading => V2ShellText.Get("V2.Shell.Intel.Home.Recent");
-    public string IntelHomeHighestValueHeading => V2ShellText.Get("V2.Shell.Intel.Home.HighestValue");
+    public string IntelHomeNeededNowHeading => IntelText.HomeNeededNow;
+    public string IntelHomePinnedHeading => IntelText.HomePinned;
+    public string IntelHomeRecentHeading => IntelText.HomeRecent;
+    public string IntelHomeHighestValueHeading => IntelText.HomeHighestValue;
 
     public IReadOnlyList<V2IntelResultRowViewModel> IntelHomeNeededNow => BuildHomeRows(_intelLandingSnapshot?.NeededNow);
     public IReadOnlyList<V2IntelResultRowViewModel> IntelHomePinned => BuildHomeRows(_intelLandingSnapshot?.Pinned);
@@ -717,7 +715,7 @@ public sealed partial class V2ShellViewModel
     /// <summary>Nothing to show yet: a brand-new profile with an empty catalog still loading.</summary>
     public bool ShowsIntelHomeEmpty => _intelLandingSnapshot is not null &&
         !HasIntelHomeNeededNow && !HasIntelHomePinned && !HasIntelHomeRecent && !HasIntelHomeHighestValue;
-    public string IntelHomeEmptyLabel => V2ShellText.Get("V2.Shell.Intel.NoSelection");
+    public string IntelHomeEmptyLabel => IntelText.NoSelection;
 
     private IReadOnlyList<V2IntelResultRowViewModel> BuildHomeRows(IReadOnlyList<IntelLandingRow>? rows)
     {
@@ -734,16 +732,16 @@ public sealed partial class V2ShellViewModel
     {
         var automationId = $"v2-intel-home-{row.ItemId}";
         var matchLabel = row.Count > 0
-            ? V2ShellText.Format("V2.Shell.Intel.Home.NeedCount", CultureInfo.CurrentCulture, row.Count)
+            ? IntelText.HomeNeedCount(row.Count)
             : row.SaleChannelLabel is { Length: > 0 } channel
-                ? V2ShellText.Format("V2.Shell.Intel.Home.Via", CultureInfo.CurrentCulture, ChannelName(channel))
+                ? IntelText.HomeVia(ChannelName(channel))
                 : string.Empty;
         return new V2IntelResultRowViewModel(
             row.ItemId,
             row.Name,
             row.ShortName,
             CategoryLabel(row.Category),
-            row.ValueRoubles is { } roubles ? Roubles(roubles) : V2ShellText.Get("V2.Shell.Intel.NoPrice"),
+            row.ValueRoubles is { } roubles ? Roubles(roubles) : IntelText.NoPrice,
             string.Equals(row.ItemId, selected, StringComparison.Ordinal),
             new DelegateCommand(() => OpenSuggestedItem(row.ItemId, automationId)),
             MatchLabel: matchLabel,
@@ -853,9 +851,9 @@ public sealed partial class V2ShellViewModel
 
     private string EventStateLabel(string itemId) => IntelEventState(itemId) switch
     {
-        EventItemState.Allergic => V2ShellText.Get("V2.Shell.Intel.Event.Allergic"),
-        EventItemState.Safe => V2ShellText.Get("V2.Shell.Intel.Event.Safe"),
-        EventItemState.Untested => V2ShellText.Get("V2.Shell.Intel.Event.Untested"),
+        EventItemState.Allergic => IntelText.EventAllergic,
+        EventItemState.Safe => IntelText.EventSafe,
+        EventItemState.Untested => IntelText.EventUntested,
         _ => string.Empty,
     };
 
@@ -908,10 +906,10 @@ public sealed partial class V2ShellViewModel
 
     // #287 (Crafts & barters tab): item detail's "Made by"/"Used in" sections, read straight off
     // the tab's own already-loaded, already-priced list — no separate query.
-    public string IntelMadeByHeading => V2ShellText.Get("V2.Shell.Intel.Trade.MadeBy");
-    public string IntelUsedInHeading => V2ShellText.Get("V2.Shell.Intel.Trade.UsedIn");
-    public string IntelNoneMadeByLabel => V2ShellText.Get("V2.Shell.Intel.Trade.NoneMadeBy");
-    public string IntelNoneUsedInLabel => V2ShellText.Get("V2.Shell.Intel.Trade.NoneUsedIn");
+    public string IntelMadeByHeading => IntelText.MadeBy;
+    public string IntelUsedInHeading => IntelText.UsedIn;
+    public string IntelNoneMadeByLabel => IntelText.NoneMadeBy;
+    public string IntelNoneUsedInLabel => IntelText.NoneUsedIn;
 
     public IReadOnlyList<IntelTradeRowViewModel> IntelMadeBy =>
         IntelHasResult && CraftsBartersWorkspace is { } trade ? trade.MadeBy(IntelItem) : [];

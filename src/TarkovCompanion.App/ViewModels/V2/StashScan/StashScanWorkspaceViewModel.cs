@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Capture;
@@ -69,7 +70,11 @@ public static class StashSortWording
 {
     public static string Label(StashPlanGroup group) => group switch
     {
-        StashPlanGroup.UseSoon => "Use soon",
+        StashPlanGroup.Keep => IntelText.StashGroupKeep,
+        StashPlanGroup.Sell => IntelText.StashGroupSell,
+        StashPlanGroup.UseSoon => IntelText.StashGroupUseSoon,
+        StashPlanGroup.Organize => IntelText.StashGroupOrganize,
+        StashPlanGroup.Review => IntelText.StashGroupReview,
         _ => group.ToString(),
     };
 
@@ -99,7 +104,7 @@ public static class StashSortWording
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        return versions.Length == 0 ? string.Empty : "Rules " + string.Join(", ", versions);
+        return versions.Length == 0 ? string.Empty : IntelText.StashRules(string.Join(", ", versions));
     }
 
     public static string Why(StashOrganizationItem? planned, IReadOnlyList<RecommendationReason>? reasons)
@@ -111,7 +116,7 @@ public static class StashSortWording
 
         if (planned.ReasonCodes.Contains("stash.review-command.pinned", StringComparer.Ordinal))
         {
-            return "Pinned for this snapshot.";
+            return IntelText.StashWhyPinned;
         }
 
         if (planned.Group == StashPlanGroup.Organize &&
@@ -119,7 +124,7 @@ public static class StashSortWording
                 code.StartsWith("stash.organize.move-together.", StringComparison.Ordinal)) is { } organizeCode &&
             int.TryParse(organizeCode["stash.organize.move-together.".Length..], out var moveTogetherCount))
         {
-            return $"Move {moveTogetherCount.ToString(CultureInfo.CurrentCulture)} matching stacks together.";
+            return IntelText.StashWhyMoveTogether(moveTogetherCount);
         }
 
         if (planned.ReasonCodes.Any(code => code.StartsWith("stash.specialist.", StringComparison.Ordinal)))
@@ -128,9 +133,9 @@ public static class StashSortWording
             var gear = planned.ReasonCodes.Contains("stash.specialist.gear-unresolved", StringComparer.Ordinal);
             return (gear, planned.NetValueRoubles.Value) switch
             {
-                (true, { } worth) => $"Open the recognized kit in Loadout · about ₽{worth.ToString("N0", CultureInfo.CurrentCulture)} to a buyer.",
-                (true, null) => "Open the recognized kit in Loadout.",
-                _ => "Ammo and keys aren't sorted yet.",
+                (true, { } worth) => IntelText.StashWhyOpenKitWorth(worth.ToString("N0", CultureInfo.CurrentCulture)),
+                (true, null) => IntelText.StashWhyOpenKit,
+                _ => IntelText.StashWhyAmmoKeysUnsorted,
             };
         }
 
@@ -141,8 +146,8 @@ public static class StashSortWording
             // both channels. A row wants where to sell it and for how much.
             var price = net.ToString("N0", CultureInfo.CurrentCulture);
             return planned.ReasonCodes.Any(code => code.StartsWith("economics.flea-net.", StringComparison.Ordinal))
-                ? $"On the flea, about ₽{price} after the fee."
-                : $"To a trader, ₽{price}.";
+                ? IntelText.StashWhyFleaNet(price)
+                : IntelText.StashWhyTrader(price);
         }
 
         if (planned.Group != StashPlanGroup.Review)
@@ -155,13 +160,13 @@ public static class StashSortWording
             .Where(reason => reason.Category == RecommendationReasonCategory.EvidenceQuality)
             .Select(reason => reason.Code switch
             {
-                "economics.flea-net-untrusted" => "what the flea returns after its fee",
-                "economics.trader-untrusted" or "economics.price-missing" => "a current price",
-                "economics.footprint-missing" => "how many squares it takes",
-                "scarcity.unknown" or "scarcity.untrusted" => "how readily another turns up",
-                "profile.incomplete" => "your quest progress",
-                "profile.override-untrusted" => "what your rule for this item means",
-                "candidate.fir-untrusted" => "whether it is found in raid",
+                "economics.flea-net-untrusted" => IntelText.StashGapFleaNet,
+                "economics.trader-untrusted" or "economics.price-missing" => IntelText.StashGapPrice,
+                "economics.footprint-missing" => IntelText.StashGapFootprint,
+                "scarcity.unknown" or "scarcity.untrusted" => IntelText.StashGapScarcity,
+                "profile.incomplete" => IntelText.StashGapProgress,
+                "profile.override-untrusted" => IntelText.StashGapRule,
+                "candidate.fir-untrusted" => IntelText.StashGapFoundInRaid,
                 _ => null,
             })
             .OfType<string>()
@@ -169,9 +174,9 @@ public static class StashSortWording
             .ToArray();
         return gaps.Length switch
         {
-            0 => "Not enough is known to sort it.",
-            1 => $"Not known: {gaps[0]}.",
-            _ => $"Not known: {string.Join(", ", gaps[..^1])} and {gaps[^1]}.",
+            0 => IntelText.StashWhyNotEnough,
+            1 => IntelText.StashWhyNotKnownOne(gaps[0]),
+            _ => IntelText.StashWhyNotKnownMany(string.Join(", ", gaps[..^1]), gaps[^1]),
         };
     }
 }
@@ -185,7 +190,7 @@ public sealed record StashItemRowViewModel(
     string EvidenceLabel,
     StashPlanGroup Group)
 {
-    public string GroupLabel => IsIgnored ? "Ignored" : StashSortWording.Label(Group);
+    public string GroupLabel => IsIgnored ? IntelText.StashIgnored : StashSortWording.Label(Group);
 
     /// <summary>One line on why the item is in its group, from the engine's own reasons.</summary>
     public string WhyLabel { get; init; } = string.Empty;
@@ -233,8 +238,8 @@ public sealed class StashRegionViewModel
         Rows = Math.Max(rows ?? extentRows, extentRows);
         Columns = Math.Max(columns ?? extentColumns, extentColumns);
         SizeLabel = rows is null || columns is null
-            ? $"{tiles.Count.ToString(CultureInfo.CurrentCulture)} stacks"
-            : $"{Columns.ToString(CultureInfo.CurrentCulture)} × {Rows.ToString(CultureInfo.CurrentCulture)} squares";
+            ? IntelText.StashStacks(tiles.Count)
+            : IntelText.StashSquares(Columns, Rows);
     }
 
     public string Title { get; }
@@ -379,9 +384,9 @@ public sealed record StashPlanTileViewModel(StashPlanGroup Group, string Label, 
 
 public sealed record StashAmmoSummaryRowViewModel(string Caliber, int RoundCount, int StackCount)
 {
-    public string RoundsLabel => $"{RoundCount.ToString(CultureInfo.CurrentCulture)} rounds";
+    public string RoundsLabel => IntelText.StashRounds(RoundCount);
 
-    public string StacksLabel => $"{StackCount.ToString(CultureInfo.CurrentCulture)} stacks";
+    public string StacksLabel => IntelText.StashStacks(StackCount);
 }
 
 public sealed record StashKeySummaryRowViewModel(
@@ -390,12 +395,12 @@ public sealed record StashKeySummaryRowViewModel(
     string MapLabel,
     string QuestUseLabel)
 {
-    public string DuplicatesLabel => $"{Duplicates.ToString(CultureInfo.CurrentCulture)} in stash";
+    public string DuplicatesLabel => IntelText.StashInStash(Duplicates);
 }
 
 public sealed record StashReviewCommandRowViewModel(string Action, string Target, string CreatedLabel, string? Reason)
 {
-    public string Summary => $"{Action} — {Target} · {CreatedLabel}";
+    public string Summary => IntelText.StashReviewSummary(Action, Target, CreatedLabel);
 }
 
 /// <summary>
@@ -434,7 +439,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private IReadOnlyDictionary<string, AmmoStats>? _ammoByItemId;
     private IReadOnlyDictionary<string, KeyFacts>? _keyFactsByItemId;
     private StashSnapshotRecord? _selected;
-    private string _status = "Stash snapshots have not been loaded.";
+    private string _status = IntelText.StashStatusNotLoaded;
     private string _identityCorrection = string.Empty;
     private string _quantityCorrection = string.Empty;
     private StashItemRowViewModel? _selectedItem;
@@ -520,13 +525,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             // handoff ignored: the capture ran and this page never changed. #283 made them guided
             // case sub-scans, one screenshot per open case, which raise the owned counts the Ammo
             // and Keys pages read. Without a guided scan service there is nothing to run them.
-            new StashScanTargetViewModel(ScanIntent.Stash, "Full stash", SelectScanTarget) { IsSelected = true },
+            new StashScanTargetViewModel(ScanIntent.Stash, IntelText.StashTargetFullStash, SelectScanTarget) { IsSelected = true },
             .. guidedScan is null
                 ? Array.Empty<StashScanTargetViewModel>()
                 :
                 [
-                    new StashScanTargetViewModel(ScanIntent.Ammo, "Ammo cases", SelectScanTarget),
-                    new StashScanTargetViewModel(ScanIntent.Keys, "Key cases", SelectScanTarget),
+                    new StashScanTargetViewModel(ScanIntent.Ammo, IntelText.StashTargetAmmoCases, SelectScanTarget),
+                    new StashScanTargetViewModel(ScanIntent.Keys, IntelText.StashTargetKeyCases, SelectScanTarget),
                 ],
         ];
     }
@@ -568,11 +573,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     private static string PausedNextStep(GuidedStashScanProgress progress) => progress.Kind != StashScanKind.Full
         ? progress.Screenshots == 0
-            ? "A case scan is waiting. Press Keep going, then " + StashSubScan.NextStep(progress.Kind, GuidedStashFrameOutcome.Added, 0).ToLower(CultureInfo.CurrentCulture)
-            : $"An unfinished case scan is waiting: {progress.Screenshots.ToString(CultureInfo.CurrentCulture)} case{(progress.Screenshots == 1 ? string.Empty : "s")}. Keep going, finish, or discard it."
+            ? IntelText.StashPausedCaseStart(StashSubScan.NextStep(progress.Kind, GuidedStashFrameOutcome.Added, 0).ToLower(CultureInfo.CurrentCulture))
+            : IntelText.StashPausedCases(progress.Screenshots)
         : progress.Screenshots == 0
-        ? "An unfinished scan is waiting. Press Keep going, then scroll to the top of your stash and take a screenshot."
-        : $"An unfinished scan is waiting: {progress.Screenshots.ToString(CultureInfo.CurrentCulture)} screenshot{(progress.Screenshots == 1 ? string.Empty : "s")}, rows 1–{progress.RowsCovered.ToString(CultureInfo.CurrentCulture)}. Keep going, finish with what you have, or discard it.";
+        ? IntelText.StashPausedFullStart
+        : IntelText.StashPausedFull(progress.Screenshots, progress.RowsCovered);
 
     public ICommand ShowGridCommand { get; }
 
@@ -610,19 +615,18 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             }
 
             // Counted from the one reconstructed grid, so a row two screenshots share is one row.
-            var culture = CultureInfo.CurrentCulture;
-            var label = $"{_reconstruction.KnownTiles.ToString(culture)} named";
+            var label = IntelText.StashNamed(_reconstruction.KnownTiles);
             if (_reconstruction.UnknownTiles > 0)
             {
-                label += $" · {_reconstruction.UnknownTiles.ToString(culture)} unknown";
+                label += " · " + IntelText.StashUnknownTiles(_reconstruction.UnknownTiles);
             }
 
             if (_reconstruction.UnplacedRegions > 0)
             {
-                label += $" · {_reconstruction.UnplacedRegions.ToString(culture)} screenshot{(_reconstruction.UnplacedRegions == 1 ? string.Empty : "s")} not placed";
+                label += " · " + IntelText.StashNotPlaced(_reconstruction.UnplacedRegions);
             }
 
-            return IsScanInProgress ? $"Scanning · {label}" : label;
+            return IsScanInProgress ? IntelText.StashScanning(label) : label;
         }
     }
 
@@ -640,17 +644,17 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public bool HasStashValue => StashValueLabel.Length > 0;
 
-    public string UpdatedLabel => _selected is null ? string.Empty : $"Scanned {RecordedLabel}";
+    public string UpdatedLabel => _selected is null ? string.Empty : IntelText.StashScanned(RecordedLabel);
 
     public string RecordedLabel => _selected is null
         ? string.Empty
         : LocalTime.Moment(_selected.RecordedUtc);
 
-    public string AmmoCountLabel => $"{AmmoSummary.Count.ToString(CultureInfo.CurrentCulture)} calibres";
+    public string AmmoCountLabel => IntelText.StashCalibres(AmmoSummary.Count);
 
-    public string KeyCountLabel => $"{KeySummary.Count.ToString(CultureInfo.CurrentCulture)} keys";
+    public string KeyCountLabel => IntelText.StashKeyCount(KeySummary.Count);
 
-    public string ItemCountLabel => $"{Items.Count.ToString(CultureInfo.CurrentCulture)} items";
+    public string ItemCountLabel => IntelText.StashItemCount(Items.Count);
 
     private void SelectScanTarget(ScanIntent intent)
     {
@@ -718,8 +722,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     public bool CanUndoReview => _reviewState.LatestUndoable is not null;
 
     public string UndoReviewLabel => _reviewState.LatestUndoable is { } command
-        ? $"Undo {StashReviewCommandProjection.ActionLabel(command.Action)}"
-        : "Undo last change";
+        ? IntelText.StashUndoAction(StashReviewCommandProjection.ActionLabel(command.Action))
+        : IntelText.StashUndoLastChange;
 
     /// <summary>
     /// Never null so the "Correct the selected item" card can bind it directly: that card's
@@ -740,8 +744,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public string TotalsLabel => _selected is null
         ? string.Empty
-        : $"{_selected.Recognition.Result.Value!.TotalKnownValueRoubles.Value?.ToString("N0", CultureInfo.CurrentCulture) ?? "unknown"} roubles known · " +
-          $"{_selected.Recognition.Result.Value!.UnresolvedCells.Value?.ToString(CultureInfo.CurrentCulture) ?? "unknown"} cells unresolved";
+        : IntelText.StashTotals(
+            _selected.Recognition.Result.Value!.TotalKnownValueRoubles.Value?.ToString("N0", CultureInfo.CurrentCulture) ?? IntelText.StashUnknownLower,
+            _selected.Recognition.Result.Value!.UnresolvedCells.Value?.ToString(CultureInfo.CurrentCulture) ?? IntelText.StashUnknownLower);
 
     public string CoverageLabel => _selected is null
         ? string.Empty
@@ -755,17 +760,17 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// scanned. It is only said now when it is still the case: no profile to sort for.
     /// </remarks>
     public string RecommendationNotice => _isSorted
-        ? "Sorted by your pins, quests, hideout and prices. Gear, ammo and keys are never marked Sell."
+        ? IntelText.StashNoticeSorted
         : _sortFailed
-            ? "This snapshot couldn't be sorted, so everything is under Review."
-            : "No profile is active, so nothing is sorted. Everything is under Review.";
+            ? IntelText.StashNoticeSortFailed
+            : IntelText.StashNoticeNoProfile;
 
     /// <summary>Which recommendation ruleset sorted this snapshot, as a saved loot scan shows it.</summary>
     public string RulesLabel { get; private set; } = string.Empty;
 
     public bool HasRulesLabel => RulesLabel.Length > 0;
 
-    public string CorrectionsNotice { get; } = "Saved with this snapshot.";
+    public string CorrectionsNotice { get; } = IntelText.StashCorrectionsNotice;
 
     public string IdentityCorrection
     {
@@ -987,10 +992,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             await BuildItemBreakdownAsync(guided.Current.Reconstruction, cancellationToken).ConfigureAwait(true);
             Status = (IsScanPaused, guided.Current.Kind) switch
             {
-                (true, _) => "A scan is waiting to be finished.",
-                (false, StashScanKind.Ammo) => "Scanning your ammo cases.",
-                (false, StashScanKind.Keys) => "Scanning your key cases.",
-                _ => "Scanning your stash.",
+                (true, _) => IntelText.StashWaitingToFinish,
+                (false, StashScanKind.Ammo) => IntelText.StashScanningAmmo,
+                (false, StashScanKind.Keys) => IntelText.StashScanningKeys,
+                _ => IntelText.StashScanningStash,
             };
         }
     }
@@ -1007,7 +1012,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             _reviewState = StashReviewCommandState.Empty;
             PendingCorrections = [];
             Status = _captureStatus?.LastMessage
-                ?? "No profile is loaded yet, so there is no stash scope to browse.";
+                ?? IntelText.StashNoProfile;
             RaiseAll();
             return;
         }
@@ -1032,7 +1037,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     summary.SnapshotId,
                     LocalTime.Moment(summary.RecordedUtc),
                     summary.IsCurrent,
-                    summary.Coverage.Description ?? "Coverage not described",
+                    summary.Coverage.Description ?? IntelText.StashCoverageNotDescribed,
                     summary.Status.Completeness.ToString())
                 {
                     SelectCommand = new AsyncDelegateCommand(() => SelectSnapshotAsync(summary.SnapshotId, CancellationToken.None)),
@@ -1041,9 +1046,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 .ToArray();
             Status = Snapshots.Count switch
             {
-                0 => "No stash snapshots yet. Start a scan to build the first one.",
-                1 => "1 snapshot.",
-                var count => $"{count.ToString(CultureInfo.CurrentCulture)} snapshots.",
+                0 => IntelText.StashSnapshotsNone,
+                var count => IntelText.StashSnapshotCount(count),
             };
 
             if (_selected is null)
@@ -1062,7 +1066,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Snapshots = [];
-            Status = $"Stash snapshots unavailable: {exception.Message}";
+            Status = IntelText.StashUnavailable(exception.Message);
             RaiseAll();
         }
     }
@@ -1078,7 +1082,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var record = await _store.ReadAsync(scope, snapshotId, cancellationToken).ConfigureAwait(true);
         if (record is null)
         {
-            Status = "That snapshot no longer exists.";
+            Status = IntelText.StashSnapshotGone;
             _selected = null;
             _reviewHistory = [];
             _reviewState = StashReviewCommandState.Empty;
@@ -1113,8 +1117,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _reviewHistory = [];
         _reviewState = StashReviewCommandState.Empty;
         Status = result.Deleted
-            ? "Snapshot deleted."
-            : "That snapshot was already gone.";
+            ? IntelText.StashDeleted
+            : IntelText.StashAlreadyGone;
         await LoadAsync(CancellationToken.None).ConfigureAwait(true);
     }
 
@@ -1129,7 +1133,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var previous = Snapshots.FirstOrDefault(row => row.SnapshotId != _selected.SnapshotId);
         if (previous is null)
         {
-            Status = "There is no earlier snapshot to compare against.";
+            Status = IntelText.StashNoEarlierCompare;
             return;
         }
 
@@ -1139,8 +1143,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             _clock.GetUtcNow(),
             CancellationToken.None).ConfigureAwait(true);
         Status = comparison is null
-            ? "That comparison could not be read."
-            : $"{comparison.Changes.Count} change(s) since {previous.RecordedLabel}.";
+            ? IntelText.StashComparisonUnreadable
+            : IntelText.StashChanges(comparison.Changes.Count, previous.RecordedLabel);
     }
 
     private async Task ExportLatestAsync(string extension, Func<StashSnapshotRecord, string> format)
@@ -1148,7 +1152,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var scope = CurrentScope();
         if (scope is null || _paths is null)
         {
-            Status = "A profile and export folder are required.";
+            Status = IntelText.StashNeedProfileAndFolder;
             return;
         }
 
@@ -1160,7 +1164,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 : await _store.ReadAsync(scope, latest.SnapshotId, CancellationToken.None).ConfigureAwait(true);
             if (snapshot is null)
             {
-                Status = "There is no stash snapshot to export.";
+                Status = IntelText.StashNothingToExport;
                 return;
             }
 
@@ -1170,11 +1174,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 directory,
                 $"{LocalTime.FileStamp(_clock.GetUtcNow())}-stash-snapshot.{extension}");
             await File.WriteAllTextAsync(destination, format(snapshot), CancellationToken.None).ConfigureAwait(true);
-            Status = $"Exported {extension.ToUpperInvariant()} to {destination}";
+            Status = IntelText.StashExported(extension.ToUpperInvariant(), destination);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Export failed: {exception.Message}";
+            Status = IntelText.StashExportFailed(exception.Message);
         }
     }
 
@@ -1243,7 +1247,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         if (_reviewState.PinnedItemKeys.Contains(item.ItemKey))
         {
-            Status = "That item is already pinned.";
+            Status = IntelText.StashAlreadyPinned;
             return;
         }
 
@@ -1254,7 +1258,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             [item.ItemKey],
             _clock.GetUtcNow(),
             StashReviewCommandProjection.WorkspaceOrigin,
-            reason: "Kept regardless of the current sort advice."), "Item pinned.").ConfigureAwait(true);
+            reason: "Kept regardless of the current sort advice."), IntelText.StashItemPinned).ConfigureAwait(true);
     }
 
     private async Task IgnoreSelectedAsync()
@@ -1266,7 +1270,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         if (_reviewState.IgnoredItemKeys.Contains(item.ItemKey))
         {
-            Status = "That item is already ignored.";
+            Status = IntelText.StashAlreadyIgnored;
             return;
         }
 
@@ -1277,7 +1281,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             [item.ItemKey],
             _clock.GetUtcNow(),
             StashReviewCommandProjection.WorkspaceOrigin,
-            reason: "Dropped from this snapshot's sort plan."), "Item ignored.").ConfigureAwait(true);
+            reason: "Dropped from this snapshot's sort plan."), IntelText.StashItemIgnored).ConfigureAwait(true);
     }
 
     private async Task RescanSelectedRegionAsync()
@@ -1289,7 +1293,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         if (_reviewState.RescanContainerPaths.Contains(item.ContainerPath))
         {
-            Status = "That region is already queued for rescan.";
+            Status = IntelText.StashAlreadyQueued;
             return;
         }
 
@@ -1300,7 +1304,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             [item.ContainerPath],
             _clock.GetUtcNow(),
             StashReviewCommandProjection.WorkspaceOrigin,
-            reason: $"Recapture {ContainerTitle(item.ContainerPath)}."), "Region queued for rescan.").ConfigureAwait(true);
+            reason: $"Recapture {ContainerTitle(item.ContainerPath)}."), IntelText.StashRegionQueued).ConfigureAwait(true);
         if (!saved)
         {
             return;
@@ -1313,7 +1317,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 _profileContext?.Current.ActiveProfile?.Context.DataSnapshot.SnapshotId ?? "unversioned",
                 CancellationToken.None).ConfigureAwait(true);
             _arming?.Resume();
-            Status = $"Ready to recapture {ContainerTitle(item.ContainerPath)}.";
+            Status = IntelText.StashReadyToRecapture(ContainerTitle(item.ContainerPath));
             RaiseAll();
             return;
         }
@@ -1331,7 +1335,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var previous = MergeCandidate();
         if (previous is null)
         {
-            Status = "There is no earlier snapshot to merge.";
+            Status = IntelText.StashNoEarlierMerge;
             return;
         }
 
@@ -1342,23 +1346,23 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             [_selected.SnapshotId.ToString("D"), previous.SnapshotId.ToString("D")],
             _clock.GetUtcNow(),
             StashReviewCommandProjection.SnapshotMergeOrigin,
-            reason: $"Combined with the snapshot from {previous.RecordedLabel}."), "Snapshots combined.").ConfigureAwait(true);
+            reason: $"Combined with the snapshot from {previous.RecordedLabel}."), IntelText.StashSnapshotsCombined).ConfigureAwait(true);
     }
 
     private async Task UndoReviewAsync()
     {
         if (_reviewState.LatestUndoable is not { } command)
         {
-            Status = "There is no review change to undo.";
+            Status = IntelText.StashNothingToUndo;
             return;
         }
 
         await SubmitReviewAsync(
             StashReviewCommandProjection.Undo(command, _clock.GetUtcNow()),
-            $"Undid {StashReviewCommandProjection.ActionLabel(command.Action)}.").ConfigureAwait(true);
+            IntelText.StashUndid(StashReviewCommandProjection.ActionLabel(command.Action))).ConfigureAwait(true);
     }
 
-    private async Task<bool> SubmitReviewAsync(StashReviewCommand command, string savedStatus = "Correction saved.")
+    private async Task<bool> SubmitReviewAsync(StashReviewCommand command, string? savedStatus = null)
     {
         try
         {
@@ -1371,7 +1375,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
 
         await ReloadSelectedReviewAsync(CancellationToken.None).ConfigureAwait(true);
-        Status = savedStatus;
+        Status = savedStatus ?? IntelText.StashCorrectionSaved;
         return true;
     }
 
@@ -1387,8 +1391,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         commands
             .Select(command => StashReviewCommandProjection.IsUndoRecord(command)
                 ? new StashReviewCommandRowViewModel(
-                    "Undo",
-                    command.Reason ?? "Review change",
+                    IntelText.StashHistoryUndo,
+                    command.Reason ?? IntelText.StashHistoryReviewChange,
                     LocalTime.Moment(command.CreatedUtc),
                     null)
                 : new StashReviewCommandRowViewModel(
@@ -1486,7 +1490,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 var canonicalId = tile.ItemId;
                 var definition = await ItemDefinitionForAsync(canonicalId, definitionsByItemId, cancellationToken).ConfigureAwait(true);
                 var displayName = tile.DisplayName ?? definition?.Name
-                    ?? (tile.CandidateNames.Count > 0 ? $"{tile.CandidateNames[0]}?" : "Unknown item");
+                    ?? (tile.CandidateNames.Count > 0 ? $"{tile.CandidateNames[0]}?" : IntelText.StashUnknownItem);
 
                 var tileName = TileName(tile, definition, displayName);
                 var quantity = tile.Quantity ?? 1;
@@ -1497,14 +1501,14 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     tile.ItemKey,
                     displayName,
                     container.ContainerPath,
-                    quantity == 1 ? "x1" : $"x{quantity.ToString(CultureInfo.CurrentCulture)}",
+                    IntelText.StashQuantity(quantity),
                     DescribeProvenance(tile.Provenance),
                     plannedByKey?.GetValueOrDefault(tile.ItemKey)?.Group ?? StashPlanGroup.Review)
                 {
                     IsIgnored = isIgnored,
                     WikiUri = wikiUri,
                     WhyLabel = isIgnored
-                        ? "Ignored in this snapshot's plan."
+                        ? IntelText.StashIgnoredInPlan
                         : StashSortWording.Why(
                             plannedByKey?.GetValueOrDefault(tile.ItemKey),
                             sorted?.ReasonsByItemKey.GetValueOrDefault(tile.ItemKey)),
@@ -1552,7 +1556,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     tile.Width,
                     tile.Height,
                     tileName,
-                    quantity > 1 ? $"x{quantity.ToString(CultureInfo.CurrentCulture)}" : string.Empty,
+                    quantity > 1 ? IntelText.StashQuantity(quantity) : string.Empty,
                     kind,
                     row));
             }
@@ -1582,11 +1586,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
         PlanTiles =
         [
-            new(StashPlanGroup.Keep, "Keep", Count(items, StashPlanGroup.Keep), IsWired: _isSorted),
-            new(StashPlanGroup.Sell, "Sell", Count(items, StashPlanGroup.Sell), IsWired: _isSorted),
-            new(StashPlanGroup.UseSoon, "Use soon", Count(items, StashPlanGroup.UseSoon), IsWired: _isSorted),
-            new(StashPlanGroup.Organize, "Organize", Count(items, StashPlanGroup.Organize), IsWired: _isSorted),
-            new(StashPlanGroup.Review, "Review", Count(items, StashPlanGroup.Review), IsWired: true),
+            new(StashPlanGroup.Keep, IntelText.StashGroupKeep, Count(items, StashPlanGroup.Keep), IsWired: _isSorted),
+            new(StashPlanGroup.Sell, IntelText.StashGroupSell, Count(items, StashPlanGroup.Sell), IsWired: _isSorted),
+            new(StashPlanGroup.UseSoon, IntelText.StashGroupUseSoon, Count(items, StashPlanGroup.UseSoon), IsWired: _isSorted),
+            new(StashPlanGroup.Organize, IntelText.StashGroupOrganize, Count(items, StashPlanGroup.Organize), IsWired: _isSorted),
+            new(StashPlanGroup.Review, IntelText.StashGroupReview, Count(items, StashPlanGroup.Review), IsWired: true),
         ];
         AmmoSummary = ammoRounds
             .Select(entry => new StashAmmoSummaryRowViewModel(
@@ -1602,10 +1606,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 return new StashKeySummaryRowViewModel(
                     entry.Value.DisplayName,
                     entry.Value.Duplicates,
-                    facts?.MapId ?? "Map not catalogued",
+                    facts?.MapId ?? IntelText.StashMapNotCatalogued,
                     facts is { RelevantTaskIds.Count: > 0 }
-                        ? $"{facts.RelevantTaskIds.Count} quest(s)"
-                        : "No quest use catalogued");
+                        ? IntelText.StashQuestCount(facts.RelevantTaskIds.Count)
+                        : IntelText.StashNoQuestUse);
             })
             .OrderBy(row => row.DisplayName, StringComparer.Ordinal)
             .ToArray();
@@ -1734,12 +1738,12 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var total = coverage.TotalCells.Value;
         var container = ContainerTitle(coverage.ContainerPath);
         return observed is null || total is null
-            ? $"{container}: coverage unresolved"
-            : $"{container}: {observed}/{total} cells";
+            ? IntelText.StashCoverageUnresolved(container)
+            : IntelText.StashCoverageCells(container, observed.Value, total.Value);
     }
 
     private static string DescribeProvenance(EvidenceProvenance provenance) =>
-        $"{provenance.SourceClass} · {provenance.Confidence.Score?.ToString("P0", CultureInfo.InvariantCulture) ?? "unscored"}";
+        $"{provenance.SourceClass} · {provenance.Confidence.Score?.ToString("P0", CultureInfo.InvariantCulture) ?? IntelText.StashUnscored}";
 
     private InventoryProfileScope? CurrentScope()
     {

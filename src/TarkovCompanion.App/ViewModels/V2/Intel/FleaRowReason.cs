@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -56,7 +57,7 @@ public static class FleaRowReason
         var decision = row.Recommendation.Decision.Value;
         if (decision is null)
         {
-            return "No comparison";
+            return IntelText.FleaReasonNoComparison;
         }
 
         var comparison = decision.Reasons.FirstOrDefault(reason =>
@@ -71,66 +72,65 @@ public static class FleaRowReason
         var codes = decision.Reasons.ToDictionary(reason => reason.Code, StringComparer.Ordinal);
         if (codes.ContainsKey(IdentityUntrusted))
         {
-            return scan.ItemName is null ? "Item not read · no comparison" : "Item name uncertain · check";
+            return scan.ItemName is null ? IntelText.FleaReasonItemNotRead : IntelText.FleaReasonItemUncertain;
         }
 
         if (codes.ContainsKey(OfferPriceUntrusted))
         {
-            return "Price read uncertain · check";
+            return IntelText.FleaReasonPriceUncertain;
         }
 
         foreach (var code in (string[])[PriceMissing, FleaNetUntrusted, TraderUntrusted])
         {
             if (codes.TryGetValue(code, out var reason) && Oldest(reason.Provenance) is { } oldest && now - oldest > limit)
             {
-                return $"Prices {Age(now - oldest, culture)} old · refresh to compare";
+                return IntelText.FleaReasonPricesOld(Age(now - oldest, culture));
             }
         }
 
         if (codes.ContainsKey(PriceMissing))
         {
-            return "No flea or trader price";
+            return IntelText.FleaReasonNoPrice;
         }
 
         if (codes.ContainsKey(FleaNetUntrusted))
         {
             return scan.Average24HourRoubles is null
-                ? "No flea price for this item"
-                : "Flea fee not known · no comparison";
+                ? IntelText.FleaReasonNoFleaPrice
+                : IntelText.FleaReasonFeeUnknown;
         }
 
         if (codes.ContainsKey(TraderUntrusted))
         {
-            return "Trader price not known · no comparison";
+            return IntelText.FleaReasonTraderUnknown;
         }
 
         if (codes.ContainsKey(FootprintMissing))
         {
-            return "Item size not known · no comparison";
+            return IntelText.FleaReasonSizeUnknown;
         }
 
-        return "Not enough to compare";
+        return IntelText.FleaReasonNotEnough;
     }
 
     /// <summary>"10 days", "5 h", "40 min": how long ago, at the coarsest unit that is not zero.</summary>
     internal static string Age(TimeSpan age, CultureInfo culture) => age switch
     {
-        { TotalDays: >= 2 } => $"{((int)age.TotalDays).ToString(culture)} days",
-        { TotalDays: >= 1 } => "1 day",
-        { TotalHours: >= 1 } => $"{((int)age.TotalHours).ToString(culture)} h",
-        _ => $"{Math.Max(1, (int)age.TotalMinutes).ToString(culture)} min",
+        { TotalDays: >= 1 } => IntelText.FleaAgeDays((int)age.TotalDays, ((int)age.TotalDays).ToString(culture)),
+        { TotalHours: >= 1 } => IntelText.FleaAgeHours(((int)age.TotalHours).ToString(culture)),
+        _ => IntelText.FleaAgeMinutes(Math.Max(1, (int)age.TotalMinutes).ToString(culture)),
     };
 
     private static string Comparison(string code, FleaScanRow row, FleaScanResult scan, CultureInfo culture)
     {
         var viaTrader = code.EndsWith(".trader", StringComparison.Ordinal);
-        var channel = viaTrader ? $"to {scan.TraderName ?? "a trader"}" : "on flea after fee";
+        var channel = viaTrader ? IntelText.FleaReasonToTrader(scan.TraderName ?? IntelText.FleaReasonATrader) : IntelText.FleaReasonOnFleaAfterFee;
         return row.ResaleMarginRoubles switch
         {
-            > 0 and var profit => $"{FleaScanRowViewModel.Roubles(profit, culture)} profit reselling {channel}",
-            < 0 and var loss => $"{FleaScanRowViewModel.Roubles(-loss, culture)} more than it resells for",
-            0 => "Resells for what it costs",
-            _ => viaTrader ? "Compared with the trader price" : "Compared with the flea average",
+            > 0 and var profit => IntelText.FleaReasonProfit(FleaScanRowViewModel.Roubles(profit, culture), channel),
+            < 0 and var loss => IntelText.FleaReasonLoss(FleaScanRowViewModel.Roubles(-loss, culture)),
+            0 => IntelText.FleaReasonEven,
+            _ => viaTrader ? IntelText.FleaReasonComparedTrader : IntelText.FleaReasonComparedFlea,
         };
     }
 

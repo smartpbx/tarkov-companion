@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Controls.ApplicationLifetimes;
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -774,24 +775,24 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public string SuggestionsHeading => V2ShellText.Get("V2.Shell.Suggestions.Heading");
     public string BrowseHeading => V2ShellText.Get("V2.Shell.Suggestions.Browse");
     public string SuggestionsEmpty => V2ShellText.Get("V2.Shell.Suggestions.Empty");
-    public string IntelHeading => V2ShellText.Get("V2.Shell.Intel.Heading");
+    public string IntelHeading => IntelText.Heading;
     public string IntelDescription => _intelResult is { Kind: not V2IntelKind.Unknown } result
         ? result.Name
-        : V2ShellText.Format("V2.Shell.Intel.Item", CultureInfo.CurrentCulture, IntelItem);
+        : IntelText.UnknownItem;
     public bool IntelIsLoading => _intelLoading;
     public bool IntelIsNotFound => !_intelLoading && _intelResult is { Kind: V2IntelKind.Unknown };
     public string IntelStatusLabel => IntelIsLoading
-        ? V2ShellText.Get("V2.Shell.Intel.Loading")
-        : IntelIsNotFound ? V2ShellText.Get("V2.Shell.Intel.NotFound") : string.Empty;
+        ? IntelText.Loading
+        : IntelIsNotFound ? IntelText.NotFound : string.Empty;
     public string IntelKindLabel => _intelResult?.Kind switch
     {
-        V2IntelKind.Key => V2ShellText.Get("V2.Shell.Intel.KindKey"),
-        V2IntelKind.Ammo => V2ShellText.Get("V2.Shell.Intel.KindAmmo"),
-        V2IntelKind.Item => V2ShellText.Get("V2.Shell.Intel.KindItem"),
+        V2IntelKind.Key => IntelText.KindKey,
+        V2IntelKind.Ammo => IntelText.KindAmmo,
+        V2IntelKind.Item => IntelText.KindItem,
         _ => string.Empty,
     };
     public IReadOnlyList<V2ShellIntelFactViewModel> IntelFacts => BuildIntelFacts();
-    public string IntelWikiLabel => V2ShellText.Get("V2.Shell.Intel.Wiki");
+    public string IntelWikiLabel => IntelText.Wiki;
     public bool IntelHasWikiLink => WikiLinkPolicy.IsAllowed(_intelResult?.WikiUri);
     public ICommand OpenIntelWikiCommand { get; }
     public string ReadinessSummary => V2ShellText.Format(
@@ -2444,34 +2445,32 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         var facts = new List<V2ShellIntelFactViewModel>
         {
-            new(V2ShellText.Get("V2.Shell.Intel.ShortName"), result.ShortName),
-            new(V2ShellText.Get("V2.Shell.Intel.Category"), result.Category.ToString()),
+            new(IntelText.DetailShortName, result.ShortName),
+            new(IntelText.DetailCategory, result.Category.ToString()),
             new(
-                V2ShellText.Get("V2.Shell.Intel.Size"),
-                V2ShellText.Format(
-                    "V2.Shell.Intel.SizeValue",
-                    CultureInfo.CurrentCulture,
+                IntelText.DetailSize,
+                IntelText.DetailSizeValue(
                     result.Width,
                     result.Height,
                     result.Width * result.Height)),
-            new(V2ShellText.Get("V2.Shell.Intel.Price"), PriceValueLabel(result.Value)),
+            new(IntelText.DetailPrice, PriceValueLabel(result.Value)),
             new(
-                V2ShellText.Get("V2.Shell.Intel.Flea"),
-                V2ShellText.Get(result.FleaEligible ? "V2.Shell.Intel.FleaAllowed" : "V2.Shell.Intel.FleaNotAllowed")),
-            new(V2ShellText.Get("V2.Shell.Intel.Need"), NeedValueLabel(result)),
+                IntelText.DetailFlea,
+                result.FleaEligible ? IntelText.DetailFleaAllowed : IntelText.DetailFleaNotAllowed),
+            new(IntelText.DetailNeed, NeedValueLabel(result)),
         };
 
         if (result.Kind == V2IntelKind.Key)
         {
-            facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Opens"), OpensValueLabel(result.Key)));
+            facts.Add(new(IntelText.DetailOpens, OpensValueLabel(result.Key)));
             if (result.Key?.MaximumUses is { } uses)
             {
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Uses"), uses.ToString("N0", CultureInfo.CurrentCulture)));
+                facts.Add(new(IntelText.DetailUses, uses.ToString("N0", CultureInfo.CurrentCulture)));
             }
 
             if (result.Key?.AcquisitionCostRoubles is { } cost)
             {
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.KeyCost"), Roubles(cost)));
+                facts.Add(new(IntelText.DetailKeyCost, Roubles(cost)));
             }
         }
 
@@ -2479,24 +2478,24 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             if (result.Ammo is { } ammo)
             {
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Damage"), ammo.Damage.ToString(CultureInfo.CurrentCulture)));
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Penetration"), ammo.Penetration.ToString(CultureInfo.CurrentCulture)));
+                facts.Add(new(IntelText.DetailDamage, ammo.Damage.ToString(CultureInfo.CurrentCulture)));
+                facts.Add(new(IntelText.DetailPenetration, ammo.Penetration.ToString(CultureInfo.CurrentCulture)));
                 if (ammo.ArmorDamagePercent is { } armorDamage)
                 {
-                    facts.Add(new(V2ShellText.Get("V2.Shell.Intel.ArmorDamage"), $"{armorDamage.ToString("N0", CultureInfo.CurrentCulture)}%"));
+                    facts.Add(new(IntelText.DetailArmorDamage, IntelText.DetailArmorDamageValue(armorDamage)));
                 }
 
                 if (ammo.FragmentationChance is { } fragmentation)
                 {
-                    facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Fragmentation"), fragmentation.ToString("P0", CultureInfo.CurrentCulture)));
+                    facts.Add(new(IntelText.DetailFragmentation, fragmentation.ToString("P0", CultureInfo.CurrentCulture)));
                 }
 
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Tier"), ammo.Tier));
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Advice"), ammo.PracticalAdvice));
+                facts.Add(new(IntelText.DetailTier, ammo.Tier));
+                facts.Add(new(IntelText.DetailAdvice, ammo.PracticalAdvice));
             }
             else
             {
-                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Damage"), V2ShellText.Get("V2.Shell.Intel.AmmoUnknown")));
+                facts.Add(new(IntelText.DetailDamage, IntelText.DetailAmmoUnknown));
             }
         }
 
@@ -2505,8 +2504,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
     private static string PriceValueLabel(V2IntelValueFacts? value) =>
         value is { ValueRoubles: { } roubles, SaleChannelLabel: { } channel }
-            ? V2ShellText.Format("V2.Shell.Intel.PriceValue", CultureInfo.CurrentCulture, roubles, channel)
-            : V2ShellText.Get("V2.Shell.Intel.PriceUnknown");
+            ? IntelText.DetailPriceValue(roubles, channel)
+            : IntelText.DetailPriceUnknown;
 
     // Package 33 (#287): the tracked-quest count reads result.Keep, not result.Value, for the
     // same reason V2ShellViewModel.IntelWorkspace.cs's need summary does (see the remark there) —
@@ -2518,17 +2517,17 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var tracked = result.Keep?.Quests.Count ?? 0;
         var hideout = result.Value?.HideoutCount ?? 0;
         return tracked == 0 && hideout == 0
-            ? V2ShellText.Get("V2.Shell.Intel.NeedNone")
-            : V2ShellText.Format("V2.Shell.Intel.NeedValue", CultureInfo.CurrentCulture, tracked, 0, hideout);
+            ? IntelText.DetailNeedNone
+            : IntelText.DetailNeedValue(tracked, 0, hideout);
     }
 
     private static string OpensValueLabel(V2IntelKeyFacts? key) => key switch
     {
         { MapId: { } map, Locks.Count: > 0 } withLocks =>
-            V2ShellText.Format("V2.Shell.Intel.OpensMapAndLocks", CultureInfo.CurrentCulture, withLocks.MapName ?? map, string.Join(", ", withLocks.Locks)),
+            IntelText.DetailOpensMapAndLocks(withLocks.MapName ?? map, string.Join(", ", withLocks.Locks)),
         { MapId: { } map } named => named.MapName ?? map,
         { Locks.Count: > 0 } locksOnly => string.Join(", ", locksOnly.Locks),
-        _ => V2ShellText.Get("V2.Shell.Intel.OpensUnknown"),
+        _ => IntelText.DetailOpensUnknown,
     };
 
     private bool HasRenderedFocusTarget(string automationId) =>
