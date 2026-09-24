@@ -53,13 +53,31 @@ public sealed class GalleryReadiness
 
     public void Failed(string detail) => _ready.TrySetException(new InvalidOperationException(detail));
 
+    /// <summary>
+    /// [#279] Set by the scene once it is ready: waits for a named condition after a gallery step
+    /// (an extract pressed, the map zoomed, the loot layer switched on). The scene's own "ready"
+    /// answers once; this is what replaced the fixed sleeps the gallery took after each step.
+    /// </summary>
+    public Func<string, CancellationToken, Task<string>>? AfterStep { get; set; }
+
     /// <summary>Null detail and a reason when it did not become ready within the timeout.</summary>
-    public async Task<(bool Ready, string Detail)> WaitAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    /// <param name="condition">Null for the scene itself; otherwise a condition <see cref="AfterStep"/> knows.</param>
+    public async Task<(bool Ready, string Detail)> WaitAsync(TimeSpan timeout, CancellationToken cancellationToken, string? condition = null)
     {
         try
         {
             var detail = await _ready.Task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
-            return (true, detail);
+            if (condition is null)
+            {
+                return (true, detail);
+            }
+
+            if (AfterStep is not { } afterStep)
+            {
+                return (false, $"the scene cannot wait for '{condition}'");
+            }
+
+            return (true, await afterStep(condition, cancellationToken).WaitAsync(timeout, cancellationToken).ConfigureAwait(false));
         }
         catch (TimeoutException)
         {
@@ -116,6 +134,8 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                 .ConfigureAwait(true);
             await SettledAsync(raid, cancellationToken).ConfigureAwait(true);
             await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+            readiness.AfterStep = (condition, token) =>
+                Dispatcher.UIThread.InvokeAsync(() => AfterStepAsync(raid, condition, token));
             readiness.Ready($"{scene.ToString().ToLowerInvariant()} on {mapId}: {detail}");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -125,6 +145,35 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
     }
 
     private int _placedMarks;
+
+    /// <summary>
+    /// [#279] What the gallery waits for after one of its own steps, on the UI thread.
+    /// "settled": the scene stopped changing (an extract selected, the map zoomed). "loot": the
+    /// high-value loot pins are drawn and settled; the layer builds after the button, and a fixed
+    /// four seconds was a guess at how long that takes on a runner.
+    /// </summary>
+    private async Task<string> AfterStepAsync(RaidCockpitViewModel raid, string condition, CancellationToken cancellationToken)
+    {
+        switch (condition)
+        {
+            case "settled":
+                break;
+            case "loot":
+                await WaitForAsync(
+                    () => raid.Renderer?.PointMarkers.Any(item => item.SceneObject?.Kind is MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer) == true,
+                    StepTimeout,
+                    "loot pins on the map",
+                    cancellationToken).ConfigureAwait(true);
+                break;
+            default:
+                throw new InvalidOperationException($"no gallery condition named '{condition}'");
+        }
+
+        await SettledAsync(raid, cancellationToken).ConfigureAwait(true);
+        await Dispatcher.UIThread.InvokeAsync(static () => { }, DispatcherPriority.Background);
+        var pins = raid.Renderer?.PointMarkers.Count ?? 0;
+        return $"{condition}: {pins} pins";
+    }
 
     private bool MarkersDrawn(RaidCockpitViewModel raid)
     {

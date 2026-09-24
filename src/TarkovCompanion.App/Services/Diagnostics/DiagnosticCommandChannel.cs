@@ -85,7 +85,13 @@ public sealed class DiagnosticCommandProcessor(
                 return new(commandId, true, "not-ready", null, processedUtc, "This launch has no --gallery-scene.");
             }
 
-            var (ready, detail) = await readiness.WaitAsync(_readyTimeout, cancellationToken).ConfigureAwait(false);
+            // [#279] A scenario on a "ready" names what to wait for after a gallery step.
+            if (command.Scenario is not null && !IsSafeIdentifier(command.Scenario))
+            {
+                return Reject(commandId, processedUtc, "invalid-scenario");
+            }
+
+            var (ready, detail) = await readiness.WaitAsync(_readyTimeout, cancellationToken, command.Scenario).ConfigureAwait(false);
             return ready
                 ? new(commandId, true, "ready", null, processedUtc, Detail: detail)
                 : new(commandId, true, "not-ready", null, processedUtc, detail);
