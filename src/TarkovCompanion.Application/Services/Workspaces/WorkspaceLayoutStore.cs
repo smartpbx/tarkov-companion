@@ -43,6 +43,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 701] Whether potential loot is ranked per item or per inventory slot.</summary>
     public const string RaidLootValueBasis = "raid.loot-value-basis";
 
+    /// <summary>[Issue 796] The raid map layers the player turned on or off, as "id:1,id:0".</summary>
+    public const string RaidLayerVisibility = "raid.layer-visibility";
+
     /// <summary>[Issue 702] Whether a new screenshot moves the raid map back to the player.</summary>
     public const string RaidFollow = "raid.follow";
 
