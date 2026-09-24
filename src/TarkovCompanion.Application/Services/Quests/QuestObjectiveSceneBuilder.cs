@@ -231,7 +231,10 @@ public sealed class QuestObjectiveSceneBuilder
     public static string PlacementLabelFor(QuestObjectivePlacement placement, int places) => placement switch
     {
         QuestObjectivePlacement.Candidates => string.Create(CultureInfo.CurrentCulture, $"One of {places:N0} places"),
-        QuestObjectivePlacement.Area => places == 1 ? "Area" : string.Create(CultureInfo.CurrentCulture, $"{places:N0} areas"),
+        // [#797] A zone is where to search, not a spot: the row must not read as an exact place.
+        QuestObjectivePlacement.Area => places == 1
+            ? "Somewhere in this area"
+            : string.Create(CultureInfo.CurrentCulture, $"Somewhere in {places:N0} areas"),
         QuestObjectivePlacement.Point => places == 1
             ? "Marked spot"
             : string.Create(CultureInfo.CurrentCulture, $"{places:N0} spots"),

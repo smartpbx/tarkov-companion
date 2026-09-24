@@ -43,7 +43,7 @@ public sealed class RaidObjectiveDetailViewModelTests
         var detail = DetailOf("customs", "5a3fc032");
 
         Assert.Contains(detail.Items, line => line == "Keys: Dorm room 214 key");
-        Assert.Equal("Area", detail.Where);
+        Assert.Equal("Somewhere in this area", detail.Where);
         Assert.Equal("2nd Floor", detail.Floor);
         Assert.True(detail.HasFloor);
     }

@@ -100,4 +100,20 @@ public sealed class MapMarkerOverlapLayoutTests
         var distanceB = Math.Sqrt((b.DeltaX * b.DeltaX) + (b.DeltaY * b.DeltaY));
         Assert.Equal(distanceA, distanceB, 6);
     }
+
+    [Fact]
+    public void A_ring_of_six_grows_so_neighbours_never_overlap()
+    {
+        // [#797] Objectives no longer fold into a count, so a ring must hold more of them.
+        var result = MapMarkerOverlapLayout.Resolve([.. Enumerable.Repeat((50d, 50d), 6)]);
+
+        for (var slot = 0; slot < 6; slot++)
+        {
+            var next = result[(slot + 1) % 6];
+            var distance = Math.Sqrt(Math.Pow(result[slot].DeltaX - next.DeltaX, 2) + Math.Pow(result[slot].DeltaY - next.DeltaY, 2));
+            Assert.True(distance >= MapMarkerOverlapLayout.MinimumRingSpacing - 1e-9, $"{slot}: {distance}");
+        }
+
+        Assert.Equal(MapMarkerOverlapLayout.RingRadius, MapMarkerOverlapLayout.RadiusFor(3));
+    }
 }
