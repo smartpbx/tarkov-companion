@@ -295,6 +295,12 @@ public sealed record GroupMemberView(
     public IReadOnlyList<GroupTrailPointView> Trail { get; init; } = [];
 
     /// <summary>
+    /// [#286] The lines this member drew on their map for the squad; empty from a companion or
+    /// relay that predates them.
+    /// </summary>
+    public IReadOnlyList<GroupDrawingView> Drawings { get; init; } = [];
+
+    /// <summary>
     /// [#269] The game mode this member's companion says they play ("pvp", "pve", "seasonal"), or
     /// null from a companion or relay that predates it. A member on another mode arrives with no
     /// quests: their quest ids would name tasks in a progress line this profile does not share.

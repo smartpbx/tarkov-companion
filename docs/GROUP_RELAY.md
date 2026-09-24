@@ -88,6 +88,13 @@ previous entry rather than adding a second one.
   is on that extract's map or on none) and a note (at most 120). A relay older than these drops
   them; a client older than them ignores them. A desktop "Squad" mark whose send fails is queued,
   shown as "Queued" in Team's marks, and sent when the group is next seen live (at most 15 min).
+- `drawings` — lines the player drew on the Raid map in Draw mode with "Squad" scope (#286):
+  `[{"id": "<≤64>", "mapId": "customs", "floor": "<catalog floor id, optional>", "points":
+  [x0, z0, x1, z1, …]}]`, world metres rounded to 0.1. At most 20 lines of 2 to 200 points; the
+  client also keeps the total under 1,000 points so a full publish stays inside the 32 KB body
+  bound. Omitted when nothing is shared. No lifetime crosses the wire: the sender stops
+  publishing a line when it expires or is removed, and a line leaves with its member. A relay
+  older than this field drops it; a client older than it ignores it.
 
 The reply is everyone else in the group:
 

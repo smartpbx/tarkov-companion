@@ -23,6 +23,60 @@ public sealed partial class RaidCockpitView : UserControl
         {
             mapColumn.SizeChanged += MapColumnSizeChanged;
         }
+
+        DataContextChanged += CockpitDataContextChanged;
+    }
+
+    private RaidCockpitViewModel? _cockpit;
+
+    /// <summary>
+    /// [#286] The renderer's own DataContext is the scene, so the cockpit's Draw mode is handed
+    /// to it here rather than bound through the element whose context was overridden.
+    /// </summary>
+    private void CockpitDataContextChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_cockpit is not null)
+        {
+            _cockpit.PropertyChanged -= CockpitPropertyChanged;
+        }
+
+        _cockpit = DataContext as RaidCockpitViewModel;
+        if (_cockpit is not null)
+        {
+            _cockpit.PropertyChanged += CockpitPropertyChanged;
+        }
+
+        SyncDrawMode();
+    }
+
+    private void CockpitPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is nameof(RaidCockpitViewModel.IsDrawMode) or null)
+        {
+            SyncDrawMode();
+        }
+    }
+
+    private void SyncDrawMode()
+    {
+        if (this.FindControl<MapSceneRendererView>("MapRenderer") is { } renderer)
+        {
+            renderer.IsDrawing = _cockpit?.IsDrawMode == true;
+        }
+    }
+
+    private void RendererStrokeDrawn(object? sender, IReadOnlyList<MapScenePoint> points) =>
+        _cockpit?.AddDrawing(points);
+
+    private void RendererDrawEscaped(object? sender, EventArgs eventArgs) =>
+        _cockpit?.SetInteractionMode(MapInteractionMode.Navigate);
+
+    private void DrawSettingsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (_cockpit is { } cockpit && sender is Control button)
+        {
+            RaidMarkMenu.ForNewDrawings(cockpit).ShowAt(button);
+        }
     }
 
     /// <summary>
@@ -105,6 +159,13 @@ public sealed partial class RaidCockpitView : UserControl
     {
         if (DataContext is not RaidCockpitViewModel cockpit)
         {
+            return;
+        }
+
+        // [#286] A line of ours opens its own menu; a squadmate's is theirs to remove.
+        if (cockpit.OwnDrawing(objectId) is { } drawing && sender is Control drawingHost)
+        {
+            RaidMarkMenu.ForDrawing(cockpit, drawing).ShowAt(drawingHost, showAtPointer: true);
             return;
         }
 

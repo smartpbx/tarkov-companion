@@ -617,6 +617,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _marks.Changed += MarksChanged;
         // [#707] Marks placed here, or on a paired tablet, go to the group as well.
         AttachGroupMarks();
+        // [#286] Lines drawn in Draw mode.
+        AttachDrawings();
         if (_userMarkers is not null)
         {
             _userMarkers.Changed += UserMarkersChanged;
@@ -1283,6 +1285,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _stateStore.Changed -= RuntimeStateChanged;
         _marks.Changed -= MarksChanged;
         DetachGroupMarks();
+        DetachDrawings();
         if (_userMarkers is not null)
         {
             _userMarkers.Changed -= UserMarkersChanged;
@@ -2623,6 +2626,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var markRoutes = BuildMarkRoutes(_marks.Marks, model.Location.Id, nowUtc);
         markObjects = [.. markObjects, .. markRoutes.Objects];
         _objectStyles = markRoutes.Objects.Count == 0 ? live.Styles : WithRouteStyles(live.Styles, markRoutes.Objects);
+        // [#286] Lines drawn in Draw mode, ours and the squad's.
+        var drawings = BuildDrawings(model, nowUtc);
+        if (drawings.Styles.Count > 0)
+        {
+            _objectStyles = new Dictionary<MapSceneObjectId, MapSceneObjectStyle>(_objectStyles.Concat(drawings.Styles));
+        }
+
         UiActivity.Step("raid:live");
         _questScene = UserQuestMarkerScene.Apply(
             BuildQuestScene(_map.QuestSceneProjection, model, nowUtc, _questLetters),
@@ -2655,10 +2665,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)
             .Concat(objectiveRoute is null ? [] : [objectiveRoute.Layer])
-            .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>()).ToArray();
+            .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>())
+            .Concat(drawings.Layer is { } drawingsLayer ? new[] { drawingsLayer } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
             .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects)
-            .Concat(objectiveRoute?.Objects ?? []).Concat(squadObjectives).ToArray();
+            .Concat(objectiveRoute?.Objects ?? []).Concat(squadObjectives).Concat(drawings.Objects).ToArray();
 
         // [V2 rough package 39] The stack: one asset per floor beside the background.
         // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that

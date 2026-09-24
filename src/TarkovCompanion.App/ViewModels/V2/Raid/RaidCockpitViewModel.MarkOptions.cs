@@ -57,6 +57,9 @@ public sealed partial class RaidCockpitViewModel
         OnPropertyChanged(nameof(NewMarkScope));
         OnPropertyChanged(nameof(NewMarksAreSquad));
         OnPropertyChanged(nameof(NewMarksAreJustMe));
+        // [#286] New lines take the same switch.
+        OnPropertyChanged(nameof(DrawSettingsLabel));
+        OnPropertyChanged(nameof(DrawModeLabel));
     }
 
     /// <summary>Places a mark with a chosen lifetime where a Ctrl+right-click landed.</summary>
@@ -120,6 +123,7 @@ public sealed partial class RaidCockpitViewModel
         if (raidEnded)
         {
             _ = _marks.EndRaidAsync();
+            EndRaidDrawings();
         }
 
         var group = snapshot.Group;

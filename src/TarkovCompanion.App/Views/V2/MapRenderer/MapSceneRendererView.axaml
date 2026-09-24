@@ -1174,6 +1174,11 @@
                      Width="{Binding EmptyMessageWidth}" Classes="v2-label"
                      IsVisible="{Binding ShowsEmptyMapMessage}"
                      Text="{Binding EmptyMapMessage}" TextWrapping="Wrap" TextAlignment="Center" />
+
+          <!-- [#286] The line being drawn in Draw mode, in viewport pixels while the button is
+               down. On release it becomes plan points and is drawn by the scene like any line. -->
+          <Polyline x:Name="DrawingInk" IsVisible="False" IsHitTestVisible="False"
+                    Stroke="#FFF4F4F4" StrokeThickness="3" StrokeJoin="Round" StrokeLineCap="Round" />
         </Canvas>
       </Border>
 

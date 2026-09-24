@@ -150,6 +150,21 @@ public sealed record GroupMemberState(
             return "A note must be 120 characters or fewer.";
         }
 
+        // [#286] Lines drawn on the map for the squad: twenty per member, two hundred points
+        // each, as a flat x, z list. The 32 KB body bound still holds the whole publish.
+        if (Drawings is { } drawings && (drawings.Count > MaximumDrawings || drawings.Any(drawing =>
+                drawing is null ||
+                string.IsNullOrWhiteSpace(drawing.Id) || drawing.Id.Length > 64 ||
+                string.IsNullOrWhiteSpace(drawing.MapId) || drawing.MapId.Length > 64 ||
+                drawing.Floor is { Length: > 64 } ||
+                drawing.Points is not { Count: >= 4 } points ||
+                points.Count % 2 != 0 ||
+                points.Count > MaximumDrawingPoints * 2 ||
+                points.Any(value => !double.IsFinite(value)))))
+        {
+            return "A member may share at most twenty lines of two to two hundred points each.";
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
@@ -314,6 +329,35 @@ public sealed record GroupMemberState(
     /// </remarks>
     [JsonPropertyName("trail")]
     public IReadOnlyList<GroupTrailPoint> Trail { get; init; } = [];
+
+    /// <summary>[#286] The most lines one member shares.</summary>
+    public const int MaximumDrawings = 20;
+
+    /// <summary>[#286] The most points in one shared line.</summary>
+    public const int MaximumDrawingPoints = 200;
+
+    /// <summary>
+    /// [#286] Lines this member drew on their companion's map for the squad.
+    /// </summary>
+    /// <remarks>
+    /// Part of the member's own state rather than a room-owned mark: a line belongs to whoever
+    /// drew it and leaves with them. An init property like every field since the first: a client
+    /// that predates it neither sends nor reads it, and a relay that predates it drops it.
+    /// </remarks>
+    [JsonPropertyName("drawings")]
+    public IReadOnlyList<GroupDrawingState>? Drawings { get; init; }
+}
+
+/// <summary>[#286] One line a member drew: <paramref name="Points"/> is x0, z0, x1, z1, … in world metres.</summary>
+public sealed record GroupDrawingState(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("mapId")] string MapId,
+    [property: JsonPropertyName("points")] IReadOnlyList<double> Points)
+{
+    /// <summary>The catalog floor it was drawn on, or null for the whole map.</summary>
+    [JsonPropertyName("floor")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Floor { get; init; }
 }
 
 /// <summary>[#780] One open objective a member is working on.</summary>
