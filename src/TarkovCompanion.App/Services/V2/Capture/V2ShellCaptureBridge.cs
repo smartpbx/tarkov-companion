@@ -620,6 +620,21 @@ public sealed class V2ShellCaptureBridge : IDisposable
             return;
         }
 
+        // A screenshot the game wrote (the watched folder) never asks "what is this?": the player
+        // presses the game's own key in a raid and cannot answer a prompt on a second screen, and
+        // with a Loot or Stash capture armed every position screenshot asked (2026-09-24, "this is
+        // unusable"). Unreadable ones are dropped quietly; a disagreement follows what was seen.
+        if (IsWatchedFile(review.SessionId, review.ArtifactId))
+        {
+            _captureSessions.TryReview(
+                review.SessionId,
+                review.ArtifactId,
+                review.DecodeRevision,
+                kind == V2CaptureAttentionKind.UnknownContext ? CaptureReviewAction.Cancel : CaptureReviewAction.UseDetected,
+                "system-watched-file");
+            return;
+        }
+
         lock (_gate)
         {
             _attention = new V2CaptureAttention(
@@ -894,6 +909,13 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _shell.OpenCaptureForReview();
         Push();
     }
+
+    private bool IsWatchedFile(CaptureSessionId sessionId, string artifactId) =>
+        _captureSessions.Snapshot.Sessions
+            .Where(session => session.Request.SessionId == sessionId)
+            .SelectMany(session => session.Artifacts)
+            .Any(item => string.Equals(item.ArtifactId, artifactId, StringComparison.Ordinal)
+                && item.DeliveryKind == CaptureDeliveryKind.WatchedFile);
 
     /// <summary>The retention chip and Read as… for one captured frame.</summary>
     private ScanSourceViewModel BuildSource(string artifactId, ScanIntent readAs, CaptureCorrelationId? correlation)
