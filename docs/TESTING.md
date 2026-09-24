@@ -60,6 +60,18 @@ The self-test builds the production composition root with networking forcibly di
 
 Diagnostic-channel tests inject a scan-use-case stub and assert authenticated delegation as well as honest unavailable results. UI tests resolve `MainWindowViewModel` from the real service provider instead of using a parallel static demo constructor.
 
+## Version compatibility matrix
+
+`tests/TarkovCompanion.UnitTests/Compatibility/` checks builds of different ages against each
+other (#294), because players update at different times and the relay is redeployed on its own.
+The fixtures there are wire messages derived from older builds' source: desktop publishes, marks
+and relay replies from `v2-rough-1` and `53a3b743`, a relay reply with fields nobody has added yet,
+and the tablet page's commands and read paths at `v2-rough-11` and `53a3b743`. The tests feed them
+to the current relay routes, the current `GroupSessionService` and the current desktop reducer,
+and check that the current relay reply, canonical messages and map surface still carry every
+field those older readers need. When a release changes the wire, add its messages as new fixtures.
+Do not edit the old ones.
+
 ## Simulator
 
 The canonical scenarios, in deterministic order, are:

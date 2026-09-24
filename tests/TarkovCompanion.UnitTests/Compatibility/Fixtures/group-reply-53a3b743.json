@@ -1,0 +1,33 @@
+{
+  "room": "9f2c0000000000000000000000000000000000000000000000000000000000aa",
+  "members": [
+    {
+      "name": "MidGeo",
+      "mapId": "customs",
+      "raidState": "InRaid",
+      "side": "pmc",
+      "x": 12.5,
+      "z": 44.0,
+      "heading": 90.0,
+      "positionAge": 4.0,
+      "loadout": [],
+      "quests": ["Debut"],
+      "questIds": ["quest-debut"],
+      "gameMode": "pvp",
+      "objectives": [{ "task": "quest-debut", "id": "objective-shoot", "count": 2 }],
+      "y": null,
+      "observed": [],
+      "sinceSeconds": 1.0,
+      "extracts": [],
+      "transits": [],
+      "raidClockSeconds": null,
+      "raidClockAge": null,
+      "trail": []
+    }
+  ],
+  "serverUtc": "2026-09-24T05:00:00+00:00",
+  "waypoints": [],
+  "pings": [],
+  "protocol": 1,
+  "revision": 7
+}
