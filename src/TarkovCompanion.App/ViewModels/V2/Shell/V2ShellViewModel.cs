@@ -246,6 +246,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         ReleaseExperience = releaseExperience;
         SetupWorkspace?.AttachPairing(_companionPairing);
+        // [#314] The language picker writes where composition read the language from.
+        if (TarkovCompanion.App.Localization.UiCulturePreference.ConfigDirectory is { } configDirectory) { SetupWorkspace?.AttachLanguage(new SetupLanguageViewModel(configDirectory, IsDeveloperMode)); }
         if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
         if (selfTest is not null && SetupWorkspace is not null)
         {

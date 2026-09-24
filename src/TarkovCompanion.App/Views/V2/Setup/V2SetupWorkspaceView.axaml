@@ -2,6 +2,7 @@
              x:DataType="vm:V2SetupWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup"
              xmlns:updates="using:TarkovCompanion.App.Services.Updates"
@@ -53,10 +54,10 @@
       <Border Classes="v2-card v2-setup-section" IsVisible="{Binding ShowsQuestSyncOffer}">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
           <StackPanel Spacing="3">
-            <TextBlock Classes="v2-heading-3" Text="Bring in your active quests" />
-            <TextBlock Classes="v2-label" Text="Use TASKS screenshots to start progress tracking." />
+            <TextBlock Classes="v2-heading-3" Text="{x:Static l:SetupText.WorkspaceQuestOfferHeading}" />
+            <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceQuestOfferNote}" />
           </StackPanel>
-          <Button Grid.Column="1" Classes="v2-target primary" Content="Sync quests"
+          <Button Grid.Column="1" Classes="v2-target primary" Content="{x:Static l:SetupText.WorkspaceQuestOfferSync}"
                   Command="{Binding OpenQuestSyncCommand}"
                   AutomationProperties.AutomationId="v2-quest-sync-offer" />
         </Grid>
@@ -91,6 +92,11 @@
         <Button Classes="v2-target" HorizontalAlignment="Left"
                 AutomationProperties.AutomationId="v2-setup-save-folders"
                 Content="{Binding SaveFoldersLabel}" Command="{Binding Settings.SaveGameFoldersCommand}" />
+        <!-- [#314] The interface language, beside the profile whose game data has a language of its own. -->
+        <StackPanel Classes="v2-stack" IsVisible="{Binding HasLanguage}">
+          <Separator Margin="0,6" />
+          <setup:V2SetupLanguageView DataContext="{Binding Language}" />
+        </StackPanel>
       </StackPanel>
     </Border>
 
@@ -289,10 +295,10 @@
         <TextBlock Classes="v2-body" Text="{Binding Group.Status}" />
         <!-- [#780] On by default with group sharing: quest and objective ids only. -->
         <ToggleSwitch IsChecked="{Binding Group.SyncsSquadQuests, Mode=TwoWay}"
-                      OnContent="Sync quests with squad" OffContent="Sync quests with squad"
-                      AutomationProperties.Name="Sync quests with squad"
+                      OnContent="{x:Static l:SetupText.WorkspaceSquadQuests}" OffContent="{x:Static l:SetupText.WorkspaceSquadQuests}"
+                      AutomationProperties.Name="{x:Static l:SetupText.WorkspaceSquadQuests}"
                       AutomationProperties.AutomationId="v2-setup-squad-quests" />
-        <TextBlock Classes="v2-label" Text="Sends quest and objective ids only." />
+        <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceSquadQuestsNote}" />
         <Button Classes="v2-target" HorizontalAlignment="Left"
                 AutomationProperties.AutomationId="v2-setup-open-team"
                 Content="{Binding OpenTeamLabel}" Command="{Binding OpenTeamCommand}" />
@@ -429,10 +435,10 @@
                     </StackPanel>
                     <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
                             AutomationProperties.AutomationId="{Binding TestAutomationId}"
-                            Content="Test this" Command="{Binding TestCommand}" />
+                            Content="{x:Static l:SetupText.NotificationsTestLabel}" Command="{Binding TestCommand}" />
                     <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
                                   IsChecked="{Binding IsEnabled, Mode=OneWay}"
-                                  OnContent="On" OffContent="Off"
+                                  OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
                                   AutomationProperties.AutomationId="{Binding AutomationId}"
                                   AutomationProperties.Name="{Binding Title}"
                                   Command="{Binding ToggleCommand}" />
@@ -449,7 +455,7 @@
               </StackPanel>
               <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
                             IsChecked="{Binding ShowsPopup, Mode=OneWay}"
-                            OnContent="On" OffContent="Off"
+                            OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
                             AutomationProperties.AutomationId="v2-setup-notification-popup"
                             AutomationProperties.Name="{Binding PopupTitle}"
                             Command="{Binding TogglePopupCommand}" />
@@ -462,21 +468,21 @@
                 <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding QuietHoursTitle}" />
                 <TextBlock Classes="v2-label" Text="{Binding QuietHoursDescription}" TextWrapping="Wrap" />
               </StackPanel>
-              <TextBlock Grid.Column="1" Classes="v2-label" Text="From" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:SetupText.NotificationsQuietFromLabel}" VerticalAlignment="Center" />
               <ComboBox Grid.Column="2" Width="96" VerticalAlignment="Center"
                         ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietFromHour}"
                         IsEnabled="{Binding QuietHours}"
                         AutomationProperties.AutomationId="v2-setup-notification-quiet-from"
-                        AutomationProperties.Name="Quiet from" />
-              <TextBlock Grid.Column="3" Classes="v2-label" Text="to" VerticalAlignment="Center" />
+                        AutomationProperties.Name="{x:Static l:SetupText.NotificationsQuietFromName}" />
+              <TextBlock Grid.Column="3" Classes="v2-label" Text="{x:Static l:SetupText.NotificationsQuietToLabel}" VerticalAlignment="Center" />
               <ComboBox Grid.Column="4" Width="96" VerticalAlignment="Center"
                         ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietToHour}"
                         IsEnabled="{Binding QuietHours}"
                         AutomationProperties.AutomationId="v2-setup-notification-quiet-to"
-                        AutomationProperties.Name="Quiet until" />
+                        AutomationProperties.Name="{x:Static l:SetupText.NotificationsQuietUntilName}" />
               <ToggleSwitch Grid.Column="5" VerticalAlignment="Center"
                             IsChecked="{Binding QuietHours, Mode=OneWay}"
-                            OnContent="On" OffContent="Off"
+                            OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
                             AutomationProperties.AutomationId="v2-setup-notification-quiet"
                             AutomationProperties.Name="{Binding QuietHoursTitle}"
                             Command="{Binding ToggleQuietHoursCommand}" />
