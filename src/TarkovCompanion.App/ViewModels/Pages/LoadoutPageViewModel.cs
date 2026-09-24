@@ -261,6 +261,12 @@ public sealed class LoadoutPageViewModel : PageViewModel
         RefreshSlotBoard();
     }
 
+    /// <summary>
+    /// #307: what the chosen map's active quests ask the kit for. Null where no quest board is
+    /// composed, and the card is then not drawn.
+    /// </summary>
+    public TarkovCompanion.App.ViewModels.V2.Plan.LoadoutSuggestionsViewModel? Suggestions { get; init; }
+
     public AsyncDelegateCommand SearchCommand { get; }
 
     public AsyncDelegateCommand EvaluateCommand { get; }

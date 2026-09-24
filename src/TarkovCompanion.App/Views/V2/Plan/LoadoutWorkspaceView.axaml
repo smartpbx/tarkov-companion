@@ -2,7 +2,8 @@
              x:DataType="pages:LoadoutPageViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+             xmlns:pages="using:TarkovCompanion.App.ViewModels"
+             xmlns:planVm="using:TarkovCompanion.App.ViewModels.V2.Plan">
   <UserControl.Styles>
     <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
          colour is a class of its own rather than an attribute on the text. -->
@@ -37,7 +38,7 @@
        under it, and the kit with its evaluation in the context panel, like the concept's
        "Loadout readiness" card. The evaluation is the V1 page's own: nothing is recomputed here. -->
   <Grid ColumnDefinitions="*,Auto">
-    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" RowSpacing="12" Margin="16,4,16,16">
       <Border Grid.Row="0" Classes="v2-intel-search">
         <Grid ColumnDefinitions="210,*,Auto" ColumnSpacing="10">
           <ComboBox VerticalAlignment="Center" HorizontalAlignment="Stretch"
@@ -67,7 +68,63 @@
         </Grid>
       </Border>
 
-      <Border Grid.Row="1" Classes="v2-intel-pane" Padding="14"
+      <!-- #307: what the chosen map's active quests ask the kit for. Each row names the change,
+           the quest it serves and the objective's own words, then what the stash and the traders
+           say about it. Read from objective conditions only; nothing here is a guess about a map. -->
+      <Border Grid.Row="1" Classes="v2-intel-pane" Padding="14,12" DataContext="{Binding Suggestions}" x:DataType="planVm:LoadoutSuggestionsViewModel"
+              IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-loadout-suggestions">
+        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+          <Grid ColumnDefinitions="*,Auto,220" ColumnSpacing="12">
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+              <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding Status}" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding RulesLabel}" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="v2-loadout-suggestions-rules" />
+            <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                      ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap, Mode=TwoWay}"
+                      IsVisible="{Binding HasMaps}"
+                      AutomationProperties.AutomationId="v2-loadout-suggestions-map"
+                      AutomationProperties.Name="Map to pack for">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="planVm:LoadoutSuggestionMapOption">
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+          <ScrollViewer Grid.Row="1" MaxHeight="560" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRows}">
+            <ItemsControl ItemsSource="{Binding Rows}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="planVm:LoadoutSuggestionRowViewModel">
+                  <Border Classes="v2-intel-fact" Padding="10,8" Margin="0,0,8,8" ToolTip.Tip="{Binding QuestsTip}">
+                    <Grid ColumnDefinitions="56,*" ColumnSpacing="10">
+                      <TextBlock Classes="v2-label" Text="{Binding Kind}" FontWeight="SemiBold" VerticalAlignment="Top" Margin="0,2,0,0" />
+                      <StackPanel Grid.Column="1" Spacing="1">
+                        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" MaxLines="2"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding Quest}" Foreground="{DynamicResource V2.Brush.Action}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding Reason}" TextWrapping="Wrap" MaxLines="2"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding Availability}" IsVisible="{Binding HasAvailability}"
+                                   Classes.v2-warning-text="{Binding IsBlocked}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="2" Classes="v2-intel-pane" Padding="14"
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-loadout-results">
         <Grid RowDefinitions="Auto,*" RowSpacing="10">

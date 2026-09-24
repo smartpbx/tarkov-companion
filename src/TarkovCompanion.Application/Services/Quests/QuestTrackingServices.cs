@@ -793,6 +793,7 @@ public sealed class QuestReadService(
                 {
                     RequiredTraderId = objective.RequiredTraderId,
                     RequiredTraderLevel = objective.RequiredTraderLevel,
+                    SubtypeJson = objective.SubtypeJson,
                 };
             })
             .ToArray();

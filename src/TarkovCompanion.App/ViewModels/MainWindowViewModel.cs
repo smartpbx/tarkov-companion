@@ -2850,7 +2850,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // store the Loadout page offers no presets rather than a Save button that does nothing.
         ILoadoutPresetStore? loadoutPresets = null,
         IProfileRuntimeContextService? profileRuntimeContext = null,
-        IItemAcquisitionService? itemAcquisitions = null)
+        IItemAcquisitionService? itemAcquisitions = null,
+        // #307: Plan › Loadout's suggestions from the chosen map's active quests.
+        TarkovCompanion.Application.Services.Planning.LoadoutSuggestionService? loadoutSuggestions = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2904,7 +2906,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider,
             new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider),
             itemAcquisitions,
-            profileService);
+            profileService)
+        {
+            Suggestions = loadoutSuggestions is null ? null : new(loadoutSuggestions),
+        };
         Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring,
             ct => EventTargetChoices.TradersAsync(traderCatalog, ct),
             ct => EventTargetChoices.MapsAsync(map.Locations, maps, ct));

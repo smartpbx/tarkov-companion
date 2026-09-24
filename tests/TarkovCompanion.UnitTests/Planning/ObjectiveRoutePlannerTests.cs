@@ -35,6 +35,7 @@ public sealed class ObjectiveRoutePlannerTests
         var route = ObjectiveRoutePlanner.Plan(new(0, 0), "player position", stops, unitsPerMetre: 1);
 
         Assert.True(route.ImprovedByTwoOpt);
+        Assert.Equal(PlannerVersions.ObjectiveRoute, route.PlannerVersion);
         Assert.Equal(["A", "D", "C", "B"], route.Steps.Select(step => step.ObjectiveId));
         Assert.Equal(18.4648, route.TotalDistanceMetres, precision: 4);
         Assert.Equal(

@@ -81,7 +81,7 @@ public static class ObjectiveRoutePlanner
             at = stop.At;
         }
 
-        return new(startLabel, total, steps, improved);
+        return new(startLabel, total, steps, improved) { PlannerVersion = PlannerVersions.ObjectiveRoute };
     }
 
     private static bool Improve(MapScenePoint start, List<ObjectiveRouteStop> order)

@@ -43,6 +43,13 @@ public sealed record QuestObjectiveReadModel(
 
     /// <summary>The loyalty level named by a trader-level objective, where this objective is one.</summary>
     public int? RequiredTraderLevel { get; init; }
+
+    /// <summary>
+    /// The objective's type-specific source fields (weapon, mods, worn gear, distance), as the
+    /// catalog stored them. Loadout suggestions read the shooting conditions from here (#307);
+    /// nothing else in the board needs them, so they stay raw rather than a dozen new members.
+    /// </summary>
+    public string SubtypeJson { get; init; } = string.Empty;
 }
 
 public sealed record QuestPrerequisiteReadModel(
