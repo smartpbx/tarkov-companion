@@ -13,13 +13,15 @@ namespace TarkovCompanion.App.Services.Updates;
 /// <param name="Available">The newer build's version, when there is one.</param>
 /// <param name="Failed">Whether the feed could not be asked, so "nothing newer" is not known.</param>
 /// <param name="Notes">The newer build's release notes, as the feed carries them (markdown), when it has any.</param>
+/// <param name="Held">Whether a newer build exists and is kept back by "stay on this version".</param>
 public sealed record UpdateProgress(
     string Status,
     bool CanDownload = false,
     bool CanApply = false,
     string? Available = null,
     bool Failed = false,
-    string? Notes = null);
+    string? Notes = null,
+    bool Held = false);
 
 /// <summary>
 /// Installs and updates the application in place.
@@ -47,7 +49,7 @@ public sealed record UpdateProgress(
 /// reports that and offers no buttons, which is what a developer running from a publish
 /// directory should see.
 /// </remarks>
-public sealed class VelopackUpdateGateway
+public sealed partial class VelopackUpdateGateway
 {
     private static readonly TimeSpan FeedTimeout = TimeSpan.FromMinutes(30);
 
@@ -56,19 +58,23 @@ public sealed class VelopackUpdateGateway
     private UpdateInfo? _pending;
     private VelopackAsset? _verified;
 
-    public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null)
+    public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null, AppDataPaths? paths = null)
         : this(UpdateChannel.FromEnvironment(), source: null, locator: null, logger)
     {
+        State = paths is null ? null : UpdateStateFile.For(paths, logger);
     }
 
     private VelopackUpdateGateway(
         UpdateChannel channel,
         IUpdateSource? source,
         IVelopackLocator? locator,
-        ILogger? logger)
+        ILogger? logger,
+        IUpdateFeedTransport? transport = null)
     {
         Channel = channel;
         _logger = logger;
+        _locator = locator;
+        _transport = new Lazy<IUpdateFeedTransport>(() => transport ?? Channel.OpenTransport(CreateClient()));
         _manager = new Lazy<UpdateManager?>(() => CreateManager(source, locator));
     }
 
@@ -83,12 +89,14 @@ public sealed class VelopackUpdateGateway
         UpdateChannel channel,
         IUpdateSource source,
         IVelopackLocator locator,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        IUpdateFeedTransport? transport = null,
+        IUpdateStateStore? state = null)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(locator);
-        return new VelopackUpdateGateway(channel, source, locator, logger);
+        return new VelopackUpdateGateway(channel, source, locator, logger, transport) { State = state };
     }
 
     /// <summary>
@@ -111,7 +119,7 @@ public sealed class VelopackUpdateGateway
         {
             // One client for the life of the process, never disposed: it is created at most
             // once, and only by a build that was installed.
-            source ??= new HashVerifiedUpdateSource(Channel.OpenTransport(CreateClient()), _logger);
+            source ??= new HashVerifiedUpdateSource(_transport.Value, _logger);
             return new UpdateManager(source, options: null, locator);
         }
         catch (Exception exception)
@@ -222,6 +230,12 @@ public sealed class VelopackUpdateGateway
 
         var available = update.TargetFullRelease.Version.ToString();
         _logger?.LogInformation("{Installed}; {Available} is available", InstalledBuild, available);
+        if (HeldByPin(manager, available) is { } held)
+        {
+            _pending = null;
+            return held;
+        }
+
         return new(
             $"{available} is available",
             CanDownload: true,
@@ -244,6 +258,9 @@ public sealed class VelopackUpdateGateway
         try
         {
             _verified = null;
+            _applyManager = null;
+            _pendingPin = null;
+            KeepInstalledPackage(manager);
             await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             _verified = update.TargetFullRelease;
@@ -277,11 +294,12 @@ public sealed class VelopackUpdateGateway
     /// </remarks>
     public void ApplyAndRestart()
     {
-        if (_verified is not { } update || _manager.Value is not { } manager)
+        if (_verified is not { } update || (_applyManager ?? _manager.Value) is not { } manager)
         {
             return;
         }
 
+        RecordApply(update);
         _logger?.LogInformation("Applying version {Version} and restarting.", update.Version);
         if (HandOver is not { } handOver)
         {

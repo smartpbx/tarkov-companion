@@ -686,6 +686,66 @@ jobs:
           if (-not (Test-Path -LiteralPath $env:TC_MARKER)) { throw "Updating destroyed the existing application data marker." }
           "Updated $env:TARKOV_BUILD_VERSION to $Next, the application reopened from current\, and the data marker is intact."
 
+      # #292: and back again. The feed still holds only the next version, as the relay's does, so
+      # the only way back is the copy of the original package the update kept in the data folder.
+      # Same hand-over, same bystander, same standing in current\; the verdict is the folder.
+      - name: Go back to the previous version
+        id: rollback-applies
+        if: steps.update-applies.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 6
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Current = Split-Path -Parent $env:TC_INSTALLED
+          $Report = Join-Path $env:GITHUB_WORKSPACE "verification/rollback-applies.json"
+          $env:TARKOV_UPDATE_FEED = Join-Path $env:RUNNER_TEMP "rough-channel-next"
+          $Probe = Start-Process -FilePath $env:TC_INSTALLED -WorkingDirectory $Current -PassThru `
+            -ArgumentList @("--roll-back-and-exit", "--output", $Report)
+          if (-not $Probe.WaitForExit(120000)) {
+            Stop-Process -Id $Probe.Id -Force -ErrorAction SilentlyContinue
+            throw "The application was still running two minutes after it was asked to go back."
+          }
+          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report }
+
+          function Get-InstalledVersion {
+            $Path = Join-Path $Current "BUILD_INFO.txt"
+            if (-not (Test-Path -LiteralPath $Path)) { return $null }
+            foreach ($Line in Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue) {
+              if ($Line -match '^version=(?<value>.+)$') { return $Matches.value }
+            }
+            return $null
+          }
+
+          $Deadline = (Get-Date).AddSeconds(90)
+          $Reopened = $null
+          while ((Get-Date) -lt $Deadline) {
+            $Reopened = Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
+              Select-Object -First 1
+            if ($Reopened) { break }
+            Start-Sleep -Seconds 2
+          }
+          $Applied = Get-InstalledVersion
+          Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          if (Test-Path -LiteralPath $Report) {
+            $Bystander = (Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json).bystanderPid
+            if ($Bystander) { Stop-Process -Id $Bystander -Force -ErrorAction SilentlyContinue }
+          }
+
+          if ($Applied -cne $env:TARKOV_BUILD_VERSION) {
+            $Log = Join-Path $env:LOCALAPPDATA "velopack/velopack_TarkovCompanionDesktop.log"
+            if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 40 }
+            throw "Going back did not apply: current\BUILD_INFO.txt says '$Applied', expected '$env:TARKOV_BUILD_VERSION'."
+          }
+          if (-not $Reopened) { throw "Going back applied but the application did not reopen from current\ within ninety seconds." }
+          if (-not (Test-Path -LiteralPath $env:TC_MARKER)) { throw "Going back destroyed the existing application data marker." }
+          $State = Join-Path $env:LOCALAPPDATA "TarkovCompanion/Updates/update-state.json"
+          if (-not (Select-String -LiteralPath $State -Pattern '"Pin"\s*:\s*\{' -Quiet)) { throw "Going back did not pin the version." }
+          "Went back to $env:TARKOV_BUILD_VERSION from the kept copy, the application reopened, the data marker is intact, and the version is pinned."
+
       - name: Developer diagnostic smoke with the simulator
         id: developer-smoke
         continue-on-error: true
@@ -737,6 +797,7 @@ jobs:
             "install" = "${{ steps.install.outcome }}"
             "self-test-installed" = "${{ steps.self-test-installed.outcome }}"
             "update-applies" = "${{ steps.update-applies.outcome }}"
+            "rollback-applies" = "${{ steps.rollback-applies.outcome }}"
             "developer-smoke" = "${{ steps.developer-smoke.outcome }}"
           }
 
