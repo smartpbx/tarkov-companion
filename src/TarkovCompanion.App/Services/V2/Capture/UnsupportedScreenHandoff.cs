@@ -35,6 +35,16 @@ public sealed class UnsupportedScreenHandoff : ICaptureResultHandoff
     public ValueTask<CaptureHandoffResult> AcceptAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // A screenshot the game wrote on its own (the watched folder), which the player did not
+        // arm or pick, never opens the capture panel: every position screenshot of the extract
+        // list or with the character screen up opened a "what is this?" panel, which made the
+        // app unusable in a raid (2026-09-24). Only a capture the player asked for is answered.
+        if (request.DeliveryKind == CaptureDeliveryKind.WatchedFile &&
+            request.Decision != CaptureReviewAction.UseArmedIntent)
+        {
+            return ValueTask.FromResult(CaptureHandoffResult.Accepted);
+        }
+
         var (title, instead) = Describe(request.EffectiveIntent);
         ScreenRead?.Invoke(this, new(
             request.SessionId,
