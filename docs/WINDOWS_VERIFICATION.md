@@ -62,7 +62,7 @@ and has neither a step that could publish nor a token that could.
    internet; Raid, Flea, Plan, Debrief, Setup); `loading` holds the page's own load at its first
    line (`LoadHold`), then releases it and asserts the loading message went (Plan, Debrief,
    Stash); `degraded` launches offline over the catalog stamped six days old, with a squad whose
-   relay stopped answering (Raid, Flea with a search, Team, Tablet unpaired, Setup); `error`
+   relay stopped answering (Raid, Flea with a search, Team › Group, Tablet unpaired, Setup); `error`
    makes the page's own load throw (`LoadFaultInjection`; Plan, Debrief, Stash) and presses
    Plan's Retry. Each asserts its message element reads as words with no exception name. The
    `inspect` and `routestops` scenes add Raid's Inspect popover and five Route stops, in raid on
