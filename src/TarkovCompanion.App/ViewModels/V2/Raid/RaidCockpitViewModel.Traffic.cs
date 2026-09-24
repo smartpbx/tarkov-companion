@@ -141,10 +141,17 @@ public sealed partial class RaidCockpitViewModel
         _ => "Late",
     };
 
-    private static string Level(double intensity) => intensity switch
+    private static string Level(double intensity) => TrafficLevel(intensity);
+
+    /// <summary>Where a hotspot starts to read "High" and "Highest"; the legend quotes the same numbers.</summary>
+    internal const double HighTrafficLevel = 0.65;
+
+    internal const double HighestTrafficLevel = 0.8;
+
+    internal static string TrafficLevel(double intensity) => intensity switch
     {
-        >= 0.8 => "Highest",
-        >= 0.65 => "High",
+        >= HighestTrafficLevel => "Highest",
+        >= HighTrafficLevel => "High",
         _ => "Raised",
     };
 
@@ -349,6 +356,8 @@ public sealed partial class RaidCockpitViewModel
         OnPropertyChanged(nameof(TrafficLayerNotice));
         OnPropertyChanged(nameof(TrafficRows));
         OnPropertyChanged(nameof(HasTrafficRows));
+        OnPropertyChanged(nameof(TrafficLegendPlaces));
+        OnPropertyChanged(nameof(HasTrafficLegendPlaces));
     }
 }
 
