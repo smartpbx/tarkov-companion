@@ -1995,6 +1995,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 continue;
             }
 
+            // [#914] A distance written beside a modelled spawn line is that line's caption, not
+            // another thing on the map: "Spawn lines 2", not 4. Place names are static references.
+            if (item.Kind == MapSceneObjectKind.Label && item.Truth == MapSceneTruthKind.PotentialSpawn)
+            {
+                continue;
+            }
+
             counts[item.LayerId] = counts.TryGetValue(item.LayerId, out var running) ? running + 1 : 1;
         }
 

@@ -1952,6 +1952,21 @@ foreach ($InRaidMap in @("customs", "interchange")) {
             }) }
     })
 }
+# [#914] A PMC raid one minute in: dashed red lines from the nearby PMC spawn areas to the player,
+# each captioned "possible PMC spawn · N m". Judged on Windows pixels, as marker artwork is.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-customs-spawnlines-1920"
+    args = @("--ui-shell", "v2-a", "--map", "customs")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "spawnlines"
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    captureBeforeInteraction = $true
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "assert"; description = "the map with the spawn lines drawn"
+            expectedAutomationIds = @("v2-map-plan", "v2-raid-layers")
+        }) }
+})
 # [#286] Draw mode: the pencil lit on the strip, the Draw bar over the map, two white lines of the
 # player's and one squadmate's line in their colour. The strip must stay one row with the pencil.
 $Shots.Add([pscustomobject]@{

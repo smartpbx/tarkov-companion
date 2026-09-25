@@ -2218,6 +2218,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                     _rebuildRequest.Request();
                 }
 
+                TickSpawnLines();
                 if (_spawnWindowExpiresUtc is { } spawnExpiry && _timeProvider.GetUtcNow() >= spawnExpiry)
                 {
                     _spawnWindowExpiresUtc = null;
@@ -2686,6 +2687,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _spawnWindowExpiresUtc = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
             ? raidSnapshot.StartedUtc + EarlyRaidSpawnPolicy.VisibleFor
             : null;
+        // [#914] Only the areas inside this map's chosen radius, markers and lines alike.
+        var nearbyAreas = SpawnAreasWithinRadius(model, spawnSelection.Areas);
         // [#902 P3] All spawns keeps every spawn for the whole raid, off unless asked for, so its
         // switch never locks when the window closes. The window's nearby ones are copies on the
         // Nearby spawns layer, whose switch (on unless turned off) applies whenever the raid is
@@ -2694,7 +2697,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? model.OverlayElements
                 .Where(element => element.Layer == MapOverlayKind.Spawns &&
                     RaidExtractSide.KeepOnMap(element.Layer, element.Faction, raidSide) &&
-                    IsNearbySpawn(element, model, spawnSelection.Areas))
+                    IsNearbySpawn(element, model, nearbyAreas))
                 .Select(element => new MapSceneLegacyElement(element, new DataProvenance("map-catalog", nowUtc))
                 {
                     LayerOverride = NearbySpawnsLayerId,
@@ -2786,16 +2789,19 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [#780] Squadmates' objectives, after the player's own so theirs are never drawn twice.
         var squadObjectives = BuildSquadObjectives(model, nowUtc);
         var objectiveRoute = ObjectiveRouteFor(model);
+        var spawnLines = SpawnLinesFor(model, nearbyAreas, spawnSelection.Phase, raidSnapshot.StartedUtc, nowUtc);
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)
             .Append(objectiveRoute.Layer)
             .Append(NearbySpawnsLayer(model))
+            .Append(SpawnLinesLayer(model))
             .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>())
             .Concat(drawings.Layer is { } drawingsLayer ? new[] { drawingsLayer } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
             .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects)
-            .Concat(objectiveRoute.Objects).Concat(squadObjectives).Concat(drawings.Objects).ToArray();
+            .Concat(objectiveRoute.Objects).Concat(squadObjectives).Concat(drawings.Objects)
+            .Concat(spawnLines.Objects).ToArray();
 
         // [V2 rough package 39] The stack: one asset per floor beside the background.
         // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that
@@ -3429,6 +3435,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _objectiveRouteStyles.TryGetValue(item.Id, out var planned)
             ? _squadStyles.TryGetValue(item.Id, out var squadPin) ? planned with { Color = squadPin.Color, Outlined = true } : planned
         : _squadStyles.TryGetValue(item.Id, out var squad) ? squad
+        : _spawnLineStyles.TryGetValue(item.Id, out var spawnLine) ? spawnLine
         : _objectStyles.TryGetValue(item.Id, out var style) ? style
         : _routeStyles.TryGetValue(item.Id, out var route) ? route
         // [Issue 573] A co-op extract at "Dim" is drawn faded, so it never competes for attention

@@ -88,6 +88,12 @@ public static partial class RaidText
     public static string LayerVisited => UiText.Get("Raid.LayerVisited");
     public static string LayerMyTrail => UiText.Get("Raid.LayerMyTrail");
     public static string LayerNearbySpawns => UiText.Get("Raid.LayerNearbySpawns");
+    public static string LayerSpawnLines => UiText.Get("Raid.LayerSpawnLines");
+    public static string SpawnLineLabel(string distance) => UiText.Format("Raid.SpawnLineLabel", distance);
+    public static string SpawnLineDetail => UiText.Get("Raid.SpawnLineDetail");
+    public static string SpawnRadius => UiText.Get("Raid.SpawnRadius");
+    public static string SpawnRadiusTip => UiText.Get("Raid.SpawnRadiusTip");
+    public static string SpawnRadiusChoice(int metres) => UiText.Format("Raid.SpawnRadiusChoice", metres);
     public static string AllObjectivesDone(int count) => UiText.Format("Raid.AllObjectivesDone", count);
     public static string FollowFloor => UiText.Get("Raid.FollowFloor");
     public static string FollowFloorTip => UiText.Get("Raid.FollowFloorTip");

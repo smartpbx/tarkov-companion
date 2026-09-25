@@ -122,6 +122,7 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.PlanLearnMode, false, "Setup.Settings.Layout.LearnMode", V2SetupSection.ProfileProgress),
         new(WorkspaceLayoutKeys.RaidCard(string.Empty), true, "Setup.Settings.Layout.RaidCard"),
+        new(WorkspaceLayoutKeys.RaidSpawnRadius(string.Empty), true, "Setup.Settings.Layout.SpawnRadius"),
         new("page.", true, "Setup.Settings.Layout.PageFilters"),
     ];
 

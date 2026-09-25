@@ -109,6 +109,7 @@ public sealed partial class RaidCockpitViewModel
                      nameof(FollowZoomLabel), nameof(FollowLabel),
                      nameof(ShowCompletedObjectives), nameof(ShowSquadObjectives), nameof(ShowsSquadObjectiveSummary),
                      nameof(RouteSquadStops), nameof(CanRouteSquadStops),
+                     nameof(SpawnRadiusMetres), nameof(SpawnRadiusChoices),
                  })
         {
             OnPropertyChanged(name);

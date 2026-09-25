@@ -109,4 +109,7 @@ public static class WorkspaceLayoutKeys
 
     /// <summary>Whether one card of the Raid side panel is open ("open"/"closed"); see RaidPanelCards.</summary>
     public static string RaidCard(string cardId) => $"raid.card.{cardId}";
+
+    /// <summary>[#914] The nearby-spawn radius in metres chosen on one map ("150"); see SpawnLines.</summary>
+    public static string RaidSpawnRadius(string mapId) => $"raid.spawn-radius.{mapId}";
 }

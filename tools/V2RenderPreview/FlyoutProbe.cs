@@ -20,7 +20,8 @@ internal static class FlyoutProbe
 {
     /// <param name="scrollToEnd">[#266] Scrolls the menu to its foot first: the Layers menu's traffic
     /// legend sits below 520 pixels of layer switches.</param>
-    public static void Save(Window window, string automationId, string outputPath, Action<int> pump, bool scrollToEnd = false)
+    /// <param name="scrollBy">[#914] Scrolls the menu down this many pixels instead, to a row in its middle.</param>
+    public static void Save(Window window, string automationId, string outputPath, Action<int> pump, bool scrollToEnd = false, double scrollBy = 0)
     {
         var button = window.GetVisualDescendants().OfType<Button>()
             .FirstOrDefault(candidate => AutomationProperties.GetAutomationId(candidate) == automationId)
@@ -35,6 +36,11 @@ internal static class FlyoutProbe
         if (scrollToEnd && (content as ScrollViewer ?? content.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()) is { } scroller)
         {
             scroller.ScrollToEnd();
+            pump(10);
+        }
+        else if (scrollBy > 0 && (content as ScrollViewer ?? content.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()) is { } middle)
+        {
+            middle.Offset = new(0, scrollBy);
             pump(10);
         }
 
