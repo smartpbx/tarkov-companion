@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>V3 · Team · squad ready check</title>
+<link rel="stylesheet" href="v3.css"><script src="v3.js"></script>
+<style>
+.main { grid-template-columns: 1fr 560px; grid-template-rows: auto 1fr; }
+.head { grid-column: 1 / 3; display: flex; align-items: center; gap: 20px; padding: 16px 20px; }
+.mchip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 18px; background: var(--raised); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.mchip .dot { width: 10px; height: 10px; }
+.left { display: grid; grid-template-rows: auto 1fr auto; gap: 16px; min-height: 0; }
+.right { display: grid; grid-template-rows: 1fr auto; gap: 16px; min-height: 0; }
+.sh { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 13px 0; border-top: 1px solid var(--divider); font-size: 16px; }
+.who { display: inline-flex; gap: 4px; }
+.av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #0b1218; border: 2px solid var(--surface); }
+.rc { display: grid; grid-template-columns: 180px 1fr auto; align-items: center; gap: 16px; padding: 14px 0; border-top: 1px solid var(--divider); font-size: 16px; }
+.rc .name { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.rc .name .dot { width: 10px; height: 10px; }
+.tick { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; font-weight: 500; }
+.mapthumb { position: relative; overflow: hidden; }
+.mapthumb svg.map { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mt-head { position: absolute; left: 16px; top: 14px; right: 16px; display: flex; align-items: center; }
+.legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 8px; }
+.legend .c { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 6px; background: rgba(16,24,32,.9); border: 1px solid rgba(130,151,164,.35); font-size: 13px; }
+</style></head>
+<body><div class="app" id="app">
+<main class="main">
+  <section class="card head" id="head"></section>
+  <div class="left">
+    <section class="card pad" id="tonight"></section>
+    <section class="card pad" id="ready"></section>
+    <section class="card pad" id="session"></section>
+  </div>
+  <div class="right">
+    <section class="card mapthumb" id="thumb"></section>
+    <section class="card pad" id="priv"></section>
+  </div>
+</main></div>
+<script>
+mount('app', chrome({ state: 'In stash', nav: 'team' }));
+document.getElementById('head').innerHTML = `
+  <span class="thumb" style="width:44px;height:44px;border-radius:10px;background:rgba(99,212,221,.12);display:grid;place-items:center;color:var(--action)">${icon('team','s24')}</span>
+  <div><div class="h1">Team · Relay room ‘Tuesday’</div><div class="sec">3 of 4 in room · end-to-end relay · you host</div></div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <span class="mchip"><span class="dot" style="background:var(--you)"></span>Clayton (you) · <span class="ok">ready</span></span>
+    <span class="mchip"><span class="dot" style="background:var(--geo)"></span>Geo · <span class="ok">ready</span></span>
+    <span class="mchip"><span class="dot" style="background:var(--riley)"></span>Riley · <span class="warn">not ready</span></span>
+    <span class="mchip" style="background:transparent;border:1px solid rgba(130,151,164,.35)"><span class="dot" style="border:1.5px solid var(--sam);background:transparent"></span><span class="sec">Sam · offline 2 h</span></span>
+  </div>`;
+const av = (c, l) => `<span class="av" style="background:${c}">${l}</span>`;
+document.getElementById('tonight').innerHTML = `
+  <div class="row"><span class="caps">Tonight for the squad</span><span class="label" style="margin-left:auto">from each companion's quest sync</span></div>
+  <div class="row" style="margin-top:6px;align-items:flex-end">
+    <div><div class="h1" style="font-size:28px;line-height:36px">Customs · 5 shared quests</div><div class="label">counted per quest</div></div>
+    <span class="btn primary lg" style="margin-left:auto">${icon('raid','s16')}Put on the Raid map</span>
+  </div>
+  <div style="margin-top:14px">
+    <div class="sh"><div><b style="font-weight:600">Checking</b> <span class="sec">· any of you can finish it</span> <span class="chip" style="margin-left:8px;color:var(--info);background:rgba(134,191,255,.10)">1.1 shared completion</span></div><div class="who">${av('var(--you)','C')}${av('var(--geo)','G')}${av('var(--riley)','R')}</div></div>
+    <div class="sh"><div><b style="font-weight:600">Golden Swag</b> <span class="sec">· Clayton, Geo</span></div><div class="who">${av('var(--you)','C')}${av('var(--geo)','G')}</div></div>
+    <div class="sh"><div><b style="font-weight:600">Bad Rep Evidence</b> <span class="sec">· Geo, Riley</span></div><div class="who">${av('var(--geo)','G')}${av('var(--riley)','R')}</div></div>
+    <div class="sh"><div><b style="font-weight:600">Farming - Part 1</b> <span class="sec">· Clayton, Riley</span></div><div class="who">${av('var(--you)','C')}${av('var(--riley)','R')}</div></div>
+    <div class="sh"><div><b style="font-weight:600">Operation Aquarius - Part 1</b> <span class="sec">· Geo, Riley</span></div><div class="who">${av('var(--geo)','G')}${av('var(--riley)','R')}</div></div>
+  </div>`;
+const ck = (t, ok = true) => `<span class="tick ${ok ? 'ok' : 'warn'}">${icon(ok ? 'check' : 'cross', 's16')}<span style="color:var(--text)">${t}</span></span>`;
+document.getElementById('ready').innerHTML = `
+  <div class="row"><span class="caps">Ready check</span><span class="label" style="margin-left:auto">from each companion's own Loadout check</span></div>
+  <div style="margin-top:10px">
+    <div class="rc"><span class="name"><span class="dot" style="background:var(--you)"></span>Clayton</span><span>${ck('keys')}${ck('markers')}</span><span class="label">checked 18:39 from Gear screenshot</span></div>
+    <div class="rc"><span class="name"><span class="dot" style="background:var(--geo)"></span>Geo</span><span>${ck('keys')}${ck('markers')}</span><span class="label">shared by Geo's companion 4 m ago</span></div>
+    <div class="rc"><span class="name"><span class="dot" style="background:var(--riley)"></span>Riley</span><span>${ck('keys')}<span class="tick warn">${icon('cross','s16')}no MS2000 marker</span></span><span class="label">shared by Riley's companion 2 m ago</span></div>
+    <div class="rc"><span class="name"><span class="dot" style="border:1.5px solid var(--sam)"></span><span class="sec">Sam</span></span><span class="sec">nothing shared</span><span class="label">offline 2 h</span></div>
+  </div>
+  <div class="row" style="margin-top:14px;padding:12px 14px;border-radius:8px;background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.35);gap:12px">
+    ${icon('info','s16','color:var(--warning)')}<span style="font-size:15px">2 of 3 in the room are ready · Riley is missing 1 item</span>
+    <span class="btn" style="margin-left:auto">${icon('ping','s16')}Nudge Riley</span></div>`;
+document.getElementById('session').innerHTML = `
+  <div class="row"><span class="caps">Session</span><span class="label" style="margin-left:auto">re-plans after each raid</span></div>
+  <div class="row" style="margin-top:10px;gap:12px;font-size:16px">
+    <span class="sec">You said 2 h:</span>
+    <span class="chip" style="height:32px;font-size:14px;color:var(--text);border-color:var(--action);background:rgba(99,212,221,.12)">1 · Customs</span>${icon('chevr','s16','color:var(--text2)')}
+    <span class="chip" style="height:32px;font-size:14px;color:var(--text)">2 · Customs</span>${icon('chevr','s16','color:var(--text2)')}
+    <span class="chip" style="height:32px;font-size:14px;color:var(--text)">3 · Woods <span class="dot" style="background:var(--sam);margin-left:4px"></span> Sam joins</span>
+  </div>`;
+window.LS = 1.1;
+const route = [[1380, 330], [1352, 318], [1336, 360], [1316, 450], [1296, 526], [1180, 524], [1060, 528], [1008, 552]];
+const mk = (x, y, c) => `<g transform="translate(${x} ${y})"><path d="M0 0 c-3 -8 -13 -13 -13 -24 a13 13 0 1 1 26 0 c0 11 -10 16 -13 24z" fill="${c}" stroke="#101820" stroke-width="2"/><circle cy="-24" r="4.5" fill="#101820"/></g>`;
+const layers = extracts([], { skip: ['ruaf', 'boat'] }) + path(route, '#F1C75B', { w: 7 }) + landmarks(['stronghold','construction','fortress','ogs','crackhouse','dorms3']) + mlabel(975, 604, 'Dorms 3-story', { size: 14, color: '#AFC0CA' }) +
+  pin(1008, 552, 'A') + pin(1348, 318, 'B') +
+  mk(1090, 700, '#56B4E9') + mk(1290, 420, '#E69F00') + mk(1150, 440, '#56B4E9') + mk(960, 660, '#63D4DD');
+mount('thumb', mapSvg('840 190 600 830', layers));
+document.getElementById('thumb').insertAdjacentHTML('beforeend', `
+  <div class="mt-head"><span class="caps" style="background:rgba(13,20,27,.8);padding:4px 8px;border-radius:6px">Customs · shared plan</span></div>
+  <div class="legend"><span class="c"><span style="width:18px;height:4px;border-radius:2px;background:var(--plan)"></span>shared route</span>
+  <span class="c"><span class="dot" style="background:var(--geo)"></span>Geo's marks</span><span class="c"><span class="dot" style="background:var(--riley)"></span>Riley's marks</span><span class="c"><span class="dot" style="background:var(--you)"></span>yours</span></div>`);
+document.getElementById('priv').innerHTML = `<div class="row" style="align-items:flex-start;gap:12px">${icon('shield','s24','color:var(--action)')}<div>
+  <div style="font-weight:600">Only what each member's companion shares.</div>
+  <div class="label" style="font-size:13px">Party data from your own game log stays on this PC. Nothing here comes from the game's memory or network traffic.</div></div></div>`;
+</script></body></html>

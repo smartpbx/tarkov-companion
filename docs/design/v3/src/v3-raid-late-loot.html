@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>V3 · Raid · late raid and loot verdict</title>
+<link rel="stylesheet" href="v3.css"><script src="v3.js"></script>
+<style>
+.main { grid-template-columns: 1fr 400px; }
+.blk { padding: 16px 22px 18px; }
+.late { background: linear-gradient(180deg, rgba(255,209,102,.20), rgba(255,209,102,.10)); border-bottom: 1px solid rgba(255,209,102,.35); border-radius: 10px 10px 0 0; }
+.late .caps { color: var(--warning); }
+.late .display { color: var(--warning); }
+.pulse { position: absolute; left: 0; top: 0; bottom: 0; width: 120px; background: linear-gradient(90deg, rgba(230,159,0,.55), rgba(230,159,0,0)); }
+.pulse::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: #E69F00; box-shadow: 0 0 18px #E69F00; }
+.toast { position: absolute; left: 40px; bottom: 64px; display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px 0 12px; border-radius: 20px;
+  background: rgba(16,24,32,.94); border: 1.5px solid #E69F00; color: var(--text); font-weight: 600; font-size: 15px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+.vrow { display: grid; grid-template-columns: 40px 1fr auto; column-gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid rgba(34,52,65,.9); }
+.vrow:first-of-type { border-top: 0; }
+.vrow .name { font-size: 15px; line-height: 20px; font-weight: 600; }
+.vrow .why { font-size: 14px; color: var(--text2); }
+.vrow .px { font-size: 15px; font-weight: 600; text-align: right; }
+.vw { font-weight: 800; font-size: 13px; letter-spacing: .8px; margin-right: 6px; }
+.tally { display: flex; gap: 8px; align-items: baseline; flex-wrap: nowrap; white-space: nowrap; }
+</style></head>
+<body><div class="app" id="app">
+<main class="main">
+  <section class="mapwrap" id="map">
+    <div class="attrib" style="left:136px">Customs · 2D plan · concept drawing</div>
+    <div class="zoom"></div>
+    <div class="pulse"></div>
+    <div class="toast"><span class="dot" style="width:12px;height:12px;background:var(--riley)"></span>Riley pinged · ZB-1011</div>
+    <div class="mapctl" id="ctl"></div>
+  </section>
+  <aside class="card now" id="now"></aside>
+</main></div>
+<script>
+mount('app', chrome({ state: 'In raid', nav: 'raid' }));
+document.querySelector('.toast').insertAdjacentHTML('beforeend', `<span class="label" style="font-weight:500">west · 2 s ago</span>`);
+const trail = [[1004, 580], [960, 530], [860, 524], [740, 522], [620, 520], [540, 500], [520, 478]];
+const leave = [[520, 478], [470, 524], [300, 518], [262, 480], [250, 380], [226, 330]];
+const layers =
+  extracts(['zb1011', 'crossroads', 'ogs', 'trailer']) +
+  path(trail, '#5CF0FF', { w: 3.5, dash: '2 9', halo: false, op: .8 }) +
+  path(leave, '#71D19A', { w: 5, dash: '12 8' }) +
+  landmarks(['wh4']) +
+  mlabel(430, 380, 'Warehouse 4', { size: 14, color: '#AFC0CA' }) +
+  mlabel(356, 548, 'to ZB-1011 · 5 min walk', { color: '#BFF0D2', weight: 600, size: 14 }) +
+  member(222, 318, '#E69F00', 'Riley', '8 s', { heading: 90, ly: 40, lx: 0 }) +
+  `<circle cx="222" cy="318" r="24" fill="none" stroke="#E69F00" stroke-width="3" opacity=".75"/><circle cx="222" cy="318" r="38" fill="none" stroke="#E69F00" stroke-width="2" opacity=".35"/>` +
+  member(704, 488, '#56B4E9', 'Geo', '8 s', { heading: 250, ly: -28 }) +
+  you(520, 478, 180, { label: 'You · 3 s ago', lx: 26, ly: -18, anchor: 'start' }) +
+  compass(130, 110);
+mount('map', mapSvg('-10 40 1420 1000', layers));
+document.querySelector('.zoom').innerHTML = `<span>${icon('plus','s16')}</span><span>${icon('minus','s16')}</span><span>${icon('fit','s16')}</span>`;
+document.getElementById('ctl').innerHTML = `
+  <span class="c mod">MODELLED TRAFFIC · NOT LIVE</span>
+  <span class="c on">${icon('follow','s16')} Follow ${icon('check','s14')}</span>
+  <span class="c">${icon('raid','s16')} 2D plan</span>
+  <span class="c">${icon('floor','s16')} Ground floor</span>
+  <span class="c">${icon('layers','s16')} Layers</span>`;
+
+const ic = {
+  cpu: '<svg width="30" height="30" viewBox="0 0 30 30"><rect x="7" y="7" width="16" height="16" rx="2" fill="#2c4a3a" stroke="#71D19A" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="1" fill="#71D19A" opacity=".55"/><path d="M10 3v4M15 3v4M20 3v4M10 23v4M15 23v4M20 23v4M3 10h4M3 15h4M3 20h4M23 10h4M23 15h4M23 20h4" stroke="#9FB3BF" stroke-width="1.4"/></svg>',
+  fuel: '<svg width="30" height="30" viewBox="0 0 30 30"><path d="M8 7h10l4 4v14H8z" fill="#3f3a22" stroke="#E0B560" stroke-width="1.5"/><path d="M11 4h6v3h-6z" fill="#E0B560"/><path d="M11 14h8M11 18h8" stroke="#E0B560" stroke-width="1.4"/></svg>',
+  drill: '<svg width="30" height="30" viewBox="0 0 30 30"><path d="M5 9h14l3 3-3 3H5z" fill="#284a5e" stroke="#86BFFF" stroke-width="1.5"/><path d="M22 12h5" stroke="#C8D5DC" stroke-width="2"/><path d="M9 15l-1 11h6l1-11" fill="#1f3a4a" stroke="#86BFFF" stroke-width="1.5"/></svg>',
+  lighter: '<svg width="30" height="30" viewBox="0 0 30 30"><rect x="10" y="10" width="10" height="16" rx="2" fill="#3a2d2d" stroke="#FF9B8E" stroke-width="1.5"/><path d="M12 10V6h6v4" fill="none" stroke="#C8D5DC" stroke-width="1.5"/><path d="M15 3c2 1.5 1 3 0 3.5" stroke="#FFD166" stroke-width="1.4" fill="none"/></svg>'
+};
+const vrow = (icn, word, color, name, why, px) => `<div class="vrow"><span class="itemicon">${icn}</span>
+  <div><div class="name"><span class="vw" style="color:${color}">${word}</span>${name}</div>${why ? `<div class="why">${why}</div>` : ''}</div>
+  <div class="px" style="color:${color === 'var(--danger)' ? 'var(--text2)' : 'var(--text)'}">${px}</div></div>`;
+
+document.getElementById('now').innerHTML = `
+  <div class="blk late" style="padding-top:18px">
+    <div class="caps">Now · late raid</div>
+    <div class="display">6:40 left</div>
+    <div class="h2" style="margin-top:6px">Leave for ZB-1011 by 14:22 · 5 min walk · 2 min margin</div>
+  </div>
+  <div class="blk" style="padding-top:12px;padding-bottom:12px">
+    <div class="caps">You <span class="r">3 s ago</span></div>
+    <div style="font-size:16px;line-height:22px;font-weight:500">Warehouse 4 · ground floor · facing S</div>
+  </div>
+  <div class="blk" style="background:rgba(99,212,221,.05)">
+    <div class="caps">Last scan <span class="r teal">1.4 s ago</span></div>
+    <div class="display tally" style="font-size:30px"><span class="ok">Take 2</span><span class="sec" style="font-weight:400">·</span><span class="warn">Swap 1</span><span class="sec" style="font-weight:400">·</span><span class="bad">Leave 1</span></div>
+    <div style="margin-top:8px">
+      ${vrow(ic.cpu, 'TAKE', 'var(--success)', 'Virtex programmable processor', 'Keep for later: Gunsmith quest ahead', '₽86k/sq')}
+      ${vrow(ic.fuel, 'TAKE', 'var(--success)', 'Fuel conditioner', 'Hideout: Generator L2', '₽61k/sq')}
+      ${vrow(ic.drill, 'SWAP', 'var(--warning)', 'Electric drill for Wires', '', '+₽19k')}
+      ${vrow(ic.lighter, 'LEAVE', 'var(--danger)', 'Crickent lighter', '', '₽9k/sq')}
+    </div>
+    <div class="label" style="margin-top:6px">Toolbox + backpack · rules 274.3 · image not kept · 1.4 s</div>
+    <div class="speak" style="margin-top:14px;font-size:15px;line-height:22px">${icon('wave','s16','color:var(--action);margin-top:2px')}<span>“Take the Virtex and the fuel conditioner. Swap the wires for the drill.”</span></div>
+  </div>
+  <div class="blk" style="padding-top:12px;padding-bottom:12px">
+    <div class="caps">Squad</div>
+    <div class="row" style="font-size:16px;gap:8px;white-space:nowrap"><span class="dot" style="background:var(--geo)"></span>Geo 90 m E <span class="sec">·</span> <span class="dot" style="background:var(--riley)"></span>Riley at ZB-1011 <span class="sec">· 8 s</span></div>
+  </div>
+  <div class="more"><span>More: extracts · objectives · marks · spawns · traffic · corrections</span>${icon('chevr','s16')}</div>`;
+</script></body></html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>V3 · Pre-raid brief</title>
+<link rel="stylesheet" href="v3.css"><script src="v3.js"></script>
+<style>
+.main { grid-template-columns: 1fr 420px; }
+.brief { display: flex; flex-direction: column; overflow: hidden; }
+.brief .blk { padding: 22px 22px 24px; }
+.brief .h3 { margin-bottom: 8px; }
+.q { display: grid; grid-template-columns: 28px 1fr; column-gap: 10px; padding: 8px 0; }
+.q .t { display: flex; gap: 10px; font-size: 16px; line-height: 21px; font-weight: 500; }
+.letter { width: 24px; height: 24px; border-radius: 50%; background: var(--plan); color: #1d1606; font-weight: 800; font-size: 13px; display: grid; place-items: center; margin-top: 1px; }
+.b { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 16px; }
+.b .st { margin-left: auto; font-weight: 600; font-size: 14px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.tag { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; height: 30px; padding: 0 12px; border-radius: var(--r-ctl); background: rgba(255,209,102,.12); border: 1px solid rgba(255,209,102,.45); color: var(--warning); font-weight: 600; font-size: 14px; }
+.bfoot { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--divider); color: var(--text2); }
+.predlab { position: absolute; }
+.because { position: absolute; left: 16px; top: 16px; }
+</style></head>
+<body><div class="app" id="app">
+<main class="main">
+  <section class="mapwrap" id="map">
+    <div class="because">${''}</div>
+    <div class="zoom"></div>
+    <div class="mapctl" id="ctl"></div>
+  </section>
+  <aside class="card brief" id="brief"></aside>
+</main></div>
+<script>
+window.LS = 1.2;
+mount('app', chrome({ state: 'Matching · 0:41', nav: 'raid',
+  chip: `<span class="chip" style="color:var(--success);background:rgba(113,209,154,.10)">${icon('log','s14')} log 2 s ago</span>` }));
+document.querySelector('.because').innerHTML = `${icon('info','s16','color:var(--action)')}<span>Showing the brief: the game log named Customs at 20:14:07</span><span class="undo">Undo</span>`;
+const band = `<path d="M1300 200 C1360 170 1460 180 1500 240 C1540 310 1520 420 1460 450 C1400 470 1330 440 1310 380 C1290 320 1270 240 1300 200 Z" fill="url(#hatch)" stroke="#B8A4F5" stroke-width="2" stroke-dasharray="8 6"/>
+  <g transform="translate(1446 392)"><rect x="-112" y="-2" width="224" height="50" rx="6" fill="rgba(13,20,27,.9)" stroke="#B8A4F5" stroke-width="1.5"/>
+  <text y="19" text-anchor="middle" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.2" fill="#B8A4F5">PREDICTED</text>
+  <text y="38" text-anchor="middle" font-family="Inter" font-size="13" font-weight="500" fill="#C8D5DC">likely spawn: Big Red side</text></g>`;
+const route = [[1380, 330], [1352, 318], [1336, 360], [1316, 450], [1296, 526], [1180, 524], [1060, 528], [1008, 552]];
+const layers = band +
+  extracts([], { vexPrice: true }) +
+  path(route, '#F1C75B', { w: 6 }) +
+  landmarks(['bigred']) +
+  mlabel(1250, 300, 'Big Red', { size: 14, color: '#AFC0CA', anchor: 'end' }) +
+  pin(1008, 552, 'A') + pin(1348, 318, 'B') +
+  mlabel(1008, 600, 'A · Golden Zibbo lighter · 2F', { color: '#F1C75B', weight: 600, size: 14 }) +
+  mlabel(1236, 364, 'B · bronze pocket watch', { color: '#F1C75B', weight: 600, size: 14, anchor: 'end' }) +
+  compass(80, 150);
+mount('map', mapSvg('40 40 1560 1000', layers));
+document.querySelector('.zoom').innerHTML = `<span>${icon('plus','s16')}</span><span>${icon('minus','s16')}</span><span>${icon('fit','s16')}</span>`;
+document.getElementById('ctl').innerHTML = `
+  <span class="c mod">MODELLED TRAFFIC · NOT LIVE</span>
+  <span class="c">${icon('raid','s16')} 2D plan</span>
+  <span class="c">${icon('layers','s16')} Layers</span>
+  <span style="flex:1"></span>
+  <span class="c" style="gap:14px"><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:22px;height:4px;border-radius:2px;background:var(--plan)"></span>Objective route</span>
+  <span style="display:inline-flex;gap:6px;align-items:center"><span style="width:16px;height:12px;border:1.5px dashed var(--modelled);background:rgba(184,164,245,.15)"></span>Predicted spawn side</span>
+  <span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border:1.5px solid #8FA7B4;border-radius:3px"></span>PMC extract</span></span>`;
+
+const ok = t => `<span class="st ok">${icon('check','s16')}${t || ''}</span>`;
+document.getElementById('brief').innerHTML = `
+  <div class="blk" style="padding-top:20px">
+    <div class="caps">Brief · while you match</div>
+    <div class="display" style="white-space:nowrap">Customs · PMC · 40 min</div>
+    <div class="sec" style="margin-top:4px">Reshala 30% · from the catalog</div>
+  </div>
+  <div class="blk">
+    <div class="h3">Quests here</div>
+    <div class="q"><span class="letter">A</span><div><div class="t"><span>Golden Swag (Skier), Dorms 3&#8209;story 2F</span><span style="margin-left:auto;white-space:nowrap" class="sec">310 m</span></div>
+      <div class="label">needs: Dorm room 214 key <span class="ok">✔</span> seen in stash scan 18:02</div></div></div>
+    <div class="q"><span class="letter">B</span><div><div class="t"><span>Checking (Prapor), Big Red</span><span style="margin-left:auto;white-space:nowrap" class="sec">180 m</span></div>
+      <div class="label">needs: nothing to bring</div></div></div>
+    <div class="label" style="margin-top:4px">distances from the predicted spawn side</div>
+  </div>
+  <div class="blk">
+    <div class="h3">Bring</div>
+    <div class="b">${icon('key','s16','color:var(--text2)')}<span>Dorm room 314 marked key</span><span class="st warn">${icon('cross','s16')}not seen</span></div>
+    <div class="b">${icon('marker','s16','color:var(--text2)')}<span>MS2000 marker ×1</span>${ok()}</div>
+    <div class="tag">${icon('info','s16')}You can still leave matching.</div>
+  </div>
+  <div class="blk">
+    <div class="h3">Extracts for PMC</div>
+    <div style="font-size:15px;line-height:22px">ZB-1011 · Crossroads · Old Gas Station · Trailer Park · <span class="link">+3 in More</span></div>
+    <div class="label" style="margin-top:4px">Offered list: take a screenshot of the O screen in raid</div>
+  </div>
+  <div class="blk">
+    <div class="h3">Squad</div>
+    <div class="row" style="font-size:15px;gap:6px;white-space:nowrap">Geo <span class="dot" style="background:var(--geo)"></span> ready <span class="sec">·</span> Riley <span class="dot" style="background:var(--riley)"></span> ready <span class="sec">·</span> Sam <span class="dot" style="background:var(--sam)"></span> <span class="sec">not queued</span></div>
+    <div class="label" style="margin-top:4px">from their companions</div>
+  </div>
+  <div class="bfoot">${icon('speaker','s16')}<span>Spoken at raid start · Essentials</span></div>`;
+</script></body></html>

@@ -1,0 +1,81 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>V3 · After the raid</title>
+<link rel="stylesheet" href="v3.css"><script src="v3.js"></script>
+<style>
+.main { grid-template-columns: 1fr 400px; }
+.because { position: absolute; left: 16px; top: 16px; }
+.blk { padding: 20px 22px 22px; }
+.choices { display: grid; grid-template-columns: 1fr 1fr 1.15fr; gap: 10px; margin-top: 20px; }
+.choices .btn { height: 48px; font-size: 16px; border-width: 1.5px; border-radius: 8px; gap: 6px; }
+.rc { display: flex; gap: 12px; align-items: flex-start; padding: 9px 0; font-size: 16px; line-height: 22px; }
+.rc svg { margin-top: 3px; color: var(--text2); }
+.watch { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 8px 16px 8px 8px; background: rgba(16,24,32,.94); border: 1px solid rgba(130,151,164,.35); border-radius: 26px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.watch .play { width: 36px; height: 36px; border-radius: 50%; background: var(--action); color: #07252a; display: grid; place-items: center; }
+.watch .play svg { fill: #07252a; stroke: none; }
+.scrub { width: 360px; height: 4px; border-radius: 2px; background: #2b3f4d; position: relative; }
+.scrub::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 100%; border-radius: 2px; background: linear-gradient(90deg, #5CF0FF, #5CF0FF); opacity: .8; }
+.scrub::after { content: ""; position: absolute; right: -7px; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: #F4F8FA; }
+</style></head>
+<body><div class="app" id="app">
+<main class="main">
+  <section class="mapwrap" id="map">
+    <div class="because"></div>
+    <div class="zoom"></div>
+    <div class="watch"><span class="play"></span><div style="white-space:nowrap"><div style="font-weight:600;font-size:14px">Watch on map</div><div class="label">your trail against the plan</div></div><div class="scrub"></div><span class="label" style="white-space:nowrap">34:12</span></div>
+    <div class="mapctl" id="ctl"></div>
+  </section>
+  <aside class="card now" id="now"></aside>
+</main></div>
+<script>
+mount('app', chrome({ state: 'Raid over', nav: 'raid',
+  chip: `<span class="chip">${icon('log','s14')} log 8 s ago</span>` }));
+document.querySelector('.because').innerHTML = `${icon('info','s16','color:var(--action)')}<span>Debrief ready: the game reported the raid over at 20:52</span><span class="undo">Undo</span>`;
+document.querySelector('.watch .play').innerHTML = icon('play','s16');
+const plan = [[1380, 330], [1352, 318], [1336, 360], [1316, 450], [1296, 526], [1180, 524], [1060, 528], [1008, 552], [900, 522], [700, 520], [440, 518], [300, 518], [250, 400], [214, 290]];
+const trail = [[1392, 300], [1366, 330], [1346, 410], [1322, 520], [1310, 548], [1200, 548], [1090, 552], [1004, 572], [960, 600], [930, 566], [800, 548], [620, 546], [548, 506], [520, 478], [478, 540], [320, 546], [276, 490], [262, 380], [222, 298]];
+const base = `<g opacity=".4">${extracts([], {})}${landmarks()}</g>`;
+const layers = base +
+  path(plan, '#F1C75B', { w: 5, op: .85 }) +
+  path(trail, '#5CF0FF', { w: 4 }) +
+  pin(1008, 552, 'A') + pin(1348, 318, 'B', { op: .8 }) +
+  `<circle cx="1392" cy="300" r="8" fill="#101820" stroke="#5CF0FF" stroke-width="3"/>` +
+  mlabel(1414, 300, 'start 19:18', { color: '#C8D5DC', size: 13, anchor: 'start' }) +
+  `<circle cx="222" cy="296" r="38" fill="rgba(113,209,154,.12)" stroke="#71D19A" stroke-width="3" stroke-dasharray="7 5"/><circle cx="222" cy="296" r="9" fill="#5CF0FF" stroke="#F4F8FA" stroke-width="2.5"/>` +
+  mlabel(268, 222, 'extract used: ZB-1011 · inferred from last position', { anchor: 'start', color: '#F4F8FA', weight: 600, size: 15 }) +
+  compass(80, 150);
+mount('map', mapSvg('40 40 1560 1000', layers, { dim: .4 }));
+document.querySelector('.zoom').innerHTML = `<span>${icon('plus','s16')}</span><span>${icon('minus','s16')}</span><span>${icon('fit','s16')}</span>`;
+document.getElementById('ctl').innerHTML = `
+  <span class="c">${icon('raid','s16')} 2D plan</span>
+  <span class="c">${icon('layers','s16')} Layers</span>
+  <span style="flex:1"></span>
+  <span class="c" style="gap:14px"><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:22px;height:4px;border-radius:2px;background:#5CF0FF"></span>Your trail</span>
+  <span style="display:inline-flex;gap:6px;align-items:center"><span style="width:22px;height:4px;border-radius:2px;background:var(--plan)"></span>Plan</span></span>`;
+document.getElementById('now').innerHTML = `
+  <div class="blk" style="padding-top:22px">
+    <div class="caps">After the raid <span class="r">8 s ago</span></div>
+    <div class="h1">How did the raid end?</div>
+    <div class="choices">
+      <span class="btn" style="border-color:var(--success);color:var(--success)">${icon('check','s16')}Survived</span>
+      <span class="btn" style="border-color:var(--danger);color:var(--danger)">${icon('cross','s16')}Died</span>
+      <span class="btn" style="border-color:var(--border);color:var(--text)">Ran through</span>
+    </div>
+    <div style="margin-top:14px"><span class="link">Later</span></div>
+    <div class="row sec" style="margin-top:12px;align-items:flex-start">${icon('camera','s16','margin-top:2px')}<span>Or screenshot the raid summary screen and I'll read it.</span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">Recap</div>
+    <div class="rc">${icon('clock','s16')}<span>34:12 in raid · Customs · PMC</span></div>
+    <div class="rc">${icon('bag','s16')}<span>Loot scanned: ₽412k in 3 scans</span></div>
+    <div class="rc">${icon('tasks','s16')}<span>Tasks moved: Golden Swag <span class="ok">✔</span> objective done</span></div>
+    <div class="rc"><span class="dot" style="background:var(--plan);width:10px;height:10px;margin:6px 3px 0"></span><span>Hand in to Skier: <b style="font-weight:600">Golden Swag</b></span></div>
+    <div class="rc">${icon('flag','s16')}<span>Extract used: ZB-1011 <span class="sec">· inferred from last position</span></span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">Next raid</div>
+    <div class="h2">Customs again: Checking still open, 1 objective</div>
+    <div class="sec" style="margin-top:8px;font-size:15px">or Woods for Sam's shared task</div>
+    <div class="row" style="margin-top:16px;gap:10px"><span class="btn primary">${icon('route','s16')}Plan Customs again</span><span class="btn">Compare Woods</span></div>
+  </div>
+  <div class="more"><span>Open the full Debrief</span>${icon('chevr','s16')}</div>`;
+</script></body></html>

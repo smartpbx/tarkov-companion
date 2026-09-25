@@ -1,0 +1,86 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>V3 · Tablet · Now</title>
+<link rel="stylesheet" href="v3.css"><script src="v3.js"></script>
+<style>
+html, body { width: 1280px; height: 800px; }
+.t { display: grid; grid-template-rows: 56px 1fr 48px; height: 100%; }
+.hdr { display: flex; align-items: center; gap: 16px; padding: 0 16px 0 20px; background: #0d141b; border-bottom: 1px solid var(--divider); }
+.hdr .brand { font-size: 18px; font-weight: 700; }
+.hdr .sep { width: 1px; height: 24px; background: var(--divider); }
+.picker { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid rgba(130,151,164,.45); font-weight: 600; font-size: 16px; }
+.body { display: grid; grid-template-columns: 760px 1fr; gap: 12px; padding: 12px; min-height: 0; }
+.tb { position: absolute; display: flex; flex-direction: column; background: rgba(16,24,32,.92); border: 1px solid rgba(130,151,164,.4); border-radius: 10px; overflow: hidden; }
+.tb span { width: 48px; height: 48px; display: grid; place-items: center; font-weight: 600; font-size: 16px; color: var(--text2); }
+.tb span + span { border-top: 1px solid var(--divider); }
+.tb span.on { background: rgba(99,212,221,.16); color: var(--action); }
+.nowc { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.nowc .blk { padding: 16px 20px 16px; }
+.sqr { display: flex; align-items: center; gap: 12px; height: 56px; font-size: 17px; border-top: 1px solid rgba(34,52,65,.8); }
+.sqr:first-of-type { border-top: 0; }
+.sqr .dot { width: 12px; height: 12px; }
+.ping { margin-left: auto; height: 44px; min-width: 88px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; border: 1px solid rgba(99,212,221,.6); color: var(--action); font-weight: 600; font-size: 15px; }
+.ping.off { border-color: rgba(130,151,164,.35); color: var(--border); }
+.foot { display: flex; align-items: center; gap: 10px; padding: 0 20px; background: #0d141b; border-top: 1px solid var(--divider); color: var(--text2); font-size: 14px; }
+.mctl { position: absolute; left: 12px; bottom: 12px; }
+</style></head>
+<body class="tablet"><div class="t">
+  <header class="hdr" id="hdr"></header>
+  <div class="body">
+    <section class="mapwrap" id="map">
+      <div class="tb" style="left:12px;top:12px" id="floors"></div>
+      <div class="tb" style="right:12px;top:12px" id="zoomt"></div>
+      <div class="mapctl"><span class="c mod">MODELLED TRAFFIC · NOT LIVE</span></div>
+    </section>
+    <aside class="card nowc" id="now"></aside>
+  </div>
+  <footer class="foot" id="foot"></footer>
+</div>
+<script>
+document.getElementById('hdr').innerHTML = `<span class="brand">Tarkov Companion</span><span class="sep"></span>
+  <span class="row" style="gap:8px"><span class="dot" style="background:var(--success);width:10px;height:10px"></span>Synced 1 s ago</span><span class="sep"></span>
+  <span class="row sec" style="gap:8px">${icon('lock','s16')}Private relay</span>
+  <span class="picker">${icon('raid','s16','color:var(--action)')} Raid ${icon('chev','s16','color:var(--text2)')}</span>`;
+document.getElementById('floors').innerHTML = `<span>3</span><span class="on">2</span><span>1</span>`;
+document.getElementById('zoomt').innerHTML = `<span>${icon('plus')}</span><span>${icon('minus')}</span><span>${icon('fit')}</span>`;
+window.LS = 1.15;
+const trail = [[1180, 526], [1100, 530], [1030, 580], [960, 606]];
+const layers =
+  extracts(['zb1011', 'crossroads', 'ogs', 'trailer'], { skip: ['boat'] }) +
+  path(trail, '#5CF0FF', { w: 3.5, dash: '2 9', halo: false, op: .9 }) +
+  path([[938, 614], [972, 590], [1000, 568]], '#F1C75B', { w: 6 }) +
+  landmarks(['bigred']) +
+  pin(1004, 552, 'A') +
+  member(446, 800, '#56B4E9', 'Geo', '12 s', { heading: 30, ly: -34, lx: 20 }) +
+  member(1012, 262, '#E69F00', 'Riley', '50 s', { heading: 200, ly: 44, lx: -70 }) +
+  you(938, 614, 45, { label: 'You · 12 s', lx: -20, ly: 34 });
+mount('map', mapSvg('362 186 800 710', layers));
+document.getElementById('now').innerHTML = `
+  <div class="blk" style="padding-top:14px">
+    <div class="caps">Now</div>
+    <div class="display">20:57 left</div>
+    <div class="label">from the raid clock</div>
+    <div class="row" style="margin-top:6px;gap:8px">${icon('check','s16','color:var(--success)')}<span>Survival counts · run-through ended 07:00</span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">You <span class="r">12 s ago</span></div>
+    <div class="h2">Dorms 3-story 2F · facing NE</div>
+    <div class="row" style="margin-top:6px;gap:10px"><span style="width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:rgba(113,209,154,.14);border:1px solid rgba(113,209,154,.5);color:var(--success)">${icon('arrow','s16','transform:rotate(225deg)')}</span>
+    <span style="font-size:18px;font-weight:600">ZB-1011 310 m W ~5 min</span></div>
+  </div>
+  <div class="blk" style="padding-top:10px;padding-bottom:4px">
+    <div class="caps">Squad</div>
+    <div class="sqr"><span class="dot" style="background:var(--geo)"></span><div><b style="font-weight:600">Geo</b> <span class="sec">· Old Gas Station · 140 m NE</span></div><span class="ping">${icon('ping','s16')}Ping</span></div>
+    <div class="sqr"><span class="dot" style="background:var(--riley)"></span><div><b style="font-weight:600">Riley</b> <span class="sec">· Crackhouse · 60 m N</span></div><span class="ping">${icon('ping','s16')}Ping</span></div>
+    <div class="sqr"><span class="dot" style="background:var(--sam)"></span><div><b style="font-weight:600">Sam</b> <span class="sec">· not on this map</span></div><span class="ping off">${icon('ping','s16')}Ping</span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">Next</div>
+    <div class="h2 row" style="gap:10px"><span class="letter" style="width:24px;height:24px;border-radius:50%;background:var(--plan);color:#1d1606;font-size:13px;font-weight:800;display:grid;place-items:center">A</span>Golden Zibbo lighter · 40 m</div>
+    <div class="dim" style="margin-top:4px;padding-left:34px">then: bronze pocket watch · Big Red · 220 m</div>
+  </div>
+  <div class="blk">
+    <div class="caps">Last scan</div>
+    <div class="sec" style="font-size:16px">No scan yet</div>
+  </div>`;
+document.getElementById('foot').innerHTML = `${icon('info','s16','color:var(--action)')}<span style="color:var(--text)">Following the raid: log says in raid</span><span class="sec">·</span><span>Undo on desktop</span><span style="margin-left:auto" class="row">${icon('tablet','s16')} Paired to your PC</span>`;
+</script></body></html>
