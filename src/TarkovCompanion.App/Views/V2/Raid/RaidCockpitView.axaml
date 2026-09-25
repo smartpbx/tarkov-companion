@@ -670,41 +670,42 @@
                               </DataTemplate>
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
+                          <!-- [#902] The loot chips under the Loot header, not after the Traffic rows. -->
+                          <ContentControl Content="{Binding Loot}" IsVisible="{Binding HasLoot}">
+                            <ContentControl.ContentTemplate>
+                              <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
+                                <StackPanel Spacing="6">
+                                  <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
+                                  <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
+                                    <ItemsControl.ItemsPanel>
+                                      <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                                        <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                      Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                  <ItemsControl ItemsSource="{Binding CompactValueBasisChoices}">
+                                    <ItemsControl.ItemsPanel>
+                                      <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                                        <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                      Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+                              </DataTemplate>
+                            </ContentControl.ContentTemplate>
+                          </ContentControl>
                         </StackPanel>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
-                  <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasHighValueLoot}">
-                    <ContentControl.ContentTemplate>
-                      <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
-                        <StackPanel Spacing="6">
-                          <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
-                          <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
-                            <ItemsControl.ItemsPanel>
-                              <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                              <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
-                                <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                              Content="{Binding Label}" Command="{Binding SelectCommand}" />
-                              </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
-                          <ItemsControl ItemsSource="{Binding CompactValueBasisChoices}">
-                            <ItemsControl.ItemsPanel>
-                              <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                              <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
-                                <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                              Content="{Binding Label}" Command="{Binding SelectCommand}" />
-                              </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
-                        </StackPanel>
-                      </DataTemplate>
-                    </ContentControl.ContentTemplate>
-                  </ContentControl>
                   <!-- [Issue 286] #591: the phase scrubber and the heat ramp for the "Modelled
                        traffic" switch above, back on the page's own view model (DataContext is
                        Renderer from here up, for the layer list) by name rather than by walking

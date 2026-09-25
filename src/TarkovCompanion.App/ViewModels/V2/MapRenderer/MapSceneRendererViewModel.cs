@@ -1961,7 +1961,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                         ? Text("Map.Layer.FlatViewOnly")
                         : null))
             .ToArray();
-        LayerGroups = MapLayerGroups.Group(Layers, _presentation);
+        LayerGroups = MapLayerGroups.Group(Layers, _presentation, HighValueLoot);
     }
 
     private IReadOnlyList<MapSceneObject> RebuildProjectedObjects()

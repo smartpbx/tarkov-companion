@@ -43,9 +43,11 @@ public static class MapLayerGroups
     }
 
     /// <summary>The rows under their headers, in the fixed group order; an empty group is left out.</summary>
+    /// <param name="loot">The loot filter panel, shown under the Loot header, where its chips belong.</param>
     public static IReadOnlyList<MapSceneRendererLayerGroupViewModel> Group(
         IReadOnlyList<MapSceneRendererLayerViewModel> layers,
-        MapSceneRendererPresentation presentation)
+        MapSceneRendererPresentation presentation,
+        HighValueLootLayerViewModel? loot = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(presentation);
@@ -55,7 +57,8 @@ public static class MapLayerGroups
             .Select(group => new MapSceneRendererLayerGroupViewModel(
                 group.Key,
                 presentation.Get($"Map.LayerGroup.{group.Key}"),
-                byKey[group.Key]))
+                byKey[group.Key],
+                group.Key == "Loot" ? loot : null))
             .ToArray();
     }
 }
@@ -63,10 +66,14 @@ public static class MapLayerGroups
 public sealed class MapSceneRendererLayerGroupViewModel(
     string key,
     string header,
-    IReadOnlyList<MapSceneRendererLayerViewModel> layers)
+    IReadOnlyList<MapSceneRendererLayerViewModel> layers,
+    HighValueLootLayerViewModel? loot = null)
 {
     public string Key { get; } = key;
     public string Header { get; } = header;
     public IReadOnlyList<MapSceneRendererLayerViewModel> Layers { get; } = layers;
+    /// <summary>The loot filter chips, on the Loot group only.</summary>
+    public HighValueLootLayerViewModel? Loot { get; } = loot;
+    public bool HasLoot => Loot is not null;
     public string AutomationId => $"v2-map-layer-group-{Key.ToLowerInvariant()}";
 }
