@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using System.Globalization;
 using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.Diagnostics;
@@ -25,7 +26,7 @@ namespace TarkovCompanion.App.ViewModels.V2.Raid;
 /// </remarks>
 public sealed partial class RaidCockpitViewModel
 {
-    private static readonly MapSceneLayerId RouteLayerId = new("traffic-routes");
+    private static readonly MapSceneLayerId RouteLayerId = RouteLayerSwitch.Suggested;
 
     /// <summary>Planning is per extract; the nearest few are the ones a player is choosing between.</summary>
     private const int MaximumRoutedExtracts = 16;
@@ -81,13 +82,13 @@ public sealed partial class RaidCockpitViewModel
         if (_prior is not { Field: { } field } prior)
         {
             SetRoutes([], string.Empty, needsStart: false, signature: null);
-            return ([RouteLayer()], []);
+            return (RouteLayers(), []);
         }
 
         if (RouteStart(model) is not { } start)
         {
             SetRoutes([], string.Empty, needsStart: true, signature: null);
-            return ([RouteLayer()], []);
+            return (RouteLayers(), []);
         }
 
         // [Issue 573] A co-op extract is not a suggested-route target either, unless the player
@@ -130,17 +131,17 @@ public sealed partial class RaidCockpitViewModel
 
         if (ShownRoute is not { } shown)
         {
-            return ([RouteLayer()], []);
+            return (RouteLayers(), []);
         }
 
         var (estimate, provenance) = PriorEstimate(prior, transformVersion);
         var styles = new Dictionary<MapSceneObjectId, MapSceneObjectStyle>();
         var objects = new List<MapSceneObject>(2);
-        void Add(string id, string label, string detail, TrafficRoute route, MapSceneObjectStyle style)
+        void Add(string id, MapSceneLayerId layerId, string label, string detail, TrafficRoute route, MapSceneObjectStyle style)
         {
             objects.Add(new(
                 new(id),
-                RouteLayerId,
+                layerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.HistoricalEstimate,
                 label,
@@ -156,6 +157,7 @@ public sealed partial class RaidCockpitViewModel
         {
             Add(
                 "traffic-route:direct",
+                RouteLayerSwitch.Direct,
                 RaidText.DirectLineTo(shown.Extract, direct.MinutesLabel()),
                 RaidText.HigherContactDetail(RouteCaveat),
                 direct,
@@ -164,12 +166,13 @@ public sealed partial class RaidCockpitViewModel
 
         Add(
             "traffic-route:lower-contact",
+            RouteLayerId,
             RaidText.LowerContactRouteTo(shown.Extract, shown.Plan.LowerContact.MinutesLabel()),
             $"{string.Join(". ", shown.Plan.Reasons.Select(RaidText.RouteReason))}. {RouteCaveat}.",
             shown.Plan.LowerContact,
             new(RouteColor, LineThickness: 4));
         _routeStyles = styles;
-        return ([RouteLayer()], objects);
+        return (RouteLayers(), objects);
     }
 
     /// <summary>
@@ -177,7 +180,54 @@ public sealed partial class RaidCockpitViewModel
     /// to exist only while a route did, so a player could not turn the path off ahead of time, and
     /// one turned off had no switch in sight when the next route was planned.
     /// </summary>
-    private static MapSceneLayer RouteLayer() => new(RouteLayerId, RaidText.LayerSuggestedRoutes, 65, true);
+    /// <remarks>
+    /// [#902] The grey direct line has its own layer: it rode on the suggested route's switch, so
+    /// the one could not be shown without the other.
+    /// </remarks>
+    private static MapSceneLayer[] RouteLayers() =>
+    [
+        new(RouteLayerId, RaidText.LayerSuggestedRoutes, 65, true),
+        new(RouteLayerSwitch.Direct, RaidText.LayerDirectLine, 64, true),
+    ];
+
+    /// <summary>[#902] "Show on map" on the route card: the Suggested extract route layer itself.</summary>
+    public bool SuggestedRouteShown
+    {
+        get => RouteLayerSwitch.IsShown(Renderer, _layerVisibility, RouteLayerId);
+        set => SetRouteLayer(RouteLayerId, value);
+    }
+
+    private ICommand? _toggleSuggestedRouteCommand;
+
+    public ICommand ToggleSuggestedRouteCommand =>
+        _toggleSuggestedRouteCommand ??= new DelegateCommand(() => SuggestedRouteShown = !SuggestedRouteShown);
+
+    /// <summary>A route's shortcut flips its layer; the layer change comes back through <see cref="OnRouteLayerChanged"/>.</summary>
+    private void SetRouteLayer(MapSceneLayerId layerId, bool shown)
+    {
+        if (RouteLayerSwitch.Set(Renderer, _layerVisibility, layerId, shown))
+        {
+            OnRouteLayerChanged(layerId);
+        }
+    }
+
+    /// <summary>
+    /// Every route switch, whichever control flipped it (Layers row, card shortcut, Plan's chip,
+    /// the paired tablet), ends here, so each shortcut shows the same state.
+    /// </summary>
+    private void OnRouteLayerChanged(MapSceneLayerId layerId)
+    {
+        if (layerId == RouteLayerSwitch.Objective)
+        {
+            OnPropertyChanged(nameof(ObjectiveRouteShown));
+            // The step numbers ride on the objective pins, which only a rebuild takes off or puts back.
+            _rebuildRequest.Request();
+        }
+        else if (layerId == RouteLayerId)
+        {
+            OnPropertyChanged(nameof(SuggestedRouteShown));
+        }
+    }
 
     private MapSceneObjectId? _routeStartSpawnId;
 

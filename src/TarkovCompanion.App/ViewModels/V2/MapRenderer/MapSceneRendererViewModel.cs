@@ -728,7 +728,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             BuildFloors();
         }
 
-        if (layerDefinitionsChanged || layerVisibilityChanged)
+        // [#902] New objects on a layer change its row's count too: a layer declared before it has
+        // anything (the objective route, the suggested extract route) read "none on this map"
+        // beside the route it was drawing.
+        var layersRebuilt = layerDefinitionsChanged || layerVisibilityChanged || (objectDefinitionsChanged && LayerCountsChanged());
+        if (layersRebuilt)
         {
             BuildLayers();
         }
@@ -774,7 +778,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         RaisePresentChanged(
             modeChanged,
             floorIdsChanged || floorSelectionChanged,
-            layerDefinitionsChanged || layerVisibilityChanged,
+            layersRebuilt,
             visibleContentChanged,
             cameraChanged,
             changedSceneIdentity || assetsChanged || boundsChanged);
@@ -1930,18 +1934,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         // rather than once per layer over the whole object list. The loot layer is counted from
         // what its own filters currently leave visible, because that is what turning it on would
         // actually draw.
-        var counts = new Dictionary<MapSceneLayerId, int>();
-        foreach (var item in _scene.Objects)
-        {
-            if (HighValueLoot is not null &&
-                item.LayerId == HighValueLootLayerService.LayerId &&
-                !HighValueLoot.ShowableObjectIds.Contains(item.Id))
-            {
-                continue;
-            }
-
-            counts[item.LayerId] = counts.TryGetValue(item.LayerId, out var running) ? running + 1 : 1;
-        }
+        var counts = CountObjectsByLayer();
 
         // [#902] The heat picture is drawn on the flat plan only, so in the floor stack its
         // switch says so rather than reading on and drawing nothing.
@@ -1962,6 +1955,31 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                         : null))
             .ToArray();
         LayerGroups = MapLayerGroups.Group(Layers, _presentation, HighValueLoot);
+    }
+
+    private Dictionary<MapSceneLayerId, int> CountObjectsByLayer()
+    {
+        var counts = new Dictionary<MapSceneLayerId, int>();
+        foreach (var item in _scene.Objects)
+        {
+            if (HighValueLoot is not null &&
+                item.LayerId == HighValueLootLayerService.LayerId &&
+                !HighValueLoot.ShowableObjectIds.Contains(item.Id))
+            {
+                continue;
+            }
+
+            counts[item.LayerId] = counts.TryGetValue(item.LayerId, out var running) ? running + 1 : 1;
+        }
+
+        return counts;
+    }
+
+    /// <summary>Whether any Layers row would now show a different count; rows are rebuilt only then.</summary>
+    private bool LayerCountsChanged()
+    {
+        var counts = CountObjectsByLayer();
+        return Layers.Any(row => row.Count != counts.GetValueOrDefault(row.Layer.Id));
     }
 
     private IReadOnlyList<MapSceneObject> RebuildProjectedObjects()

@@ -395,9 +395,20 @@
             <Grid RowDefinitions="Auto,*">
               <StackPanel Margin="4,0,0,8" Spacing="2">
                 <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" />
-                <TextBlock Classes="v2-label" Text="{Binding RouteSummary}" IsVisible="{Binding HasRoute}"
-                           Foreground="{DynamicResource V2.Brush.Action}" TextWrapping="Wrap"
-                           AutomationProperties.AutomationId="v2-plan-objective-route-summary" />
+                <!-- [#902] "Route" is the Raid map's Objective route switch, not a copy: it shows and
+                     hides the gold path here and on Raid, and is saved. -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding HasRoute}">
+                  <TextBlock Classes="v2-label" Text="{Binding RouteSummary}" VerticalAlignment="Center"
+                             Foreground="{DynamicResource V2.Brush.Action}" TextWrapping="Wrap"
+                             AutomationProperties.AutomationId="v2-plan-objective-route-summary" />
+                  <ToggleButton Grid.Column="1" Classes="v2-target v2-intel-chip v2-intel-chip-small" VerticalAlignment="Top"
+                                Content="{x:Static l:PlanText.RouteChip}"
+                                IsVisible="{Binding #PlanMapCard.((vm:PlanWorkspaceViewModel)DataContext).CanToggleObjectiveRoute}"
+                                IsChecked="{Binding #PlanMapCard.((vm:PlanWorkspaceViewModel)DataContext).ShowsObjectiveRoute, Mode=OneWay}"
+                                Command="{Binding #PlanMapCard.((vm:PlanWorkspaceViewModel)DataContext).ToggleObjectiveRouteCommand}"
+                                AutomationProperties.AutomationId="v2-plan-objective-route-show"
+                                ToolTip.Tip="{x:Static l:PlanText.RouteChipTip}" />
+                </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding RouteCaveat}" IsVisible="{Binding HasRoute}"
                            TextWrapping="Wrap" />
                 <TextBlock Classes="v2-label" Text="{Binding RouteHint}" IsVisible="{Binding HasRouteHint}"

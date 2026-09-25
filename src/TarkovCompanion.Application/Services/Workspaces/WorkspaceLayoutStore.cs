@@ -46,6 +46,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 796] The raid map layers the player turned on or off, as "id:1,id:0".</summary>
     public const string RaidLayerVisibility = "raid.layer-visibility";
 
+    /// <summary>[#902] The maps an objective route from Plan was last opened on, as "customs,woods".</summary>
+    public const string RaidObjectiveRouteMaps = "raid.objective-route-maps";
+
     /// <summary>[Issue 702] Whether a new screenshot moves the raid map back to the player.</summary>
     public const string RaidFollow = "raid.follow";
 

@@ -1036,13 +1036,14 @@
                                 Command="{Binding ToggleShowCompletedObjectivesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
                                 ToolTip.Tip="{x:Static l:RaidText.ShowCompletedTip}" />
-                  <!-- [#307] The objective route opened from Plan follows the plan while shown. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.HideRoute}"
+                  <!-- [#307] The objective route opened from Plan follows the plan while shown.
+                       [#902] Lit while it is drawn: the Objective route layer itself, saved. -->
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ShowRoute}"
                                 IsVisible="{Binding HasObjectiveRoute}"
-                                IsChecked="{Binding ObjectiveRouteHidden, Mode=OneWay}"
+                                IsChecked="{Binding ObjectiveRouteShown, Mode=OneWay}"
                                 Command="{Binding ToggleObjectiveRouteCommand}"
-                                AutomationProperties.AutomationId="v2-raid-objective-route-hide"
-                                ToolTip.Tip="{x:Static l:RaidText.HideRouteTip}" />
+                                AutomationProperties.AutomationId="v2-raid-objective-route-show"
+                                ToolTip.Tip="{x:Static l:RaidText.ShowRouteTip}" />
                   <!-- [#780] Squadmates' open objectives on this map, outlined in their colour. -->
                   <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Squad}"
                                 IsVisible="{Binding HasSquadObjectivesHere}"
@@ -1376,11 +1377,21 @@
           <Expander Classes="v2-raid-expander" HorizontalAlignment="Stretch"
                     IsExpanded="{Binding Cards.Route.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
-              <StackPanel Spacing="1">
-                <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.LowerContactRoute}" />
-                <TextBlock Classes="v2-label" Text="{Binding RouteTitle}" TextTrimming="CharacterEllipsis"
-                           IsVisible="{Binding Cards.Route.IsCollapsed}" />
-              </StackPanel>
+              <!-- [#902] The switch sits in the header so it works with the card folded: it is the
+                   Suggested extract route layer itself, saved, never a copy. -->
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.LowerContactRoute}" />
+                  <TextBlock Classes="v2-label" Text="{Binding RouteTitle}" TextTrimming="CharacterEllipsis"
+                             IsVisible="{Binding Cards.Route.IsCollapsed}" />
+                </StackPanel>
+                <ToggleButton Grid.Column="1" Classes="v2-target v2-raid-viewcontrol" VerticalAlignment="Center"
+                              Content="{x:Static l:RaidText.ShowOnMap}"
+                              IsChecked="{Binding SuggestedRouteShown, Mode=OneWay}"
+                              Command="{Binding ToggleSuggestedRouteCommand}"
+                              AutomationProperties.AutomationId="v2-raid-route-show"
+                              ToolTip.Tip="{x:Static l:RaidText.ShowSuggestedRouteTip}" />
+              </Grid>
             </Expander.Header>
               <StackPanel Spacing="6">
                 <StackPanel Spacing="0">

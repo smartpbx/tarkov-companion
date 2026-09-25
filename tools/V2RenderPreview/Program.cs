@@ -2054,6 +2054,23 @@ internal static class Program
                 plan.RefreshMapPreview();
                 plan.SendSelectedObjectiveRouteToRaidForPreview();
                 Pump(40);
+                // [#902] Hide the objective route, then open it again the way "Open in Raid" does:
+                // it must stay hidden, on Raid and in Plan's preview.
+                if (args.Contains("--objective-route-off") &&
+                    shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel routeRaid)
+                {
+                    routeRaid.ToggleObjectiveRouteCommand.Execute(null);
+                    Pump(40);
+                    plan.SendSelectedObjectiveRouteToRaidForPreview();
+                    Pump(80);
+                    Console.WriteLine($"Objective route after opening again: shown={routeRaid.ObjectiveRouteShown} plan chip={plan.ShowsObjectiveRoute}");
+                }
+
+                if (shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel routedCockpit)
+                {
+                    Console.WriteLine($"Objective route: opened={routedCockpit.HasObjectiveRoute} shown={routedCockpit.ObjectiveRouteShown} drawn=" +
+                        (routedCockpit.Renderer?.GeometryObjects.Count(item => item.SceneObject.LayerId.Value == "objective-route") ?? 0));
+                }
             }
 
             // [Issue 701] Exercise the same choices exposed beside the gem and in Layers. This
@@ -2097,6 +2114,21 @@ internal static class Program
                         $"No routed extract matches '{routeExtract}'. Routed: " +
                         string.Join(", ", routedRaid.MapExtracts.Where(row => row.HasEstimate).Select(row => row.Name)));
                 }
+            }
+
+            // [#902] The route card's "Show on map", off: the suggested extract route's own layer.
+            // --route-lines prints the lines drawn per layer without switching anything.
+            if ((args.Contains("--suggested-route-off") || args.Contains("--route-lines")) &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel suggestedRaid)
+            {
+                if (args.Contains("--suggested-route-off"))
+                {
+                    suggestedRaid.ToggleSuggestedRouteCommand.Execute(null);
+                    Pump(40);
+                }
+
+                Console.WriteLine($"Suggested extract route: shown={suggestedRaid.SuggestedRouteShown} lines drawn: " + string.Join(", ",
+                    (suggestedRaid.Renderer?.GeometryObjects ?? []).GroupBy(item => item.SceneObject.LayerId.Value).Select(group => $"{group.Key}={group.Count()}")));
             }
 
             // [#292 follow-up] --loot-refresh: press the loot panel's Refresh first, as a player

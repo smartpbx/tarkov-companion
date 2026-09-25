@@ -24,32 +24,32 @@ public sealed partial class RaidCockpitViewModel
     private ObjectiveRouteFollower? _objectiveRouteFollower;
     private ObjectiveRouteFollowerResult? _objectiveRoute;
     private bool _objectiveRouteOpened;
-    private bool _objectiveRouteHidden;
+    private ObjectiveRouteMaps? _objectiveRouteMaps;
     private ICommand? _toggleObjectiveRouteCommand;
+
+    /// <summary>[#902] Plan's stops per map, as Plan last handed them over this session.</summary>
+    private readonly Dictionary<string, IReadOnlyList<ObjectiveRouteStop>> _planStopsByMap =
+        new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyDictionary<MapSceneObjectId, MapSceneObjectStyle> _objectiveRouteStyles =
         new Dictionary<MapSceneObjectId, MapSceneObjectStyle>();
 
     /// <summary>Whether a route from Plan has been opened on this map, so there is one to hide or show.</summary>
     public bool HasObjectiveRoute => _objectiveRouteOpened;
 
-    /// <summary>"Hide route": the objective route leaves the map and stops recomputing until shown again.</summary>
-    public bool ObjectiveRouteHidden
+    /// <summary>
+    /// [#902] "Show route": the Objective route layer itself, saved, and read by Plan's preview.
+    /// Opening a route again never turns it back on; only the player does.
+    /// </summary>
+    public bool ObjectiveRouteShown
     {
-        get => _objectiveRouteHidden;
-        set
-        {
-            if (!SetProperty(ref _objectiveRouteHidden, value))
-            {
-                return;
-            }
-
-            Follower.SetEnabled(_objectiveRouteOpened && !value);
-            _rebuildRequest.Request();
-        }
+        get => RouteLayerSwitch.IsShown(Renderer, _layerVisibility, RouteLayerSwitch.Objective);
+        set => SetRouteLayer(RouteLayerSwitch.Objective, value);
     }
 
     public ICommand ToggleObjectiveRouteCommand =>
-        _toggleObjectiveRouteCommand ??= new DelegateCommand(() => ObjectiveRouteHidden = !ObjectiveRouteHidden);
+        _toggleObjectiveRouteCommand ??= new DelegateCommand(() => ObjectiveRouteShown = !ObjectiveRouteShown);
+
+    private ObjectiveRouteMaps RouteMaps => _objectiveRouteMaps ??= new(_layout);
 
     private ObjectiveRouteFollower Follower => _objectiveRouteFollower ??= new(
         _timeProvider,
@@ -99,20 +99,23 @@ public sealed partial class RaidCockpitViewModel
     internal void SetObjectiveRoute(string mapId, ObjectiveRouteBundle? route)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
-        if (route is null || _map.RenderModel is not { } model || ObjectiveRouteOrigin() is not { } origin)
+        if (route is null || _map.RenderModel is not { } model)
         {
             _objectiveRoute = null;
             _rebuildRequest.Request();
             return;
         }
 
-        _objectiveRoute = new(model.Location.Id, origin, route);
-        _objectiveRouteOpened = true;
-        OnPropertyChanged(nameof(HasObjectiveRoute));
-        RememberPlanRouteStops(model.Location.Id, [.. route.Steps.Select(step =>
-            new ObjectiveRouteStop(step.ObjectiveId, step.Label, step.At) { FloorIds = step.FloorIds })]);
+        // [#902] Opened even with nowhere to start from yet: the follower draws it once a screenshot
+        // or a selected spawn gives it an origin, instead of the press being lost.
+        var origin = ObjectiveRouteOrigin();
+        _objectiveRoute = origin is { } start ? new(model.Location.Id, start, route) : null;
+        RouteMaps.Add(model.Location.Id);
+        SetObjectiveRouteOpened(true);
+        _planStopsByMap[model.Location.Id] = [.. route.Steps.Select(step =>
+            new ObjectiveRouteStop(step.ObjectiveId, step.Label, step.At) { FloorIds = step.FloorIds })];
+        RememberPlanRouteStops(model.Location.Id, _planStopsByMap[model.Location.Id]);
         Follower.SetOrigin(origin);
-        ObjectiveRouteHidden = false;
         Follower.SetEnabled(true);
         _rebuildRequest.Request();
     }
@@ -120,7 +123,12 @@ public sealed partial class RaidCockpitViewModel
     /// <summary>Plan's exactly placed objectives for the map it previews, whenever it orders them.</summary>
     internal void UpdateObjectiveRouteStops(string locationId, IReadOnlyList<ObjectiveRouteStop> stops)
     {
-        if (_objectiveRouteOpened)
+        if (RouteMaps.Contains(locationId))
+        {
+            _planStopsByMap[locationId] = stops;
+        }
+
+        if (_objectiveRouteOpened && string.Equals(_map.RenderModel?.Location.Id, locationId, StringComparison.OrdinalIgnoreCase))
         {
             // [#780] Through the squad's stops, which "Route squad" may add to Plan's.
             RememberPlanRouteStops(locationId, stops);
@@ -139,18 +147,24 @@ public sealed partial class RaidCockpitViewModel
     }
 
     /// <summary>The route drawn on this rebuild, its stops merged into the objective pins already drawn.</summary>
-    private ObjectiveRouteScene? ObjectiveRouteFor(MapRenderModel model)
+    /// <remarks>
+    /// [#902] Always a layer, empty or not, so the Layers row stays and reads off when it is off.
+    /// Its objects are handed over while hidden too, so the row counts them; only the step numbers
+    /// riding on objective pins need leaving out, because those pins belong to another layer.
+    /// </remarks>
+    private ObjectiveRouteScene ObjectiveRouteFor(MapRenderModel model)
     {
+        FollowObjectiveRouteMap(model);
         if (_objectiveRouteOpened)
         {
             Follower.SetOrigin(ObjectiveRouteOrigin());
         }
 
-        if (_objectiveRouteHidden || _objectiveRoute is not { } shown ||
+        if (_objectiveRoute is not { } shown ||
             !string.Equals(model.Location.Id, shown.LocationId, StringComparison.OrdinalIgnoreCase))
         {
             _objectiveRouteStyles = new Dictionary<MapSceneObjectId, MapSceneObjectStyle>();
-            return null;
+            return new(ObjectiveRouteLayer(), [], new Dictionary<MapSceneObjectId, string>());
         }
 
         var scene = ObjectiveRouteSceneBuilder.Build(
@@ -170,13 +184,71 @@ public sealed partial class RaidCockpitViewModel
             }
         }
 
-        foreach (var (pinId, number) in scene.Badges)
+        if (ObjectiveRouteShown)
         {
-            styles[pinId] = new(Badge: number);
+            foreach (var (pinId, number) in scene.Badges)
+            {
+                styles[pinId] = new(Badge: number);
+            }
         }
 
         _objectiveRouteStyles = styles;
         return scene;
+    }
+
+    private static MapSceneLayer ObjectiveRouteLayer() =>
+        new(RouteLayerSwitch.Objective, PlanText.ObjectiveRouteWords().LayerName, 62, true);
+
+    /// <summary>
+    /// [#902] Whether this map has a route opened on it, remembered across a restart, and the stops
+    /// it follows: Plan's, once Plan has handed them over this session, else this map's own
+    /// single-spot objective pins, the rule Plan orders its stops by.
+    /// </summary>
+    private void FollowObjectiveRouteMap(MapRenderModel model)
+    {
+        var opened = RouteMaps.Contains(model.Location.Id);
+        SetObjectiveRouteOpened(opened);
+        if (!opened)
+        {
+            return;
+        }
+
+        Follower.SetEnabled(true);
+        RememberPlanRouteStops(
+            model.Location.Id,
+            _planStopsByMap.TryGetValue(model.Location.Id, out var planned) ? planned : StopsFromObjectivePins(_questScene));
+    }
+
+    private void SetObjectiveRouteOpened(bool opened)
+    {
+        if (_objectiveRouteOpened != opened)
+        {
+            _objectiveRouteOpened = opened;
+            OnPropertyChanged(nameof(HasObjectiveRoute));
+        }
+    }
+
+    /// <summary>Each placed objective with exactly one spot, once: several candidates name no one place to walk to.</summary>
+    internal static IReadOnlyList<ObjectiveRouteStop> StopsFromObjectivePins(QuestObjectiveScene scene)
+    {
+        var objects = scene.Objects.ToDictionary(item => item.Id);
+        var stops = new List<ObjectiveRouteStop>();
+        foreach (var entry in scene.Entries.Where(entry => entry.IsPlaced).DistinctBy(entry => entry.ObjectiveId, StringComparer.Ordinal))
+        {
+            var points = entry.ObjectIds
+                .Where(objects.ContainsKey)
+                .Select(id => objects[id].Geometry)
+                .Where(geometry => geometry.Kind == MapSceneGeometryKind.Point)
+                .Select(geometry => geometry.Points[0])
+                .Distinct()
+                .ToArray();
+            if (points.Length == 1)
+            {
+                stops.Add(new(entry.ObjectiveId, entry.Objective.Description, points[0]) { FloorIds = entry.FloorIds });
+            }
+        }
+
+        return stops;
     }
 
     private bool QuestPinsShown()
