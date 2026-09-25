@@ -27,9 +27,23 @@ public enum ScreenshotNameKind
     InRaid,
 }
 
-public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider = null) : IScreenshotFilenameParser
+/// <param name="relayClock">
+/// [#891] The PC clock's error as the relay measured it. The game names a screenshot by the real
+/// time, so on a PC four hours fast a shot taken now read as four hours old: faded on the owner's
+/// own map, and published to the squad with an age of four hours.
+/// </param>
+public sealed partial class ScreenshotFilenameParser(
+    TimeProvider? timeProvider = null,
+    Devices.RelayClockOffsetTracker? relayClock = null) : IScreenshotFilenameParser
 {
+    /// <summary>The widest a name's minute and a zone's quarter hours can leave a live shot from a whole-hour error.</summary>
+    private static readonly TimeSpan WholeHourSlack = TimeSpan.FromMinutes(3);
+
+    /// <summary>The largest clock or zone error in whole hours the name's time is read through.</summary>
+    private const int MaximumWholeHourError = 14;
+
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly Devices.RelayClockOffsetTracker? _relayClock = relayClock;
 
     public bool TryParse(string filename, TimeSpan localUtcOffset, out ScreenshotPosition? position)
     {
@@ -110,12 +124,42 @@ public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider 
         // front of the trail forever and hold the raid's "last seen" time in the future while
         // real time caught up to it.
         var now = _timeProvider.GetUtcNow();
+        position = position with { Timestamp = OnThisPcsClock(position.Timestamp, now) };
         if (position.Timestamp > now)
         {
             position = position with { Timestamp = now };
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// [#891] The name's real time moved onto this PC's clock, which every age is measured on.
+    /// </summary>
+    /// <remarks>
+    /// With the relay's measurement, by exactly that. Without one (no relay, or not heard from
+    /// yet), only by a whole number of hours, and only when the name is that many hours from now
+    /// to within a few minutes. The watcher reports a screenshot within moments of the game
+    /// writing it, so such a gap is a PC clock or time zone that is hours out, never a shot that
+    /// old. The minutes and seconds are kept either way: a real age is never corrected away.
+    /// </remarks>
+    internal DateTimeOffset OnThisPcsClock(DateTimeOffset named, DateTimeOffset pcNow)
+    {
+        if (_relayClock?.CorrectionAt(pcNow) is { } correction && correction != TimeSpan.Zero)
+        {
+            // The relay's time minus this PC's: the PC reads real time minus that.
+            return named - correction;
+        }
+
+        var lag = pcNow - named;
+        var hours = Math.Round(lag.TotalHours, MidpointRounding.AwayFromZero);
+        if (hours == 0 || Math.Abs(hours) > MaximumWholeHourError)
+        {
+            return named;
+        }
+
+        var wholeHours = TimeSpan.FromHours(hours);
+        return (lag - wholeHours).Duration() <= WholeHourSlack ? named + wholeHours : named;
     }
 
     public static double HeadingDegrees(QuaternionOrientation orientation)

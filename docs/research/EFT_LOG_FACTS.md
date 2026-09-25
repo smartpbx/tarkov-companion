@@ -256,11 +256,13 @@ Three shapes, all real. Position, then a facing quaternion; current builds add a
 after the quaternion that older files do not have; and a screenshot taken outside a raid has no
 coordinates at all, which is ordinary rather than a parse failure.
 
-**The time in the name is not usable.** It ran hours away from when the file was written, and
-the zone it is in was never established. Take the coordinates from the name, because only the
-name has them, and take the time from the filesystem. Getting this wrong is not cosmetic: every
-position arrived looking older than the raid already on screen and was discarded, so the
-feature appeared dead while working correctly.
+**The time in the name is the real time; the PC's clock was the one that was wrong.** It once
+looked hours away from when the file was written. On 2026-09-22..25 (#891) the name agreed with
+the relay's time to the minute while Windows ran four hours fast (a dual-boot RTC). The name has
+minutes only. So the name's time is used, moved onto the PC's clock by the offset the relay
+measured, or by whole hours when the gap is within minutes of whole hours, which is a clock or
+zone error and never a live shot's age. Getting this wrong is not cosmetic: every position arrived
+looking hours old, faded on the owner's map and published to the squad as stale.
 
 **The folder is not fixed either.** An install leaves more than one plausible screenshots
 folder on disk and writes to one of them, so the one holding the newest image is the one to

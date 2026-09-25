@@ -189,6 +189,9 @@ public static class TeamText
     public static string ClockMinutes(long minutes) => UiText.Format("Team.ClockMinutes", minutes);
     public static string ClockAhead(string amount) => UiText.Format("Team.ClockAhead", amount);
     public static string ClockBehind(string amount) => UiText.Format("Team.ClockBehind", amount);
+    public static string ClockCorrectedAhead(string amount) => UiText.Format("Team.ClockCorrectedAhead", amount);
+    public static string ClockCorrectedBehind(string amount) => UiText.Format("Team.ClockCorrectedBehind", amount);
+    public static string ClockSkewHelp => UiText.Get("Team.ClockSkewHelp");
     public static string RelayRefusedCheckKey => UiText.Get("Team.RelayRefusedCheckKey");
     public static string RelayUnreachableRetrying => UiText.Get("Team.RelayUnreachableRetrying");
     public static string RequestNotBound => UiText.Get("Team.RequestNotBound");

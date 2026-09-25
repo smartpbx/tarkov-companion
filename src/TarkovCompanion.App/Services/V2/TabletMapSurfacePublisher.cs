@@ -164,7 +164,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                         highValueLoot.FilterState.Filter.EffectiveMinimumValueRoubles,
                         highValueLoot.FilterState.Filter.ValueBasis.ToString())
                     : null,
-                _cockpit.MarkColours) with
+                _cockpit.MarkColours,
+                _bridge?.RelayClockCorrection ?? TimeSpan.Zero) with
             {
                 Maps = [.. _cockpit.MapPicker.Select(item => new TabletMapChoice(item.MapId, item.Name))],
                 Stash = Volatile.Read(ref _stashReview),
@@ -582,9 +583,12 @@ public sealed class TabletMapSurfacePublisher : IDisposable
 
     // Every protocol timestamp requires exact millisecond precision, which the system clock's
     // sub-millisecond ticks do not satisfy.
+    //
+    // [#891] At the relay's time, as the bridge stamps its own: a command issued at a PC clock
+    // four hours fast is refused as issued in the future.
     private DateTimeOffset Utc()
     {
-        var utc = _clock.GetUtcNow().ToUniversalTime();
+        var utc = (_clock.GetUtcNow() + (_bridge?.RelayClockCorrection ?? TimeSpan.Zero)).ToUniversalTime();
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 

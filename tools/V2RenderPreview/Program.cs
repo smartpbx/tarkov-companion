@@ -213,7 +213,7 @@ internal static class Program
 
             if (args.Contains("--clock-skew-demo"))
             {
-                services.GetRequiredService<RelayClockOffsetTracker>().ObserveOffsetSeconds(-14_400);
+                services.GetRequiredService<RelayClockOffsetTracker>().ObserveOffsetSeconds(-14_400, overTls: true);
             }
 
             if (StringOption(args, "--quest-region") is { } questScreenshot)

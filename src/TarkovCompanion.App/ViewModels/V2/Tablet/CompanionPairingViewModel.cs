@@ -169,6 +169,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     private readonly HttpClient? _relay;
     private readonly RelayOwnerClaimClient? _claimClient;
     private readonly RelayClockOffsetTracker? _clockOffset;
+    private readonly TimeProvider _relayTime;
     private readonly RelayRegistrationRetryLoop? _registrationRetry;
     private readonly Func<CancellationToken, Task<string?>>? _groupKey;
     private readonly PairedDeviceResumeService? _resume;
@@ -216,6 +217,9 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         _relayMarksBridge = relayMarksBridge;
         _clockOffset = clockOffset;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        // [#891] What the relay and a tablet check is stamped at the relay's time. Claims take
+        // the PC's own time and correct it themselves, after measuring against the challenge.
+        _relayTime = clockOffset is null ? _timeProvider : new RelayCorrectedTimeProvider(_timeProvider, clockOffset);
         _relayOrigin = availability.RelayOrigin;
         _groupKey = availability.GroupKey;
         _network = network;
@@ -246,14 +250,14 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
                     // bridge asks to be let back in on this desktop's key before it gives the
                     // session up. Since #553 that is a registration carrying the group key.
                     var claimClient = _claimClient;
-                    _relayMarksBridge.OwnerReclaim = token => claimClient.ClaimByKeyAsync(Now(), token);
+                    _relayMarksBridge.OwnerReclaim = token => claimClient.ClaimByKeyAsync(PcNow(), token);
                 }
             }
 
             if (_relayMarksBridge is not null)
             {
                 // [#289, #290] And a tablet already approved here comes back the same way.
-                _resume = new PairedDeviceResumeService(authority, availability.Coordinator, _relayMarksBridge, _relay, _timeProvider);
+                _resume = new PairedDeviceResumeService(authority, availability.Coordinator, _relayMarksBridge, _relay, _relayTime);
                 _resume.DeviceResumed += OnDeviceResumed;
             }
         }
@@ -494,12 +498,9 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         RefreshControl(_authority.Snapshot.CanonicalState);
     }
 
-    // Every protocol timestamp requires exact millisecond precision.
-    private DateTimeOffset Utc()
-    {
-        var utc = _timeProvider.GetUtcNow().ToUniversalTime();
-        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
-    }
+    // Every protocol timestamp requires exact millisecond precision. [#891] The bridge applies
+    // these against its own corrected clock, so they are stamped on the same one.
+    private DateTimeOffset Utc() => Now();
 
     public bool CanPair => _previewAvailability || (_coordinator is not null && _relay is not null);
 
@@ -761,13 +762,24 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     /// <summary>The actionable clock warning shared by Team &gt; Tablet and Setup &gt; Diagnostics.</summary>
     public bool HasClockSkewNotice => _clockOffset?.Current?.IsSkewed == true;
 
-    public string ClockSkewNotice => _clockOffset?.Current is { IsSkewed: true } offset
-        ? DescribeClockSkew(offset.OffsetSeconds)
-        : string.Empty;
+    /// <remarks>
+    /// [#891] Information, not a demand: once the relay has measured the error over HTTPS, every
+    /// time the relay or a tablet reads is corrected, and nothing needs the player to act.
+    /// </remarks>
+    public string ClockSkewNotice => _clockOffset?.Current switch
+    {
+        { IsSkewed: true, MeasuredOverTls: true } corrected => DescribeClockCorrection(corrected.OffsetSeconds),
+        { IsSkewed: true } offset => DescribeClockSkew(offset.OffsetSeconds),
+        _ => string.Empty,
+    };
 
-    public string ClockSkewHelp =>
-        "Windows: Settings > Time & language > Sync now. Dual boot: set RealTimeIsUniversal=1 " +
-        "in Windows or run timedatectl set-local-rtc 1 in Linux.";
+    public string ClockSkewHelp => TeamText.ClockSkewHelp;
+
+    /// <summary>
+    /// [#891] A skew the app could not correct for: measured over plain HTTP, so the relay's word
+    /// for the time was not trusted. The only case where the clock stops anything working.
+    /// </summary>
+    public bool NeedsClockFix => _clockOffset?.Current is { IsSkewed: true, MeasuredOverTls: false };
 
     /// <summary>[#553] Something stands between this desktop and the relay, and there are words for it.</summary>
     public bool ShowsRelayProblem => NeedsClaim && HasRelayClaimMessage;
@@ -797,11 +809,22 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
 
     internal static string DescribeClockSkew(long offsetSeconds)
     {
+        var amount = ClockAmount(offsetSeconds);
+        return offsetSeconds < 0 ? TeamText.ClockAhead(amount) : TeamText.ClockBehind(amount);
+    }
+
+    internal static string DescribeClockCorrection(long offsetSeconds)
+    {
+        var amount = ClockAmount(offsetSeconds);
+        return offsetSeconds < 0 ? TeamText.ClockCorrectedAhead(amount) : TeamText.ClockCorrectedBehind(amount);
+    }
+
+    private static string ClockAmount(long offsetSeconds)
+    {
         var absoluteSeconds = offsetSeconds < 0 ? -(decimal)offsetSeconds : offsetSeconds;
-        var amount = absoluteSeconds >= 60 * 60
+        return absoluteSeconds >= 60 * 60
             ? TeamText.ClockHours(Math.Max(1, (long)Math.Round(absoluteSeconds / 3600m, MidpointRounding.AwayFromZero)))
             : TeamText.ClockMinutes(Math.Max(1, (long)Math.Round(absoluteSeconds / 60m, MidpointRounding.AwayFromZero)));
-        return offsetSeconds < 0 ? TeamText.ClockAhead(amount) : TeamText.ClockBehind(amount);
     }
 
     /// <summary>Completes once the kept claim has been looked for; a test waits on it.</summary>
@@ -863,7 +886,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
             return false;
         }
 
-        var result = await _claimClient.ClaimByKeyAsync(Now(), cancellationToken).ConfigureAwait(true);
+        var result = await _claimClient.ClaimByKeyAsync(PcNow(), cancellationToken).ConfigureAwait(true);
         if (result.Outcome == RelayClaimOutcome.KeyNotRecognised &&
             string.IsNullOrWhiteSpace(_groupKey is null ? null : await _groupKey(cancellationToken).ConfigureAwait(true)))
         {
@@ -903,6 +926,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         {
             OnPropertyChanged(nameof(HasClockSkewNotice));
             OnPropertyChanged(nameof(ClockSkewNotice));
+            OnPropertyChanged(nameof(NeedsClockFix));
         }
 
         if (Dispatcher.UIThread.CheckAccess())
@@ -1314,9 +1338,16 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     // DesktopPairingCoordinator (and every protocol record it builds) requires exact
     // millisecond-precision UTC and throws otherwise; TimeProvider.System.GetUtcNow() is
     // sub-millisecond, so every real (non-test-clock) pairing ceremony call needs this truncated.
-    private DateTimeOffset Now()
+    //
+    // [#891] At the relay's time where the relay has measured this PC's clock as skewed.
+    private DateTimeOffset Now() => Truncate(_relayTime.GetUtcNow());
+
+    /// <summary>The PC's own clock, for the claim client, which corrects it itself.</summary>
+    private DateTimeOffset PcNow() => Truncate(_timeProvider.GetUtcNow());
+
+    private static DateTimeOffset Truncate(DateTimeOffset value)
     {
-        var utc = _timeProvider.GetUtcNow().ToUniversalTime();
+        var utc = value.ToUniversalTime();
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 

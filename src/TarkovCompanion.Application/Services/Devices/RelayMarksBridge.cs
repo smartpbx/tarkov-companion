@@ -1536,12 +1536,22 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         request.Headers.Add(CredentialHeader, owner.Credential);
     }
 
+    /// <summary>
+    /// [#891] What this PC's clock is corrected by for the relay and its tablets; zero while the
+    /// two agree, or before the relay has been heard from.
+    /// </summary>
+    public TimeSpan RelayClockCorrection => _clockOffset?.CorrectionAt(_clock.GetUtcNow()) ?? TimeSpan.Zero;
+
     // Every protocol timestamp (ServerEnvelope, SealRelayFrame, AuthenticatedPairedFrame) requires
     // exact millisecond precision; TimeProvider.System.GetUtcNow() is sub-millisecond and would
     // otherwise fail every one of these constructors' own validation.
+    //
+    // [#891] Every one of them is read by the relay or a tablet, so a PC clock the relay has
+    // measured as skewed is corrected here: a frame four hours in the future is refused.
     private DateTimeOffset Now()
     {
-        var utc = _clock.GetUtcNow().ToUniversalTime();
+        var pc = _clock.GetUtcNow().ToUniversalTime();
+        var utc = _clockOffset?.ToRelayTime(pc) ?? pc;
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 

@@ -254,7 +254,10 @@ public static class TabletMapSurfaceBuilder
         DateTimeOffset? sentToTabletUtc = null,
         TabletLootResult? loot = null,
         TabletMapLootFilter? lootFilter = null,
-        IReadOnlyDictionary<string, string>? markColours = null)
+        IReadOnlyDictionary<string, string>? markColours = null,
+        // [#891] The PC clock's measured error: a mark's expiry is this PC's time, and a tablet
+        // on a right clock would otherwise see a ping live four hours or expire on arrival.
+        TimeSpan relayClockCorrection = default)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
@@ -284,8 +287,8 @@ public static class TabletMapSurfaceBuilder
             .OrderBy(item => IsBulk(item.Kind) ? 1 : 0)
             .Take(MaximumObjects)
             .Select(item => markColours is not null && markColours.TryGetValue(item.Id.Value, out var colour)
-                ? ToTabletObject(item) with { Color = colour }
-                : ToTabletObject(item))
+                ? ToTabletObject(item, relayClockCorrection) with { Color = colour }
+                : ToTabletObject(item, relayClockCorrection))
             .ToArray();
 
         // The camera the desktop is actually showing. Its centre is in plan units already, the
@@ -344,7 +347,7 @@ public static class TabletMapSurfaceBuilder
     private static bool IsBulk(MapSceneObjectKind kind) =>
         kind is MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer;
 
-    private static TabletMapObject ToTabletObject(MapSceneObject item)
+    private static TabletMapObject ToTabletObject(MapSceneObject item, TimeSpan relayClockCorrection)
     {
         var points = item.Geometry.Points;
         var step = points.Count <= MaximumPointsPerObject ? 1 : (int)Math.Ceiling(points.Count / (double)MaximumPointsPerObject);
@@ -367,7 +370,7 @@ public static class TabletMapSurfaceBuilder
             item.HeadingDegrees,
             item.Truth == MapSceneTruthKind.HistoricalEstimate,
             item.IsCompleted,
-            item.ExpiresUtc);
+            item.ExpiresUtc + relayClockCorrection);
     }
 }
 
