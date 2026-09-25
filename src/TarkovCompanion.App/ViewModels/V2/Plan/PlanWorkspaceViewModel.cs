@@ -637,6 +637,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     private (QuestBoardReadModel Board, Dictionary<string, string> Names)? _taskNames;
     private QuestProfileScope? _scope;
     private string _status = PlanText.LoadingBoard;
+    private PageLoadState _loadState = PageLoadState.Loading;
     private string _scopeLabel = PlanText.NoProfileLoaded;
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
     private readonly ReconciledList<PlanMapGroupViewModel> _visibleGroups = new();
@@ -789,6 +790,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
                 _visibleGroups.Clear();
                 GrowVisibleGroups();
                 OnPropertyChanged(nameof(HasGroups));
+                OnPropertyChanged(nameof(ShowsNothingPlanned));
                 OnPropertyChanged(nameof(HasMoreGroups));
                 OnPropertyChanged(nameof(MoreGroupsLabel));
             }
@@ -796,6 +798,25 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     }
 
     public bool HasGroups => Groups.Count > 0;
+
+    /// <summary>#872: loading, empty, loaded or failed — the view shows one message for one state.</summary>
+    public PageLoadState LoadState
+    {
+        get => _loadState;
+        private set
+        {
+            if (SetProperty(ref _loadState, value))
+            {
+                OnPropertyChanged(nameof(IsLoading));
+                OnPropertyChanged(nameof(ShowsNothingPlanned));
+            }
+        }
+    }
+
+    public bool IsLoading => _loadState == PageLoadState.Loading;
+
+    /// <summary>"Nothing planned yet", only once the board has been read: not while it loads, not when it failed.</summary>
+    public bool ShowsNothingPlanned => !HasGroups && _loadState.HasRead();
 
     public string EventRuleSummary
     {
@@ -1296,6 +1317,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
             UiActivity.Step("plan:questlayer");
             LoadFault.Clear();
+            LoadState = PageLoadStates.Read(HasGroups);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -1307,6 +1329,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             SelectedGroup = null;
             Status = PlanText.QuestDataUnavailable;
             LoadFault.Show(PlanText.QuestsDidNotLoad, PlanText.NothingLostRetry);
+            LoadState = PageLoadState.Failed;
             WorkspaceFault.Record("plan", "refresh", exception);
         }
     }

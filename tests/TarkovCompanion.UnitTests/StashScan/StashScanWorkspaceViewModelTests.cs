@@ -25,7 +25,7 @@ using TarkovCompanion.UnitTests.V2Shell;
 
 namespace TarkovCompanion.UnitTests.StashScan;
 
-public sealed class StashScanWorkspaceViewModelTests
+public sealed partial class StashScanWorkspaceViewModelTests
 {
     private static readonly Guid ProfileId = Guid.Parse("30000000-0000-0000-0000-000000000001");
     private static readonly Guid SnapshotId = Guid.Parse("30000000-0000-0000-0000-000000000002");
@@ -721,8 +721,29 @@ public sealed class StashScanWorkspaceViewModelTests
         public Task<StashSnapshotRecord?> ReadAsync(InventoryProfileScope scope, Guid snapshotId, CancellationToken cancellationToken) =>
             Task.FromResult(_records.GetValueOrDefault(snapshotId) is { } record && record.ProfileScope == scope ? record : null);
 
-        public Task<IReadOnlyList<StashSnapshotSummary>> ListAsync(InventoryProfileScope scope, int maximumCount, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<StashSnapshotSummary>>(_records.Values
+        /// <summary>When set, <see cref="ListAsync"/> throws it: the read failed.</summary>
+        public Exception? ListFailure { get; set; }
+
+        /// <summary>When set, <see cref="ListAsync"/> waits for it: the read is still running.</summary>
+        public TaskCompletionSource? ListGate { get; set; }
+
+        public async Task<IReadOnlyList<StashSnapshotSummary>> ListAsync(InventoryProfileScope scope, int maximumCount, CancellationToken cancellationToken)
+        {
+            if (ListGate is { } gate)
+            {
+                await gate.Task.ConfigureAwait(false);
+            }
+
+            if (ListFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            return Summaries(scope, maximumCount);
+        }
+
+        private IReadOnlyList<StashSnapshotSummary> Summaries(InventoryProfileScope scope, int maximumCount) =>
+            _records.Values
                 .Where(record => record.ProfileScope == scope)
                 .OrderByDescending(record => record.RecordedUtc)
                 .Take(maximumCount)
@@ -734,7 +755,7 @@ public sealed class StashScanWorkspaceViewModelTests
                     record.IsCurrent,
                     record.Recognition.Result.Status,
                     record.Recognition.Result.Provenance.Coverage ?? new EvidenceCoverage(description: "fixture")))
-                .ToArray());
+                .ToArray();
 
         public Task<StashSnapshotDeleteResult> DeleteAsync(InventoryProfileScope scope, Guid snapshotId, CancellationToken cancellationToken)
         {

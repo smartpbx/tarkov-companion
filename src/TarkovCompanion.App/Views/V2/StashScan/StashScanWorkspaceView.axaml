@@ -270,7 +270,9 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <StackPanel IsVisible="{Binding HasNoSnapshots}" Spacing="8" VerticalAlignment="Center">
+            <!-- #871: a failed read says so, with Retry, in place of the list; never also "No stash snapshots yet". -->
+            <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" VerticalAlignment="Top" />
+            <StackPanel IsVisible="{Binding ShowsNoSnapshots}" Spacing="8" VerticalAlignment="Center">
               <Viewbox Width="40" Height="40" HorizontalAlignment="Center">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
               </Viewbox>

@@ -3,7 +3,6 @@ using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
-using TarkovCompanion.App.Localization;
 
 namespace TarkovCompanion.App.Services.Diagnostics;
 
@@ -38,17 +37,10 @@ internal static class GalleryPageReadiness
         {
             AmmoWorkspaceViewModel ammo => (ammo.HasLoaded, "the ammunition table"),
             CraftsBartersWorkspaceViewModel crafts => (crafts.HasLoaded, "crafts and barters"),
-            // The stash says "not loaded" until its first read of snapshots has finished.
-            StashScanWorkspaceViewModel stash => (
-                !string.Equals(stash.Status, IntelText.StashStatusNotLoaded, StringComparison.Ordinal),
-                "the stash snapshots"),
-            // [#279] The loading and error scenes: each says "not loaded" until its first read ends.
-            PlanWorkspaceViewModel plan => (
-                !string.Equals(plan.Status, PlanText.LoadingBoard, StringComparison.Ordinal),
-                "the quest board"),
-            DebriefWorkspaceViewModel debrief => (
-                !string.Equals(debrief.Status, DebriefText.NotLoaded, StringComparison.Ordinal),
-                "the raid history"),
+            // [#279, #872] Each is Loading until its first read ends, in success or failure.
+            StashScanWorkspaceViewModel stash => (!stash.IsLoading, "the stash snapshots"),
+            PlanWorkspaceViewModel plan => (!plan.IsLoading, "the quest board"),
+            DebriefWorkspaceViewModel debrief => (!debrief.IsLoading, "the raid history"),
             _ when showsSetup => (!dataStateLoading, "the data state"),
             _ when showsItem => (true, "the item's intel"),
             _ => (true, "a page with nothing to load"),

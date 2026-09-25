@@ -65,7 +65,9 @@ public static partial class IntelText
     public static string StashGapRule => UiText.Get("Intel.Stash.GapRule");
     public static string StashGapFoundInRaid => UiText.Get("Intel.Stash.GapFoundInRaid");
     public static string StashWhyNotEnough => UiText.Get("Intel.Stash.WhyNotEnough");
-    public static string StashStatusNotLoaded => UiText.Get("Intel.Stash.StatusNotLoaded");
+    public static string StashLoading => UiText.Get("Intel.Stash.Loading");
+    public static string StashLoadFailed => UiText.Get("Intel.Stash.LoadFailed");
+    public static string StashLoadFailedDetail => UiText.Get("Intel.Stash.LoadFailedDetail");
     public static string StashTargetFullStash => UiText.Get("Intel.Stash.TargetFullStash");
     public static string StashTargetAmmoCases => UiText.Get("Intel.Stash.TargetAmmoCases");
     public static string StashTargetKeyCases => UiText.Get("Intel.Stash.TargetKeyCases");
@@ -129,7 +131,6 @@ public static partial class IntelText
     public static string StashItemCount(int count) => UiText.Format("Intel.Stash.ItemCount", count);
     public static string StashUndoAction(string action) => UiText.Format("Intel.Stash.UndoAction", action);
     public static string StashTotals(string roubles, string cells) => UiText.Format("Intel.Stash.Totals", roubles, cells);
-    public static string StashUnavailable(string reason) => UiText.Format("Intel.Stash.Unavailable", reason);
     public static string StashChanges(int count, string since) => UiText.Format("Intel.Stash.Changes", count, since);
     public static string StashExported(string format, string path) => UiText.Format("Intel.Stash.Exported", format, path);
     public static string StashExportFailed(string reason) => UiText.Format("Intel.Stash.ExportFailed", reason);

@@ -5,6 +5,7 @@ using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Capture;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Profiles;
@@ -440,7 +441,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private IReadOnlyDictionary<string, AmmoStats>? _ammoByItemId;
     private IReadOnlyDictionary<string, KeyFacts>? _keyFactsByItemId;
     private StashSnapshotRecord? _selected;
-    private string _status = IntelText.StashStatusNotLoaded;
+    private string _status = IntelText.StashLoading;
+    private PageLoadState _loadState = PageLoadState.Loading;
     private string _identityCorrection = string.Empty;
     private string _quantityCorrection = string.Empty;
     private StashItemRowViewModel? _selectedItem;
@@ -692,8 +694,33 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public bool HasNoSnapshots => !HasSnapshots;
 
+    /// <summary>#871/#872: loading, empty, loaded or failed — the view shows one message for one state.</summary>
+    public PageLoadState LoadState
+    {
+        get => _loadState;
+        private set
+        {
+            if (SetProperty(ref _loadState, value))
+            {
+                OnPropertyChanged(nameof(IsLoading));
+                OnPropertyChanged(nameof(ShowsNoSnapshots));
+                OnPropertyChanged(nameof(ShowsNothingScanned));
+            }
+        }
+    }
+
+    public bool IsLoading => _loadState == PageLoadState.Loading;
+
+    /// <summary>"No stash snapshots yet", only once a read has succeeded: a failed or unfinished read is not an empty stash.</summary>
+    public bool ShowsNoSnapshots => HasNoSnapshots && _loadState.HasRead();
+
+    /// <summary>Shown in place of the snapshot list when it could not be read, with Retry.</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => LoadAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
+
     /// <summary>Nothing saved and nothing being scanned: the only time the grid has nothing to draw.</summary>
-    public bool ShowsNothingScanned => HasNoSnapshots && !(IsScanInProgress && HasRegions);
+    public bool ShowsNothingScanned => ShowsNoSnapshots && !(IsScanInProgress && HasRegions);
 
     public bool HasSelection => _selected is not null;
 
@@ -1008,6 +1035,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             PendingCorrections = [];
             Status = _captureStatus?.LastMessage
                 ?? IntelText.StashNoProfile;
+            LoadFault.Clear();
+            LoadState = PageLoadState.Empty;
             RaiseAll();
             return;
         }
@@ -1048,6 +1077,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 var count => IntelText.StashSnapshotCount(count),
             };
 
+            LoadFault.Clear();
+            LoadState = PageLoadStates.Read(Snapshots.Count > 0);
             if (_selected is null)
             {
                 var current = summaries.FirstOrDefault(summary => summary.IsCurrent) ?? summaries.FirstOrDefault();
@@ -1063,8 +1094,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // The exception goes to the log; the page says in words that the read failed, and does
+            // not also say there are no snapshots (#871).
             Snapshots = [];
-            Status = IntelText.StashUnavailable(exception.Message);
+            Status = string.Empty;
+            LoadFault.Show(IntelText.StashLoadFailed, IntelText.StashLoadFailedDetail);
+            LoadState = PageLoadState.Failed;
+            WorkspaceFault.Record("stash", "load", exception);
             RaiseAll();
         }
     }
@@ -1768,6 +1804,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(Snapshots));
         OnPropertyChanged(nameof(HasSnapshots));
         OnPropertyChanged(nameof(HasNoSnapshots));
+        OnPropertyChanged(nameof(ShowsNoSnapshots));
         OnPropertyChanged(nameof(ShowsNothingScanned));
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(Items));

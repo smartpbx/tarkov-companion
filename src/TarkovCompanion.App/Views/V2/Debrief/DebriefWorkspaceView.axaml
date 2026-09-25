@@ -4,7 +4,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
              xmlns:local="using:TarkovCompanion.App.Views.V2.Debrief"
-             xmlns:l="using:TarkovCompanion.App.Localization">
+             xmlns:l="using:TarkovCompanion.App.Localization"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
     <!-- The search box and filter chip shapes Plan and Intel already use. -->
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
@@ -413,7 +414,10 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </ScrollViewer>
-          <StackPanel Grid.Row="2" IsVisible="{Binding HasNoRaids}" Spacing="10" Margin="0,48,0,56"
+          <!-- #871: a failed read says so, with Retry, in place of the table; never also "No raids recorded yet". -->
+          <prim:V2LoadFaultNotice Grid.Row="2" DataContext="{Binding LoadFault}" MaxWidth="560"
+                                  Margin="0,48,0,56" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          <StackPanel Grid.Row="2" IsVisible="{Binding ShowsNoRaids}" Spacing="10" Margin="0,48,0,56"
                       HorizontalAlignment="Center" VerticalAlignment="Center">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" Width="40" Height="40" Stretch="Uniform"
                   HorizontalAlignment="Center" />
