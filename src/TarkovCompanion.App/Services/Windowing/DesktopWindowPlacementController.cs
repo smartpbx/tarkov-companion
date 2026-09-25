@@ -76,9 +76,26 @@ public sealed class DesktopWindowPlacementController(
         var wanted = _placements.TryGetValue(targetKey, out var remembered)
             ? remembered
             : DesktopWindowPlacement.ForFallback(current, targetDisplay, _window.Width, _window.Height);
-        Apply(DesktopWindowPlacement.Restore(wanted, targetDisplay));
+        var (frameWidth, frameHeight) = FramePixels(targetDisplay);
+        Apply(DesktopWindowPlacement.Restore(wanted, targetDisplay, frameWidth, frameHeight));
         CaptureCurrent(displays);
         QueueSave();
+    }
+
+    /// <summary>
+    /// [#881 follow-up] The title bar and borders around the client, in the display's pixels;
+    /// zero until the window has a frame (it has one by Opened on Windows).
+    /// </summary>
+    private (double Width, double Height) FramePixels(DisplayDescriptor display)
+    {
+        if (_window?.FrameSize is not { } frame)
+        {
+            return (0, 0);
+        }
+
+        var client = _window.ClientSize;
+        var scale = display.Scale > 0 && double.IsFinite(display.Scale) ? display.Scale : 1;
+        return (Math.Max(0, frame.Width - client.Width) * scale, Math.Max(0, frame.Height - client.Height) * scale);
     }
 
     private async void WindowOpened(object? sender, EventArgs eventArgs) =>
@@ -193,7 +210,8 @@ public sealed class DesktopWindowPlacementController(
                     _window.WindowState == WindowState.Maximized);
             }
 
-            Apply(DesktopWindowPlacement.Restore(placement, targetDisplay));
+            var (frameWidth, frameHeight) = FramePixels(targetDisplay);
+            Apply(DesktopWindowPlacement.Restore(placement, targetDisplay, frameWidth, frameHeight));
             CaptureCurrent(displays);
             QueueSave();
         }

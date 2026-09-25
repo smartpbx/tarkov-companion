@@ -87,20 +87,37 @@ public static class DesktopWindowPlacement
             isMaximized);
     }
 
-    public static WindowPlacementTarget Restore(MonitorWindowPlacement placement, DisplayDescriptor display)
+    /// <param name="frameWidthPixels">The window's borders beside the client, in the display's pixels.</param>
+    /// <param name="frameHeightPixels">Its title bar and borders above and below the client.</param>
+    /// <remarks>
+    /// [#881 follow-up] The size kept is the client's and the position is the frame's, so the
+    /// client is fitted into the work area less the frame. Fitting the client alone put a window
+    /// saved at the screen's size a title bar lower than the work area, with the rail's gear under
+    /// the taskbar. #882 fixed that in the preview store's restore, but this controller runs after
+    /// it and put the unfitted rectangle back on every launch that had a saved placement.
+    /// </remarks>
+    public static WindowPlacementTarget Restore(
+        MonitorWindowPlacement placement,
+        DisplayDescriptor display,
+        double frameWidthPixels = 0,
+        double frameHeightPixels = 0)
     {
         ArgumentNullException.ThrowIfNull(placement);
         ArgumentNullException.ThrowIfNull(display);
         var scale = ValidScale(display.Scale);
         var work = display.UsableBounds;
-        var minimumWidthPixels = Math.Min(work.Width, MinimumWidth * scale);
-        var minimumHeightPixels = Math.Min(work.Height, MinimumHeight * scale);
-        var widthPixels = Math.Clamp(FiniteOr(placement.WidthPixels, minimumWidthPixels), minimumWidthPixels, work.Width);
-        var heightPixels = Math.Clamp(FiniteOr(placement.HeightPixels, minimumHeightPixels), minimumHeightPixels, work.Height);
+        var frameWidth = double.IsFinite(frameWidthPixels) ? Math.Clamp(frameWidthPixels, 0, work.Width / 2.0) : 0;
+        var frameHeight = double.IsFinite(frameHeightPixels) ? Math.Clamp(frameHeightPixels, 0, work.Height / 2.0) : 0;
+        var roomWidth = work.Width - frameWidth;
+        var roomHeight = work.Height - frameHeight;
+        var minimumWidthPixels = Math.Min(roomWidth, MinimumWidth * scale);
+        var minimumHeightPixels = Math.Min(roomHeight, MinimumHeight * scale);
+        var widthPixels = Math.Clamp(FiniteOr(placement.WidthPixels, minimumWidthPixels), minimumWidthPixels, roomWidth);
+        var heightPixels = Math.Clamp(FiniteOr(placement.HeightPixels, minimumHeightPixels), minimumHeightPixels, roomHeight);
         var wantedLeft = work.X + FiniteOr(placement.LeftOffsetPixels, 40);
         var wantedTop = work.Y + FiniteOr(placement.TopOffsetPixels, 40);
-        var left = Math.Clamp(wantedLeft, work.X, work.X + work.Width - widthPixels);
-        var top = Math.Clamp(wantedTop, work.Y, work.Y + work.Height - heightPixels);
+        var left = Math.Clamp(wantedLeft, work.X, work.X + roomWidth - widthPixels);
+        var top = Math.Clamp(wantedTop, work.Y, work.Y + roomHeight - heightPixels);
 
         return new(
             MonitorKey(display),
