@@ -1876,7 +1876,7 @@ $StateShots = @(
         holding = '^Stash snapshots have not been loaded'; after = '^(?!Stash snapshots have not been loaded)' },
     @{ state = "degraded"; key = "raid"; address = "#/raid"; heading = "Raid"; message = "v2-shell-surface-state"; holding = '(?i)offline' },
     @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
-    @{ state = "degraded"; key = "team-group"; address = "#/team/group"; heading = "Group"; message = "v2-team-group-status"; holding = '(?i)unreachable' },
+    @{ state = "degraded"; key = "team-group"; address = "#/team/group"; heading = "Group"; message = "v2-team-group-status" },
     @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Tablet preview"; message = "v2-team-pairing-unavailable"; also = @("v2-team-pair-tablet") },
     @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
     @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true },
