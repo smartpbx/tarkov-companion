@@ -129,6 +129,13 @@ public sealed record V2ShellVariantDefinition
     public IReadOnlyDictionary<V2RouteId, V2RouteId> DestinationOverrides { get; init; } =
         new Dictionary<V2RouteId, V2RouteId>();
 
+    /// <summary>
+    /// Old spellings of a page's address that still open it, so a saved link or a remembered
+    /// address survives the page moving. Read, never written: the page's own address is formatted.
+    /// </summary>
+    public IReadOnlyDictionary<string, V2RouteId> AddressAliases { get; init; } =
+        new Dictionary<string, V2RouteId>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Capabilities provided by chrome on every page rather than by a route.</summary>
     public required IReadOnlyList<V2CapabilityId> ChromeCapabilities { get; init; }
 
@@ -209,7 +216,9 @@ public static class V2ShellVariants
             [V2Routes.Flea] = "intel/flea",
             [V2Routes.Crafts] = "intel/crafts",
             [V2Routes.Item] = "intel/item/{item}",
-            [V2Routes.Stash] = "intel/stash",
+            // [#902 P9] The stash scan feeds the Keep list and Loadout, which are Plan's; it sat
+            // beside the Ammo, Keys and Flea reference pages. Variant B already had it here.
+            [V2Routes.Stash] = "plan/stash",
             [V2Routes.Plan] = "plan",
             [V2Routes.Hideout] = "plan/hideout",
             [V2Routes.Keep] = "plan/keep",
@@ -224,7 +233,11 @@ public static class V2ShellVariants
         DestinationOverrides = new Dictionary<V2RouteId, V2RouteId>
         {
             [V2Routes.Item] = V2Routes.Items,
-            [V2Routes.Stash] = V2Routes.Items,
+            [V2Routes.Stash] = V2Routes.Plan,
+        },
+        AddressAliases = new Dictionary<string, V2RouteId>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["intel/stash"] = V2Routes.Stash,
         },
         ChromeCapabilities = SharedChrome,
     };

@@ -178,6 +178,13 @@ public sealed class V2AddressCodec
             }
         }
 
+        if (intelItem is null &&
+            _variant.AddressAliases.TryGetValue(string.Join('/', segments), out var aliased) &&
+            !_registry[aliased].TakesItem)
+        {
+            return new(new V2ShellLocation(aliased), null);
+        }
+
         return V2AddressParse.Refused($"'{address}' is not an address in {_variant.Token}.");
     }
 

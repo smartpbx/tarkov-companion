@@ -6,7 +6,9 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup"
              xmlns:updates="using:TarkovCompanion.App.Services.Updates"
-             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests">
+             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Styles>
     <!-- A settings section reads as a readable column, not a full-width slab. -->
     <Style Selector="Border.v2-card.v2-setup-section">
@@ -486,6 +488,25 @@
                             Command="{Binding ToggleQuietHoursCommand}" />
             </Grid>
           </Border>
+          <!-- [#902 P9] What the notifications said, since the tray only counts them. -->
+          <StackPanel Classes="v2-stack" DataContext="{Binding Recent}" x:DataType="vm:RecentNotificationsViewModel"
+                      AutomationProperties.AutomationId="v2-setup-notifications-recent">
+            <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
+            <TextBlock Classes="v2-label" Text="{Binding Empty}" IsVisible="{Binding HasNoRows}" />
+            <ItemsControl ItemsSource="{Binding Rows}" IsVisible="{Binding HasRows}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:RecentNotificationRowViewModel">
+                  <Grid ColumnDefinitions="56,*" ColumnSpacing="12" Margin="0,3">
+                    <TextBlock Classes="v2-label" Text="{Binding TimeLabel}" />
+                    <StackPanel Grid.Column="1" Spacing="1">
+                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding Body}" TextWrapping="Wrap" IsVisible="{Binding HasBody}" />
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
         </StackPanel>
         </Panel>
       </StackPanel>
@@ -546,9 +567,17 @@
       </StackPanel>
     </Border>
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
-      <Panel IsVisible="{Binding HasAdmin}">
-        <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
-      </Panel>
+      <StackPanel Classes="v2-stack">
+        <!-- [#902 P9] This build's change list, which could not be read again once dismissed. -->
+        <Button Classes="v2-target" HorizontalAlignment="Left"
+                IsVisible="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).HasWhatsNew, FallbackValue=False}"
+                Content="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenWhatsNewLabel}"
+                Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenWhatsNewCommand}"
+                AutomationProperties.AutomationId="v2-setup-whats-new" />
+        <Panel IsVisible="{Binding HasAdmin}">
+          <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
+        </Panel>
+      </StackPanel>
     </Border>
 
     <!-- V2 rough package 41 (#292, #281): the self-test comes first in Diagnostics, because

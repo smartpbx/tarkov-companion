@@ -64,6 +64,7 @@
                             IsChecked="{Binding IsOn, Mode=OneWay}"
                             IsEnabled="{Binding CanToggle}"
                             OnContent="" OffContent=""
+                            AutomationProperties.AutomationId="{Binding SwitchAutomationId}"
                             AutomationProperties.Name="{Binding Title}"
                             Command="{Binding ToggleCommand}" />
             </Grid>

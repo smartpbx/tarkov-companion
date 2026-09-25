@@ -195,6 +195,13 @@ public sealed record StashItemRowViewModel(
 {
     public string GroupLabel => IsIgnored ? IntelText.StashIgnored : StashSortWording.Label(Group);
 
+    /// <summary>[#902 P9] The recognised item, for the row's link to its Intel page; empty when unknown.</summary>
+    public string ItemId { get; init; } = string.Empty;
+
+    public bool HasItem => ItemId.Length > 0;
+
+    public bool HasNoItem => !HasItem;
+
     /// <summary>One line on why the item is in its group, from the engine's own reasons.</summary>
     public string WhyLabel { get; init; } = string.Empty;
 
@@ -1597,6 +1604,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     plannedByKey?.GetValueOrDefault(tile.ItemKey)?.Group ?? StashPlanGroup.Review)
                 {
                     IsIgnored = isIgnored,
+                    ItemId = canonicalId ?? string.Empty,
                     WikiUri = wikiUri,
                     WhyLabel = isIgnored
                         ? IntelText.StashIgnoredInPlan

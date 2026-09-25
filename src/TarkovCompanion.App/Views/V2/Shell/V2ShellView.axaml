@@ -1066,7 +1066,15 @@
             <TextBlock Classes="v2-body" Text="{Binding CaptureGuidance}" />
             <TextBlock Classes="v2-label" Text="{Binding CaptureWatchingStatus}" />
             <TextBlock Classes="v2-label" Text="{Binding CaptureArmedStatus}" />
-            <TextBlock Classes="v2-label" Text="{Binding CaptureShortcutStatus}" />
+            <!-- [#902 P9] The shortcut's switch sits on its status line: it was palette-only. -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding CaptureShortcutStatus}" />
+              <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                            IsChecked="{Binding CaptureShortcutEnabled, Mode=OneWay}"
+                            Command="{Binding ToggleCaptureShortcutCommand}"
+                            AutomationProperties.AutomationId="v2-shell-capture-shortcut"
+                            AutomationProperties.Name="{Binding CaptureShortcutSwitchLabel}" />
+            </Grid>
             <TextBlock Classes="v2-heading-3" Text="{Binding CaptureIntentHeading}" />
             <ItemsControl ItemsSource="{Binding CaptureIntents}">
               <ItemsControl.ItemsPanel>
@@ -1208,7 +1216,8 @@
                      PlaceholderText="{Binding PaletteQueryLabel}"
                      AutomationProperties.AutomationId="v2-shell-palette-query"
                      AutomationProperties.Name="{Binding PaletteQueryLabel}" />
-            <Button Classes="v2-target" HorizontalAlignment="Left"
+            <!-- [#902 P9] Addresses are developer chrome; a player types a word, not a path. -->
+            <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding IsDeveloperMode}"
                     AutomationProperties.AutomationId="v2-shell-palette-open-address"
                     Content="{Binding OpenAddressLabel}" Command="{Binding PaletteAddressCommand}" />
             <TextBlock Classes="v2-label" IsVisible="{Binding HasNoFilteredCommandItems}" Text="{Binding PaletteEmpty}" />
@@ -1221,7 +1230,7 @@
                             AutomationProperties.Name="{Binding Label}" Command="{Binding InvokeCommand}">
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Label}" />
-                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Gesture}" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Hint}" />
                       </Grid>
                     </Button>
                   </DataTemplate>

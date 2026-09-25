@@ -132,6 +132,9 @@ public sealed class SetupNetworkServiceRowViewModel : BindableViewModel
 
     public string AutomationId => $"v2-setup-network-{Service}";
 
+    /// <summary>[#902 P9] The switch itself, which is where the palette lands for this service.</summary>
+    public string SwitchAutomationId => $"{AutomationId}-switch";
+
     /// <summary>Game data has no switch of its own; only Local only stops it.</summary>
     public bool HasSwitch => Service != NetworkService.GameData;
 

@@ -151,6 +151,11 @@ public sealed partial class V2ShellView : UserControl
 
     private void FocusTarget(V2FocusRequest request)
     {
+        if (request.Reason == V2FocusReason.Setting && RevealSetting(request.Target))
+        {
+            return;
+        }
+
         var fallback = _wiredShell?.FocusFallbackTarget ?? V2ShellRouter.PageHeadingTarget;
         foreach (var automationId in new[]
                  {
@@ -202,5 +207,35 @@ public sealed partial class V2ShellView : UserControl
         {
             map.SelectCommand.Execute(null);
         }
+    }
+
+    /// <summary>
+    /// [#902 P9] Lands on a setting the palette found: its own control if that takes focus, else
+    /// the first control inside it that does, else it is only scrolled into view. False when the
+    /// row is not on screen at all, which falls back to the page heading.
+    /// </summary>
+    private bool RevealSetting(string automationId)
+    {
+        var row = this.GetVisualDescendants()
+            .OfType<Control>()
+            .FirstOrDefault(control =>
+                control.IsEffectivelyVisible &&
+                string.Equals(AutomationProperties.GetAutomationId(control), automationId, StringComparison.Ordinal));
+        if (row is null)
+        {
+            return false;
+        }
+
+        row.BringIntoView();
+        foreach (var candidate in row.GetSelfAndVisualDescendants().OfType<InputElement>())
+        {
+            if (candidate.Focusable && candidate.IsEffectivelyVisible && candidate.IsEffectivelyEnabled &&
+                candidate.Focus(NavigationMethod.Tab) && candidate.IsFocused)
+            {
+                return true;
+            }
+        }
+
+        return true;
     }
 }
