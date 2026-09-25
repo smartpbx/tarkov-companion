@@ -55,6 +55,31 @@ public sealed partial class DebriefWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task An_empty_context_names_itself_and_what_it_hides_and_offers_show_all()
+    {
+        var active = ProfileV2Fixtures.Profile(1, "g", ProfileGameMode.Pvp, "x", wipe: "Wipe 4");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(Guid.NewGuid(), active.Context.Identity.ProfileId, "customs", "Pve", Started, Started.AddMinutes(20), "Survived", null));
+        service.Seed(new RaidHistoryEntry(Guid.NewGuid(), active.Context.Identity.ProfileId, "woods", "Pve", Started.AddHours(-1), Started.AddMinutes(-40), "Survived", null));
+        var viewModel = new DebriefWorkspaceViewModel(
+            service,
+            TestPaths(),
+            raidContext: new FixedRaidContext(new RaidContextView(active, [active])));
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.ShowsNoRaids);
+        Assert.Equal("0 raids · PvP · Wipe 4", viewModel.Status);
+        Assert.Equal("No raids in PvP · Wipe 4 yet. 2 raids from other modes or wipes are hidden.", viewModel.NoRaidsMessage);
+        Assert.True(viewModel.ShowsEmptyReset);
+        Assert.Equal("Show all (2)", viewModel.EmptyResetLabel);
+
+        viewModel.ShowEverythingCommand.Execute(null);
+
+        Assert.Equal(2, viewModel.Raids.Count);
+    }
+
+    [Fact]
     public async Task Without_a_profile_context_every_raid_is_listed_as_before()
     {
         var service = new FakeRaidHistoryService();

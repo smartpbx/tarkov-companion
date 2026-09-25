@@ -25,6 +25,8 @@ public static partial class IntelText
     public static string KeysFilterSell => UiText.Get("Intel.Keys.Filter.Sell");
     public static string KeysFilterOwned => UiText.Get("Intel.Keys.Filter.Owned");
     public static string KeysNoMatch => UiText.Get("Intel.Keys.NoMatch");
+    public static string KeysOwnedNoScan => UiText.Get("Intel.Keys.OwnedNoScan");
+    public static string KeysOwnedNone => UiText.Get("Intel.Keys.OwnedNone");
     public static string KeysCount(long count) => UiText.Plural("Intel.Keys.KeyCount", count);
     public static string KeysShownOf(int shown, int total) => UiText.Format("Intel.Keys.KeysShownOf", shown, total);
     public static string KeysNoCall => UiText.Get("Intel.Keys.NoCall");

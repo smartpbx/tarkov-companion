@@ -98,6 +98,7 @@ public static class DebriefText
     public static string NoArchivedRaids => UiText.Get("Debrief.NoArchivedRaids");
     public static string NoRaidsYet => UiText.Get("Debrief.NoRaidsYet");
     public static string NoRaidsInContext => UiText.Get("Debrief.NoRaidsInContext");
+    public static string NoRaidsInNamedContext(string context, int hidden) => UiText.Plural("Debrief.NoRaidsInNamedContext", hidden, context);
     public static string NoRaidsMatch => UiText.Get("Debrief.NoRaidsMatch");
     public static string Unknown => UiText.Get("Debrief.Unknown");
     public static string OutcomeHint => UiText.Get("Debrief.OutcomeHint");

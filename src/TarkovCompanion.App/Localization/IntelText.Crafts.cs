@@ -17,6 +17,9 @@ public static partial class IntelText
     public static string CraftsLevelUnknown => UiText.Get("Intel.Crafts.LevelUnknown");
     public static string CraftsEmpty => UiText.Get("Intel.Crafts.Empty");
     public static string CraftsNoneReadyNow => UiText.Get("Intel.Crafts.NoneReadyNow");
+    public static string CraftsNeedLevels(int count) => UiText.Plural("Intel.Crafts.NeedLevels", count);
+    public static string CraftsSetTraderLevels => UiText.Get("Intel.Crafts.SetTraderLevels");
+    public static string CraftsSetHideoutLevels => UiText.Get("Intel.Crafts.SetHideoutLevels");
     public static string CraftsLoading => UiText.Get("Intel.Crafts.Loading");
     public static string CraftsChainHeading => UiText.Get("Intel.Crafts.ChainHeading");
     public static string CraftsCloseChain => UiText.Get("Intel.Crafts.CloseChain");

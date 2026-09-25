@@ -104,7 +104,7 @@ public sealed record IntelTradeRowViewModel(
 /// off the interface thread, and is kept until the service's own cache goes stale; typing in the
 /// search box or flipping a sort chip only re-filters the rows already in memory.
 /// </remarks>
-public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
+public sealed partial class CraftsBartersWorkspaceViewModel : BindableViewModel
 {
     private readonly IIntelTradeCatalogService _catalog;
     private readonly Action<string> _openItem;
@@ -161,7 +161,9 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     public string SearchPlaceholder => IntelText.CraftsSearchPlaceholder;
     public string ReadyNowLabel => IntelText.CraftsReadyNow;
     public string SortHeading => IntelText.CraftsSortHeading;
-    public string EmptyLabel => _readyNowOnly && SearchMatches().Any() ? IntelText.CraftsNoneReadyNow : IntelText.CraftsEmpty;
+    public string EmptyLabel => _readyNowOnly && ReadyNowUnknownCount > 0
+        ? IntelText.CraftsNeedLevels(ReadyNowUnknownCount)
+        : _readyNowOnly && SearchMatches().Any() ? IntelText.CraftsNoneReadyNow : IntelText.CraftsEmpty;
     public string LoadingLabel => IntelText.CraftsLoading;
     public IReadOnlyList<IntelTradeSortViewModel> Sorts { get; }
     public AcquisitionChainViewModel Chain { get; }
@@ -337,6 +339,8 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(ReadyNowUnknownCount));
         OnPropertyChanged(nameof(HasReadyNowUnknownCount));
         OnPropertyChanged(nameof(ReadyNowUnknownLabel));
+        OnPropertyChanged(nameof(ShowsSetTraderLevels));
+        OnPropertyChanged(nameof(ShowsSetHideoutLevels));
     }
 
     private IntelTradeRowViewModel Describe(IntelTradeRow row) => new(

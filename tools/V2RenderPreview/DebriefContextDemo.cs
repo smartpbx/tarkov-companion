@@ -28,13 +28,16 @@ internal static class DebriefContextDemo
     private static async Task SeedAsync(IServiceProvider services)
     {
         var now = DateTimeOffset.UtcNow;
+        // [#902 P10] --debrief-context-empty puts the active profile in PvE and keeps only the raids
+        // that context hides, so the empty state that names it and offers Show all can be rendered.
+        var contextEmpty = Environment.GetCommandLineArgs().Contains("--debrief-context-empty");
         var store = services.GetRequiredService<IProfileWorkspaceStore>();
         var snapshot = await store.ReadAsync(CancellationToken.None);
         var active = snapshot.ActiveProfile;
         const string wipe = "Wipe 4";
         // The label changed seven days ago, as UpdateModeAndWipeAsync would have written it then.
         var changed = new ProfileRecord(
-            new ProfileContext(active.Context.Identity, active.Context.Mode, new WipeSeason(wipe), active.Context.Locale, active.Context.DataSnapshot),
+            new ProfileContext(active.Context.Identity, contextEmpty ? ProfileGameMode.Pve : active.Context.Mode, new WipeSeason(wipe), active.Context.Locale, active.Context.DataSnapshot),
             active.Name,
             active.Progress,
             active.Lifecycle,
@@ -60,7 +63,7 @@ internal static class DebriefContextDemo
             (other, "woods", "Regular", 4, "Survived"),
             (other, "factory", "Regular", 1, "Died"),
         ];
-        foreach (var (profile, map, mode, daysAgo, outcome) in raids)
+        foreach (var (profile, map, mode, daysAgo, outcome) in raids.Where(raid => !contextEmpty || raid.Profile != profileId))
         {
             var started = now.AddDays(-daysAgo).AddHours(-3);
             var id = await history.StartAsync(new(Guid.NewGuid(), profile, map, mode, started, null, null, null), CancellationToken.None);
