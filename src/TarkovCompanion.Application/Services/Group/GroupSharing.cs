@@ -179,6 +179,19 @@ public interface IGroupSettingsStore
     Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken);
 
     Task SaveAsync(GroupSharingSettings settings, CancellationToken cancellationToken);
+
+    /// <summary>Raised after a save, on the thread that saved.</summary>
+    /// <remarks>
+    /// [#902] Team, Setup and the V1 Group page each showed their own copy of group.json, read once.
+    /// A switch flipped on one of them left the others showing the old value, and flipping that stale
+    /// switch wrote the value already stored, so it seemed to do nothing. Every view now re-reads on
+    /// this. The empty default keeps the many test stubs, which never change, compiling unchanged.
+    /// </remarks>
+    event EventHandler? Changed
+    {
+        add { }
+        remove { }
+    }
 }
 
 /// <summary>One other member of the group, as they last described themselves.</summary>

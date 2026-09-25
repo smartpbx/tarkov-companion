@@ -5,8 +5,6 @@ public static partial class SetupText
     public static string WorkspaceQuestOfferHeading => UiText.Get("Setup.Workspace.QuestOffer.Heading");
     public static string WorkspaceQuestOfferNote => UiText.Get("Setup.Workspace.QuestOffer.Note");
     public static string WorkspaceQuestOfferSync => UiText.Get("Setup.Workspace.QuestOffer.Sync");
-    public static string WorkspaceSquadQuests => UiText.Get("Setup.Workspace.SquadQuests");
-    public static string WorkspaceSquadQuestsNote => UiText.Get("Setup.Workspace.SquadQuests.Note");
     public static string WorkspaceQuestSyncHeading => UiText.Get("Setup.Workspace.QuestSync.Heading");
     public static string WorkspaceQuestSyncHint => UiText.Get("Setup.Workspace.QuestSync.Hint");
     public static string WorkspaceQuestSyncRecommended => UiText.Get("Setup.Workspace.QuestSync.Recommended");
