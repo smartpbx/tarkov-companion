@@ -753,6 +753,14 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         if (_raidCockpit is not null)
         {
             _raidCockpit.SceneRebuilt += (_, _) => RefreshMapPreview();
+            _raidCockpit.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(RaidCockpitViewModel.ObjectiveRouteShown))
+                {
+                    OnPropertyChanged(nameof(ShowsObjectiveRoute));
+                    RefreshMapPreview();
+                }
+            };
         }
 
         if (_questLog is not null)
@@ -2137,9 +2145,9 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
                 : null;
         }
 
-        var previewObjects = routeScene is null
-            ? scene.Objects
-            : [.. scene.Objects, .. routeScene.Objects.Where(item => item.Kind == MapSceneObjectKind.Route)];
+        // [#902] The route is still planned while hidden: the list keeps its order and summary.
+        routeScene = ShowsObjectiveRoute ? routeScene : null;
+        var previewObjects = PreviewObjects(scene, routeScene);
         // [#775] The picture's hash too: the cockpit replaces its picture while tiles fill in, and a
         // preview that is not re-presented keeps drawing the one it replaced.
         var signature = $"{_raidCockpit.BackgroundSha}|{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', previewObjects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
@@ -2156,6 +2164,36 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         MapPreview = preview;
         MapNote = preview is null ? PlanText.NoMapPlan : string.Empty;
     }
+
+    /// <summary>
+    /// [#902] Plan's "Route" chip: the Raid map's Objective route layer, the one saved switch for
+    /// the proposed path. The preview used to draw the route whatever that switch said.
+    /// </summary>
+    public bool ShowsObjectiveRoute
+    {
+        get => _raidCockpit?.ObjectiveRouteShown ?? true;
+        set
+        {
+            if (_raidCockpit is not null)
+            {
+                _raidCockpit.ObjectiveRouteShown = value;
+            }
+        }
+    }
+
+    /// <summary>The chip is shown only where there is a Raid map whose switch it can flip.</summary>
+    public bool CanToggleObjectiveRoute => _raidCockpit is not null;
+
+    public ICommand ToggleObjectiveRouteCommand =>
+        _toggleObjectiveRouteCommand ??= new DelegateCommand(() => ShowsObjectiveRoute = !ShowsObjectiveRoute);
+
+    private ICommand? _toggleObjectiveRouteCommand;
+
+    /// <summary>The objectives, and the route's line when it is drawn at all.</summary>
+    internal static IReadOnlyList<MapSceneObject> PreviewObjects(QuestObjectiveScene scene, ObjectiveRouteScene? drawnRoute) =>
+        drawnRoute is null
+            ? scene.Objects
+            : [.. scene.Objects, .. drawnRoute.Objects.Where(item => item.Kind == MapSceneObjectKind.Route)];
 
     private void ClearMapPreview(string note)
     {

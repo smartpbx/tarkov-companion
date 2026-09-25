@@ -18,7 +18,7 @@ public static class MapLayerGroups
     [
         ("You", ["you", "visited"]),
         ("Squad", ["squad"]),
-        ("Routes", ["traffic-routes", ObjectiveRouteSceneBuilder.LayerId.Value]),
+        ("Routes", [ObjectiveRouteSceneBuilder.LayerId.Value, "traffic-routes", "traffic-route-direct"]),
         ("Quests", ["quest-objectives"]),
         ("Map", ["labels", "extracts", "keys", "switches", "hazards", "spawns"]),
         ("Marks", ["my-marks", "group-marks", "drawings"]),
@@ -57,7 +57,8 @@ public static class MapLayerGroups
             .Select(group => new MapSceneRendererLayerGroupViewModel(
                 group.Key,
                 presentation.Get($"Map.LayerGroup.{group.Key}"),
-                byKey[group.Key],
+                // In the table's order within a group, so the three routes read as the proposal names them.
+                [.. byKey[group.Key].OrderBy(layer => Array.IndexOf(group.LayerIds, layer.Layer.Id.Value) is var at and >= 0 ? at : int.MaxValue)],
                 group.Key == "Loot" ? loot : null))
             .ToArray();
     }

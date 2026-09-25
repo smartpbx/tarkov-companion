@@ -174,7 +174,10 @@ location claim or an inferred path between observations.
 Plan's objective route, once opened on the Raid map, is drawn in the same plan gold, dashed; a stop
 that already has an objective pin shows its step number as a badge on that pin. It is recomputed
 (debounced, off the interface thread) when Plan's stops, the last screenshot or the selected spawn
-change, and "Hide route" in the Objectives card removes it until shown again.
+change. Whether it is drawn is one saved switch, the Layers row "Objective route"; "Show route" on
+the Objectives card and the "Route" chip on Plan's map flip that same row, and opening a route
+again never turns it back on. The maps a route was opened on are remembered across a restart. The
+suggested extract route and its grey "Direct line" are two more rows under Routes.
 
 ## Extracts
 

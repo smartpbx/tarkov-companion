@@ -66,6 +66,8 @@ public static partial class PlanText
     public static string NoMapPosition => UiText.Get("Plan.NoMapPosition");
     public static string UnsupportedObjective => UiText.Get("Plan.UnsupportedObjective");
     public static string RouteCaveat => UiText.Get("Plan.RouteCaveat");
+    public static string RouteChip => UiText.Get("Plan.RouteChip");
+    public static string RouteChipTip => UiText.Get("Plan.RouteChipTip");
     public static string AllReady => UiText.Get("Plan.AllReady");
     public static string FindInRaid => UiText.Get("Plan.FindInRaid");
     public static string HandIn => UiText.Get("Plan.HandIn");

@@ -121,8 +121,10 @@ public static partial class RaidText
     public static string ObjectivesOnPlanAndUnplaced(int placed, int unplaced) => UiText.Format("Raid.ObjectivesOnPlanAndUnplaced", placed, unplaced);
     public static string ShowCompleted => UiText.Get("Raid.ShowCompleted");
     public static string ShowCompletedTip => UiText.Get("Raid.ShowCompletedTip");
-    public static string HideRoute => UiText.Get("Raid.HideRoute");
-    public static string HideRouteTip => UiText.Get("Raid.HideRouteTip");
+    public static string ShowRoute => UiText.Get("Raid.ShowRoute");
+    public static string ShowRouteTip => UiText.Get("Raid.ShowRouteTip");
+    public static string ShowOnMap => UiText.Get("Raid.ShowOnMap");
+    public static string ShowSuggestedRouteTip => UiText.Get("Raid.ShowSuggestedRouteTip");
     public static string SquadObjectivesTip => UiText.Get("Raid.SquadObjectivesTip");
     public static string RouteSquad => UiText.Get("Raid.RouteSquad");
     public static string RouteSquadTip => UiText.Get("Raid.RouteSquadTip");

@@ -2775,12 +2775,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)
-            .Concat(objectiveRoute is null ? [] : [objectiveRoute.Layer])
+            .Append(objectiveRoute.Layer)
             .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>())
             .Concat(drawings.Layer is { } drawingsLayer ? new[] { drawingsLayer } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
             .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects)
-            .Concat(objectiveRoute?.Objects ?? []).Concat(squadObjectives).Concat(drawings.Objects).ToArray();
+            .Concat(objectiveRoute.Objects).Concat(squadObjectives).Concat(drawings.Objects).ToArray();
 
         // [V2 rough package 39] The stack: one asset per floor beside the background.
         // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that
@@ -3350,6 +3350,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 796] Remembered from here, so a toggle from the Layers menu or the paired tablet
         // (which drives this same renderer) is kept alike. [#902] Loot focus's own steps are not.
         _layerVisibility.Record(change, result.Status, Renderer.IsDispatchingLootFocus);
+        if (change.Kind == MapSceneViewChangeKind.SetLayerVisibility && result.Status == MapSceneViewChangeStatus.Applied &&
+            change.LayerId is { } changedLayer && RouteLayerSwitch.IsRoute(changedLayer))
+        {
+            OnRouteLayerChanged(changedLayer);
+        }
 
         // [V2 rough package 22] A floor change has to reach V1 too: V1 owns the floor the
         // artwork is rasterized for, so a renderer-only change would filter the markers to the

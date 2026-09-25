@@ -49,6 +49,7 @@ public static partial class RaidText
     public static string HigherContactDetail(string caveat) => UiText.Format("Raid.HigherContactDetail", caveat);
     public static string LowerContactRouteTo(string extract, string minutes) => UiText.Format("Raid.LowerContactRouteTo", extract, minutes);
     public static string LayerSuggestedRoutes => UiText.Get("Raid.LayerSuggestedRoutes");
+    public static string LayerDirectLine => UiText.Get("Raid.LayerDirectLine");
     public static string FromYourLastScreenshot => UiText.Get("Raid.FromYourLastScreenshot");
     public static string FromTheSelectedSpawn => UiText.Get("Raid.FromTheSelectedSpawn");
     public static string YourLastScreenshot => UiText.Get("Raid.YourLastScreenshot");
