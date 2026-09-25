@@ -67,6 +67,9 @@ public enum GallerySceneKind
 
     /// <summary>[#286] In raid on the map, Route mode, five stops clicked: the numbered route.</summary>
     RouteStops,
+
+    /// <summary>[#914] A PMC raid one minute old, the first screenshot near the player: the spawn lines.</summary>
+    SpawnLines,
 }
 
 public static class GallerySceneKinds
@@ -75,7 +78,7 @@ public static class GallerySceneKinds
         // By name only: Enum.TryParse also takes "7", which is whichever scene happens to be seventh.
         !int.TryParse(value, out _) && Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
             ? kind
-            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw, page, empty, loading, degraded, error, inspect or routestops, not '{value}'.");
+            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw, page, empty, loading, degraded, error, inspect, routestops or spawnlines, not '{value}'.");
 }
 
 /// <summary>
@@ -176,6 +179,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                 GallerySceneKind.Draw => await DrawAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.Inspect => await InspectAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.RouteStops => await RouteStopsAsync(raid, cancellationToken).ConfigureAwait(true),
+                GallerySceneKind.SpawnLines => await SpawnLinesAsync(raid, cancellationToken).ConfigureAwait(true),
                 _ => $"{raid.MapExtracts.Count} extracts",
             };
 
@@ -419,6 +423,32 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         await WaitForAsync(() => raid.ShowsStripPhase, StepTimeout, "the raid clock on the strip", cancellationToken)
             .ConfigureAwait(true);
         return $"clock '{raid.RaidPhaseLabel}'";
+    }
+
+    /// <summary>
+    /// [#914] The inraid scene's raid, one minute in and with only its last two screenshots, so the
+    /// nearby spawn areas are measured from near the player, as early in a real raid; 300 m so a
+    /// few lines show whatever the demo walk passes. Waits for the lines themselves.
+    /// </summary>
+    private async Task<string> SpawnLinesAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
+    {
+        var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
+        var now = services.GetRequiredService<TimeProvider>().GetUtcNow();
+        var demo = GallerySquad.Build(model, now);
+        var early = demo.Raid with
+        {
+            StartedUtc = now.AddMinutes(-1),
+            PositionTrail = [.. demo.Raid.PositionTrail.Skip(Math.Max(0, demo.Raid.PositionTrail.Count - 2))],
+        };
+        raid.SetSpawnRadius(model.Location.Id, 300);
+        services.GetRequiredService<IRuntimeStateStore>().Update(snapshot => snapshot with { Raid = early });
+        await WaitForAsync(
+                () => raid.Renderer?.Scene.Objects.Any(item => item.LayerId == RaidCockpitViewModel.SpawnLinesLayerId) == true,
+                StepTimeout,
+                "the spawn lines on the map",
+                cancellationToken)
+            .ConfigureAwait(true);
+        return $"{raid.Renderer!.Scene.Objects.Count(item => item.LayerId == RaidCockpitViewModel.SpawnLinesLayerId && item.Kind == MapSceneObjectKind.Route)} spawn lines";
     }
 
     /// <summary>
