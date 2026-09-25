@@ -279,6 +279,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         _profileService = profileService;
         _questOptions = questOptions;
         _savedViewStore = new(layoutStore);
+        RestorePageState(layoutStore);
         SavedViews = _savedViewStore.Load();
 
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
@@ -335,8 +336,10 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     /// <summary>Distinguishes an empty history from a filter that matched nothing in it.</summary>
     public string NoRaidsMessage => _showArchived
         ? DebriefText.NoArchivedRaids
-        : !ContextRecords.Any()
+        : _allRecords.Count == 0
             ? DebriefText.NoRaidsYet
+            : !ContextRecords.Any()
+            ? DebriefText.NoRaidsInContext
             : DebriefText.NoRaidsMatch;
 
     public bool HasSelection => _selected is not null;
@@ -952,6 +955,13 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
             .Select(mapId => new DebriefMapFilterOption(mapId, MapLabel(mapId!)))
             .OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase);
         _mapFilterOptions = [new(null, DebriefText.AllMaps), .. maps];
+        // [#902 P8] A remembered map this history no longer has would hide every raid unseen.
+        if (_mapFilter is not null && !_mapFilterOptions.Any(option =>
+                string.Equals(option.MapId, _mapFilter, StringComparison.OrdinalIgnoreCase)))
+        {
+            _mapFilter = null;
+        }
+
         OnPropertyChanged(nameof(MapFilterOptions));
         OnPropertyChanged(nameof(SelectedMapFilterOption));
     }
@@ -982,6 +992,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     {
         // An archived raid is out of the list and every total; the archive view lists only those.
         // [#269] ...and a raid from another mode or wipe is out of both until "Show all" is on.
+        SavePageState();
         var inContext = ContextRecords.ToArray();
         var filtered = inContext.Where(record => record.IsArchived == _showArchived).Where(MatchesFilters).ToArray();
         var active = _showArchived
@@ -1927,6 +1938,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasRaids));
         OnPropertyChanged(nameof(HasNoRaids));
         OnPropertyChanged(nameof(ShowsNoRaids));
+        OnPropertyChanged(nameof(ShowsEmptyReset));
+        OnPropertyChanged(nameof(EmptyResetLabel));
         OnPropertyChanged(nameof(NoRaidsMessage));
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(HasNoSelection));

@@ -13,7 +13,7 @@ using TarkovCompanion.UnitTests.Localization;
 
 namespace TarkovCompanion.UnitTests.LootScan;
 
-public sealed class LootScanDecisionServiceTests
+public sealed partial class LootScanDecisionServiceTests
 {
     private const string SourceContentSha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private const string ChangedContentSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

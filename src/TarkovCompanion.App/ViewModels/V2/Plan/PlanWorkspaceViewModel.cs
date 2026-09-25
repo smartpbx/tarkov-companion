@@ -661,6 +661,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
     private string _searchText = string.Empty;
     private IReadOnlyList<PlanTraderOption> _traders = [AllTraders];
     private PlanTraderOption _selectedTrader = AllTraders;
+    private readonly TarkovCompanion.Application.Services.Workspaces.PageState _state;
     private IReadOnlyList<PlanTraderLoyaltyViewModel> _traderLoyalty = [];
     private int _playerLevel = QuestsPageViewModel.MinimumLevel;
     private string _rollup = string.Empty;
@@ -718,6 +719,15 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed? squadQuests = null)
     {
         LearnMode = learnMode ?? new();
+        // [#902 P8] The quest chip and trader come back after a visit elsewhere and a restart. A
+        // remembered trader stands in by id until the board names its traders (ApplyProfile).
+        _state = LearnMode.Page(TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutKeys.PagePlan);
+        _filter = _state.Enum("filter", PlanQuestFilter.Active);
+        if (_state.Get("trader") is { Length: > 0 } rememberedTrader)
+        {
+            _selectedTrader = new(rememberedTrader, rememberedTrader);
+        }
+
         AttachSquadQuests(squadQuests);
         _allergies = allergies;
         _eventRuleService = eventRuleService;
@@ -791,6 +801,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
                 GrowVisibleGroups();
                 OnPropertyChanged(nameof(HasGroups));
                 OnPropertyChanged(nameof(ShowsNothingPlanned));
+                OnPropertyChanged(nameof(ShowsFilterReset));
                 OnPropertyChanged(nameof(HasMoreGroups));
                 OnPropertyChanged(nameof(MoreGroupsLabel));
             }
@@ -809,6 +820,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             {
                 OnPropertyChanged(nameof(IsLoading));
                 OnPropertyChanged(nameof(ShowsNothingPlanned));
+                OnPropertyChanged(nameof(ShowsFilterReset));
             }
         }
     }
@@ -817,6 +829,21 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
     /// <summary>"Nothing planned yet", only once the board has been read: not while it loads, not when it failed.</summary>
     public bool ShowsNothingPlanned => !HasGroups && _loadState.HasRead();
+
+    /// <summary>
+    /// [#902 P8] A remembered chip or trader left the board empty: the status says which, and one
+    /// click shows every quest from every trader again.
+    /// </summary>
+    public bool ShowsFilterReset => ShowsNothingPlanned && _board is { Tasks.Count: > 0 } &&
+        (Filter != PlanQuestFilter.All || SelectedTrader.TraderId is not null);
+
+    public ICommand ClearFilterCommand => _clearFilter ??= new DelegateCommand(() =>
+    {
+        SelectedTrader = AllTraders;
+        Filter = PlanQuestFilter.All;
+    });
+
+    private ICommand? _clearFilter;
 
     public string EventRuleSummary
     {
@@ -1008,6 +1035,8 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _filter, value))
             {
+                _state.SetEnum("filter", value, PlanQuestFilter.Active);
+                OnPropertyChanged(nameof(ShowsFilterReset));
                 foreach (var chip in FilterChips)
                 {
                     chip.IsSelected = chip.Filter == value;
@@ -1057,6 +1086,8 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         {
             if (value is not null && SetProperty(ref _selectedTrader, value))
             {
+                _state.Set("trader", value.TraderId);
+                OnPropertyChanged(nameof(ShowsFilterReset));
                 ApplyFilter();
             }
         }

@@ -114,6 +114,7 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     private IntelTradeSort _sort = IntelTradeSort.Profit;
     private bool _loading;
     private bool _loaded;
+    private readonly TarkovCompanion.Application.Services.Workspaces.PageState _state;
 
     public CraftsBartersWorkspaceViewModel(
         IIntelTradeCatalogService catalog,
@@ -137,6 +138,10 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         Chain = new(chains);
         CloseChainCommand = new DelegateCommand(Chain.Clear);
         LearnMode = learnMode ?? new();
+        // [#902 P8] "I can do this now" and the sort come back after a visit elsewhere and a restart.
+        _state = LearnMode.Page(TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutKeys.PageCrafts);
+        _readyNowOnly = _state.Bool("ready-now", false);
+        _sort = _state.Enum("sort", IntelTradeSort.Profit);
         Sorts = Enum.GetValues<IntelTradeSort>()
             .Select(sort => new IntelTradeSortViewModel(sort, SelectSort))
             .ToArray();
@@ -156,7 +161,7 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     public string SearchPlaceholder => IntelText.CraftsSearchPlaceholder;
     public string ReadyNowLabel => IntelText.CraftsReadyNow;
     public string SortHeading => IntelText.CraftsSortHeading;
-    public string EmptyLabel => IntelText.CraftsEmpty;
+    public string EmptyLabel => _readyNowOnly && SearchMatches().Any() ? IntelText.CraftsNoneReadyNow : IntelText.CraftsEmpty;
     public string LoadingLabel => IntelText.CraftsLoading;
     public IReadOnlyList<IntelTradeSortViewModel> Sorts { get; }
     public AcquisitionChainViewModel Chain { get; }
@@ -184,6 +189,7 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _readyNowOnly, value))
             {
+                _state.SetBool("ready-now", value, false);
                 RaiseRowsChanged();
             }
         }
@@ -194,6 +200,13 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     /// <summary>[#279] The first read has finished and none is running; the gallery waits for it.</summary>
     public bool HasLoaded => LoadTask.IsCompleted && !_loading;
     public bool ShowsEmpty => _loaded && !_loading && Rows.Count == 0;
+
+    /// <summary>[#902 P8] The remembered "I can do this now" emptied the list: one click turns it off.</summary>
+    public bool ShowsFilterReset => ShowsEmpty && _readyNowOnly && SearchMatches().Any();
+
+    public ICommand ClearFilterCommand => _clearFilter ??= new DelegateCommand(() => ReadyNowOnly = false);
+
+    private ICommand? _clearFilter;
 
     public IReadOnlyList<IntelTradeRowViewModel> Rows => Filtered()
         .Select(Describe)
@@ -305,6 +318,7 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     private void SelectSort(IntelTradeSort sort)
     {
         _sort = sort;
+        _state.SetEnum("sort", sort, IntelTradeSort.Profit);
         foreach (var chip in Sorts)
         {
             chip.IsSelected = chip.Sort == sort;
@@ -318,6 +332,8 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(Rows));
         OnPropertyChanged(nameof(ResultCountLabel));
         OnPropertyChanged(nameof(ShowsEmpty));
+        OnPropertyChanged(nameof(ShowsFilterReset));
+        OnPropertyChanged(nameof(EmptyLabel));
         OnPropertyChanged(nameof(ReadyNowUnknownCount));
         OnPropertyChanged(nameof(HasReadyNowUnknownCount));
         OnPropertyChanged(nameof(ReadyNowUnknownLabel));

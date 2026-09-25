@@ -47,6 +47,11 @@
       </ItemsControl>
       <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding ResultCountLabel}" Margin="10,0,0,0"
                  IsVisible="{Binding !ShowsEmpty}" />
+      <!-- [#902 P8] Learn mode changes this page's text, so its switch is here too. -->
+      <ToggleButton Classes="v2-target v2-intel-chip v2-intel-chip-small" VerticalAlignment="Center"
+                            Content="{x:Static l:PlanText.Learn}" IsChecked="{Binding LearnMode.IsEnabled}"
+                            AutomationProperties.AutomationId="v2-crafts-learn-mode"
+                            AutomationProperties.Name="{x:Static l:PlanText.LearnMode}" />
       <!-- #287 review: "I can do this now" only ever keeps a row known to be ready. A row left
            out because its station/trader level was never recorded is not locked, so its count is
            said out loud rather than folding silently into "everything else was locked". -->
@@ -72,9 +77,14 @@
         <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
                    HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
                    IsVisible="{Binding IsLoading}" Text="{Binding LoadingLabel}" />
-        <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
-                   IsVisible="{Binding ShowsEmpty}" Text="{Binding EmptyLabel}" />
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24" Spacing="10"
+                    IsVisible="{Binding ShowsEmpty}">
+          <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                     HorizontalAlignment="Center" Text="{Binding EmptyLabel}" />
+          <Button Classes="v2-outline" HorizontalAlignment="Center" Margin="0"
+                        IsVisible="{Binding ShowsFilterReset}" Command="{Binding ClearFilterCommand}"
+                        Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-crafts-show-all" />
+        </StackPanel>
         <ListBox Classes="v2-intel-trade-list" ItemsSource="{Binding Rows}" IsVisible="{Binding !ShowsEmpty}"
                  SelectionMode="Single">
           <ListBox.ItemTemplate>

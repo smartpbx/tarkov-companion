@@ -5,7 +5,7 @@ using static TarkovCompanion.UnitTests.V2Intel.IntelWorkspaceFakes;
 
 namespace TarkovCompanion.UnitTests.V2Intel;
 
-public sealed class AmmoWorkspaceViewModelTests
+public sealed partial class AmmoWorkspaceViewModelTests
 {
     // Penetration 20, 35, 48 and 60: against class four the margins are -20, -5, 8 and 20, so only
     // the last two are rated good or better; class five leaves 48 at -2, which is fair and so

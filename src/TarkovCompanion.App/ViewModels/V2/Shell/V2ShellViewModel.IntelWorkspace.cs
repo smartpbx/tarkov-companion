@@ -4,6 +4,7 @@ using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Items;
@@ -136,6 +137,7 @@ public sealed partial class V2ShellViewModel
     private IReadOnlyList<V2IntelKindFilterViewModel>? _intelKindFilters;
     private V2IntelSort _intelSort = V2IntelSort.Relevance;
     private IReadOnlyList<V2IntelSortViewModel>? _intelSorts;
+    private PageState _intelPage = new(null, WorkspaceLayoutKeys.PageIntel);
 
     // Package 33 (#287): the Intel landing page's four real sections (needed now, pinned,
     // recently opened, highest value), loaded once and kept fresh on a timer rather than on
@@ -587,9 +589,23 @@ public sealed partial class V2ShellViewModel
         return sorts;
     }
 
+    /// <summary>[#902 P8] The kind chip and sort come back after a visit elsewhere and a restart.</summary>
+    private void RestoreIntelPage(IWorkspaceLayoutStore? layout)
+    {
+        _intelPage = new(layout, WorkspaceLayoutKeys.PageIntel);
+        _intelKindFilter = _intelPage.Enum("kind", V2IntelKindFilter.All);
+        _intelSort = _intelPage.Enum("sort", V2IntelSort.Relevance);
+    }
+
+    /// <summary>[#902 P8] A remembered kind chip hid every hit: one click shows them all.</summary>
+    public ICommand IntelShowAllKindsCommand => _intelShowAllKinds ??= new DelegateCommand(() => SelectIntelKindFilter(V2IntelKindFilter.All));
+
+    private ICommand? _intelShowAllKinds;
+
     private void SelectIntelSort(V2IntelSort sort)
     {
         _intelSort = sort;
+        _intelPage.SetEnum("sort", sort, V2IntelSort.Relevance);
         foreach (var chip in IntelSorts)
         {
             chip.IsSelected = chip.Sort == sort;
@@ -616,6 +632,7 @@ public sealed partial class V2ShellViewModel
     private void SelectIntelKindFilter(V2IntelKindFilter kind)
     {
         _intelKindFilter = kind;
+        _intelPage.SetEnum("kind", kind, V2IntelKindFilter.All);
         foreach (var filter in IntelKindFilters)
         {
             filter.IsSelected = filter.Kind == kind;

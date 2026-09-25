@@ -35,7 +35,12 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-keys-list">
         <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
-          <ItemsControl Grid.Row="0" ItemsSource="{Binding VerdictFilters}">
+          <!-- [#902 P8] Learn mode changes this page's text, so its switch is here too. -->
+          <ToggleButton Grid.Row="0" HorizontalAlignment="Right" Classes="v2-target v2-intel-chip v2-intel-chip-small" VerticalAlignment="Center"
+                            Content="{x:Static l:PlanText.Learn}" IsChecked="{Binding LearnMode.IsEnabled}"
+                            AutomationProperties.AutomationId="v2-keys-learn-mode"
+                            AutomationProperties.Name="{x:Static l:PlanText.LearnMode}" />
+          <ItemsControl Grid.Row="0" ItemsSource="{Binding VerdictFilters}" Margin="0,0,72,0">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
@@ -57,9 +62,13 @@
           <!-- [#453] Virtualised: several hundred keys drawn at once held the interface thread for
                over half a second on the first visit. Only the rows in view are built. -->
           <Panel Grid.Row="2">
-              <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
-                         IsVisible="{Binding ShowsNoKeys}" Text="{Binding NoKeysLabel}"
-                         TextWrapping="Wrap" Margin="2,8" VerticalAlignment="Top" />
+              <StackPanel VerticalAlignment="Top" Spacing="4" IsVisible="{Binding ShowsNoKeys}">
+                <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                           Text="{Binding NoKeysLabel}" TextWrapping="Wrap" Margin="2,8" />
+                <Button Classes="v2-outline" HorizontalAlignment="Left" Margin="2,0"
+                        IsVisible="{Binding ShowsFilterReset}" Command="{Binding ClearFilterCommand}"
+                        Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-keys-show-all" />
+              </StackPanel>
               <ItemsControl ItemsSource="{Binding Keys}" IsVisible="{Binding HasKeys}">
                 <ItemsControl.Template>
                   <ControlTemplate>

@@ -10,7 +10,7 @@ using TarkovCompanion.Core.Domain.Planning;
 
 namespace TarkovCompanion.UnitTests.V2Plan;
 
-public sealed class HideoutWorkspaceViewModelTests
+public sealed partial class HideoutWorkspaceViewModelTests
 {
     [Fact]
     public async Task Refreshing_marks_a_station_buildable_only_when_every_next_level_item_is_owned()

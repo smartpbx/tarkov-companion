@@ -176,6 +176,10 @@
               <TextBlock Classes="v2-body" Text="{Binding Status}" TextWrapping="Wrap"
                          AutomationProperties.AutomationId="v2-plan-status"
                          AutomationProperties.LiveSetting="Polite" />
+              <!-- [#902 P8] A remembered chip or trader emptied the board: one click shows everything. -->
+              <Button Classes="v2-outline" HorizontalAlignment="Left" Margin="0,4"
+                      IsVisible="{Binding ShowsFilterReset}" Command="{Binding ClearFilterCommand}"
+                      Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-plan-show-all" />
               <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
               <TextBlock Classes="v2-label" Text="{Binding EventRuleSummary}"
                          IsVisible="{Binding HasEventRuleSummary}" TextWrapping="Wrap"

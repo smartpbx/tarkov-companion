@@ -457,6 +457,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var chainPlanner = acquisitionChains ?? NullAcquisitionChainPlanningService.Instance;
         IntelAcquisitionChain = new(chainPlanner);
         CraftsBartersWorkspace = new(_intelTrade, chainPlanner, id => OpenSuggestedItem(id, "v2-crafts-open-intel"), learnMode);
+        RestoreIntelPage(learnMode?.Layout);
         // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
         SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
         if (legacy is not null)

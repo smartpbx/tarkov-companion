@@ -113,14 +113,19 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
     private string _shoppingHeading = string.Empty;
     private string _shoppingTotal = string.Empty;
     private int _version;
+    private readonly TarkovCompanion.Application.Services.Workspaces.PageState? _state;
 
     /// <summary>The scope that covers each station's next level, startable or not.</summary>
     private const int EveryStation = -1;
 
     private const string RoublesItemId = "5449016a4bdc2d6f028b456f";
 
-    public HideoutUpgradePlanViewModel(IItemRepository items, IHideoutPrerequisiteCatalog? prerequisites)
+    public HideoutUpgradePlanViewModel(
+        IItemRepository items,
+        IHideoutPrerequisiteCatalog? prerequisites,
+        TarkovCompanion.Application.Services.Workspaces.PageState? state = null)
     {
+        _state = state;
         _items = items ?? throw new ArgumentNullException(nameof(items));
         _prerequisiteCatalog = prerequisites;
         Scopes =
@@ -131,7 +136,9 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
             new(0, PlanText.HideoutPath, SelectScope),
             new(EveryStation, PlanText.HideoutEveryStation, SelectScope),
         ];
-        Scopes[1].IsSelected = true;
+        // [#902 P8] The shopping scope comes back after a visit elsewhere and a restart.
+        var scope = _state?.Int("scope", 5) ?? 5;
+        (Scopes.FirstOrDefault(chip => chip.Count == scope) ?? Scopes[1]).IsSelected = true;
         RaiseTargetCommand = new DelegateCommand(() => MoveTarget(1));
         LowerTargetCommand = new DelegateCommand(() => MoveTarget(-1));
     }
@@ -230,7 +237,8 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
                 .ConfigureAwait(true);
         }
 
-        SetTarget(selectedStationId, keepLevel: false);
+        // [#902 P8] A refresh (every visit, every level edit) keeps the level the player chose.
+        SetTarget(selectedStationId, keepLevel: true);
         await RebuildAsync(cancellationToken).ConfigureAwait(true);
     }
 
@@ -245,12 +253,42 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
     {
         var target = _stations.FirstOrDefault(station =>
             string.Equals(station.StationId, stationId, StringComparison.OrdinalIgnoreCase));
-        if (!keepLevel || !ReferenceEquals(target, _target))
+        // Compared by id: a refresh reads the stations again, so the same station is a new object
+        // and a reference test reset the chosen level to the top on every visit. A level the
+        // player has since built past falls back to the top as well.
+        var kept = keepLevel ? KeptLevel(target) : null;
+        _targetLevel = kept ?? (target is { Levels.Count: > 0 } ? target.Levels.Max() : 0);
+        _target = target;
+        RememberTarget();
+    }
+
+    /// <summary>The level to keep for this station: the one on screen, else the one remembered from last time.</summary>
+    private int? KeptLevel(HideoutStationSummary? target)
+    {
+        if (target is null)
         {
-            _targetLevel = target is { Levels.Count: > 0 } ? target.Levels.Max() : 0;
+            return null;
         }
 
-        _target = target;
+        int? level = _target is not null && string.Equals(_target.StationId, target.StationId, StringComparison.OrdinalIgnoreCase)
+            ? _targetLevel
+            : string.Equals(_state?.Get("station"), target.StationId, StringComparison.OrdinalIgnoreCase)
+                ? _state?.Int("level", 0)
+                : null;
+        return level is { } chosen && target.Levels.Contains(chosen) && chosen > _built.GetValueOrDefault(target.StationId)
+            ? chosen
+            : null;
+    }
+
+    private void RememberTarget()
+    {
+        if (_target is null)
+        {
+            return;
+        }
+
+        _state?.Set("station", _target.StationId);
+        _state?.SetInt("level", _targetLevel, 0);
     }
 
     private void MoveTarget(int direction)
@@ -267,6 +305,7 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         if (next != _targetLevel)
         {
             _targetLevel = next;
+            RememberTarget();
             _ = RebuildAsync(CancellationToken.None);
         }
     }
@@ -277,6 +316,8 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         {
             chip.IsSelected = ReferenceEquals(chip, scope);
         }
+
+        _state?.SetInt("scope", scope.Count, 5);
 
         _ = RebuildAsync(CancellationToken.None);
     }

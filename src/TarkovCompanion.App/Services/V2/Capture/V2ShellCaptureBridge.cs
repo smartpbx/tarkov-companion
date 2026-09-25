@@ -11,6 +11,7 @@ using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Wiki;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.App.Services.V2.Capture;
@@ -78,6 +79,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly CaptureReanalysis? _reanalysis;
     private readonly UnsupportedScreenHandoff? _unsupported;
     private readonly IScreenshotRetentionStore? _tidyStore;
+
+    // [#902 P8] The Loot Scan's verdict chip, kept across re-decisions, new scans and restarts.
+    private readonly PageState _lootPage;
     private ScanSourceViewModel? _reviewSource;
 
     public V2ShellCaptureBridge(
@@ -100,8 +104,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
         // #287: Read as…, the "not supported yet" screens, and the retention chip's tidy setting.
         CaptureReanalysis? reanalysis = null,
         UnsupportedScreenHandoff? unsupported = null,
-        IScreenshotRetentionStore? tidyStore = null)
+        IScreenshotRetentionStore? tidyStore = null,
+        IWorkspaceLayoutStore? layout = null)
     {
+        _lootPage = new(layout, WorkspaceLayoutKeys.PageLoot);
         _reanalysis = reanalysis;
         _unsupported = unsupported;
         _tidyStore = tidyStore;
@@ -743,7 +749,13 @@ public sealed class V2ShellCaptureBridge : IDisposable
                             previous.Result.CaptureSessionId == result.CaptureSessionId &&
                             string.Equals(previous.Result.ArtifactId, result.ArtifactId, StringComparison.Ordinal)
                         ? previous.SelectedDecision?.SourceAnchor
-                        : null);
+                        : null,
+                    filter: previous?.Filter ?? RememberedLootVerdict());
+            if (!ReferenceEquals(viewModel, previous))
+            {
+                viewModel.PropertyChanged += RememberLootVerdict;
+            }
+
             _lootScan = viewModel;
         }
 
@@ -772,6 +784,21 @@ public sealed class V2ShellCaptureBridge : IDisposable
             LootScanShown?.Invoke(applied);
             Push();
         });
+    }
+
+    private TarkovCompanion.Core.Domain.Loot.LootScanVerdict? RememberedLootVerdict() =>
+        _lootPage.Get("verdict") is { } stored &&
+        Enum.TryParse<TarkovCompanion.Core.Domain.Loot.LootScanVerdict>(stored, out var verdict) &&
+        Enum.IsDefined(verdict)
+            ? verdict
+            : null;
+
+    private void RememberLootVerdict(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)
+    {
+        if (sender is LootScanViewModel scan && eventArgs.PropertyName == nameof(LootScanViewModel.Filter))
+        {
+            _lootPage.Set("verdict", scan.Filter?.ToString());
+        }
     }
 
     /// <summary>#274: every completed scan the page shows is saved with its ruleset version.</summary>
