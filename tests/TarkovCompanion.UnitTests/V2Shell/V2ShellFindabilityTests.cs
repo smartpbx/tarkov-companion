@@ -13,7 +13,7 @@ namespace TarkovCompanion.UnitTests.V2Shell;
 public sealed class V2ShellFindabilityTests
 {
     [Fact]
-    public async Task Typing_local_only_opens_data_and_privacy_on_the_local_only_switch()
+    public async Task Typing_local_only_opens_data_and_network_on_the_local_only_switch()
     {
         await WithShellAsync(developerMode: false, shell =>
         {
@@ -23,12 +23,12 @@ public sealed class V2ShellFindabilityTests
             shell.PaletteQuery = "local only";
 
             var hit = Assert.Single(shell.FilteredCommandItems, item => item.Label == "Local only");
-            Assert.Equal("Setup & Admin › Data & Privacy", hit.Hint);
+            Assert.Equal("Setup › Data & Network", hit.Hint);
             hit.InvokeCommand.Execute(null);
 
             Assert.False(shell.IsPaletteOpen);
             Assert.Equal(V2Routes.Setup, shell.Router.Current.Location.Route);
-            Assert.True(shell.SetupWorkspace!.IsDataPrivacySelected);
+            Assert.True(shell.SetupWorkspace!.IsDataNetworkSelected);
             Assert.Equal(new V2FocusRequest("v2-setup-network-local-only", V2FocusReason.Setting), requests[^1]);
         });
     }

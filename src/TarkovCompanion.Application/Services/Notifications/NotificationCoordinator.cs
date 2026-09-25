@@ -248,7 +248,7 @@ public sealed class NotificationCoordinator
         return new(
             NotificationKind.UpdateReady,
             "Update ready",
-            string.Create(CultureInfo.CurrentCulture, $"{inputs.UpdateReadyBuild} is downloaded and waiting in Setup › Updates."),
+            string.Create(CultureInfo.CurrentCulture, $"{inputs.UpdateReadyBuild} is downloaded and waiting in Setup › Updates & Diagnostics."),
             1,
             inputs.NowUtc);
     }

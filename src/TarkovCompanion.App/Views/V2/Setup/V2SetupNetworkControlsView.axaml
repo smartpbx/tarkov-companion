@@ -20,7 +20,7 @@
   <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-network">
     <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
     <Border Classes="v2-card" Padding="12,10">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
         <StackPanel Spacing="2">
           <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding LocalOnlyTitle}" />
           <TextBlock Classes="v2-label" Text="{Binding LocalOnlyLine}" TextWrapping="Wrap" />
@@ -31,10 +31,15 @@
                      IsVisible="{Binding WasReset}" Text="{Binding ResetNote}" TextWrapping="Wrap"
                      AutomationProperties.AutomationId="v2-setup-network-reset" />
         </StackPanel>
-        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+        <!-- [#902 P6] What is in force beside the stored choice: "On · started offline". -->
+        <TextBlock Grid.Column="1" Classes="v2-label network-state" VerticalAlignment="Center" FontWeight="SemiBold"
+                   Classes.blocked="{Binding LocalOnlyInForce}"
+                   Text="{Binding LocalOnlyState}"
+                   AutomationProperties.AutomationId="v2-setup-network-local-only-state" />
+        <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
                       IsChecked="{Binding IsLocalOnly, Mode=OneWay}"
                       IsEnabled="{Binding CanToggleLocalOnly}"
-                      OnContent="{Binding OnLabel}" OffContent="{Binding OffLabel}"
+                      OnContent="" OffContent=""
                       AutomationProperties.AutomationId="v2-setup-network-local-only"
                       AutomationProperties.Name="{Binding LocalOnlyTitle}"
                       Command="{Binding ToggleLocalOnlyCommand}" />

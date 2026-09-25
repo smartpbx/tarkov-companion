@@ -26,7 +26,7 @@ Windows SmartScreen warns the first time. The signed release ring that replaces 
 [docs/RELEASES.md](docs/RELEASES.md#the-rough-channel) says exactly what the rough channel proves
 and what it does not.
 
-If a build misbehaves, **Setup › Updates › Go back to the previous version** reinstalls the one
+If a build misbehaves, **Setup › Updates & Diagnostics › Go back to the previous version** reinstalls the one
 before it, checks its hash, and stays there until something newer is published.
 
 Text recognition prefers the recogniser built into Windows, which needs nothing installed. It
@@ -105,7 +105,7 @@ The V1 interface is still inside the build for anyone who needs it. Start the ap
 - It finds the game's screenshot and log folders wherever they are, OneDrive or not. Where it
   cannot, Setup takes the path and shows what it is watching.
 - Optional: screenshots older than the age you choose go to the recycle bin. Off until you turn
-  it on in Setup › Data & Privacy. Only files the game named are touched, and nothing is deleted
+  it on in Setup › Game & Capture. Only files the game named are touched, and nothing is deleted
   outright.
 
 Recognition is honest about its limits: item identity on real loot is still being measured and

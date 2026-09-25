@@ -67,14 +67,15 @@ public static class SettingsRegistry
 {
     public static IReadOnlyList<RegisteredSettings> Domains { get; } =
     [
-        new(SettingsDomain.Appearance, typeof(IWorkspacePreferenceStore), V2SetupSection.Accessibility),
-        new(SettingsDomain.InterfaceScale, typeof(IShellLayoutStore), V2SetupSection.Accessibility),
+        new(SettingsDomain.Appearance, typeof(IWorkspacePreferenceStore), V2SetupSection.AppearanceWindow),
+        new(SettingsDomain.InterfaceScale, typeof(IShellLayoutStore), V2SetupSection.AppearanceWindow),
         new(SettingsDomain.Notifications, typeof(INotificationSettingsStore), V2SetupSection.Notifications),
-        new(SettingsDomain.ScreenshotTidying, typeof(IScreenshotRetentionStore), V2SetupSection.Privacy),
-        new(SettingsDomain.Network, typeof(INetworkControlsStore), V2SetupSection.DataPrivacy),
-        new(SettingsDomain.FeatureFlags, typeof(IFeatureFlagOverrideStore), V2SetupSection.Diagnostics),
-        new(SettingsDomain.Horizons, typeof(IRecommendationPolicyStore), V2SetupSection.Progress),
-        new(SettingsDomain.SquadSharing, typeof(IGroupSettingsStore), V2SetupSection.TeamDevices),
+        new(SettingsDomain.ScreenshotTidying, typeof(IScreenshotRetentionStore), V2SetupSection.GameCapture),
+        new(SettingsDomain.Network, typeof(INetworkControlsStore), V2SetupSection.DataNetwork),
+        new(SettingsDomain.FeatureFlags, typeof(IFeatureFlagOverrideStore), V2SetupSection.UpdatesDiagnostics),
+        new(SettingsDomain.Horizons, typeof(IRecommendationPolicyStore), V2SetupSection.ProfileProgress),
+        // [#902 P6] Team › Squad is its home (P5); Reset everything and Import still cover it.
+        new(SettingsDomain.SquadSharing, typeof(IGroupSettingsStore), null),
         new(SettingsDomain.Layout, typeof(IWorkspaceLayoutStore), null),
         new(SettingsDomain.MapDefaults, typeof(IMapVariantPreferenceStore), null),
     ];
@@ -111,9 +112,9 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.RaidLayerVisibility, false, "Setup.Settings.Layout.MapLayers"),
         new(WorkspaceLayoutKeys.RaidObjectiveRouteMaps, false, "Setup.Settings.Layout.ObjectiveRouteMaps"),
         new(WorkspaceLayoutKeys.RaidFollow, false, "Setup.Settings.Layout.Follow"),
-        new(WorkspaceLayoutKeys.LootAutoReturnSeconds, false, "Setup.Settings.Layout.LootReturn", V2SetupSection.Diagnostics),
-        new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.Diagnostics),
-        new(WorkspaceLayoutKeys.PlanLearnMode, false, "Setup.Settings.Layout.LearnMode"),
+        new(WorkspaceLayoutKeys.LootAutoReturnSeconds, false, "Setup.Settings.Layout.LootReturn", V2SetupSection.GameCapture),
+        new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.GameCapture),
+        new(WorkspaceLayoutKeys.PlanLearnMode, false, "Setup.Settings.Layout.LearnMode", V2SetupSection.ProfileProgress),
         new(WorkspaceLayoutKeys.RaidCard(string.Empty), true, "Setup.Settings.Layout.RaidCard"),
         new("page.", true, "Setup.Settings.Layout.PageFilters"),
     ];

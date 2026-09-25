@@ -1440,7 +1440,7 @@ $Shots.Add([pscustomobject]@{
             [pscustomobject]@{
                 action = "invoke"; description = "Back restores the Profile readiness button"
                 targetAutomationId = "v2-shell-back"; targetControlType = "Button"
-                expectedHeading = "Setup & Admin"; expectedFocusAutomationId = "v2-shell-readiness-profile"
+                expectedHeading = "Setup"; expectedFocusAutomationId = "v2-shell-readiness-profile"
             },
             (New-NavigationStep "Variant A Raid destination" "v2-shell-destination-raid" "Raid"),
             (New-NavigationStep "Variant A Loot decision section" "v2-shell-section-raid.loot" "Loot decision"),
@@ -1448,8 +1448,9 @@ $Shots.Add([pscustomobject]@{
             (New-NavigationStep "Variant A Ammo section" "v2-shell-section-items.ammo" "Ammo"),
             (New-NavigationStep "Variant A Keys section" "v2-shell-section-items.keys" "Keys"),
             (New-NavigationStep "Variant A Flea section" "v2-shell-section-items.flea" "Flea"),
-            (New-NavigationStep "Variant A Stash scan section" "v2-shell-section-stash" "Stash scan"),
+            # [#902 P9] Stash scan is a Plan section in Variant A now, as it already was in B.
             (New-NavigationStep "Variant A Plan destination" "v2-shell-destination-plan" "Plan"),
+            (New-NavigationStep "Variant A Stash scan section" "v2-shell-section-stash" "Stash scan"),
             (New-NavigationStep "Variant A Hideout section" "v2-shell-section-plan.hideout" "Hideout"),
             (New-NavigationStep "Variant A Loadout section" "v2-shell-section-plan.loadout" "Loadout"),
             (New-NavigationStep "Variant A Events section" "v2-shell-section-plan.events" "Events"),
@@ -1457,7 +1458,7 @@ $Shots.Add([pscustomobject]@{
             (New-NavigationStep "Variant A Group section" "v2-shell-section-team.group" "Group"),
             (New-NavigationStep "Variant A Tablet section" "v2-shell-section-team.tablet" "Devices"),
             (New-NavigationStep "Variant A Debrief destination" "v2-shell-destination-debrief" "Debrief"),
-            (New-NavigationStep "Variant A Setup destination" "v2-shell-destination-setup" "Setup & Admin")
+            (New-NavigationStep "Variant A Setup destination" "v2-shell-destination-setup" "Setup")
         )
     }
 })
@@ -1559,7 +1560,7 @@ $Shots.Add([pscustomobject]@{
     interaction = [pscustomobject]@{
         steps = @([pscustomobject]@{
             action = "assert"; description = "stale persisted focus falls back to the page heading"
-            expectedHeading = "Setup & Admin"; expectedFocusAutomationId = "v2-shell-page-heading"
+            expectedHeading = "Setup"; expectedFocusAutomationId = "v2-shell-page-heading"
         })
     }
 })
@@ -1742,7 +1743,7 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
         expected = @("v2-shell-navigation-rail", "v2-debrief-history")
         bounds = @([pscustomobject]@{ automationId = "v2-debrief-history"; maximumHeightFraction = 0.50 }) },
-    [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
+    [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup"
         expected = @("v2-shell-navigation-rail") }
 )
 
@@ -1990,7 +1991,7 @@ $StateShots = @(
     @{ state = "empty"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status" },
     @{ state = "empty"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status" },
     @{ state = "empty"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status" },
-    @{ state = "empty"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
+    @{ state = "empty"; key = "setup"; address = "#/setup"; heading = "Setup"; message = "v2-shell-topbar-freshness" },
     @{ state = "loading"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status"
         holding = '^Loading your quest board'; after = '^(?!Loading your quest board)' },
     @{ state = "loading"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status"
@@ -2001,7 +2002,7 @@ $StateShots = @(
     @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
     @{ state = "degraded"; key = "team-group"; address = "#/team/group"; heading = "Group"; message = "v2-team-group-status" },
     @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Devices"; message = "v2-team-pairing-unavailable"; also = @("v2-team-pair-tablet") },
-    @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
+    @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup"; message = "v2-shell-topbar-freshness" },
     @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true
         recovered = "v2-plan-status"; recoveredPattern = "^(?!Quest data isn't available yet|Loading your quest board)" },
     # [#871] Debrief and Stash show the same notice with Retry, and not the empty message beside it.

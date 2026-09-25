@@ -2,12 +2,10 @@ using TarkovCompanion.Core.Network;
 
 namespace TarkovCompanion.App.Localization;
 
-/// <summary>[#292] Setup › Data &amp; Privacy's Local only switch and the per-service rows.</summary>
+/// <summary>[#292] Setup › Data &amp; Network's Local only switch and the per-service rows.</summary>
 public static partial class SetupText
 {
     public static string NetworkHeading => UiText.Get("Setup.Network.Heading");
-    public static string NetworkOn => UiText.Get("Setup.Network.On");
-    public static string NetworkOff => UiText.Get("Setup.Network.Off");
     public static string NetworkLocalOnlyTitle => UiText.Get("Setup.Network.LocalOnly.Title");
     public static string NetworkLocalOnlyLine => UiText.Get("Setup.Network.LocalOnly.Line");
     public static string NetworkLocalOnlyForced => UiText.Get("Setup.Network.LocalOnly.Forced");

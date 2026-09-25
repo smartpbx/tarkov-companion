@@ -155,18 +155,25 @@ public sealed class BackupAndResetTests : IDisposable
     {
         using var app = await App.StartAsync(_root);
         await app.ChangeEverythingAsync();
-        app.Admin.SetCurrentSection(V2SetupSection.Diagnostics);
+        app.Admin.SetCurrentSection(V2SetupSection.UpdatesDiagnostics);
 
         await ((AsyncDelegateCommand)app.Admin.ResetSectionCommand).ExecuteAsync();
         await ((AsyncDelegateCommand)app.Admin.ConfirmCommand).ExecuteAsync();
 
-        // Diagnostics holds the flags and the Loot Scan timing.
+        // Updates & Diagnostics holds the flags.
         Assert.All(app.Flags.States, state => Assert.Equal(FeatureFlagSource.RingDefault, state.Source));
-        Assert.Null(app.Layout.Get(WorkspaceLayoutKeys.LootOnTabletOnly));
-        Assert.Null(app.Layout.Get(WorkspaceLayoutKeys.LootAutoReturnSeconds));
-        // Not the rest.
+        // Not the rest: Loot scan moved to Game & Capture with the screenshots it reads (#902 P6).
+        Assert.NotNull(app.Layout.Get(WorkspaceLayoutKeys.LootOnTabletOnly));
         Assert.Equal("on", app.Layout.Get(WorkspaceLayoutKeys.PlanLearnMode));
         Assert.True(app.Network.Controls.LocalOnly);
+
+        app.Admin.SetCurrentSection(V2SetupSection.GameCapture);
+        await ((AsyncDelegateCommand)app.Admin.ResetSectionCommand).ExecuteAsync();
+        await ((AsyncDelegateCommand)app.Admin.ConfirmCommand).ExecuteAsync();
+
+        Assert.Null(app.Layout.Get(WorkspaceLayoutKeys.LootOnTabletOnly));
+        Assert.Null(app.Layout.Get(WorkspaceLayoutKeys.LootAutoReturnSeconds));
+        Assert.Equal("on", app.Layout.Get(WorkspaceLayoutKeys.PlanLearnMode));
     }
 
     [Fact]
@@ -179,7 +186,7 @@ public sealed class BackupAndResetTests : IDisposable
         Assert.True(admin.ShowsBackup);
         Assert.True(admin.IsVisible);
 
-        foreach (var section in new[] { V2SetupSection.Accessibility, V2SetupSection.Notifications, V2SetupSection.Privacy, V2SetupSection.DataPrivacy, V2SetupSection.Diagnostics, V2SetupSection.Progress, V2SetupSection.TeamDevices })
+        foreach (var section in new[] { V2SetupSection.GameCapture, V2SetupSection.ProfileProgress, V2SetupSection.Notifications, V2SetupSection.AppearanceWindow, V2SetupSection.DataNetwork, V2SetupSection.UpdatesDiagnostics })
         {
             admin.SetCurrentSection(section);
             Assert.True(admin.CanResetSection, section.ToString());
@@ -188,6 +195,35 @@ public sealed class BackupAndResetTests : IDisposable
 
         admin.SetCurrentSection(V2SetupSection.Overview);
         Assert.False(admin.IsVisible);
+    }
+
+    /// <summary>
+    /// [#902 P6] Every setting with a Setup home names a section the tab row offers, and Reset this
+    /// section in that section reaches it. What has no Setup home (the Raid layout, map defaults,
+    /// squad sharing, whose home is Team) is still covered by Reset everything, Export and Import.
+    /// </summary>
+    [Fact]
+    public void Every_registered_setting_is_reset_by_its_section_or_lives_outside_Setup()
+    {
+        var tabs = new V2SetupWorkspaceViewModel(null, null, null, _ => { }).Sections.Select(tab => tab.Section).ToHashSet();
+
+        foreach (var entry in SettingsRegistry.Domains.Where(entry => entry.Home is not null))
+        {
+            Assert.Contains(entry.Home!.Value, tabs);
+            Assert.Contains(entry.Domain, SettingsRegistry.DomainsIn(entry.Home.Value));
+            Assert.True(SettingsRegistry.HasSettings(entry.Home.Value), entry.Domain.ToString());
+        }
+
+        foreach (var key in SettingsRegistry.LayoutKeys.Where(key => key.Home is not null && !key.IsPrefix))
+        {
+            Assert.Contains(key.Home!.Value, tabs);
+            Assert.True(SettingsRegistry.IsLayoutKeyIn(key.Key, key.Home.Value), key.Key);
+        }
+
+        // Each section with a switch of its own resets something; the other two have none to reset.
+        Assert.Equal(
+            [V2SetupSection.GameCapture, V2SetupSection.ProfileProgress, V2SetupSection.Notifications, V2SetupSection.AppearanceWindow, V2SetupSection.DataNetwork, V2SetupSection.UpdatesDiagnostics],
+            tabs.Where(SettingsRegistry.HasSettings).Order());
     }
 
     /// <summary>
