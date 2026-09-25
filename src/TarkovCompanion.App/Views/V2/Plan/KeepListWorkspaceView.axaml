@@ -4,8 +4,28 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
-             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Styles>
+    <!-- [#902 P9] An item's name that opens its Intel: it reads as the name, and says link on hover. -->
+    <Style Selector="Button.v2-item-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.v2-item-link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-item-link:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
     <!-- Same visual language as the Hideout tab's card and chip. -->
     <Style Selector="Border.v2-keep-card">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -27,6 +47,9 @@
     <Style Selector="Border.v2-keep-chip.v2-keep-high-value">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
+    <Style Selector="Border.v2-keep-chip.v2-keep-leave">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <Style Selector="Border.v2-keep-chip.v2-keep-high-value TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
@@ -37,7 +60,7 @@
   <Border Classes="v2-keep-card" Margin="16,8,16,16">
     <Grid RowDefinitions="Auto,*">
       <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
-        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
           <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.KeepListTitle}" AutomationProperties.HeadingLevel="2"
                      VerticalAlignment="Center" />
           <!-- [#902 P8] Learn mode changes this page's text, so its switch is here too. -->
@@ -45,7 +68,14 @@
                         Content="{x:Static l:PlanText.Learn}" IsChecked="{Binding LearnMode.IsEnabled}"
                         AutomationProperties.AutomationId="v2-keep-learn-mode"
                         AutomationProperties.Name="{x:Static l:PlanText.LearnMode}" />
-          <Button Grid.Column="2" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
+          <!-- [#902 P9] The loot rules a Loot Scan wrote, listed so each can be undone. -->
+          <ToggleButton Grid.Column="2" Classes="v2-target v2-intel-chip v2-intel-chip-small" VerticalAlignment="Center"
+                        IsVisible="{Binding HasLootRules}"
+                        Content="{Binding LootRules.ButtonLabel, FallbackValue=''}"
+                        IsChecked="{Binding LootRules.IsOpen, FallbackValue=False}"
+                        AutomationProperties.AutomationId="v2-keep-loot-rules"
+                        AutomationProperties.Name="{x:Static l:PlanText.LootRules}" />
+          <Button Grid.Column="3" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
                   VerticalAlignment="Center"
                   AutomationProperties.AutomationId="v2-keep-refresh" AutomationProperties.Name="{x:Static l:PlanText.KeepRefresh}"
                   ToolTip.Tip="{x:Static l:PlanText.KeepRefresh}" Command="{Binding RefreshCommand}">
@@ -58,7 +88,44 @@
         <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" Margin="0,8,8,0" />
       </StackPanel>
 
-      <Panel Grid.Row="1">
+      <!-- [#902 P9] Plan › Keep › Loot rules, in place of the keep list while its chip is on. -->
+      <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled"
+                    IsVisible="{Binding LootRules.IsOpen, FallbackValue=False}">
+        <StackPanel Spacing="6" Margin="16,0,16,12" AutomationProperties.AutomationId="v2-keep-loot-rules-list">
+          <TextBlock Classes="v2-heading-3" Text="{Binding LootRules.Heading, FallbackValue=''}" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-label" Text="{Binding LootRules.Hint, FallbackValue=''}" TextWrapping="Wrap"
+                     Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+          <TextBlock Classes="v2-body" Opacity="0.8" TextWrapping="Wrap" Margin="0,8,0,0"
+                     IsVisible="{Binding LootRules.HasNoRows, FallbackValue=False}"
+                     Text="{Binding LootRules.Empty, FallbackValue=''}" />
+          <ItemsControl ItemsSource="{Binding LootRules.Rows, FallbackValue={x:Null}}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LootRuleRowViewModel">
+                <Border Classes="v2-keep-row" Margin="0,0,0,6">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <Button Classes="v2-item-link" HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Content="{Binding Name}"
+                            ToolTip.Tip="{x:Static l:ShellText.OpenInIntel}"
+                            Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenItemIntelCommand}"
+                            CommandParameter="{Binding ItemId}"
+                            AutomationProperties.AutomationId="v2-keep-loot-rule-item" />
+                    <Border Grid.Column="1" Classes="v2-keep-chip" VerticalAlignment="Center"
+                            Classes.v2-keep-leave="{Binding IsLeave}">
+                      <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                    </Border>
+                    <Button Grid.Column="2" Classes="v2-target" VerticalAlignment="Center"
+                            Content="{Binding RemoveLabel}" Command="{Binding RemoveCommand}"
+                            AutomationProperties.AutomationId="v2-keep-loot-rule-remove"
+                            AutomationProperties.Name="{Binding RemoveAutomationName}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+
+      <Panel Grid.Row="1" IsVisible="{Binding LootRules.IsClosed, FallbackValue=True}">
         <TextBlock IsVisible="{Binding !HasGroups}" Classes="v2-body" Opacity="0.8"
                    HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
                    TextWrapping="Wrap" MaxWidth="420"
@@ -80,7 +147,13 @@
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel Spacing="2">
                               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                <Button Classes="v2-item-link" HorizontalAlignment="Left"
+                                        ToolTip.Tip="{x:Static l:ShellText.OpenInIntel}"
+                                        Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenItemIntelCommand}"
+                                        CommandParameter="{Binding ItemId}"
+                                        AutomationProperties.AutomationId="v2-keep-item">
+                                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </Button>
                                 <Border Grid.Column="1" Classes="v2-keep-chip" IsVisible="{Binding HasRecommendation}"
                                         AutomationProperties.AutomationId="v2-keep-recommendation">
                                   <TextBlock Classes="v2-label" Text="{Binding RecommendationVerdict}" />

@@ -5,7 +5,9 @@
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:v2="using:TarkovCompanion.App.Views.V2"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Resources>
     <!-- One reconstructed container, at a fixed square size, scaled down as a whole to fit. -->
     <DataTemplate x:Key="StashGridTemplate" x:DataType="vm:StashRegionViewModel">
@@ -532,6 +534,13 @@
               <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashCorrectItem}" AutomationProperties.HeadingLevel="3" />
               <TextBlock Classes="v2-body stash-strong" Text="{Binding SelectedItemDisplayName}" TextWrapping="Wrap" />
               <TextBlock Classes="v2-label" Text="{Binding SelectedItemSortLabel}" TextWrapping="Wrap" />
+              <!-- [#902 P9] The selected item's prices, needs and barters. The row itself selects, so
+                   the link is here rather than a button inside a button. -->
+              <Button Classes="v2-outline" HorizontalAlignment="Left" Content="{x:Static l:ShellText.OpenInIntel}"
+                      IsVisible="{Binding SelectedItem.HasItem, FallbackValue=False}"
+                      Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenItemIntelCommand}"
+                      CommandParameter="{Binding SelectedItem.ItemId, FallbackValue=''}"
+                      AutomationProperties.AutomationId="v2-stash-open-intel" />
               <Button Classes="v2-outline" Content="{x:Static l:IntelText.StashOpenKitInLoadout}"
                       IsVisible="{Binding SelectedItemHasLoadoutLink}"
                       Command="{Binding SelectedItemOpenLoadoutCommand}"

@@ -16,12 +16,14 @@ namespace TarkovCompanion.App.Services.V2.Notifications;
 /// <param name="OpenTeam">Show the window on Team.</param>
 /// <param name="OpenSetup">Show the window on Setup.</param>
 /// <param name="Quit">Really quit, as opposed to closing the window.</param>
+/// <param name="OpenNotifications">[#902 P9] Show the window on the recent notifications list.</param>
 public sealed record TrayPresenceActions(
     Action Show,
     Action OpenRaid,
     Action OpenTeam,
     Action OpenSetup,
-    Action Quit);
+    Action Quit,
+    Action? OpenNotifications = null);
 
 /// <summary>
 /// The companion's presence in the system tray: what it is doing, and the way back into it.
@@ -50,6 +52,7 @@ public sealed class TrayPresence : INotificationChannel, IDisposable
     private readonly TrayIcon? _tray;
     private readonly Bitmap? _baseIcon;
     private TrayStatus _status = TrayStatus.Idle;
+    private NativeMenuItem? _notificationsItem;
     private int _unread;
     private bool _disposed;
 
@@ -130,10 +133,27 @@ public sealed class TrayPresence : INotificationChannel, IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
         _unread += Math.Max(1, request.Count);
+        RelabelNotifications();
     }
 
     /// <summary>The window came back, so the count has been read.</summary>
-    public void ClearUnread() => _unread = 0;
+    public void ClearUnread()
+    {
+        _unread = 0;
+        RelabelNotifications();
+    }
+
+    /// <summary>"Notifications (3)": the count the tooltip carries, where it can be opened.</summary>
+    private void RelabelNotifications()
+    {
+        if (_notificationsItem is not { } item || _disposed)
+        {
+            return;
+        }
+
+        var header = TarkovCompanion.App.Localization.ShellText.TrayNotifications(_unread);
+        Dispatcher.UIThread.Post(() => item.Header = header);
+    }
 
     public void Dispose()
     {
@@ -163,6 +183,14 @@ public sealed class TrayPresence : INotificationChannel, IDisposable
             var item = new NativeMenuItem(header);
             item.Click += (_, _) => action();
             menu.Items.Add(item);
+        }
+
+        if (_actions.OpenNotifications is { } openNotifications)
+        {
+            // [#902 P9] The tray counted notifications with nowhere to read them.
+            _notificationsItem = new NativeMenuItem(TarkovCompanion.App.Localization.ShellText.TrayNotifications(_unread));
+            _notificationsItem.Click += (_, _) => openNotifications();
+            menu.Items.Add(_notificationsItem);
         }
 
         menu.Items.Add(new NativeMenuItemSeparator());

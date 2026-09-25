@@ -981,6 +981,13 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
 
     private string? ItemId => _decision.Item.Value?.CanonicalId.Value;
 
+    /// <summary>[#902 P9] The identified item, for the name's link to its Intel page; empty when unknown.</summary>
+    public string IntelItemId => IsPending ? string.Empty : ItemId ?? string.Empty;
+
+    public bool HasIntelItem => IntelItemId.Length > 0;
+
+    public bool HasNoIntelItem => !HasIntelItem;
+
     /// <summary>The call this row shows, for the saved copy of the scan (#274).</summary>
     internal LootScanDecision Decision => _decision;
 

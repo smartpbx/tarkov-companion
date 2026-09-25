@@ -5,8 +5,28 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
              xmlns:local="using:TarkovCompanion.App.Views.V2.Debrief"
              xmlns:l="using:TarkovCompanion.App.Localization"
-             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Styles>
+    <!-- [#902 P9] An item's name that opens its Intel: it reads as the name, and says link on hover. -->
+    <Style Selector="Button.v2-item-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.v2-item-link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-item-link:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
     <!-- The search box and filter chip shapes Plan and Intel already use. -->
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- The same flat pane, context panel and section shapes as the Raid and Team workspaces. -->
@@ -738,7 +758,15 @@
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,4">
                         <StackPanel Grid.Column="0" Spacing="2">
                           <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="{Binding ItemLabel}" TextTrimming="CharacterEllipsis" />
+                            <!-- [#902 P9] A recognised item's name opens its Intel. -->
+                            <Button Classes="v2-item-link" IsVisible="{Binding HasItem}"
+                                    ToolTip.Tip="{x:Static l:ShellText.OpenInIntel}"
+                                    Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenItemIntelCommand}"
+                                    CommandParameter="{Binding ItemId}"
+                                    AutomationProperties.AutomationId="v2-debrief-scan-item">
+                              <TextBlock Text="{Binding ItemLabel}" TextTrimming="CharacterEllipsis" />
+                            </Button>
+                            <TextBlock Text="{Binding ItemLabel}" TextTrimming="CharacterEllipsis" IsVisible="{Binding HasNoItem}" />
                             <Border Classes="v2-debrief-kind" IsVisible="{Binding HasIdentityKind}">
                               <TextBlock Text="{Binding IdentityKindLabel}" />
                             </Border>

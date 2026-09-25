@@ -56,7 +56,7 @@ the other thirteen resolved (#294 added it).
 
 | V2 surface | What it is | Proved by |
 | --- | --- | --- |
-| `#/intel/stash` (#283) | Stash scan: read a stash screenshot into a keep/sell list | `StashScanWorkspaceViewModelTests`, `StashScanWorkflowTests`, `GuidedStashScanEndToEndTests`, `RealStashFrameMeasurementTests`; gallery `v2-a-intel-stash-*` |
+| `#/plan/stash` (#283; `#/intel/stash` still opens it, #902) | Stash scan: read a stash screenshot into a keep/sell list | `StashScanWorkspaceViewModelTests`, `StashScanWorkflowTests`, `GuidedStashScanEndToEndTests`, `RealStashFrameMeasurementTests`; gallery `v2-a-intel-stash-*` |
 | `#/plan/keep` (#402) | A computed keep list over the same requirement catalog Hideout reads | `KeepListWorkspaceViewModelTests`; gallery `v2-a-plan-keep-*` |
 | `#/tablet` (#290, #407) | The paired tablet's own view, and the link to reach it | `PairingInPlaceTests`; gallery `v2-a-tablet-*`, `shell-v2-a-tablet-link` |
 | `#/intel/item/{id}` (#287) | One item's facts with their source and age, as an address | gallery `v2-a-intel-item-*` |

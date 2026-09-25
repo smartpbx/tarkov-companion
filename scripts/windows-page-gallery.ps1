@@ -1711,7 +1711,7 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/000000000000000000000000"; heading = "Item details"
         expected = @("v2-shell-navigation-rail", "v2-shell-intel-heading")
         forbidden = @("v2-intel-context"); edge = 0.12 },
-    [pscustomobject]@{ key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"
+    [pscustomobject]@{ key = "intel-stash"; address = "#/plan/stash"; heading = "Stash scan"
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan"; address = "#/plan"; heading = "Plan"
         expected = @("v2-shell-navigation-rail") },
@@ -1995,7 +1995,7 @@ $StateShots = @(
         holding = '^Loading your quest board'; after = '^(?!Loading your quest board)' },
     @{ state = "loading"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status"
         holding = '^Loading raid history'; after = '^(?!Loading raid history)' },
-    @{ state = "loading"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-stash-status"
+    @{ state = "loading"; key = "intel-stash"; address = "#/plan/stash"; heading = "Stash scan"; message = "v2-stash-status"
         holding = '^Loading stash snapshots'; after = '^(?!Loading stash snapshots)' },
     @{ state = "degraded"; key = "raid"; address = "#/raid"; heading = "Raid"; message = "v2-shell-surface-state"; holding = '(?i)offline' },
     @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
@@ -2007,7 +2007,7 @@ $StateShots = @(
     # [#871] Debrief and Stash show the same notice with Retry, and not the empty message beside it.
     @{ state = "error"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-load-fault"; retry = $true
         recovered = "v2-debrief-status"; recoveredPattern = '^(?!Loading raid history)\S' },
-    @{ state = "error"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-load-fault"; retry = $true
+    @{ state = "error"; key = "intel-stash"; address = "#/plan/stash"; heading = "Stash scan"; message = "v2-load-fault"; retry = $true
         recovered = "v2-stash-status"; recoveredPattern = '^(?!Loading stash snapshots)\S' }
 )
 foreach ($State in $StateShots) {
