@@ -355,8 +355,22 @@
                   <ToggleSwitch Grid.Column="1" Classes="v2-team-switch" VerticalAlignment="Center"
                                 IsChecked="{Binding IsEnabled, Mode=TwoWay}"
                                 OnContent="{x:Static l:TeamText.ShareThisSession}" OffContent="{x:Static l:TeamText.ShareThisSession}"
-                                AutomationProperties.Name="{x:Static l:TeamText.ShareThisSession}" />
+                                AutomationProperties.Name="{x:Static l:TeamText.ShareThisSession}"
+                                AutomationProperties.AutomationId="v2-team-share-switch" />
                 </Grid>
+
+                <!-- [#902] The switch above is the player's choice; Local only or the Squad sharing
+                     permission can still stop it, and that used to be said only in Setup. -->
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,-8,0,0"
+                            IsVisible="{Binding IsSharingBlocked}"
+                            AutomationProperties.AutomationId="v2-team-sharing-blocked">
+                  <TextBlock Classes="v2-body v2-team-warning-text" VerticalAlignment="Center"
+                             Text="{Binding SharingBlockedLabel}" />
+                  <Button Classes="v2-team-outline" Content="{x:Static l:TeamText.ChangeBlock}"
+                          Command="{Binding OpenNetworkSettingsCommand}"
+                          AutomationProperties.Name="{x:Static l:TeamText.ChangeBlockName}"
+                          AutomationProperties.AutomationId="v2-team-sharing-blocked-change" />
+                </StackPanel>
 
                 <StackPanel Spacing="6">
                   <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.ServerAddress}" />
@@ -957,6 +971,13 @@
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding ConnectionDetail}" TextWrapping="Wrap"
                            IsVisible="{Binding ConnectionDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding IsSharingBlocked}">
+                  <TextBlock Classes="v2-label v2-team-warning-text" VerticalAlignment="Center" TextWrapping="Wrap"
+                             Text="{Binding SharingBlockedLabel}" />
+                  <Button Grid.Column="1" Classes="v2-team-plain" Content="{x:Static l:TeamText.ChangeBlock}"
+                          Command="{Binding OpenNetworkSettingsCommand}"
+                          AutomationProperties.Name="{x:Static l:TeamText.ChangeBlockName}" />
+                </Grid>
                 <Button Classes="v2-team-outline" HorizontalAlignment="Stretch" Margin="0,4,0,0"
                         Content="{x:Static l:TeamText.ManageGroup}" Command="{Binding ManageGroupCommand}"
                         IsVisible="{Binding !IsGroupSection}" />

@@ -58,14 +58,14 @@ public sealed class V2SetupWorkspaceViewModelTests
         Assert.False(V2SetupWorkspaceViewModel.TryMapReadinessCheck("profile", out _));
 
     [Fact]
-    public void OpeningTeamNavigatesToTheTeamRoute()
+    public void OpeningTeamNavigatesToWhereTheSharingSwitchesAre()
     {
         V2RouteId? navigated = null;
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, route => navigated = route);
 
         workspace.OpenTeamCommand.Execute(null);
 
-        Assert.Equal(V2Routes.Team, navigated);
+        Assert.Equal(V2Routes.Group, navigated);
     }
 
     [Fact]

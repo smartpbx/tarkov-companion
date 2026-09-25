@@ -1455,7 +1455,7 @@ $Shots.Add([pscustomobject]@{
             (New-NavigationStep "Variant A Events section" "v2-shell-section-plan.events" "Events"),
             (New-NavigationStep "Variant A Team destination" "v2-shell-destination-team" "Team"),
             (New-NavigationStep "Variant A Group section" "v2-shell-section-team.group" "Group"),
-            (New-NavigationStep "Variant A Tablet section" "v2-shell-section-team.tablet" "Tablet preview"),
+            (New-NavigationStep "Variant A Tablet section" "v2-shell-section-team.tablet" "Devices"),
             (New-NavigationStep "Variant A Debrief destination" "v2-shell-destination-debrief" "Debrief"),
             (New-NavigationStep "Variant A Setup destination" "v2-shell-destination-setup" "Setup & Admin")
         )
@@ -1514,7 +1514,7 @@ $Shots.Add([pscustomobject]@{
             (New-NavigationStep "Variant B Stash scan section" "v2-shell-section-stash" "Stash scan"),
             (New-NavigationStep "Variant B Team destination" "v2-shell-destination-team" "Team"),
             (New-NavigationStep "Variant B Group section" "v2-shell-section-team.group" "Group"),
-            (New-NavigationStep "Variant B Tablet section" "v2-shell-section-team.tablet" "Tablet preview"),
+            (New-NavigationStep "Variant B Tablet section" "v2-shell-section-team.tablet" "Devices"),
             (New-NavigationStep "Variant B History destination" "v2-shell-destination-debrief" "History"),
             (New-NavigationStep "Variant B Setup destination" "v2-shell-destination-setup" "Setup")
         )
@@ -1569,7 +1569,7 @@ $Shots.Add([pscustomobject]@{
     interaction = [pscustomobject]@{
         steps = @([pscustomobject]@{
             action = "assert"; description = "Variant A documented tablet deep link"
-            expectedHeading = "Tablet preview"; expectedFocusAutomationId = "v2-shell-page-heading"
+            expectedHeading = "Devices"; expectedFocusAutomationId = "v2-shell-page-heading"
             expectedCurrentAutomationIds = @("v2-shell-destination-team")
         })
     }
@@ -1580,7 +1580,7 @@ $Shots.Add([pscustomobject]@{
     interaction = [pscustomobject]@{
         steps = @([pscustomobject]@{
             action = "assert"; description = "Variant B documented tablet deep link"
-            expectedHeading = "Tablet preview"; expectedFocusAutomationId = "v2-shell-page-heading"
+            expectedHeading = "Devices"; expectedFocusAutomationId = "v2-shell-page-heading"
             expectedCurrentAutomationIds = @("v2-shell-destination-team")
         })
     }
@@ -1729,7 +1729,7 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "team-group"; address = "#/team/group"; heading = "Group"
         expected = @("v2-shell-navigation-rail") },
-    [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
+    [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Devices"
         expected = @("v2-shell-navigation-rail") },
     # Height, not fill: with no raids recorded the table holds its empty state, which is mostly
     # card either way, so "how much of it is drawn on" says nothing. "It is the height of the
@@ -2000,7 +2000,7 @@ $StateShots = @(
     @{ state = "degraded"; key = "raid"; address = "#/raid"; heading = "Raid"; message = "v2-shell-surface-state"; holding = '(?i)offline' },
     @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
     @{ state = "degraded"; key = "team-group"; address = "#/team/group"; heading = "Group"; message = "v2-team-group-status" },
-    @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Tablet preview"; message = "v2-team-pairing-unavailable"; also = @("v2-team-pair-tablet") },
+    @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Devices"; message = "v2-team-pairing-unavailable"; also = @("v2-team-pair-tablet") },
     @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
     @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true
         recovered = "v2-plan-status"; recoveredPattern = "^(?!Quest data isn't available yet|Loading your quest board)" },

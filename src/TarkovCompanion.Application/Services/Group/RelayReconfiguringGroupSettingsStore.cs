@@ -18,6 +18,12 @@ public sealed class RelayReconfiguringGroupSettingsStore(
     IGroupSettingsStore inner,
     RelayMarksBridge bridge) : IGroupSettingsStore
 {
+    public event EventHandler? Changed
+    {
+        add => inner.Changed += value;
+        remove => inner.Changed -= value;
+    }
+
     public Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken) =>
         inner.GetAsync(cancellationToken);
 

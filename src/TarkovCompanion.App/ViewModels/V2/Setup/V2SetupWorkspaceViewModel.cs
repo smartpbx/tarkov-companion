@@ -124,7 +124,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
         Legacy = legacy;
         SelfTest = selfTest;
         Notifications = notifications;
-        OpenTeamCommand = new DelegateCommand(() => _navigate(V2Routes.Team));
+        OpenTeamCommand = new DelegateCommand(() => _navigate(V2Routes.Group));
         OpenQuestSyncCommand = new DelegateCommand(() => Select(V2SetupSection.Progress));
         DecreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(-1));
         IncreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(1));

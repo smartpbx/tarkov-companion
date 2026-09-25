@@ -561,6 +561,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             raidMap.OpenDataPrivacyRequested += RaidOpenDataPrivacyRequested;
         }
 
+        if (_team is not null)
+        {
+            // [#902] "Blocked · Local only is on · Change" beside Team's sharing switch.
+            _team.OpenDataPrivacyRequested += TeamOpenDataPrivacyRequested;
+        }
+
         WireLegacyContext();
         WireRaidClock();
         WireLootAutoReturn();
@@ -1667,6 +1673,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private void RaidOpenDataPrivacyRequested(object? sender, EventArgs e)
     {
         var opened = Router.Navigate(V2Routes.Setup, "v2-raid-map-catalog-action");
+        Act(opened);
+        if (opened.Succeeded)
+        {
+            SetupWorkspace?.Select(V2SetupSection.DataPrivacy);
+        }
+    }
+
+    private void TeamOpenDataPrivacyRequested(object? sender, EventArgs e)
+    {
+        var opened = Router.Navigate(V2Routes.Setup, "v2-team-sharing-blocked-change");
         Act(opened);
         if (opened.Succeeded)
         {
@@ -3588,6 +3604,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (RaidCockpitWorkspace is { } raidMap)
         {
             raidMap.OpenDataPrivacyRequested -= RaidOpenDataPrivacyRequested;
+        }
+
+        if (_team is not null)
+        {
+            _team.OpenDataPrivacyRequested -= TeamOpenDataPrivacyRequested;
         }
 
         _updateNotice?.Dispose();
