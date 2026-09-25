@@ -275,6 +275,12 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
     /// <remarks>[#314] Asked of the kind, not of <see cref="Detail"/>, which is translated.</remarks>
     public bool IsTransit { get; init; }
 
+    /// <summary>
+    /// [#873] A one-side exit listed while the raid's side is unknown: it may not be the player's,
+    /// so the row is dimmed and says whose it is.
+    /// </summary>
+    public bool IsSideUnsure { get; init; }
+
     public MapExtractRequirements? Requirements { get; }
 
     public string RequirementText { get; private set; }
@@ -366,6 +372,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
             if (a.Id != b.Id || a.Position != b.Position || a.Name != b.Name || a.Detail != b.Detail ||
                 a.RequirementText != b.RequirementText ||
                 a._offerState != b._offerState || a.Estimate != b.Estimate || a.IsRouted != b.IsRouted ||
+                a.IsSideUnsure != b.IsSideUnsure ||
                 (a.RouteCommand is null) != (b.RouteCommand is null))
             {
                 return false;
@@ -376,7 +383,10 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
     }
 
     internal RaidExtractRowViewModel WithRoute(string estimate, bool isRouted, ICommand command) =>
-        new(Id, Position, Name, Detail, _offerState, SelectCommand, Requirements) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
+        new(Id, Position, Name, Detail, _offerState, SelectCommand, Requirements)
+        {
+            Estimate = estimate, IsRouted = isRouted, RouteCommand = command, IsTransit = IsTransit, IsSideUnsure = IsSideUnsure,
+        };
 }
 
 /// <summary>
@@ -2010,13 +2020,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? new MapScenePoint(point.X, point.Y)
             : null;
 
-    private static MapFeatureFaction RaidSide(string? side) => side?.Trim().ToLowerInvariant() switch
-    {
-        "pmc" => MapFeatureFaction.Pmc,
-        "scav" => MapFeatureFaction.Scav,
-        _ => MapFeatureFaction.Unknown,
-    };
-
     private static bool IsNearbySpawn(
         MapOverlayElement element,
         MapRenderModel model,
@@ -2574,9 +2577,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 573] A co-op extract: hidden entirely, or drawn but never the one the game's own
         // "offered" flag highlights, unless the player asked to see co-op extracts normally.
         var coOpVisibility = _coOpExtractVisibility;
+        var raidSide = RaidExtractSide.Of(raidSnapshot.Side);
+        SetExtractSide(raidSide);
         var spawnSelection = _earlyRaidSpawns.Select(
             _map.NearbySpawnAreas,
-            RaidSide(raidSnapshot.Side),
+            raidSide,
             raidSnapshot.StartedUtc);
         _spawnWindowExpiresUtc = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
             ? raidSnapshot.StartedUtc + EarlyRaidSpawnPolicy.VisibleFor
@@ -2597,6 +2602,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys or MapOverlayKind.Switches)
             .Where(element => element.Layer != MapOverlayKind.Extracts ||
                 coOpVisibility != CoOpExtractVisibility.Hidden || !CoOpExtracts.IsCoOp(element.Label))
+            // [#873] Only this raid's side's exits (and shared ones, transits and unstated ones),
+            // and no spawns for a scav: V1's side rule, which the V2 scene never applied.
+            .Where(element => RaidExtractSide.KeepOnMap(element.Layer, element.Faction, raidSide))
             .Select(element => new MapSceneLegacyElement(
                 element,
                 new DataProvenance("map-catalog", nowUtc),
@@ -2926,11 +2934,17 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// the row still gets a harmless no-op command rather than a null one, so nothing in the view
     /// binds against a null <see cref="RaidExtractRowViewModel.SelectCommand"/>.
     /// </param>
+    /// <param name="raidSide">
+    /// [#873] The raid's side. Known, the other side's exits are left out; unknown, every exit is
+    /// listed, the ones anybody can use first and the one-side ones after them, marked unsure.
+    /// </param>
     internal static IReadOnlyList<RaidExtractRowViewModel> BuildExtractRows(
         IReadOnlyList<MapSceneObject> objects,
         Action<MapSceneObjectId, MapScenePoint, string>? select = null,
-        string? timeLeft = null) => objects
+        string? timeLeft = null,
+        MapFeatureFaction raidSide = MapFeatureFaction.Unknown) => objects
         .Where(item => item.Kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit)
+        .Where(item => item.Kind != MapSceneObjectKind.Extract || RaidExtractSide.CanUse(item.Faction, raidSide))
         .GroupBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
         .Select(group => group.OrderByDescending(item => item.OfferState == MapSceneOfferState.Offered).First())
         .OrderBy(item => item.OfferState switch
@@ -2939,17 +2953,21 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             MapSceneOfferState.Unknown => 1,
             _ => 2,
         })
+        .ThenBy(item => item.Kind == MapSceneObjectKind.Extract && RaidExtractSide.IsUnsure(item.Faction, raidSide))
         .ThenBy(item => item.Kind)
         .ThenBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase)
         .Select(item =>
         {
             var point = item.Geometry.Points is [var at, ..] ? at : default;
+            var unsure = item.Kind == MapSceneObjectKind.Extract && RaidExtractSide.IsUnsure(item.Faction, raidSide);
             return new RaidExtractRowViewModel(
                 item.Id,
                 point,
                 item.Label,
                 item.Kind == MapSceneObjectKind.Transit ? RaidText.Transit : item.Faction switch
                 {
+                    MapFeatureFaction.Pmc when unsure => RaidText.PmcOnly,
+                    MapFeatureFaction.Scav when unsure => RaidText.ScavOnly,
                     MapFeatureFaction.Pmc => RaidText.Pmc,
                     MapFeatureFaction.Scav => RaidText.Scav,
                     MapFeatureFaction.Shared => RaidText.PmcAndScav,
@@ -2961,6 +2979,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 timeLeft)
             {
                 IsTransit = item.Kind == MapSceneObjectKind.Transit,
+                IsSideUnsure = unsure,
             };
         })
         .ToArray();
@@ -3160,9 +3179,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? scene.Objects
             : scene.Objects.Where(item => item.Kind != MapSceneObjectKind.Extract || !CoOpExtracts.IsCoOp(item.Label)).ToArray();
         // The corrections card lists every exit by name; the rows then take their routes' estimates.
-        var extractRows = BuildExtractRows(extractObjects, SelectExtract, _raid.TimeLeft);
+        var correctedRaid = _raid.Corrections.Apply(_stateStore.Current.Raid);
+        SetExtractSide(RaidExtractSide.Of(correctedRaid.Side));
+        var extractRows = BuildExtractRows(extractObjects, SelectExtract, _raid.TimeLeft, _extractSide);
         Corrections.Refresh(
-            _raid.Corrections.Apply(_stateStore.Current.Raid),
+            correctedRaid,
             [.. extractRows.Where(row => !row.IsTransit).Select(row => row.Name)]);
         // [#453] Kept when every row reads the same: a new list makes the panel build every row's
         // controls again, and a squadmate moving rebuilt the scene three times a second.
@@ -3290,6 +3311,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         : item.Kind == MapSceneObjectKind.Extract && _coOpExtractVisibility == CoOpExtractVisibility.Dim &&
             CoOpExtracts.IsCoOp(item.Label)
             ? new MapSceneObjectStyle(Opacity: 0.45)
+        // [#873] With the raid's side unknown, a one-side exit may not be the player's: faded.
+        : item.Kind == MapSceneObjectKind.Extract && RaidExtractSide.IsUnsure(item.Faction, _extractSide)
+            ? new MapSceneObjectStyle(Opacity: UnsureExtractOpacity)
             : null;
 
     /// <summary>V1's remembered quarter turn for this map, as a scene camera bearing.</summary>

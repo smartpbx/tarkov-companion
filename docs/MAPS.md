@@ -198,6 +198,12 @@ The shell and Extract options card share one live countdown and name its basis. 
 never treated as the raid start, so scav time stays unknown until a screenshot clock or hand entry
 supplies it.
 
+The raid's side (read from the game's log, or set by hand in Corrections) decides whose exits the
+map and Extract options show (`RaidExtractSide`, #873): a PMC raid gets PMC, shared and transit
+exits, a Scav raid Scav, shared and transit ones and no spawns, matched by the faction enum and never
+by display text. With the side unknown every exit is shown, the one-side ones faded on the map and
+dimmed as "PMC only"/"Scav only" at the end of the list, under a "Side unknown" note.
+
 Local pings and waypoints are stored as `RaidMark` rows (`Core`'s `MapMarkState` payload plus a
 kind and timestamp) in `Config/raid-marks.json` via `IRaidMarkStore`, kept deliberately
 shaped like `TarkovCompanion.CompanionProtocol`'s own `MapMark` so a paired-device sync can adapt

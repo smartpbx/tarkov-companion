@@ -13,6 +13,11 @@ public static partial class RaidText
     public static string Pmc => UiText.Get("Raid.Pmc");
     public static string Scav => UiText.Get("Raid.Scav");
     public static string PmcAndScav => UiText.Get("Raid.PmcAndScav");
+    public static string PmcOnly => UiText.Get("Raid.PmcOnly");
+    public static string ScavOnly => UiText.Get("Raid.ScavOnly");
+    public static string PmcRaidYourExtracts => UiText.Get("Raid.PmcRaidYourExtracts");
+    public static string ScavRaidYourExtracts => UiText.Get("Raid.ScavRaidYourExtracts");
+    public static string SideUnknownBothShown => UiText.Get("Raid.SideUnknownBothShown");
     public static string NeedsPower(string chain) => UiText.Format("Raid.NeedsPower", chain);
     public static string PowerChainJoiner => UiText.Get("Raid.PowerChainJoiner");
     public static string CostsCurrency(long count, string symbol) => UiText.Format("Raid.CostsCurrency", count, symbol);
