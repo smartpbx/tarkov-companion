@@ -140,7 +140,7 @@ public sealed partial class RaidCockpitViewModel
             return;
         }
 
-        var lost = forwarder.ObserveGroup(group.Waypoints.Select(waypoint => waypoint.Id).ToHashSet());
+        var lost = forwarder.ObserveGroup(group.Waypoints.Select(waypoint => waypoint.Id).ToHashSet(), group.Room);
         if (lost.Count == 0)
         {
             return;

@@ -65,6 +65,28 @@ public sealed class GroupWithdrawTests
     }
 
     [Fact]
+    public async Task NoExchangeFollowsTheGoodbyeWhenTheGoodbyeEndsAHeldExchange()
+    {
+        // #889: the relay's DELETE raises the room's revision, which ends the leaver's own held
+        // exchange. Withdrawn before the loop stopped, that loop POSTed once more after the
+        // DELETE and put the member back on everybody's map for three minutes.
+        var handler = new HoldingRelay();
+        var settings = new MutableSettings();
+        var service = Service(handler, settings, out _);
+
+        service.Start();
+        await handler.Held.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(400);
+        await service.DisposeAsync();
+        await Task.Delay(300);
+
+        var order = handler.Order;
+        var goodbye = order.IndexOf("DELETE");
+        Assert.True(goodbye >= 0, "No goodbye was sent.");
+        Assert.DoesNotContain("POST", order.Skip(goodbye + 1));
+    }
+
+    [Fact]
     public async Task NothingIsWithdrawnWhenNothingWasEverRegistered()
     {
         // Sharing that was never on has nobody to say goodbye to, and a DELETE here would be a
@@ -99,7 +121,7 @@ public sealed class GroupWithdrawTests
     }
 
     private static GroupSessionService Service(
-        RecordingHandler handler,
+        HttpMessageHandler handler,
         MutableSettings settings,
         out RuntimeStateStore store)
     {
@@ -139,6 +161,61 @@ public sealed class GroupWithdrawTests
         {
             _settings = settings;
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// A relay that holds the second exchange open until a goodbye arrives, as the real one does
+    /// when the DELETE raises the room's revision, and is slow to answer that goodbye.
+    /// </summary>
+    private sealed class HoldingRelay : HttpMessageHandler
+    {
+        private readonly Lock _lock = new();
+        private readonly List<string> _order = [];
+        private readonly TaskCompletionSource _goodbye = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _revision;
+
+        public TaskCompletionSource Held { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public List<string> Order
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return [.. _order];
+                }
+            }
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            lock (_lock)
+            {
+                _order.Add(request.Method.Method);
+            }
+
+            if (request.Method == HttpMethod.Delete)
+            {
+                _goodbye.TrySetResult();
+                await Task.Delay(400, CancellationToken.None);
+                return new HttpResponseMessage(HttpStatusCode.NoContent);
+            }
+
+            if (request.RequestUri!.Query.Contains("wait=", StringComparison.Ordinal))
+            {
+                Held.TrySetResult();
+                await _goodbye.Task.WaitAsync(cancellationToken);
+            }
+
+            var revision = Interlocked.Increment(ref _revision);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $$"""{"room":"r","members":[],"protocol":1,"revision":{{revision}}}""",
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            };
         }
     }
 

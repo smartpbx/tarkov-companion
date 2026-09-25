@@ -73,6 +73,8 @@ internal sealed class GroupMarkForwarder : IDisposable
     private readonly Dictionary<Guid, Sent> _sent = [];
     /// <summary>Marks whose send failed, with when they first failed and when they were last tried.</summary>
     private readonly Dictionary<Guid, Queued> _queued = [];
+    /// <summary>The room the relay ids in <see cref="_sent"/> belong to, once a snapshot has named one.</summary>
+    private string? _room;
     private bool _disposed;
 
     public GroupMarkForwarder(
@@ -449,16 +451,33 @@ internal sealed class GroupMarkForwarder : IDisposable
     /// never mistaken for a removal; pings are left out because the relay expires those on its
     /// own clock. The relay does not say who removed it, so neither does the note.
     /// Pass only a snapshot from a live connection: an offline one is not news.
+    ///
+    /// #889: <paramref name="room"/> is the snapshot's <c>GroupSnapshot.Room</c>. A new group key
+    /// is a different room, whose waypoints never held this player's old ones; comparing them
+    /// deleted every shared waypoint on this map as "removed by squad". On a change the old
+    /// room's relay ids are forgotten instead, and the local marks stay. They are not replayed
+    /// into the new room, for the same reason yesterday's marks are not: nobody there made them.
     /// </remarks>
-    public IReadOnlyList<Guid> ObserveGroup(IReadOnlyCollection<long> waypointIds)
+    public IReadOnlyList<Guid> ObserveGroup(IReadOnlyCollection<long> waypointIds, string? room = null)
     {
         ArgumentNullException.ThrowIfNull(waypointIds);
         var lost = new List<Guid>();
+        var roomChanged = false;
         lock (_gate)
         {
             if (_disposed)
             {
                 return [];
+            }
+
+            if (room is not null && !string.Equals(room, _room, StringComparison.Ordinal))
+            {
+                roomChanged = _room is not null;
+                _room = room;
+                if (roomChanged)
+                {
+                    _sent.Clear();
+                }
             }
 
             foreach (var (id, sent) in _sent.ToArray())
@@ -475,7 +494,7 @@ internal sealed class GroupMarkForwarder : IDisposable
                         _sent[id] = sent with { SeenOnRelay = true };
                     }
                 }
-                else if (sent.SeenOnRelay)
+                else if (sent.SeenOnRelay && !roomChanged)
                 {
                     _sent.Remove(id);
                     lost.Add(id);

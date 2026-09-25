@@ -94,6 +94,21 @@ public sealed class VisitedTrailsTests
     }
 
     [Fact]
+    public async Task A_deleted_raid_is_not_drawn_and_does_not_take_a_slot_in_the_limit()
+    {
+        // #889: the Debrief undo window keeps a deleted raid soft-deleted, and the trails query
+        // still drew it and let it push the oldest real raid out of the limit.
+        await using var scratch = await Scratch.CreateAsync();
+        await scratch.RaidAsync("customs", Evening, ["kept"]);
+        var deleted = await scratch.RaidAsync("customs", Evening.AddHours(5), ["deleted"]);
+        await scratch.History.SoftDeleteAsync([deleted], Evening.AddHours(6), CancellationToken.None);
+
+        var trails = await scratch.History.ListTrailsForMapAsync("customs", 1, CancellationToken.None);
+
+        Assert.Equal(["kept"], Assert.Single(trails).Positions.Select(position => position.Filename));
+    }
+
+    [Fact]
     public async Task A_payload_that_is_not_a_position_does_not_put_a_point_at_the_origin()
     {
         // The same refusal the single-raid read makes. Valid JSON that is not one of these
@@ -158,7 +173,7 @@ public sealed class VisitedTrailsTests
         }
 
         /// <summary>Records one raid with one position event per name given.</summary>
-        public async Task RaidAsync(string mapId, DateTimeOffset started, IReadOnlyList<string> filenames)
+        public async Task<Guid> RaidAsync(string mapId, DateTimeOffset started, IReadOnlyList<string> filenames)
         {
             var raidId = Guid.NewGuid();
             await ExecuteAsync(
@@ -179,6 +194,8 @@ public sealed class VisitedTrailsTests
                     filenames[index]);
                 await EventAsync(raidId, started.AddMinutes(index), JsonSerializer.Serialize(position, Json));
             }
+
+            return raidId;
         }
 
         /// <summary>Records a position event whose payload is not a position.</summary>
