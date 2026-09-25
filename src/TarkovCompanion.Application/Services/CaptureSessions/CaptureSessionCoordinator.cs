@@ -127,14 +127,19 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     private bool _disposed;
     private EventHandler? _changed;
 
+    // [#893] Optional: every existing composition and test predates it.
+    private readonly Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>? _logger;
+
     public CaptureSessionCoordinator(
         ICaptureWorkScheduler scheduler,
         ICaptureSessionPipeline pipeline,
         ICaptureResultHandoff handoff,
         WorkspaceOrigin defaultOrigin,
         TimeProvider? timeProvider = null,
-        CaptureSessionOptions? options = null)
+        CaptureSessionOptions? options = null,
+        Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>? logger = null)
     {
+        _logger = logger;
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
         _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
         _handoff = handoff ?? throw new ArgumentNullException(nameof(handoff));
@@ -1212,6 +1217,20 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     }
                     else if (noChangeCode is not null)
                     {
+                        // [#893] Every one of these ended silently, so a real in-raid Container
+                        // frame that produced no loot scan could not say which gate held it.
+                        if (_logger is not null)
+                        {
+                            Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(
+                                _logger,
+                                "Capture {CorrelationId} ended with no change: {Code} ({Action}, context {Context}, confidence {Confidence:0.00}).",
+                                artifact.CorrelationId,
+                                noChangeCode,
+                                decision.Action,
+                                artifact.Analysis?.DetectedContext?.ToString() ?? "none",
+                                artifact.Analysis?.Confidence.Value ?? 0);
+                        }
+
                         session.AppendCapture(artifact, CaptureSessionStage.Cancelled, correctedUtc, noChangeCode);
                         artifact.IsTerminal = true;
                         artifact.Disposition = CaptureArtifactDisposition.NoChange;

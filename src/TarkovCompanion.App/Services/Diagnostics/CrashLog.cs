@@ -151,7 +151,7 @@ public static class CrashLog
                 {
                     Append(path, string.Create(
                         CultureInfo.InvariantCulture,
-                        $"{DateTimeOffset.UtcNow:O} [repeat] [{_lastCategory}] still failing ({_repeats + 1}x) since {_repeatsSince:HH:mm}{Environment.NewLine}"));
+                        $"{DateTimeOffset.UtcNow:O} [repeat] [{_lastCategory}] {RepeatWording(_lastCategory)} ({_repeats + 1}x) since {_repeatsSince:HH:mm}{Environment.NewLine}"));
                     _repeats = 0;
                 }
 
@@ -187,6 +187,22 @@ public static class CrashLog
     /// already serialised behind <see cref="Gate"/>, and the writes that are not are not ours
     /// to order.
     /// </remarks>
+    /// <summary>
+    /// [#893] How a collapsed run of identical lines is described: "still failing" only for a
+    /// warning or worse, "repeated" for an information line.
+    /// </summary>
+    /// <remarks>
+    /// Every repeat used to say "still failing", so a healthy startup that logged the same
+    /// information line twice read as an error storm to whoever triaged the file. A category
+    /// with no level ("group", "lifecycle") keeps the old wording.
+    /// </remarks>
+    internal static string RepeatWording(string category) =>
+        category.StartsWith("information/", StringComparison.OrdinalIgnoreCase)
+        || category.StartsWith("debug/", StringComparison.OrdinalIgnoreCase)
+        || category.StartsWith("trace/", StringComparison.OrdinalIgnoreCase)
+            ? "repeated"
+            : "still failing";
+
     private static void Append(string path, string text)
     {
         using var stream = new FileStream(

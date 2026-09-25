@@ -136,11 +136,27 @@ internal static class Program
             // screenshot and a developer build are all deliberate, short-lived, and sometimes
             // run beside each other on purpose; refusing those would break verification to
             // prevent a problem none of them have.
+            // [#893] A player's launch that names a page (a shortcut, the tray's twin) goes to the
+            // copy already running rather than opening beside it. Only when one is listening:
+            // otherwise it starts exactly as a --page launch always has.
+            if (IsPageHandOff(options) && InstanceActivation.TrySignal(logDirectory, options.StartPage))
+            {
+                CrashLog.Write("lifecycle", "Handed the launch to the copy already running.");
+                return 0;
+            }
+
             using var instance = IsOrdinaryLaunch(options)
                 ? SingleInstance.TryAcquire("TarkovCompanion.SingleInstance")
                 : null;
             if (IsOrdinaryLaunch(options) && instance is null)
             {
+                // [#893] Brings the running copy forward instead of exiting with nothing on screen.
+                if (InstanceActivation.TrySignal(logDirectory, page: null))
+                {
+                    CrashLog.Write("lifecycle", "Already running; brought its window to the front.");
+                    return 0;
+                }
+
                 const string Message =
                     "Tarkov Companion is already running. Look for its window on your other "
                     + "monitor; it may be behind the game.";
@@ -158,6 +174,11 @@ internal static class Program
             {
                 CrashBreadcrumbs.Install(logDirectory);
             }
+
+            // [#893] The copy that holds the lock is the one a second launch hands itself to.
+            using var activation = instance is not null
+                ? InstanceActivation.Listen(logDirectory, page => Dispatcher.UIThread.Post(() => (Avalonia.Application.Current as App)?.BringForward(page)))
+                : null;
 
             var services = AppComposition.Build(options);
             // [#279] Developer mode only: a seeded gallery scene and its readiness answer.
@@ -224,6 +245,17 @@ internal static class Program
                 : 3;
         }
     }
+
+    /// <summary>
+    /// [#893] An ordinary launch but for <c>--page</c>: a player's shortcut to a page, which a
+    /// running copy can open. A tool's launch (a window size, a map, a gallery scene) never is.
+    /// </summary>
+    private static bool IsPageHandOff(AppCommandLine options) =>
+        options.StartPage is not null
+        && IsOrdinaryLaunch(options with { StartPage = null })
+        && options.WindowSize is null
+        && options.MapId is null
+        && options.GalleryScene is null;
 
     /// <summary>Whether this is a player starting the companion, rather than a tool running it.</summary>
     private static bool IsOrdinaryLaunch(AppCommandLine options) =>

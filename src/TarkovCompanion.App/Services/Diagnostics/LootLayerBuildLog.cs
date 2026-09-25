@@ -16,6 +16,12 @@ namespace TarkovCompanion.App.Services.Diagnostics;
 public static class LootLayerBuildLog
 {
     private static readonly TimeSpan Every = TimeSpan.FromMinutes(1);
+
+    /// <summary>[#893] How long a window with nothing to report may run before it is written anyway.</summary>
+    internal static readonly TimeSpan QuietEvery = TimeSpan.FromMinutes(10);
+
+    /// <summary>[#893] A frame's worth: a build that took longer than this is worth a line of its own.</summary>
+    internal const double NotableMilliseconds = 16;
     private static readonly Lock Gate = new();
     private static HighValueLootLayerResult? _last;
     private static int _built;
@@ -51,7 +57,7 @@ public static class LootLayerBuildLog
             }
 
             var window = Stopwatch.GetElapsedTime(_windowStarted);
-            if (window >= Every)
+            if (ShouldWrite(_built, _longest, window))
             {
                 line = string.Create(
                     CultureInfo.InvariantCulture,
@@ -67,4 +73,19 @@ public static class LootLayerBuildLog
 
         return result;
     }
+
+    /// <summary>
+    /// [#893] Whether the window's line goes into the breadcrumbs now.
+    /// </summary>
+    /// <remarks>
+    /// A minute in which the layer was only reused, and cheaply, is a heartbeat. Written every
+    /// minute, those heartbeats were 415 of 478 lines in the owner's breadcrumb file, and the forty
+    /// lines replayed after a killed run were all "0 built, 175 reused": no navigation, no hang,
+    /// nothing about what the player was doing. A quiet window now keeps counting and is written
+    /// once in ten minutes, so the reuse rate is still on record; a minute with a build or a slow
+    /// call is written as before.
+    /// </remarks>
+    internal static bool ShouldWrite(int built, double longestMilliseconds, TimeSpan window) =>
+        window >= QuietEvery
+        || (window >= Every && (built > 0 || longestMilliseconds > NotableMilliseconds));
 }

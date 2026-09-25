@@ -90,7 +90,37 @@ public sealed class CaptureRecognitionPipelineTests
         Assert.Equal(expected is null ? 0 : RecognitionThresholds.Ambiguous, placed.Confidence.Value);
     }
 
-    [Fact]
+    /// <summary>
+    /// [#893] An unarmed in-raid container screen with a measured lattice reaches the floor intake
+    /// acts on. Fails on main, where only an armed intent lifted a weak reading and the frame ended
+    /// "below threshold, no change".
+    /// </summary>
+    [Theory]
+    [InlineData(ScanContext.Container, true, true, RecognitionThresholds.Ambiguous)]
+    [InlineData(ScanContext.Container, false, true, 0.3)]
+    [InlineData(ScanContext.Container, true, false, 0.3)]
+    [InlineData(ScanContext.FleaListings, true, true, 0.3)]
+    public void AnUnarmedInRaidContainerWithAMeasuredLatticeIsActedOn(
+        ScanContext detected,
+        bool inRaid,
+        bool latticeMeasured,
+        double expected)
+    {
+        var placed = CaptureRecognitionPipeline.PlaceUnarmedInRaidContainer(
+            RecognizedContext.Grid,
+            false,
+            new(0.3),
+            latticeMeasured,
+            ScanIntent.Auto,
+            detected,
+            inRaid);
+
+        Assert.Equal(RecognizedContext.Grid, placed.Context);
+        Assert.False(placed.IsAmbiguous);
+        Assert.Equal(expected, placed.Confidence.Value);
+    }
+
+        [Fact]
     public void AScreenTheTextDetectorPlacedIsLeftAsItWasRead()
     {
         var placed = CaptureRecognitionPipeline.PlaceFromLattice(RecognizedContext.Flea, false, new(0.93), true, ScanIntent.Loot);

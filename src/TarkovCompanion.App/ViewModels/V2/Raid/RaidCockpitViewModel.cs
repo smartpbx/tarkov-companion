@@ -515,6 +515,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private DateTimeOffset _failedDecodeRetryUtc;
     private static readonly TimeSpan DecodeRetryPause = TimeSpan.FromSeconds(5);
     private GroupSnapshot? _seenGroup;
+    private string? _seenGroupSignature;
 
     // The traffic line, and the bookkeeping that keeps a slow evaluation from overwriting a newer
     // one: the version says which request is current, the time says when the clock last had a
@@ -2273,16 +2274,40 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var raid = snapshot.Raid;
         var group = snapshot.Group;
         ResetLettersForNewRaid(raid);
-        if (ReferenceEquals(raid, _seenRaid) && ReferenceEquals(group, _seenGroup))
+        // [#893] Always asked, so the group's signature is current even when the raid changed.
+        var sameGroup = SameGroupScene(group);
+        if (ReferenceEquals(raid, _seenRaid) && sameGroup)
         {
             return;
         }
 
         _seenRaid = raid;
-        _seenGroup = group;
         OnPropertyChanged(nameof(RaidPhaseLabel));
         OnPropertyChanged(nameof(ExtractClockSummary));
         _rebuildRequest.Request();
+    }
+
+    /// <summary>
+    /// [#893] Whether a new group snapshot draws what the last rebuild drew. The session publishes
+    /// a new instance on every relay exchange (about three a second with a squad), and nearly all
+    /// of them differ only in clocks; see <see cref="RaidGroupSceneSignature"/>.
+    /// </summary>
+    private bool SameGroupScene(GroupSnapshot group)
+    {
+        if (ReferenceEquals(group, _seenGroup))
+        {
+            return true;
+        }
+
+        var signature = RaidGroupSceneSignature.Of(group);
+        _seenGroup = group;
+        if (string.Equals(signature, _seenGroupSignature, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        _seenGroupSignature = signature;
+        return false;
     }
 
     /// <summary>The Raid plan's Corrections card: side, clock and offered exits, read or set by hand (#286).</summary>
@@ -2459,6 +2484,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         ResetLettersForNewRaid(runtime.Raid);
         _seenRaid = runtime.Raid;
         _seenGroup = runtime.Group;
+        _seenGroupSignature = RaidGroupSceneSignature.Of(runtime.Group);
         var model = _map.RenderModel;
         if (model is null)
         {
@@ -3503,7 +3529,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private const string VisitedColor = "#8056B8C6";
 
     /// <summary>A screenshot older than this is drawn faded, because the player has moved since.</summary>
-    private static readonly TimeSpan PositionFreshFor = TimeSpan.FromMinutes(2);
+    internal static readonly TimeSpan PositionFreshFor = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// You, where you have walked this raid, your squad, and where past raids on this map put

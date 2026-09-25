@@ -725,8 +725,14 @@ public sealed class RaidObservationService : IAsyncDisposable
             return;
         }
 
+        // [#893] Decoded once for both readers below; see SharedScreenshotDecode.
+        var readers = (_captureSessions is null ? 0 : 1) + (_scanUseCase is null ? 0 : 1);
+        IScreenshotImageLoader loader = readers > 1
+            ? new SharedScreenshotDecode(_imageLoader, path, readers)
+            : _imageLoader;
         if (_captureSessions is not null)
         {
+            var admitted = false;
             try
             {
                 // A screenshot that answers an armed request is submitted in that request's
@@ -747,13 +753,14 @@ public sealed class RaidObservationService : IAsyncDisposable
                 var receipt = await _captureSessions.EnqueueAsync(
                         new(
                             CaptureDeliveryKind.WatchedFile,
-                            new ScreenshotFileCaptureSource(path, _imageLoader),
+                            new ScreenshotFileCaptureSource(path, loader),
                             context,
                             timedFileSeenUtc,
                             correlationId),
                         cancellationToken)
                     .ConfigureAwait(false);
-                if (receipt.Disposition != CaptureQueueDisposition.Accepted)
+                admitted = receipt.Disposition == CaptureQueueDisposition.Accepted;
+                if (!admitted)
                 {
                     _logger.LogWarning(
                         "A settled screenshot was not admitted to capture intake: {Code}.",
@@ -776,6 +783,13 @@ public sealed class RaidObservationService : IAsyncDisposable
                     "Could not enqueue the screenshot {Filename} for capture review.",
                     MaskScreenshotName(Path.GetFileName(path)));
             }
+            finally
+            {
+                if (!admitted && loader is SharedScreenshotDecode shared)
+                {
+                    shared.Release();
+                }
+            }
         }
 
         if (_scanUseCase is null)
@@ -785,7 +799,7 @@ public sealed class RaidObservationService : IAsyncDisposable
 
         try
         {
-            var image = await _imageLoader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+            var image = await loader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
             if (image is null)
             {
                 _logger.LogInformation(

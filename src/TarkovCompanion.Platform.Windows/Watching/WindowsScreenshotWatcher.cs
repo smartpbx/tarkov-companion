@@ -171,6 +171,7 @@ public sealed class WindowsScreenshotWatcher(
                 seen[path] = seen[path] with { LastObservedUtc = now };
             }
 
+            var startupSkips = new StartupSkipCount();
             foreach (var candidate in snapshot)
             {
                 var wasTracked = seen.TryGetValue(candidate.Path, out var delivered);
@@ -187,7 +188,8 @@ public sealed class WindowsScreenshotWatcher(
                     && !IsInsideStartupWindow(candidate.CapturedUtc, now))
                 {
                     seen[candidate.Path] = new(candidate.Fingerprint.Length, now);
-                    logger?.LogInformation(
+                    startupSkips.Add(candidate.CapturedUtc);
+                    logger?.LogDebug(
                         "Skipped startup screenshot {Filename}: its {TimestampSource} capture time " +
                         "{Captured:O} is outside the {StartupMinutes}-minute startup window.",
                         MaskScreenshotName(Path.GetFileName(candidate.Path)),
@@ -238,6 +240,20 @@ public sealed class WindowsScreenshotWatcher(
                 seen[candidate.Path] = new(completed.Length, now);
                 settling.Remove(candidate.Path);
                 yield return new(candidate.Path, ScreenshotSightingKind.Settled);
+            }
+
+            if (!watchState.Initialized && startupSkips.Count > 0)
+            {
+                // [#893] One line for the whole folder. One per file was 70% of the owner's
+                // startup log, grew with every screenshot kept, and rotated the evening's real
+                // diagnostics away within a day.
+                logger?.LogInformation(
+                    "Skipped {Count} startup screenshot(s) older than the {StartupMinutes}-minute startup window; " +
+                    "oldest {Oldest:O}, newest {Newest:O}.",
+                    startupSkips.Count,
+                    StartupGrace.TotalMinutes,
+                    startupSkips.Oldest,
+                    startupSkips.Newest);
             }
 
             watchState.Initialized = true;
@@ -598,6 +614,30 @@ public sealed class WindowsScreenshotWatcher(
         public Dictionary<string, SeenFile> Seen { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public bool Initialized { get; set; }
+    }
+
+    /// <summary>[#893] The startup pass's skipped files, counted for one summary line.</summary>
+    private sealed class StartupSkipCount
+    {
+        public int Count { get; private set; }
+
+        public DateTimeOffset Oldest { get; private set; } = DateTimeOffset.MaxValue;
+
+        public DateTimeOffset Newest { get; private set; } = DateTimeOffset.MinValue;
+
+        public void Add(DateTimeOffset captured)
+        {
+            Count++;
+            if (captured < Oldest)
+            {
+                Oldest = captured;
+            }
+
+            if (captured > Newest)
+            {
+                Newest = captured;
+            }
+        }
     }
 
     private readonly record struct FileOrderKey(long CapturedUtcTicks, string Path) : IComparable<FileOrderKey>
