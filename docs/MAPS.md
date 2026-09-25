@@ -377,3 +377,11 @@ On the Raid map (#902) the nearby spawn areas of the first five minutes are thei
 "Nearby spawns · first 5 min" (on), beside "All spawns" (off, kept for the whole raid); both are
 modelled spawn areas, never detections. The player's past trails are the "My trail" layer (off),
 read for the open map only while it is on.
+
+"Spawn lines · first 5 min" (#914, on) draws V1's threat lines on the V2 map: one dashed red line
+from each nearby PMC spawn area (a `SpawnGrouping` area, never a single point) to the player's
+latest position, labelled "possible PMC spawn · 120 m". Full strength for three minutes, fading
+to nothing at five (`SpawnLines.Strength`); scav and unknown-side raids get none. A radius picker
+under the Map group (50 / 100 / 150 / 300 m, default 150) limits both the Nearby spawns markers
+and the lines, measured from the raid's first screenshot, and is kept per map
+(`raid.spawn-radius.<map id>`).

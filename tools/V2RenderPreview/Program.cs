@@ -1244,6 +1244,20 @@ internal static class Program
                     Pump(20);
                 }
 
+                // [#914] --spawn-radius 50|100|150|300: the Layers menu's radius chip for this map.
+                if (IntOption(args, "--spawn-radius", 0) is > 0 and var spawnRadius)
+                {
+                    if (raid.SpawnRadiusChoices.FirstOrDefault(choice => choice.Metres == spawnRadius) is { } radiusChip)
+                    {
+                        radiusChip.SelectCommand.Execute(null);
+                        Pump(20);
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine($"No spawn radius chip for {spawnRadius} m.");
+                    }
+                }
+
                 // [V2 rough package 39] Two render-only presses, both of them the app's own
                 // controls rather than a fixture: choose the drawing (the stack needs it — a
                 // tile grid and a drawing cover different rectangles), then stack the floors.
@@ -1995,6 +2009,13 @@ internal static class Program
                     demo = (demo.Raid with { Side = raidSide.Equals("unknown", StringComparison.OrdinalIgnoreCase) ? null : raidSide }, demo.Group);
                 }
 
+                // [#914] --raid-trail-last N: only the last N screenshots, so the first one (where the
+                // spawn panel and the spawn lines measure from) sits near the player, as early in a raid.
+                if (IntOption(args, "--raid-trail-last", 0) is > 0 and var trailLast && demo.Raid.PositionTrail.Count > trailLast)
+                {
+                    demo = (demo.Raid with { PositionTrail = [.. demo.Raid.PositionTrail.Skip(demo.Raid.PositionTrail.Count - trailLast)] }, demo.Group);
+                }
+
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
@@ -2643,7 +2664,7 @@ internal static class Program
 
             if (StringOption(args, "--open-flyout") is { } flyoutId)
             {
-                FlyoutProbe.Save(window, flyoutId, outputPath, Pump, args.Contains("--flyout-scroll-end"));
+                FlyoutProbe.Save(window, flyoutId, outputPath, Pump, args.Contains("--flyout-scroll-end"), IntOption(args, "--flyout-scroll", 0));
             }
 
             // [#453] --stall-tour / --memory-tour N: walk the app and report stalls or memory.

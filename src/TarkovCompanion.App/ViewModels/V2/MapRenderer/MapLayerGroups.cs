@@ -20,7 +20,7 @@ public static class MapLayerGroups
         ("Squad", ["squad"]),
         ("Routes", [ObjectiveRouteSceneBuilder.LayerId.Value, "traffic-routes", "traffic-route-direct"]),
         ("Quests", ["quest-objectives"]),
-        ("Map", ["labels", "extracts", "keys", "switches", "hazards", "nearby-spawns", "spawns"]),
+        ("Map", ["labels", "extracts", "keys", "switches", "hazards", "nearby-spawns", "spawn-lines", "spawns"]),
         ("Marks", ["my-marks", "group-marks", "drawings"]),
         ("Loot", [HighValueLootLayerService.LayerId.Value]),
         ("Traffic", [MapSceneRendererViewModel.TrafficHeatLayerId.Value]),
@@ -76,5 +76,7 @@ public sealed class MapSceneRendererLayerGroupViewModel(
     /// <summary>The loot filter chips, on the Loot group only.</summary>
     public HighValueLootLayerViewModel? Loot { get; } = loot;
     public bool HasLoot => Loot is not null;
+    /// <summary>[#914] The spawn radius picker sits under the group holding the nearby spawn rows.</summary>
+    public bool HasSpawnRadius => Layers.Any(layer => layer.Layer.Id.Value is "nearby-spawns" or "spawn-lines");
     public string AutomationId => $"v2-map-layer-group-{Key.ToLowerInvariant()}";
 }

@@ -670,6 +670,30 @@
                               </DataTemplate>
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
+                          <!-- [#914] How far Nearby spawns and Spawn lines reach from the raid's start,
+                               remembered per map; under the group that holds those two rows. -->
+                          <Panel IsVisible="{Binding HasSpawnRadius}">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,4,14,0"
+                                  DataContext="{Binding #MapCard.DataContext}" x:DataType="vm:RaidCockpitViewModel"
+                                  ToolTip.Tip="{x:Static l:RaidText.SpawnRadiusTip}">
+                              <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.SpawnRadius}" VerticalAlignment="Center" />
+                              <ItemsControl Grid.Column="1" ItemsSource="{Binding SpawnRadiusChoices}"
+                                            AutomationProperties.AccessibilityView="Control"
+                                            AutomationProperties.Name="{x:Static l:RaidText.SpawnRadius}">
+                                <ItemsControl.ItemsPanel>
+                                  <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:SpawnRadiusChoiceViewModel">
+                                    <prim:SelectionToggleButton Classes="v2-raid-viewcontrol v2-raid-phase-choice"
+                                                  IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
+                                                  Content="{Binding Label}"
+                                                  AutomationProperties.AutomationId="{Binding AutomationId}" />
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </Grid>
+                          </Panel>
                           <!-- [#902 P4] Under the Loot header, a summary of the filters that opens the loot
                                card, the one place they are chosen, instead of a second copy of its chips. -->
                           <ContentControl Content="{Binding Loot}" IsVisible="{Binding HasLoot}">
