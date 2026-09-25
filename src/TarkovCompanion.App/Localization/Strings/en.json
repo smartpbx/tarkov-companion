@@ -3655,6 +3655,7 @@
   "Setup.Settings.Layout.LootThreshold": "Raid · loot value threshold",
   "Setup.Settings.Layout.LootBasis": "Raid · loot value basis",
   "Setup.Settings.Layout.MapLayers": "Raid · map layers",
+  "Setup.Settings.Layout.ObjectiveRouteMaps": "Raid · objective route per map",
   "Setup.Settings.Layout.Follow": "Raid · follow me",
   "Setup.Settings.Layout.LootReturn": "Loot Scan · return to map",
   "Setup.Settings.Layout.LootTabletOnly": "Loot Scan · tablet only",
