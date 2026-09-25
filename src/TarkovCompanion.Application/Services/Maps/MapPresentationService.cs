@@ -319,11 +319,15 @@ public sealed class MapPresentationService
     /// anything to do with the player; quest objectives are only ever the quests this player is
     /// actually on, because the projection filters to active and pinned. A layer that draws
     /// what you asked for can be on; a layer that draws everything cannot.
+    ///
+    /// [#902] Companion markers, Routes, Risk / traffic and Filters were listed here too, on by
+    /// default. Nothing in V2 ever put an object on them, so they showed in the Layers menu as
+    /// four switches that drew nothing, and once turned off they greyed out for good. The kinds
+    /// stay in the enum for old code that names them; no map opens with them.
     /// </remarks>
     private static IReadOnlyList<MapOverlayLayer> CreateDefaultOverlays(string locationId) =>
     [
         new(MapOverlayKind.QuestObjectives, "Quest objectives", true, false),
-        new(MapOverlayKind.CompanionMarkers, "Companion markers", true, false),
         new(MapOverlayKind.Extracts, "Extracts", true, false),
         new(MapOverlayKind.Labels, "Labels", true, false),
         new(MapOverlayKind.Spawns, "Spawns", false, false),
@@ -333,9 +337,6 @@ public sealed class MapPresentationService
             "Switches",
             locationId is "the-lab" or "reserve" or "interchange",
             false),
-        new(MapOverlayKind.Routes, "Routes", true, false),
-        new(MapOverlayKind.RiskAndTraffic, "Risk / traffic", true, false),
-        new(MapOverlayKind.Filters, "Filters", true, false),
     ];
 
     private static IReadOnlyList<MapOverlayElement> CreateLabelElements(MapVariant variant)

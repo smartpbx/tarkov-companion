@@ -255,10 +255,10 @@ public sealed class TarkovDevMapTests
 
         var model = service.Create(location, variant, "/cache/map.svg");
         var changed = model
-            .SetLayerVisibility(MapOverlayKind.RiskAndTraffic, false)
+            .SetLayerVisibility(MapOverlayKind.Switches, false)
             .HighlightLayer(MapOverlayKind.Extracts);
 
-        Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.RiskAndTraffic).IsVisible);
+        Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Switches).IsVisible);
         Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Extracts).IsHighlighted);
         Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Labels).IsVisible);
         // On by default now. The whole quest pipeline exists to draw this layer, and it used to

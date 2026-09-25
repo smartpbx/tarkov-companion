@@ -111,12 +111,18 @@ public sealed class MapSceneAssembler
         for (var index = 0; index < model.Overlays.Count; index++)
         {
             var source = model.Overlays[index];
+            // [#902] A layer nothing adapts objects onto is a switch that can never draw
+            // anything, which is what the four V1 layers were in the Layers menu.
+            if (!HasAdapter(source.Kind))
+            {
+                continue;
+            }
+
             layers.Add(new(
                 IdFor(source.Kind),
                 source.Name,
                 index,
-                source.IsVisible,
-                source.Kind != MapOverlayKind.Filters));
+                source.IsVisible));
         }
 
         return layers;
@@ -143,7 +149,10 @@ public sealed class MapSceneAssembler
         return new(mode, floorId, requested.Camera, states);
     }
 
-    private static bool CanAdaptWithoutLosingMeaning(MapOverlayElement element) => element.Layer is
+    private static bool CanAdaptWithoutLosingMeaning(MapOverlayElement element) => HasAdapter(element.Layer);
+
+    /// <summary>Whether catalog elements of this kind become scene objects, and so whether its layer is listed.</summary>
+    public static bool HasAdapter(MapOverlayKind kind) => kind is
         MapOverlayKind.Labels or
         MapOverlayKind.Extracts or
         MapOverlayKind.Spawns or

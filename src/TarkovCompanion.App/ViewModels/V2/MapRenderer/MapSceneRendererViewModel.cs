@@ -107,6 +107,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private IReadOnlyList<MapSceneObject> _filteredListObjects = [];
     private string? _resolvedAssetKey;
     private IReadOnlyDictionary<MapSceneLayerId, bool>? _lootPresetTargets;
+    // [#902] Loot focus: what every layer was before it was pressed, restored when it is pressed
+    // again. Null while it is off. Never saved: it is a way of looking, not a layer choice.
+    private Dictionary<MapSceneLayerId, bool>? _lootFocusSnapshot;
+    private bool _dispatchingLootFocus;
+    private bool _layersBuiltForStack;
     private readonly IReadOnlySet<MapSceneLayerId> _lootPresetPreservedLayers;
     private string? _selectedLootSpawnId;
     private IReadOnlyList<string>? _lootCategories;
@@ -239,6 +244,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The floor a compact selector shows as chosen; null only before the scene has any.</summary>
     public MapSceneRendererFloorViewModel? SelectedFloor => Floors.FirstOrDefault(floor => floor.IsSelected);
     public IReadOnlyList<MapSceneRendererLayerViewModel> Layers { get; private set; } = [];
+    /// <summary>[#902] The same rows as <see cref="Layers"/>, under the Layers menu's headers.</summary>
+    public IReadOnlyList<MapSceneRendererLayerGroupViewModel> LayerGroups { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> SpatialObjects { get; private set; } = [];
     /// <summary>[#453] One list for the life of the renderer, changed entry by entry: see <see cref="ReconciledList{T}"/>.</summary>
     public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers => _pointMarkers;
@@ -379,7 +386,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public string PreviousPageLabel => Text("Map.Action.Previous");
     public string NextPageLabel => Text("Map.Action.Next");
     public string ClearClusterLabel => Text("Map.Action.ClearCluster");
-    public string HighValueLootPresetLabel => Text("Map.Loot.Preset");
+    public string HighValueLootPresetLabel => Text(IsLootFocused ? "Map.Loot.FocusOn" : "Map.Loot.Preset");
+
+    /// <summary>[#902] Whether Loot focus is on: the loot, the map's bearings, you and your squad, nothing else.</summary>
+    public bool IsLootFocused => _lootFocusSnapshot is not null;
+
+    /// <summary>
+    /// True only while this renderer is asking for one of Loot focus's own layer changes, so the
+    /// host that saves Layers-menu choices can leave it out.
+    /// </summary>
+    public bool IsDispatchingLootFocus => _dispatchingLootFocus;
     public string PresentationLabel => Text("Map.Label.Presentation");
     public string FloorLabel => Text("Map.Label.Floor");
     public string MapPlanLabel => Text("Map.Label.Plan");
@@ -664,6 +680,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         if (changedSceneIdentity)
         {
+            // [#902] Loot focus belongs to the map it was pressed on. The next map opens with the
+            // player's own layer choices, which Loot focus never touched.
+            if (_lootFocusSnapshot is not null)
+            {
+                _lootFocusSnapshot = null;
+                _lootPresetTargets = null;
+                OnPropertyChanged(nameof(IsLootFocused));
+                OnPropertyChanged(nameof(HighValueLootPresetLabel));
+            }
+
             _lootZoomReached = 0;
             _clusterFilter = null;
             _clusterFilterLabel = string.Empty;
@@ -846,6 +872,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         _lootPresetTargets = null;
+        // [#902] A layer switched by hand during Loot focus is the player's choice; turning the
+        // focus off leaves it where they put it.
+        _lootFocusSnapshot?.Remove(layerId);
         Request(new(MapSceneViewChangeKind.SetLayerVisibility, LayerId: layerId, IsVisible: isVisible));
     }
 
@@ -1552,8 +1581,25 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         ViewChangeRequested?.Invoke(requested);
     }
 
+    /// <summary>
+    /// [#902] Loot focus, on or off. It replaced a one-way "High-value loot only" preset whose
+    /// steps were saved as the player's layer choices: one press hid You, the squad, marks and
+    /// routes on every map, pressing it again did nothing, and each layer had to be found and
+    /// turned back on by hand. Now the second press puts every layer back as it was.
+    /// </summary>
     private void ApplyHighValueLootPreset()
     {
+        if (_lootFocusSnapshot is { } snapshot)
+        {
+            _lootFocusSnapshot = null;
+            _lootPresetTargets = snapshot
+                .Where(entry => _scene.Layers.Any(layer => layer.Id == entry.Key))
+                .ToDictionary(entry => entry.Key, entry => entry.Value);
+            RaiseLootFocusChanged();
+            DispatchHighValueLootPresetChange();
+            return;
+        }
+
         if (HighValueLoot is null || !_scene.Layers.Any(layer => layer.Id == HighValueLootLayerService.LayerId))
         {
             SetRendererNotice(Text("Map.Loot.Unavailable"));
@@ -1581,9 +1627,17 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 : [])
             .Distinct()
             .ToArray();
+        _lootFocusSnapshot = _scene.Layers.ToDictionary(layer => layer.Id, layer => IsLayerVisible(layer.Id));
         _lootPresetTargets = HighValueLootLayerPreset.Create(_scene.Layers, preserve)
             .ToDictionary(state => state.LayerId, state => state.IsVisible);
+        RaiseLootFocusChanged();
         DispatchHighValueLootPresetChange();
+    }
+
+    private void RaiseLootFocusChanged()
+    {
+        OnPropertyChanged(nameof(IsLootFocused));
+        OnPropertyChanged(nameof(HighValueLootPresetLabel));
     }
 
     private void DispatchHighValueLootPresetChange()
@@ -1593,13 +1647,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
+        var targets = _lootPresetTargets;
         var next = _scene.Layers
+            .Where(layer => targets.ContainsKey(layer.Id))
             .OrderBy(layer => layer.ZIndex)
             .Select(layer => new
             {
                 layer.Id,
                 Current = IsLayerVisible(layer.Id),
-                Target = _lootPresetTargets[layer.Id],
+                Target = targets[layer.Id],
             })
             .FirstOrDefault(item => item.Current != item.Target);
         if (next is null)
@@ -1608,10 +1664,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
-        Request(new(
-            MapSceneViewChangeKind.SetLayerVisibility,
-            LayerId: next.Id,
-            IsVisible: next.Target));
+        _dispatchingLootFocus = true;
+        try
+        {
+            Request(new(
+                MapSceneViewChangeKind.SetLayerVisibility,
+                LayerId: next.Id,
+                IsVisible: next.Target));
+        }
+        finally
+        {
+            _dispatchingLootFocus = false;
+        }
     }
 
     private void RequestHighValueLootFilter(HighValueLootLayerFilterState state)
@@ -1799,6 +1863,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             FloorLayers = [];
             KeepHeldPictures();
             StackStatus = string.Empty;
+            RefreshLayersForStack();
             return;
         }
 
@@ -1835,6 +1900,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         FloorLayers = layers;
         KeepHeldPictures();
+        RefreshLayersForStack();
         var floorCount = _scene.FloorIds.Count;
         StackStatus = layers.Count switch
         {
@@ -1843,6 +1909,19 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 Format("Map.Stack.Partial", _presentation.Number(layers.Count), _presentation.Number(floorCount)),
             _ => Format("Map.Stack.Floors", _presentation.Number(layers.Count)),
         };
+    }
+
+    /// <summary>[#902] The traffic row's "flat view only" follows whether the stack is actually drawn.</summary>
+    private void RefreshLayersForStack()
+    {
+        if (_layersBuiltForStack == HasFloorStack)
+        {
+            return;
+        }
+
+        BuildLayers();
+        OnPropertyChanged(nameof(Layers));
+        OnPropertyChanged(nameof(LayerGroups));
     }
 
     private void BuildLayers()
@@ -1864,6 +1943,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             counts[item.LayerId] = counts.TryGetValue(item.LayerId, out var running) ? running + 1 : 1;
         }
 
+        // [#902] The heat picture is drawn on the flat plan only, so in the floor stack its
+        // switch says so rather than reading on and drawing nothing.
+        _layersBuiltForStack = HasFloorStack;
         Layers = _scene.Layers
             .OrderBy(layer => layer.ZIndex)
             .ThenBy(layer => layer.Name, StringComparer.OrdinalIgnoreCase)
@@ -1875,8 +1957,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 counts.TryGetValue(layer.Id, out var count) ? count : 0,
                 layer.Id == HighValueLootLayerService.LayerId
                     ? HighValueLoot?.LayerMenuStatus
-                    : null))
+                    : layer.Id == TrafficHeatLayerId && _layersBuiltForStack
+                        ? Text("Map.Layer.FlatViewOnly")
+                        : null))
             .ToArray();
+        LayerGroups = MapLayerGroups.Group(Layers, _presentation, HighValueLoot);
     }
 
     private IReadOnlyList<MapSceneObject> RebuildProjectedObjects()
@@ -2821,6 +2906,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         if (layers)
         {
             OnPropertyChanged(nameof(Layers));
+            OnPropertyChanged(nameof(LayerGroups));
             // [V2 rough package 46] The Layers button's count is the only thing saying what is
             // drawn once the switches are behind a menu, so it has to move when they do.
             OnPropertyChanged(nameof(LayersMenuLabel));
@@ -3254,18 +3340,11 @@ public sealed class MapSceneRendererLayerViewModel
             ? presentation.Format("Map.Layer.Empty", layer.Name)
             : presentation.Format("Map.Layer.Count", layer.Name, presentation.Number(Count));
         Label = string.IsNullOrWhiteSpace(status) ? countedLabel : $"{countedLabel} · {status}";
-        StateLabel = Count == 0
-            ? presentation.Get("Map.Layer.NothingToShow")
-            : presentation.Get(isVisible ? "Map.Layer.Visible" : "Map.Layer.Hidden");
-        // A layer with nothing on it says so rather than switching the map to empty. The view
-        // disables the switch too; this is the guard that does not depend on it doing so.
-        ToggleCommand = new DelegateCommand(() =>
-        {
-            if (CanToggle)
-            {
-                setVisible(!IsVisible);
-            }
-        });
+        StateLabel = presentation.Get(isVisible ? "Map.Layer.Visible" : "Map.Layer.Hidden");
+        // [#902] Always switchable. A layer with nothing on it used to refuse to be switched on,
+        // and the choice is saved for every map: turned off where it happened to be empty, it
+        // stayed off, greyed out, on every map after. "None on this map" is state, not a lock.
+        ToggleCommand = new DelegateCommand(() => setVisible(!IsVisible));
     }
 
     public MapSceneLayer Layer { get; }
@@ -3277,19 +3356,8 @@ public sealed class MapSceneRendererLayerViewModel
     /// <summary>The layer's name with its count, which is what the switch shows.</summary>
     public string Label { get; }
 
-    /// <summary>True when the layer would draw nothing, so the switch says so and stays off.</summary>
+    /// <summary>True when the layer has nothing to draw on this map right now; its label says so.</summary>
     public bool HasNothingToShow => Count == 0;
-
-    /// <summary>Whether the switch does anything: every layer but an empty one that is already off.</summary>
-    /// <remarks>
-    /// The rule is "do not switch the map to empty", which is about turning a layer on. Applied
-    /// to the switch as a whole it also locked on a layer that was already showing: with the
-    /// loot preset applied and loot-spawn data unavailable, High-value loot was on, empty and
-    /// impossible to turn off. That is a stuck control for a player, and for UI Automation it is
-    /// an exception, because Toggle on a disabled control throws rather than doing nothing,
-    /// which failed the Windows gallery's offline loot scenario with "no window".
-    /// </remarks>
-    public bool CanToggle => IsVisible || Count > 0;
 
     public bool IsVisible { get; }
     public string ToggleLabel { get; }

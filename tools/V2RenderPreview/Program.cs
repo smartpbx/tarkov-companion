@@ -2110,6 +2110,16 @@ internal static class Program
                 Console.WriteLine($"Loot after refresh: {refreshPanel.NoDataMessage}");
             }
 
+            // [#902] The floor stack, as the strip's Stack button asks for it, so a render can show
+            // the Layers menu saying the heatmap is flat view only.
+            if (args.Contains("--floor-stack") &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel stackRaid)
+            {
+                stackRaid.Renderer?.RequestMode(TarkovCompanion.Core.Domain.Maps.Scene.MapSceneMode.FloorStack2D);
+                Pump(200);
+                Console.WriteLine($"Floor stack: {stackRaid.Renderer?.HasFloorStack}");
+            }
+
             // [Issue 563] Press "High-value loot only" the way the gem button on the map does, so
             // a render can show what it leaves on the map with and without loot-spawn data.
             if (args.Contains("--loot-preset") &&

@@ -35,12 +35,11 @@ public sealed class MapSceneRendererViewModelTests
         Assert.True(renderer.HasRendererNotice);
         Assert.Contains("unavailable", renderer.RendererNotice, StringComparison.OrdinalIgnoreCase);
 
-        // [V2 rough package 39] A layer with nothing on it no longer switches the map to empty:
-        // "Loot" holds no objects in this scene, so its switch says so and does nothing.
+        // [#902] "Loot" holds no objects in this scene, and its label says so. Its switch still
+        // works (Every_layer_switch_works_whether_or_not_the_layer_has_anything_on_it).
         var loot = renderer.Layers.Single(layer => layer.Layer.Id == new MapSceneLayerId("loot"));
         Assert.True(loot.HasNothingToShow);
-        loot.ToggleCommand.Execute(null);
-        Assert.Empty(published);
+        Assert.Contains("none on this map", loot.Label, StringComparison.Ordinal);
 
         var extracts = renderer.Layers.Single(layer => layer.Layer.Id == new MapSceneLayerId("extracts"));
         Assert.Equal(1, extracts.Count);
@@ -56,18 +55,14 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Theory]
-    [InlineData(true, 0, true)]
-    [InlineData(false, 0, false)]
-    [InlineData(true, 3, true)]
-    [InlineData(false, 3, true)]
-    public void An_empty_layer_cannot_be_switched_on_but_one_that_is_showing_can_always_be_switched_off(
-        bool isVisible,
-        int count,
-        bool canToggle)
+    [InlineData(true, 0)]
+    [InlineData(false, 0)]
+    [InlineData(true, 3)]
+    [InlineData(false, 3)]
+    public void Every_layer_switch_works_whether_or_not_the_layer_has_anything_on_it(bool isVisible, int count)
     {
-        // The Windows gallery's offline loot scenario applies the loot preset with no loot-spawn
-        // data: High-value loot is on and empty. Disabled outright, it could not be turned off,
-        // and UI Automation's Toggle threw on it, which the gallery reported as "no window".
+        // [#902] An empty layer that was off could not be switched on, and the off state is saved
+        // for every map, so a layer switched off where it happened to be empty stayed off for good.
         bool? requested = null;
         var layer = new MapSceneRendererLayerViewModel(
             new MapSceneLayer(new MapSceneLayerId("high-value-loot-spawns"), "High-value loot", 10, isVisible),
@@ -76,10 +71,9 @@ public sealed class MapSceneRendererViewModelTests
             visible => requested = visible,
             count);
 
-        Assert.Equal(canToggle, layer.CanToggle);
         layer.ToggleCommand.Execute(null);
 
-        Assert.Equal(canToggle ? !isVisible : null, requested);
+        Assert.Equal(!isVisible, requested);
     }
 
     [Fact]
@@ -740,7 +734,6 @@ public sealed class MapSceneRendererViewModelTests
         LootLayer().ToggleCommand.Execute(null);
         Assert.False(IsVisible(renderer, HighValueLootLayerService.LayerId));
         Assert.Equal(shownCount, LootLayer().Count);
-        Assert.True(LootLayer().CanToggle);
 
         LootLayer().ToggleCommand.Execute(null);
 
@@ -778,7 +771,7 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Equal("medical-exceptional", renderer.SelectedLootEntry?.Entry.Spawn.SpawnId);
         Assert.True(IsVisible(renderer, HighValueLootLayerService.LayerId));
         Assert.True(IsVisible(renderer, new("extracts")));
-        Assert.True(IsVisible(renderer, new("companion-markers")));
+        Assert.True(IsVisible(renderer, new("squad")));
         Assert.True(IsVisible(renderer, new("hazards")));
         Assert.False(IsVisible(renderer, new("estimates")));
     }
