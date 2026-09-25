@@ -339,7 +339,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         : _allRecords.Count == 0
             ? DebriefText.NoRaidsYet
             : !ContextRecords.Any()
-            ? DebriefText.NoRaidsInContext
+            ? NoRaidsInContextMessage
             : DebriefText.NoRaidsMatch;
 
     public bool HasSelection => _selected is not null;
@@ -1024,13 +1024,15 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         RebuildCoverage(active);
         Status = (_showArchived
             ? DebriefText.ArchivedRaidCount(filtered.Length)
-            : BuildStatusLabel(filtered.Length, inContext.Count(record => !record.IsArchived))) + ContextSuffix;
+            : BuildStatusLabel(filtered.Length, inContext.Count(record => !record.IsArchived), _allRecords.Count > 0)) + ContextSuffix;
         RaiseAll();
     }
 
-    private static string BuildStatusLabel(int shown, int total)
+    // [#902 P10] "No raids recorded yet · PvE · Wipe 4" was false while other contexts held raids:
+    // the header now says "0 raids" for the context and the list says what is hidden.
+    private static string BuildStatusLabel(int shown, int total, bool anyRecorded)
     {
-        if (total == 0)
+        if (total == 0 && !anyRecorded)
         {
             return DebriefText.NoRaidsYet;
         }

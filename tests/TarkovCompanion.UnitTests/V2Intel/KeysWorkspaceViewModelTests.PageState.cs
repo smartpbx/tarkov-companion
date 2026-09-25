@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.App.ViewModels.V2.Plan;
@@ -24,6 +25,8 @@ public sealed partial class KeysWorkspaceViewModelTests
         Assert.Equal(KeyVerdictFilter.Owned, after.Filter);
         Assert.True(after.ShowsNoKeys);
         Assert.True(after.ShowsFilterReset);
+        // [#902 P10] ...and the reason is the missing stash scan, not the filter.
+        Assert.Equal(IntelText.KeysOwnedNoScan, after.NoKeysLabel);
 
         after.ClearFilterCommand.Execute(null);
 

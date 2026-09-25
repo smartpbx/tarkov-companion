@@ -81,9 +81,16 @@
                     IsVisible="{Binding ShowsEmpty}">
           <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
                      HorizontalAlignment="Center" Text="{Binding EmptyLabel}" />
-          <Button Classes="v2-outline" HorizontalAlignment="Center" Margin="0"
-                        IsVisible="{Binding ShowsFilterReset}" Command="{Binding ClearFilterCommand}"
-                        Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-crafts-show-all" />
+          <!-- [#902 P10] An unknown level is the player's own missing input: link to where it is set. -->
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+            <Button Classes="v2-outline" IsVisible="{Binding ShowsSetTraderLevels}" Command="{Binding SetTraderLevelsCommand}"
+                    Content="{x:Static l:IntelText.CraftsSetTraderLevels}" AutomationProperties.AutomationId="v2-crafts-set-trader-levels" />
+            <Button Classes="v2-outline" IsVisible="{Binding ShowsSetHideoutLevels}" Command="{Binding SetHideoutLevelsCommand}"
+                    Content="{x:Static l:IntelText.CraftsSetHideoutLevels}" AutomationProperties.AutomationId="v2-crafts-set-hideout-levels" />
+            <Button Classes="v2-outline" Margin="0"
+                    IsVisible="{Binding ShowsFilterReset}" Command="{Binding ClearFilterCommand}"
+                    Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-crafts-show-all" />
+          </StackPanel>
         </StackPanel>
         <ListBox Classes="v2-intel-trade-list" ItemsSource="{Binding Rows}" IsVisible="{Binding !ShowsEmpty}"
                  SelectionMode="Single">

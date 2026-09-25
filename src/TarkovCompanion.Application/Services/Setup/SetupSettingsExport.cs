@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Domain.Personalization;
+using TarkovCompanion.Core.Domain.Recommendations;
+using TarkovCompanion.Core.Network;
 
 namespace TarkovCompanion.Application.Services.Setup;
 
@@ -69,13 +71,41 @@ public static class SetupSettingsExport
             normalized.Notifications.FleaSold,
             normalized.Notifications.QuietHours,
             normalized.Notifications.QuietFromHour,
-            normalized.Notifications.QuietToHour);
+            normalized.Notifications.QuietToHour)
+        {
+            InterfaceScale = normalized.InterfaceScale,
+            Network = new NetworkDocument(
+                normalized.Network.LocalOnly,
+                normalized.Network.SquadSharing,
+                normalized.Network.UpdateChecks,
+                normalized.Network.ProblemReports,
+                normalized.Network.TarkovTracker),
+            FeatureFlags = new SortedDictionary<string, bool>(normalized.FeatureFlags.ToDictionary(), StringComparer.Ordinal),
+            Horizons = new HorizonsDocument(normalized.Horizons.Quest, normalized.Horizons.Hideout),
+            SquadSharing = new SquadSharingDocument(
+                normalized.SquadSharing.IsEnabled,
+                normalized.SquadSharing.SharesLoadout,
+                normalized.SquadSharing.SharesQuests),
+            Layout = new SortedDictionary<string, string>(normalized.Layout.ToDictionary(), StringComparer.Ordinal),
+            MapDefaults = new SortedDictionary<string, string>(normalized.MapDefaults.ToDictionary(), StringComparer.OrdinalIgnoreCase),
+        };
         return JsonSerializer.Serialize(document, JsonOptions);
     }
 
     /// <summary>Reads and validates an exported file's text, without applying anything.</summary>
-    public static SetupSettingsValidationResult Validate(string json)
+    /// <remarks>A group the file does not name at all (a version 1 file names only appearance,
+    /// notifications and screenshot tidying) reads as its default here.</remarks>
+    public static SetupSettingsValidationResult Validate(string json) => Validate(json, SetupSettingsSnapshot.Default);
+
+    /// <summary>Reads and validates an exported file's text against what is in force now.</summary>
+    /// <remarks>
+    /// A group the file does not name at all keeps <paramref name="current"/>'s value, so importing
+    /// a version 1 file never resets the map layers it predates. A group it does name is taken whole:
+    /// a missing switch inside it is that switch's default.
+    /// </remarks>
+    public static SetupSettingsValidationResult Validate(string json, SetupSettingsSnapshot current)
     {
+        ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(json);
         Document? document;
         try
@@ -122,7 +152,47 @@ public static class SetupSettingsExport
             new ScreenshotRetentionSettings(
                 document.ScreenshotCleanupEnabled ?? ScreenshotRetentionSettings.Default.IsEnabled,
                 document.ScreenshotRetentionHours ?? ScreenshotRetentionSettings.Default.RetentionHours))
-            .Normalized();
+        {
+            InterfaceScale = document.InterfaceScale ?? current.InterfaceScale,
+            Network = document.Network is { } network
+                ? new NetworkControls
+                {
+                    LocalOnly = network.LocalOnly ?? NetworkControls.Default.LocalOnly,
+                    SquadSharing = network.SquadSharing ?? NetworkControls.Default.SquadSharing,
+                    UpdateChecks = network.UpdateChecks ?? NetworkControls.Default.UpdateChecks,
+                    ProblemReports = network.ProblemReports ?? NetworkControls.Default.ProblemReports,
+                    TarkovTracker = network.TarkovTracker ?? NetworkControls.Default.TarkovTracker,
+                }
+                : current.Network,
+            FeatureFlags = document.FeatureFlags is { } flags
+                ? new SortedDictionary<string, bool>(
+                    flags.Where(entry => !string.IsNullOrWhiteSpace(entry.Key)).ToDictionary(),
+                    StringComparer.Ordinal)
+                : current.FeatureFlags,
+            Horizons = document.Horizons is { } horizons
+                ? new RecommendationHorizonSettings(
+                    horizons.Quest ?? RecommendationHorizonSettings.Default.Quest,
+                    horizons.Hideout ?? RecommendationHorizonSettings.Default.Hideout)
+                : current.Horizons,
+            SquadSharing = document.SquadSharing is { } squad
+                ? new SquadSharingChoices(
+                    squad.IsEnabled ?? SquadSharingChoices.Default.IsEnabled,
+                    squad.SharesLoadout ?? SquadSharingChoices.Default.SharesLoadout,
+                    squad.SharesQuests ?? SquadSharingChoices.Default.SharesQuests)
+                : current.SquadSharing,
+            Layout = document.Layout is { } layout
+                ? new SortedDictionary<string, string>(
+                    layout.Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value is not null).ToDictionary(),
+                    StringComparer.Ordinal)
+                : current.Layout,
+            MapDefaults = document.MapDefaults is { } maps
+                ? new SortedDictionary<string, string>(
+                    maps.Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && !string.IsNullOrWhiteSpace(entry.Value))
+                        .ToDictionary(StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase)
+                : current.MapDefaults,
+        }
+        .Normalized();
 
         return SetupSettingsValidationResult.Success(snapshot);
     }
@@ -151,5 +221,27 @@ public static class SetupSettingsExport
         bool? NotifyFleaSold = null,
         bool? QuietHours = null,
         int? QuietFromHour = null,
-        int? QuietToHour = null);
+        int? QuietToHour = null)
+    {
+        public double? InterfaceScale { get; init; }
+
+        public NetworkDocument? Network { get; init; }
+
+        public IReadOnlyDictionary<string, bool>? FeatureFlags { get; init; }
+
+        public HorizonsDocument? Horizons { get; init; }
+
+        public SquadSharingDocument? SquadSharing { get; init; }
+
+        public IReadOnlyDictionary<string, string>? Layout { get; init; }
+
+        public IReadOnlyDictionary<string, string>? MapDefaults { get; init; }
+    }
+
+    private sealed record NetworkDocument(bool? LocalOnly, bool? SquadSharing, bool? UpdateChecks, bool? ProblemReports, bool? TarkovTracker);
+
+    private sealed record HorizonsDocument(RecommendationHorizon? Quest, RecommendationHorizon? Hideout);
+
+    /// <remarks>The three switches only: the relay address, display name and group key never leave group.json.</remarks>
+    private sealed record SquadSharingDocument(bool? IsEnabled, bool? SharesLoadout, bool? SharesQuests);
 }

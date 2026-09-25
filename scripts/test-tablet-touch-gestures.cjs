@@ -163,6 +163,16 @@ async function main() {
     let before = await state();
     check("Follow starts as the paired default", before.mode === "Follow");
 
+    // P10 (#902): a layer tap in Follow used to do nothing and say nothing. The button is now
+    // disabled and the reason is shown under the row.
+    const followLayers = await page.evaluate(() => ({
+      count: document.querySelectorAll("#layers button").length,
+      disabled: [...document.querySelectorAll("#layers button")].every((button) => button.disabled),
+      note: document.getElementById("layersNote").hidden ? "" : document.getElementById("layersNote").textContent,
+    }));
+    check("Follow: layer buttons are disabled", followLayers.count > 0 && followLayers.disabled, JSON.stringify(followLayers));
+    check("Follow: the layer row says why", followLayers.note.includes("Switch to Control or Independent"), followLayers.note);
+
     await page.click("#zoomIn");
     await page.waitForTimeout(150);
     let notice = await page.locator("#commandNotice").isVisible();
@@ -217,6 +227,17 @@ async function main() {
 
     before = await state();
     check("Independent starts with a local camera", before.mode === "Independent" && before.camera !== null);
+    {
+      const layers = await page.evaluate(() => ({
+        enabled: [...document.querySelectorAll("#layers button")].every((button) => !button.disabled),
+        noteHidden: document.getElementById("layersNote").hidden,
+      }));
+      check("Independent: layer buttons are enabled", layers.enabled && layers.noteHidden, JSON.stringify(layers));
+      await page.click("#layers button");
+      const pressed = await page.getAttribute("#layers button", "aria-pressed");
+      check("Independent: a layer tap turns the layer off", pressed === "false", String(pressed));
+      await page.click("#layers button");
+    }
 
     await page.click("#zoomIn");
     await page.waitForTimeout(150);

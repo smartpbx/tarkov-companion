@@ -508,22 +508,11 @@
           <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Legacy.InterfaceScaleLabel}" />
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-larger"
                   Content="{Binding LargerLabel}" Command="{Binding IncreaseScaleCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-reset"
-                  Content="{Binding ResetLabel}" Command="{Binding ResetScaleCommand}" />
         </WrapPanel>
         <TextBlock Classes="v2-label" Text="{Binding ScaleHint}" TextWrapping="Wrap" />
         <TextBlock Classes="v2-label" Text="{Binding ScaleScope}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
-
-    <!-- #292: reset, export and import live with the preferences they act on, under Accessibility.
-         They were at the head of every section for an afternoon, which put a settings-file box
-         above "Ready when you are" on the page Setup opens on. -->
-    <Panel IsVisible="{Binding IsAccessibilitySelected}">
-      <Panel IsVisible="{Binding HasSettingsAdmin}">
-        <setup:V2SetupSettingsAdminView DataContext="{Binding SettingsAdmin}" />
-      </Panel>
-    </Panel>
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDisplaysSelected}">
       <StackPanel Classes="v2-stack">
@@ -550,6 +539,7 @@
         <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
       </Panel>
     </Border>
+
 
     <!-- V2 rough package 41 (#292, #281): the self-test comes first in Diagnostics, because
          "is it working" is the question this section is opened to answer. -->
@@ -601,5 +591,11 @@
         <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
+    <!-- #902: after every section, so it sits at the section's foot. It shows "Reset this section"
+         where the section is the home of a registered setting, and Backup & reset under About
+         only. It once lived under Accessibility alone, where nobody looked for "Reset everything". -->
+    <Panel IsVisible="{Binding HasSettingsAdmin}">
+      <setup:V2SetupSettingsAdminView DataContext="{Binding SettingsAdmin}" />
+    </Panel>
   </StackPanel>
 </UserControl>

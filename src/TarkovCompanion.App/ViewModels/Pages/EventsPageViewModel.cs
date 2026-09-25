@@ -879,7 +879,15 @@ public sealed class EventsPageViewModel : PageViewModel
     }
 
     /// <summary>Writes the window, the name and the archived flag onto the selected event.</summary>
-    private async Task SaveScheduleAsync(CancellationToken cancellationToken)
+    private Task SaveScheduleAsync(CancellationToken cancellationToken) =>
+        SaveScheduleAsync(IsArchived, cancellationToken);
+
+    /// <remarks>
+    /// The archived flag is written only once the save has passed every check. Archive used to set
+    /// IsArchived first, so a refused save (a half-typed date) still flipped the button to "Bring
+    /// back" while the event stayed active.
+    /// </remarks>
+    private async Task SaveScheduleAsync(bool archived, CancellationToken cancellationToken)
     {
         if (_authoring is null
             || Selected is not { } summary
@@ -931,11 +939,13 @@ public sealed class EventsPageViewModel : PageViewModel
                     Name = name,
                     StartUtc = start,
                     EndUtc = end,
-                    Active = !IsArchived,
+                    Active = !archived,
                     RulesJson = rulesJson,
                     Provenance = definition.Provenance with { ObservedUtc = DateTimeOffset.UtcNow },
                 },
                 cancellationToken).ConfigureAwait(true);
+            IsArchived = archived;
+            RefreshSchedulePreview();
             await LoadAsync(cancellationToken, definition.Id).ConfigureAwait(true);
             ScheduleStatus = PlanText.EventsSaved(name);
         }
@@ -989,12 +999,8 @@ public sealed class EventsPageViewModel : PageViewModel
     }
 
     /// <summary>Switches an event off or back on, keeping it and everything recorded against it.</summary>
-    private async Task SetArchivedAsync(bool archived, CancellationToken cancellationToken)
-    {
-        IsArchived = archived;
-        RefreshSchedulePreview();
-        await SaveScheduleAsync(cancellationToken).ConfigureAwait(true);
-    }
+    private Task SetArchivedAsync(bool archived, CancellationToken cancellationToken) =>
+        SaveScheduleAsync(archived, cancellationToken);
 
     /// <summary>Deletes the selected event, on the second press.</summary>
     private async Task DeleteAsync(CancellationToken cancellationToken)

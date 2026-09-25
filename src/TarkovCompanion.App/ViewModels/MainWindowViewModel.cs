@@ -1961,6 +1961,16 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         _startupCoordinator = startupCoordinator;
         _retentionSettings = retentionSettings;
         _recycleBin = recycleBin;
+        if (retentionSettings is ObservableScreenshotRetentionStore observableRetention)
+        {
+            // [#902] Backup & reset wrote it: take the new value, or the next press steps from the old one.
+            observableRetention.Changed += (_, saved) =>
+            {
+                ApplyRetention(saved);
+                RetentionStatus = DescribeRetention();
+            };
+        }
+
         _updates = updates;
         // #292: going back to the previous build, the pin that keeps it there, and provenance.
         Rollback = new(updates, CheckForUpdateAsync);
@@ -3516,6 +3526,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
     /// <summary>Back to the size everything was designed at.</summary>
     public void ResetInterfaceScale() => InterfaceScale = 1;
+
+    /// <summary>[#902] Setup's Backup &amp; reset: the nearest offered size to an imported one.</summary>
+    public void SetInterfaceScale(double scale) => InterfaceScale = scale;
 
     /// <summary>Collapses or expands the rail, and remembers which.</summary>
     public void ToggleRail()

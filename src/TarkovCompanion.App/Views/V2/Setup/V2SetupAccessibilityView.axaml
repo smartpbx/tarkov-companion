@@ -92,8 +92,6 @@
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-motion"
                   Content="{Binding MotionToggleLabel}" Command="{Binding ReduceMotionCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-reset"
-                  Content="{Binding ResetAllLabel}" Command="{Binding ResetCommand}" />
         </WrapPanel>
         <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding MotionHint}" />
       </StackPanel>

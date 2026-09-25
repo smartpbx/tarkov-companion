@@ -219,9 +219,18 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     private ICommand? _clearFilter;
 
     /// <summary>Why the list is empty, in the terms of whichever of the page and the chip emptied it.</summary>
-    public string NoKeysLabel => _page.Keys.Count > 0
-        ? IntelText.KeysNoMatch
-        : _page.Status;
+    /// <remarks>
+    /// [#902 P10] "You own" before any stash scan read "No key matches this filter.", which looks
+    /// like a broken filter or like owning no keys. An empty owned list means nothing was scanned,
+    /// so it says that and where to scan.
+    /// </remarks>
+    public string NoKeysLabel => _page.Keys.Count == 0
+        ? _page.Status
+        : Filter != KeyVerdictFilter.Owned
+            ? IntelText.KeysNoMatch
+            : _page.Owned.Count == 0
+                ? IntelText.KeysOwnedNoScan
+                : IntelText.KeysOwnedNone;
 
     /// <summary>"12 keys", or "3 of 12 keys" while a verdict chip hides some.</summary>
     public string KeyCountLabel

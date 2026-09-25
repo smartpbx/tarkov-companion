@@ -60,6 +60,17 @@ public sealed partial class DebriefWorkspaceViewModel
             ? " · " + DebriefText.AllModesAndWipes
             : $" · {GameModeLabel.Of(active.Context.Mode)} · {active.Context.WipeSeason.Value}";
 
+    /// <summary>
+    /// [#902 P10] After a wipe or a switch to PvE the page said only that this mode and wipe had no
+    /// raids, with the way back a small header link. It names the mode and wipe and how many raids
+    /// the context hides; the Show all button sits under it.
+    /// </summary>
+    private string NoRaidsInContextMessage => _context.Active is { } active
+        ? DebriefText.NoRaidsInNamedContext(
+            $"{GameModeLabel.Of(active.Context.Mode)} · {active.Context.WipeSeason.Value}",
+            OtherContextCount)
+        : DebriefText.NoRaidsInContext;
+
     /// <summary>Reads the context once per load and places every raid in it.</summary>
     private IReadOnlyList<DebriefRaidRecord> StampContext(IReadOnlyList<DebriefRaidRecord> records)
     {
