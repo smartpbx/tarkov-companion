@@ -197,6 +197,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     private bool _isBusy;
     private RelayOwnerClaimState _relayClaimState = RelayOwnerClaimState.Unknown;
     private string? _relayClaimMessage;
+    private readonly TarkovCompanion.Core.Network.INetworkPolicy? _network;
 
     public CompanionPairingViewModel(
         DesktopCompanionAuthority authority,
@@ -217,6 +218,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         _timeProvider = timeProvider ?? TimeProvider.System;
         _relayOrigin = availability.RelayOrigin;
         _groupKey = availability.GroupKey;
+        _network = network;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
             _relay = new HttpClient(TarkovCompanion.Application.Services.Network.NetworkPolicyHandler.Wrap(
@@ -872,6 +874,11 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
 
         (RelayClaimState, RelayClaimMessage) = DescribeClaim(result, RelayClaimState);
+        if (result.Outcome == RelayClaimOutcome.Unreachable && NetworkOff() is { } off)
+        {
+            RelayClaimMessage = off;
+        }
+
         return result.Outcome == RelayClaimOutcome.Claimed;
     }
 
@@ -929,7 +936,8 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         {
             case RelayOwnerLinkState.Verified:
                 RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
-                if (RelayClaimMessage is null || RelayClaimMessage == UnreachableClaimMessage)
+                if (RelayClaimMessage is null || RelayClaimMessage == UnreachableClaimMessage ||
+                    RelayClaimMessage == LocalOnlyOff || RelayClaimMessage == SharingOff)
                 {
                     RelayClaimMessage = null;
                 }
@@ -942,7 +950,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
                 RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
                 break;
             case RelayOwnerLinkState.Unreachable:
-                RelayClaimMessage = UnreachableClaimMessage;
+                RelayClaimMessage = NetworkOff() ?? UnreachableClaimMessage;
                 break;
             case RelayOwnerLinkState.Rejected:
                 RelayClaimState = RelayOwnerClaimState.NotClaimed;
@@ -955,6 +963,21 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
     }
 
     private static string UnreachableClaimMessage => TeamText.RelayUnreachableRetrying;
+
+    private static string LocalOnlyOff => SetupText.NetworkState(TarkovCompanion.Core.Network.NetworkVerdict.LocalOnly);
+
+    private static string SharingOff => SetupText.NetworkState(TarkovCompanion.Core.Network.NetworkVerdict.SwitchedOff);
+
+    /// <summary>
+    /// [#292] "Local only · off" (or "Off") when the network policy, not the relay, is why nothing
+    /// connected; null when squad sharing may connect. The policy refuses before a connection is
+    /// opened, which looked to this panel exactly like a relay that did not answer.
+    /// </summary>
+    internal string? NetworkOff() =>
+        _network?.Check(TarkovCompanion.Core.Network.NetworkService.SquadSharing) is { } verdict &&
+        verdict != TarkovCompanion.Core.Network.NetworkVerdict.Allowed
+            ? SetupText.NetworkState(verdict)
+            : null;
 
     public void Dispose()
     {
@@ -1043,7 +1066,7 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
-            StatusMessage = TeamText.RelayUnreachable;
+            StatusMessage = NetworkOff() ?? TeamText.RelayUnreachable;
             Stage = CompanionPairingStage.Idle;
         }
         finally

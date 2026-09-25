@@ -99,6 +99,38 @@ public sealed class DesktopWindowPlacementTests
         }
     }
 
+    [Theory]
+    [InlineData(1.0, 16, 39)]
+    [InlineData(1.5, 24, 58)]
+    public void RestoreFitsTheClientAndItsFrameIntoTheWorkArea(double scale, int framePixelsWide, int framePixelsHigh)
+    {
+        // [#881 follow-up] The placement kept is the client's size at the frame's position. A
+        // window saved at the screen's size came back with its client the work area's full
+        // height, so the frame's title bar pushed the bottom — and the rail's gear — under the
+        // taskbar. This controller runs after the preview store's fit and undid it on every launch.
+        var display = Display("primary", 0, 0, 1920, 1080, scale, primary: true, workHeight: 1032);
+        var saved = new MonitorWindowPlacement(DesktopWindowPlacement.MonitorKey(display), 1920, 1080, 0, 0, false);
+
+        var restored = DesktopWindowPlacement.Restore(saved, display, framePixelsWide, framePixelsHigh);
+
+        Assert.Equal((1920 - framePixelsWide) / scale, restored.Width, 3);
+        Assert.Equal((1032 - framePixelsHigh) / scale, restored.Height, 3);
+        Assert.Equal(0, restored.Top);
+        Assert.True(restored.Top + (restored.Height * scale) + framePixelsHigh <= 1032.001);
+        Assert.True(restored.Left + (restored.Width * scale) + framePixelsWide <= 1920.001);
+    }
+
+    [Fact]
+    public void AWindowThatFitsWithItsFrameIsLeftWhereItWas()
+    {
+        var display = Display("primary", 0, 0, 1920, 1080, 1, primary: true, workHeight: 1032);
+        var saved = new MonitorWindowPlacement(DesktopWindowPlacement.MonitorKey(display), 1500, 900, 200, 60, false);
+
+        var restored = DesktopWindowPlacement.Restore(saved, display, 16, 39);
+
+        Assert.Equal((1500d, 900d, 200, 60), (restored.Width, restored.Height, restored.Left, restored.Top));
+    }
+
     private static DisplayDescriptor Display(
         string id,
         int x,

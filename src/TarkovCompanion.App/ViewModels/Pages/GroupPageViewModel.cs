@@ -312,7 +312,5 @@ public sealed class GroupPageViewModel : PageViewModel
     // [#314] Shared with Team's "who else is here", so it reads from Team's table.
     internal static string Age(TimeSpan? age) => age is not { } value
         ? TeamText.AtAnUnknownTime
-        : value < TimeSpan.FromMinutes(1)
-            ? TeamText.SecondsAgo(Math.Max(0, (int)value.TotalSeconds))
-            : TeamText.MinutesAgo((int)value.TotalMinutes);
+        : UnitText.Ago(value);
 }

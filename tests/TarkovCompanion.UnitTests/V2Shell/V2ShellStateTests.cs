@@ -189,10 +189,10 @@ public sealed class V2ShellStateTests
     [Fact]
     public void Ages_are_computed_from_the_observation_time()
     {
-        Assert.Equal("45s ago", V2ShellText.Age(V2ShellTestData.Now.AddSeconds(-45), V2ShellTestData.Now, Culture));
-        Assert.Equal("12m ago", V2ShellText.Age(V2ShellTestData.Now.AddMinutes(-12), V2ShellTestData.Now, Culture));
-        Assert.Equal("5h ago", V2ShellText.Age(V2ShellTestData.Now.AddHours(-5), V2ShellTestData.Now, Culture));
-        Assert.Equal("3d ago", V2ShellText.Age(V2ShellTestData.Now.AddDays(-3), V2ShellTestData.Now, Culture));
+        Assert.Equal("45 s ago", V2ShellText.Age(V2ShellTestData.Now.AddSeconds(-45), V2ShellTestData.Now, Culture));
+        Assert.Equal("12 min ago", V2ShellText.Age(V2ShellTestData.Now.AddMinutes(-12), V2ShellTestData.Now, Culture));
+        Assert.Equal("5 h ago", V2ShellText.Age(V2ShellTestData.Now.AddHours(-5), V2ShellTestData.Now, Culture));
+        Assert.Equal("3 d ago", V2ShellText.Age(V2ShellTestData.Now.AddDays(-3), V2ShellTestData.Now, Culture));
         Assert.Equal("at a future time", V2ShellText.Age(V2ShellTestData.Now.AddMinutes(1), V2ShellTestData.Now, Culture));
     }
 }

@@ -333,7 +333,7 @@ public sealed class TeamWorkspaceViewModelTests
         viewModel.Apply(SnapshotWithGroup(new GroupSnapshot(true, [geo, riley], "Sharing", DateTimeOffset.UtcNow)));
 
         var row = viewModel.Presence.Single(candidate => candidate.Name == "Geo");
-        Assert.Equal("312, -104 · from a screenshot 40s ago", row.Position);
+        Assert.Equal("312, -104 · from a screenshot 40 s ago", row.Position);
         Assert.Equal("Primary: AK-74N · Debut", row.Shared);
         Assert.True(row.HasPosition && row.HasShared);
 

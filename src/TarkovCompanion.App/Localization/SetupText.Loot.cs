@@ -7,6 +7,7 @@ public static partial class SetupText
     public static string CoverageLootSummary(int positioned, int published, object? dataThrough, object? imported) => UiText.Format("Setup.Coverage.LootSummary", positioned, published, dataThrough, imported);
     public static string CoverageLootFailed(object? reason) => UiText.Format("Setup.Coverage.LootFailed", reason);
     public static string CoverageLootNoSnapshot => UiText.Get("Setup.Coverage.LootNoSnapshot");
+    public static string CoverageLootLocalOnly => UiText.Get("Setup.Coverage.LootLocalOnly");
     public static string CoverageLootLastError(object? when, object? reason) => UiText.Format("Setup.Coverage.LootLastError", when, reason);
     public static string CoverageLootPositioned(int positioned, int published) => UiText.Format("Setup.Coverage.LootPositioned", positioned, published);
     public static string CoverageLootOnFloor(int count) => UiText.Format("Setup.Coverage.LootOnFloor", count);

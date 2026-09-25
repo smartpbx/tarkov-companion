@@ -166,6 +166,20 @@ public sealed class ShellLayoutTests
         Assert.Equal(fullTopBar, ShellLayout.TopBarFitsInFull(shell));
     }
 
+    [Theory]
+    [InlineData(1920, 2.0, true)]
+    [InlineData(1500, 1.5, true)]
+    [InlineData(1120, 1.0, true)]
+    [InlineData(1120, 1.5, false)]
+    [InlineData(1120, 2.0, false)]
+    [InlineData(560, 1.0, false)]
+    public void Only_a_shell_narrower_than_the_short_bar_takes_the_compact_one(double window, double scale, bool shortBar)
+    {
+        // [#882 follow-up] 1120x720 at 200% (a 560 shell) cut search, capture and Ready off the
+        // right-hand end even with the short bar; 1920 at 200% (960) has always fitted it.
+        Assert.Equal(shortBar, ShellLayout.TopBarFitsShort(ShellLayout.LayoutWidth(window, scale)));
+    }
+
     [Fact]
     public void The_shell_is_laid_out_in_the_window_width_divided_by_the_scale()
     {

@@ -1329,6 +1329,35 @@ function Set-V2PreviewState {
         (Join-Path $Directory "$Mode.json"),
         $Json,
         [System.Text.UTF8Encoding]::new($false))
+    if ($null -ne $State.window) { Set-WindowPlacementSeed -Window $State.window }
+}
+
+<#
+    [#882 follow-up] The same remembered window in Config\window-placement.json, the per-monitor
+    placement DesktopWindowPlacementController restores after the preview store on Opened. Seeding
+    only the preview store photographed whatever an earlier case left there (560x820 from
+    shell-v2-a-narrow's resize), and a player's machine has both files holding the same rectangle.
+    Every monitor already remembered gets the seeded rectangle; the keys are the app's own, so an
+    absent file is left absent and the preview seed alone decides.
+#>
+function Set-WindowPlacementSeed {
+    param([object] $Window)
+
+    $Path = Join-Path $env:LOCALAPPDATA "TarkovCompanion\Config\window-placement.json"
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $Placement = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    if ($null -eq $Placement.monitors) { return }
+    foreach ($Monitor in @($Placement.monitors)) {
+        $Monitor.widthPixels = [double]$Window.width
+        $Monitor.heightPixels = [double]$Window.height
+        $Monitor.leftOffsetPixels = [double]$Window.left
+        $Monitor.topOffsetPixels = [double]$Window.top
+        $Monitor.isMaximized = [bool]$Window.isMaximized
+    }
+    [System.IO.File]::WriteAllText(
+        $Path,
+        ($Placement | ConvertTo-Json -Depth 4),
+        [System.Text.UTF8Encoding]::new($false))
 }
 
 $ResolvedAppPath = (Resolve-Path -LiteralPath $AppPath).Path
@@ -1815,9 +1844,10 @@ foreach ($RailSize in @(
 }
 # No --window-size (width 0), so the app restores the seeded placement itself. "--page" keeps it
 # from being an ordinary launch, which would take the single-instance mutex (see the stale-focus
-# case's history). Advisory for now: its first run (36095428027) photographed a 560x820 window,
-# the size shell-v2-a-narrow leaves saved, so the seeded placement is not yet what this launch
-# restores; until that is understood, a failure here says more about the harness than the app.
+# case's history). Its first run (36095428027) photographed a 560x820 window: the per-monitor
+# placement (window-placement.json) is restored after the preview store and still held what
+# shell-v2-a-narrow's resize left, and it fitted the client alone into the work area, the #881
+# fault again. Both are seeded now (Set-WindowPlacementSeed) and both restores fit the frame.
 $Shots.Add([pscustomobject]@{
     name = "v2-a-rail-gear-restored"
     args = @("--ui-shell", "v2-a", "--page", "plan"); shellMode = "v2-a"

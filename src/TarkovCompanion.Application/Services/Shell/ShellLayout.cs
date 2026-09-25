@@ -94,6 +94,18 @@ public sealed record ShellLayout(
     /// </remarks>
     public const double TopBarFullMinimumWidth = 1200;
 
+    /// <summary>The narrowest shell whose top bar keeps the mode line, the freshness icon and the status words.</summary>
+    /// <remarks>
+    /// [#882 follow-up] 1120x720 at 200% is a 560-wide shell, the narrowest the window's minimum
+    /// allows, and even the short bar cut search, capture and Ready off there. Below this the bar
+    /// keeps the map, the raid clock, search, capture and the status dot, with half the gaps.
+    /// </remarks>
+    public const double TopBarShortMinimumWidth = 900;
+
+    /// <summary>Whether a shell this wide keeps the short top bar rather than the compact one.</summary>
+    public static bool TopBarFitsShort(double layoutWidth) =>
+        !double.IsFinite(layoutWidth) || layoutWidth >= TopBarShortMinimumWidth;
+
     /// <summary>The narrowest map column whose control strip fits on one row.</summary>
     /// <remarks>
     /// About 1300 is what the clock, the presentation switches, the traffic chip, Follow, View

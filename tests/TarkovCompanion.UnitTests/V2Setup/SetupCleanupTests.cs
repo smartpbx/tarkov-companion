@@ -126,9 +126,9 @@ public sealed class SetupCleanupTests : IDisposable
         Assert.True(view.HasLedger);
         Assert.Equal(
             [
-                "3h ago · moved 5 (10 KB) · 2 could not move",
+                "3 h ago · moved 5 (10 KB) · 2 could not move",
                 "   2 × The recycle bin would not take it.",
-                "2d ago · moved 14 (38.2 MB) · 0 could not move",
+                "2 d ago · moved 14 (38.2 MB) · 0 could not move",
             ],
             view.LastRuns);
     }

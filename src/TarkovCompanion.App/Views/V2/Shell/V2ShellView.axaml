@@ -147,6 +147,23 @@
     <Style Selector="Grid.v2-topbar-short StackPanel.v2-topbar-optional, Grid.v2-topbar-short TextBlock.v2-topbar-optional">
       <Setter Property="IsVisible" Value="False" />
     </Style>
+    <!-- [#882 follow-up] Narrower still (1120x720 at 200% is a 560-wide shell, the narrowest the
+         window allows) the mode line and the freshness icon go, the gaps close up and the status
+         pill keeps its dot: the map, the raid clock, search, capture and the status stay on
+         screen instead of the right-hand end being cut off. The pill's words stay its name and
+         tooltip, and the freshness words are in the Health dialog the pill opens. -->
+    <Style Selector="Grid.v2-topbar-row">
+      <Setter Property="ColumnSpacing" Value="16" />
+    </Style>
+    <Style Selector="Grid.v2-topbar-compact Grid.v2-topbar-row">
+      <Setter Property="ColumnSpacing" Value="8" />
+    </Style>
+    <Style Selector="Grid.v2-topbar-compact :is(Control).v2-topbar-secondary">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Grid.v2-topbar-compact Border.v2-status-pill">
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
     <Style Selector="Rectangle.v2-topbar-sep">
       <Setter Property="Width" Value="1" />
       <Setter Property="Height" Value="28" />
@@ -325,7 +342,7 @@
               AutomationProperties.Name="{Binding AppName}">
         <!-- Left to right like the concepts: name, map, mode, raid clock, data freshness; then
              search/setup/capture and the status pill at the far right. -->
-        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16">
+        <Grid Classes="v2-topbar-row" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
           <StackPanel Grid.Column="0" Classes="v2-topbar-optional" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
             <TextBlock Classes="v2-heading-3" Text="{Binding AppName}" />
             <Border Classes="v2-topbar-tag" VerticalAlignment="Center">
@@ -346,8 +363,8 @@
               </DataTemplate>
             </ComboBox.ItemTemplate>
           </ComboBox>
-          <Rectangle Grid.Column="3" Classes="v2-topbar-sep" />
-          <TextBlock Grid.Column="4" Classes="v2-label" VerticalAlignment="Center"
+          <Rectangle Grid.Column="3" Classes="v2-topbar-sep v2-topbar-secondary" />
+          <TextBlock Grid.Column="4" Classes="v2-label v2-topbar-secondary" VerticalAlignment="Center"
                      AutomationProperties.AutomationId="v2-shell-topbar-mode"
                      Text="{Binding TopBarModeLabel}" />
           <Rectangle Grid.Column="5" Classes="v2-topbar-sep" />
@@ -356,8 +373,8 @@
             <TextBlock Classes="v2-body" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-clock"
                        Text="{Binding RaidClockLabel}" />
           </StackPanel>
-          <Rectangle Grid.Column="7" Classes="v2-topbar-sep" />
-          <StackPanel Grid.Column="8" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+          <Rectangle Grid.Column="7" Classes="v2-topbar-sep v2-topbar-secondary" />
+          <StackPanel Grid.Column="8" Classes="v2-topbar-secondary" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                       ToolTip.Tip="{Binding DataFreshnessLabel}">
             <Viewbox Width="20" Height="20"><Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" /></Viewbox>
             <TextBlock Classes="v2-label v2-topbar-optional" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-freshness"
@@ -406,7 +423,7 @@
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
           </Button>
           <Button Grid.Column="14" Classes="v2-target v2-topbar-plain" VerticalAlignment="Center"
-                  AutomationProperties.AutomationId="v2-shell-health"
+                  AutomationProperties.AutomationId="v2-shell-health" ToolTip.Tip="{Binding HealthLabel}"
                   AutomationProperties.Name="{Binding HealthLabel}" Command="{Binding HealthCommand}">
             <Border Classes="v2-status-pill" Classes.v2-availability-ready="{Binding SurfaceIsReady}">
               <StackPanel Orientation="Horizontal" Spacing="8">
@@ -414,7 +431,7 @@
                          Fill="{DynamicResource V2.Brush.Success}" AutomationProperties.AccessibilityView="Raw" />
                 <TextBlock Classes="v2-glyph" Text="{Binding SurfaceGlyph}" IsVisible="{Binding !SurfaceIsReady}"
                            AutomationProperties.AccessibilityView="Raw" />
-                <TextBlock Classes="v2-body" Text="{Binding SurfaceTitle}" />
+                <TextBlock Classes="v2-body v2-topbar-secondary" Text="{Binding SurfaceTitle}" />
               </StackPanel>
             </Border>
           </Button>

@@ -80,4 +80,23 @@ public static class UnitText
 
         return UiText.Format("Units.DurationHoursMinutes", N((long)whole.TotalHours), N(whole.Minutes));
     }
+
+    /// <summary>"40 s ago", "12 min ago", "30 h ago", "3 d ago": how old a reading is, to one unit.</summary>
+    /// <remarks>
+    /// [#879 follow-up] The same units as <see cref="Duration"/>, from the table, replacing the
+    /// "40s ago"/"12m ago" that the map, the raid panel and Setup each built in English. One unit
+    /// because an age is glanced at; hours run to two days, as the shell's ages always did.
+    /// A negative age (a clock that stepped back) reads as zero.
+    /// </remarks>
+    public static string Ago(TimeSpan age, CultureInfo? culture = null)
+    {
+        culture ??= CultureInfo.CurrentCulture;
+        var whole = age < TimeSpan.Zero ? TimeSpan.Zero : age;
+        string N(double value) => ((long)value).ToString("N0", culture);
+        var amount = whole < TimeSpan.FromMinutes(1) ? UiText.Format("Units.DurationSeconds", N(whole.TotalSeconds))
+            : whole < TimeSpan.FromHours(1) ? UiText.Format("Units.DurationMinutes", N(whole.TotalMinutes))
+            : whole < TimeSpan.FromDays(2) ? UiText.Format("Units.DurationHours", N(whole.TotalHours))
+            : UiText.Format("Units.DurationDays", N(whole.TotalDays));
+        return UiText.Format("Units.Ago", amount);
+    }
 }

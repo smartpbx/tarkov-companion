@@ -3691,8 +3691,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         : age < TimeSpan.FromSeconds(15)
             ? RaidText.FromScreenshotJustNow
             : age < TimeSpan.FromMinutes(1)
-                ? RaidText.FromScreenshotSecondsAgo((int)age.TotalSeconds / 15 * 15)
-                : RaidText.FromScreenshotMinutesAgo((int)age.TotalMinutes);
+                ? RaidText.FromScreenshotAgo(TimeSpan.FromSeconds((int)age.TotalSeconds / 15 * 15))
+                : RaidText.FromScreenshotAgo(age);
 
     private static bool TryPlan(MapRenderModel model, WorldPosition position, out MapScenePoint point)
     {

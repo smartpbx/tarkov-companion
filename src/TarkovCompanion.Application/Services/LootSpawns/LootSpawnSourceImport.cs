@@ -528,6 +528,16 @@ public enum LootSpawnSourceImportDisposition
     Published = 1,
     PublishedPartial,
     QuarantinedRetainedLastKnownGood,
+
+    /// <summary>[#292] Local only is on, so nothing was asked for; nothing failed and nothing was quarantined.</summary>
+    SkippedLocalOnly,
+}
+
+/// <summary>Diagnostic codes a refresh reports that the App puts into its own words.</summary>
+public static class LootSpawnRefreshCodes
+{
+    /// <summary>[#292] The refresh did not run because Local only is on.</summary>
+    public const string LocalOnly = "source.local-only";
 }
 
 public sealed record LootSpawnSourceImportResult(

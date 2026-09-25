@@ -182,14 +182,47 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         {
             if (layer.Answers(head, request))
             {
-                return layer.Result;
+                return SayLocalOnly(layer.Result);
             }
         }
 
         var result = BuildUncached(head, request, cancellationToken);
         Volatile.Write(ref _built, [new BuiltLayer(head, request, result), .. built.Take(1)]);
         LogUnavailable(head, request, result);
-        return result;
+        return SayLocalOnly(result);
+    }
+
+    /// <summary>
+    /// [#292] With nothing published and the last refresh skipped because Local only is on, that
+    /// is the reason the loot panel gives first ("Local only · off"), not "no snapshot available".
+    /// </summary>
+    private HighValueLootLayerResult SayLocalOnly(HighValueLootLayerResult result)
+    {
+        if (result.Status.Completeness is not (ResultCompleteness.Unavailable or ResultCompleteness.Unknown) ||
+            LastRefreshOutcome is not { Disposition: LootSpawnSourceImportDisposition.SkippedLocalOnly } ||
+            result.Diagnostics.FirstOrDefault()?.Code == LootSpawnRefreshCodes.LocalOnly)
+        {
+            return result;
+        }
+
+        return new(
+            result.Layer,
+            result.MapId,
+            result.TransformVersion,
+            result.AppliedFilter,
+            result.Status,
+            result.CompactLegend,
+            result.DataThroughUtc,
+            result.Coverage,
+            result.Objects,
+            result.Entries,
+            [
+                new HighValueLootDiagnostic(
+                    HighValueLootDiagnosticKind.SnapshotUnavailable,
+                    LootSpawnRefreshCodes.LocalOnly,
+                    "Local only is on, so no loot-spawn data was downloaded."),
+                .. result.Diagnostics,
+            ]);
     }
 
     /// <summary>

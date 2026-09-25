@@ -122,6 +122,19 @@ public sealed class UnitTextTests
         Assert.Equal(expected, UnitText.Duration(TimeSpan.FromSeconds(seconds), CultureInfo.GetCultureInfo("en-US")));
     }
 
+    [Theory]
+    [InlineData(40, "40 s ago")]
+    [InlineData(185, "3 min ago")]
+    [InlineData(5 * 3_600 + 59, "5 h ago")]
+    [InlineData(30 * 3_600, "30 h ago")]
+    [InlineData(3 * 86_400 + 7, "3 d ago")]
+    [InlineData(-3, "0 s ago")]
+    public void Ages_read_through_the_table_to_one_unit(int seconds, string expected)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        Assert.Equal(expected, UnitText.Ago(TimeSpan.FromSeconds(seconds), CultureInfo.GetCultureInfo("en-US")));
+    }
+
     [Fact]
     public void A_duration_argument_in_a_phrase_is_said_as_a_duration()
     {

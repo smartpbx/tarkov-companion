@@ -74,8 +74,8 @@ public sealed class SetupAdminTests
 
         Assert.Equal("json.tarkov.dev · PvE · de", Fact(detail, "Source"));
         Assert.Equal("5,442 items · 7 of 7 endpoints", Fact(detail, "Coverage"));
-        Assert.Equal("Succeeded, 20m ago", Fact(detail, "Last attempt"));
-        Assert.Equal("20m ago", Fact(detail, "Last success"));
+        Assert.Equal("Succeeded, 20 min ago", Fact(detail, "Last attempt"));
+        Assert.Equal("20 min ago", Fact(detail, "Last success"));
         Assert.Equal("At launch if the data is over 9 h old, or press Sync now", Fact(detail, "Next refresh"));
         Assert.Null(detail.Reason);
         Assert.False(detail.NeedsRetry);
@@ -90,8 +90,8 @@ public sealed class SetupAdminTests
 
         var detail = SetupDataDetail.Describe(snapshot, "PvP · en", TimeSpan.FromHours(9), Now, CultureInfo.InvariantCulture);
 
-        Assert.Equal("Failed, 3m ago", Fact(detail, "Last attempt"));
-        Assert.Equal("30h ago", Fact(detail, "Last success"));
+        Assert.Equal("Failed, 3 min ago", Fact(detail, "Last attempt"));
+        Assert.Equal("30 h ago", Fact(detail, "Last success"));
         Assert.Equal("2 endpoint refresh(es) failed · local data stands", detail.Reason);
         Assert.True(detail.NeedsRetry);
     }

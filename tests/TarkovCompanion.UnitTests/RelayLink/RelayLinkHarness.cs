@@ -299,7 +299,8 @@ internal sealed class DesktopRun : IAsyncDisposable
         string tabletOrigin = TabletOrigin,
         string? groupKey = null,
         Microsoft.Extensions.Logging.ILogger? logger = null,
-        RelayClockOffsetTracker? clockOffset = null)
+        RelayClockOffsetTracker? clockOffset = null,
+        TarkovCompanion.Core.Network.INetworkPolicy? network = null)
     {
         var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial(disk.DesktopDeviceId));
         var coordinator = new DesktopPairingCoordinator(
@@ -312,7 +313,10 @@ internal sealed class DesktopRun : IAsyncDisposable
             clock,
             protectedStorage ? new RelayLinkVault(disk.Secrets) : null,
             logger,
-            clockOffset);
+            clockOffset)
+        {
+            Network = network,
+        };
         var panel = new CompanionPairingViewModel(
             authority,
             // [#553] With a group key the desktop registers itself at startup, as the app does;
@@ -320,7 +324,8 @@ internal sealed class DesktopRun : IAsyncDisposable
             new CompanionPairingAvailability(coordinator, relayOrigin, disk.Signer, _ => Task.FromResult(groupKey)),
             clock,
             bridge,
-            clockOffset)
+            clockOffset,
+            network)
         {
             MailboxPollInterval = TimeSpan.FromMilliseconds(20),
         };

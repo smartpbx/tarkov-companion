@@ -127,6 +127,22 @@ public sealed class TarkovDevLootSpawnRefreshService : ILootSpawnSourceRefreshSe
         {
             throw;
         }
+        catch (Exception exception) when (IsLocalOnly(exception))
+        {
+            // [#292] Local only is a choice, not a failure: nothing is quarantined, and the panel
+            // and Setup say "Local only · off" instead of "the refresh failed".
+            cancellationToken.ThrowIfCancellationRequested();
+            var lastKnownGood = await _publicationStore
+                .ReadLastKnownGoodAsync(cancellationToken)
+                .ConfigureAwait(false);
+            return new(
+                LootSpawnSourceImportDisposition.SkippedLocalOnly,
+                null,
+                lastKnownGood,
+                [new LootSpawnSourceDiagnostic(
+                    LootSpawnRefreshCodes.LocalOnly,
+                    "Local only is on, so no loot-spawn data was downloaded.")]);
+        }
         catch (Exception exception) when (IsRecoverable(exception))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -151,6 +167,24 @@ public sealed class TarkovDevLootSpawnRefreshService : ILootSpawnSourceRefreshSe
     {
         var value = _timeProvider.GetUtcNow();
         return value.Offset == TimeSpan.Zero ? value : value.ToUniversalTime();
+    }
+
+    /// <summary>The offline probe (Local only, or TARKOV_COMPANION_OFFLINE) or the network policy said no.</summary>
+    internal static bool IsLocalOnly(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is TarkovDevOfflineException or
+                TarkovCompanion.Application.Services.Network.NetworkBlockedException
+                {
+                    Verdict: TarkovCompanion.Core.Network.NetworkVerdict.LocalOnly,
+                })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsRecoverable(Exception exception) => exception is

@@ -116,6 +116,9 @@ public sealed partial class V2ShellView : UserControl
         this.FindControl<Grid>("ShellRoot")?.Classes.Set(
             "v2-topbar-short",
             !ShellLayout.TopBarFitsInFull(Bounds.Width));
+        this.FindControl<Grid>("ShellRoot")?.Classes.Set(
+            "v2-topbar-compact",
+            !ShellLayout.TopBarFitsShort(Bounds.Width));
         if (_wiredShell is { } shell)
         {
             var focusedAutomationId = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is StyledElement focused

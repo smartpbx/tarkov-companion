@@ -1205,7 +1205,7 @@ public sealed class RaidPageViewModel : PageViewModel
     private static string FormatAge(DateTimeOffset observedUtc, DateTimeOffset nowUtc)
     {
         var age = nowUtc - observedUtc;
-        return age < TimeSpan.Zero ? "timestamp is in the future" : $"{Math.Max(0, (int)age.TotalSeconds)}s ago";
+        return age < TimeSpan.Zero ? "timestamp is in the future" : TarkovCompanion.App.Localization.UnitText.Ago(age);
     }
 }
 
@@ -3885,10 +3885,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             return "future timestamp";
         }
 
-        return age < TimeSpan.FromMinutes(1)
-            ? $"{Math.Max(0, (int)age.TotalSeconds)}s ago"
-            : age < TimeSpan.FromHours(1)
-                ? $"{(int)age.TotalMinutes}m ago"
-                : $"{(int)age.TotalHours}h ago";
+        return TarkovCompanion.App.Localization.UnitText.Ago(age);
     }
 }

@@ -118,9 +118,12 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     {
         get
         {
-            var reason = _result.Diagnostics.Count > 0
-                ? _result.Diagnostics[0].Explanation
-                : Text("Map.Loot.NoDataReasonUnknown");
+            // [#292] Local only is a state, said the way Data & Privacy says it, not an error.
+            var reason = _result.Diagnostics.Count == 0
+                ? Text("Map.Loot.NoDataReasonUnknown")
+                : _result.Diagnostics[0].Code == LootSpawnRefreshCodes.LocalOnly
+                    ? TarkovCompanion.App.Localization.SetupText.NetworkState(TarkovCompanion.Core.Network.NetworkVerdict.LocalOnly)
+                    : _result.Diagnostics[0].Explanation;
             return Format("Map.Loot.NoDataYet", reason);
         }
     }

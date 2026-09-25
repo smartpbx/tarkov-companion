@@ -12,12 +12,12 @@ public sealed class RaidCockpitAgeTextTests
     [Theory]
     [InlineData(0, "From a screenshot just now")]
     [InlineData(14, "From a screenshot just now")]
-    [InlineData(15, "From a screenshot 15s ago")]
-    [InlineData(29, "From a screenshot 15s ago")]
-    [InlineData(30, "From a screenshot 30s ago")]
-    [InlineData(59, "From a screenshot 45s ago")]
-    [InlineData(60, "From a screenshot 1m ago")]
-    [InlineData(185, "From a screenshot 3m ago")]
+    [InlineData(15, "From a screenshot 15 s ago")]
+    [InlineData(29, "From a screenshot 15 s ago")]
+    [InlineData(30, "From a screenshot 30 s ago")]
+    [InlineData(59, "From a screenshot 45 s ago")]
+    [InlineData(60, "From a screenshot 1 min ago")]
+    [InlineData(185, "From a screenshot 3 min ago")]
     public void Age_is_written_in_steps(int seconds, string expected) =>
         Assert.Equal(expected, RaidCockpitViewModel.Describe(TimeSpan.FromSeconds(seconds)));
 
