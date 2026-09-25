@@ -92,10 +92,16 @@ public sealed class ManualImageIntake(
     /// Decodes and admits several player-selected pictures as one ordered capture session.
     /// </summary>
     /// <remarks>
-    /// Files are decoded before admission so the last readable picture can close the session;
-    /// otherwise a missing last file would leave the earlier captures permanently open. The
-    /// batch is bounded, every prepared buffer is owned by <see cref="MemoryCaptureSource"/>,
-    /// and cancellation clears every source that intake has not handed to the coordinator.
+    /// Each picture is decoded one ahead of its admission, so the last readable picture is known
+    /// when it is admitted and can close the session; a missing last file would otherwise leave
+    /// the earlier captures permanently open.
+    ///
+    /// #887: every picture used to be decoded up front and admitted in one synchronous burst, so
+    /// the capture budget (96 MB of decoded pixels) was full before the pump released anything.
+    /// At 1440p the seventh picture was refused, and that refusal cancelled the whole session,
+    /// taking the six accepted pictures with it. Now intake holds at most two decoded pictures,
+    /// waits for the budget to have room before admitting each, and a picture that still cannot
+    /// be admitted fails alone. Cancellation clears every source intake has not handed on.
     /// </remarks>
     public async Task<ManualImageBatchOutcome> SubmitBatchAsync(
         IReadOnlyList<ManualImageInput> inputs,
@@ -113,8 +119,8 @@ public sealed class ManualImageIntake(
             return new(0, 0, 0);
         }
 
-        var prepared = new List<PreparedImage>(Math.Min(inputs.Count, MaximumBatchImages));
         var terminal = new HashSet<string>(StringComparer.Ordinal);
+        var admitted = new HashSet<string>(StringComparer.Ordinal);
         void Publish(ManualImageBatchUpdate update)
         {
             if (update.IsTerminal)
@@ -128,22 +134,24 @@ public sealed class ManualImageIntake(
         var accepted = 0;
         var failed = 0;
         var cancelled = 0;
-        try
+        var nextInput = 0;
+        PreparedImage? current = null;
+        PreparedImage? next = null;
+
+        // Reads inputs from nextInput on until one decodes, reporting each that does not.
+        async Task<PreparedImage?> PrepareNextAsync()
         {
-            for (var index = 0; index < inputs.Count; index++)
+            while (nextInput < inputs.Count)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                var index = nextInput++;
                 var input = inputs[index];
                 if (index >= MaximumBatchImages)
                 {
                     failed++;
+                    Discard(input);
                     Publish(new(input.Id, ShellText.CaptureRowNotQueuedLimit(MaximumBatchImages), true));
                     continue;
-                }
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    cancelled += MarkCancelled(inputs, index, Publish);
-                    break;
                 }
 
                 Publish(new(input.Id, ShellText.CaptureRowReading, false));
@@ -185,32 +193,74 @@ public sealed class ManualImageIntake(
                     continue;
                 }
 
-                prepared.Add(new(
+                var budget = _sessions.Snapshot.PixelBudget;
+                if (budget > 0 && image.Pixels.Length > budget)
+                {
+                    // Larger than the whole budget: no amount of waiting admits it.
+                    failed++;
+                    Discard(input with { Image = image });
+                    Publish(new(input.Id, ShellText.CaptureRowNotQueued(PixelBudgetExceeded), true));
+                    continue;
+                }
+
+                return new(
                     input,
                     new MemoryCaptureSource(
                         image,
                         origin == ManualImageOrigin.Paste && input.Image is not null
                             ? CaptureSourceKind.ClipboardImage
-                            : CaptureSourceKind.UserSelectedImage)));
+                            : CaptureSourceKind.UserSelectedImage),
+                    image.Pixels.Length);
             }
 
-            var context = CaptureIntakeContext.For(_sessions, _context.Describe());
-            for (var index = 0; index < prepared.Count; index++)
+            return null;
+        }
+
+        int CancelEverythingLeft()
+        {
+            var count = 0;
+            foreach (var item in new[] { current, next })
             {
+                if (item is not null && !item.HandedOff && !terminal.Contains(item.Input.Id))
+                {
+                    item.Source.Dispose();
+                    count++;
+                    Publish(new(item.Input.Id, ShellText.CaptureRowCancelled, true));
+                }
+            }
+
+            for (; nextInput < inputs.Count; nextInput++)
+            {
+                Discard(inputs[nextInput]);
+                if (!terminal.Contains(inputs[nextInput].Id))
+                {
+                    count++;
+                    Publish(new(inputs[nextInput].Id, ShellText.CaptureRowCancelled, true));
+                }
+            }
+
+            current = null;
+            next = null;
+            return count;
+        }
+
+        try
+        {
+            var context = CaptureIntakeContext.For(_sessions, _context.Describe());
+            current = await PrepareNextAsync().ConfigureAwait(false);
+            while (current is not null)
+            {
+                next = await PrepareNextAsync().ConfigureAwait(false);
+                var isLast = next is null;
+                await WaitForRoomAsync(current.PixelBytes, cancellationToken).ConfigureAwait(false);
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    for (var remaining = index; remaining < prepared.Count; remaining++)
-                    {
-                        prepared[remaining].Source.Dispose();
-                        cancelled++;
-                        Publish(new(prepared[remaining].Input.Id, ShellText.CaptureRowCancelled, true));
-                    }
-
+                    cancelled += CancelEverythingLeft();
                     _sessions.Cancel(sessionId, "manual-batch-cancelled");
                     break;
                 }
 
-                var item = prepared[index];
+                var item = current;
                 var correlationId = CaptureCorrelationId.New();
                 var receipt = await _sessions.EnqueueAsync(
                         new(
@@ -220,7 +270,7 @@ public sealed class ManualImageIntake(
                             _timeProvider.GetUtcNow(),
                             correlationId,
                             sessionId,
-                            endSessionAfterReview: index == prepared.Count - 1,
+                            endSessionAfterReview: isLast,
                             batchId),
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -228,36 +278,49 @@ public sealed class ManualImageIntake(
                 if (receipt.Disposition == CaptureQueueDisposition.Accepted)
                 {
                     accepted++;
+                    admitted.Add(item.Input.Id);
                     Publish(new(item.Input.Id, ShellText.CaptureRowQueued, false, correlationId));
                 }
                 else if (receipt.Disposition == CaptureQueueDisposition.Cancelled)
                 {
                     cancelled++;
                     Publish(new(item.Input.Id, ShellText.CaptureRowCancelled, true, correlationId));
-                    cancelled += CancelRemaining(prepared, index + 1, Publish);
+                    current = null;
+                    cancelled += CancelEverythingLeft();
                     _sessions.Cancel(sessionId, "manual-batch-cancelled");
                     break;
                 }
-                else
+                else if (!isLast && IsTransient(receipt.Code))
                 {
+                    // A room that filled between the wait and the admission (a game screenshot
+                    // arriving at that instant): this picture fails, the session and the
+                    // pictures already accepted carry on.
                     failed++;
                     Publish(new(item.Input.Id, ShellText.CaptureRowNotQueued(receipt.Code), true, correlationId));
-                    cancelled += CancelRemaining(prepared, index + 1, Publish);
+                }
+                else
+                {
+                    // The session itself refused (gone, context changed, or the picture meant to
+                    // close it could not be admitted), so nothing after this can close it either.
+                    failed++;
+                    Publish(new(item.Input.Id, ShellText.CaptureRowNotQueued(receipt.Code), true, correlationId));
+                    current = null;
+                    cancelled += CancelEverythingLeft();
                     _sessions.Cancel(sessionId, "manual-batch-admission-failed");
                     break;
                 }
+
+                current = next;
+                next = null;
             }
 
             return new(accepted, failed, cancelled);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            foreach (var item in prepared.Where(item => !item.HandedOff))
-            {
-                item.Source.Dispose();
-            }
-
-            foreach (var input in inputs.Where(input => !terminal.Contains(input.Id)))
+            cancelled += CancelEverythingLeft();
+            // A picture caught mid-read has said "Reading" and nothing since.
+            foreach (var input in inputs.Where(input => !terminal.Contains(input.Id) && !admitted.Contains(input.Id)))
             {
                 cancelled++;
                 Publish(new(input.Id, ShellText.CaptureRowCancelled, true));
@@ -268,12 +331,73 @@ public sealed class ManualImageIntake(
         }
         catch
         {
-            foreach (var item in prepared.Where(item => !item.HandedOff))
+            foreach (var item in new[] { current, next })
             {
-                item.Source.Dispose();
+                if (item is not null && !item.HandedOff)
+                {
+                    item.Source.Dispose();
+                }
             }
 
             throw;
+        }
+    }
+
+    /// <summary>How long a batch waits for the pixel budget before submitting regardless.</summary>
+    /// <remarks>
+    /// Longer than a review can hold a picture (two minutes), so the wait ends with room unless
+    /// something else holds the budget; then the coordinator's refusal decides that one picture.
+    /// </remarks>
+    internal static TimeSpan BudgetWait { get; } = TimeSpan.FromMinutes(5);
+
+    private const string PixelBudgetExceeded = "decoded_pixel_budget_exceeded";
+
+    private static bool IsTransient(string? code) =>
+        code is PixelBudgetExceeded or "capture_queue_full";
+
+    /// <summary>Waits until the coordinator has room for <paramref name="pixelBytes"/> and a queue slot.</summary>
+    private async Task WaitForRoomAsync(long pixelBytes, CancellationToken cancellationToken)
+    {
+        var deadline = _timeProvider.GetUtcNow() + BudgetWait;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var woken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Wake(object? sender, EventArgs arguments) => woken.TrySetResult();
+            _sessions.Changed += Wake;
+            try
+            {
+                var snapshot = _sessions.Snapshot;
+                var hasRoom = snapshot.PixelBudget <= 0
+                    || pixelBytes <= snapshot.PixelBudget - snapshot.PixelsInUse;
+                var hasSlot = snapshot.QueueCapacity <= 0 || snapshot.QueueDepth < snapshot.QueueCapacity;
+                if ((hasRoom && hasSlot) || _timeProvider.GetUtcNow() >= deadline)
+                {
+                    return;
+                }
+
+                // Changed wakes it as soon as anything is released; the short delay is the
+                // backstop for a release that raises no change.
+                using var poll = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                await Task.WhenAny(
+                        woken.Task,
+                        Task.Delay(TimeSpan.FromMilliseconds(250), _timeProvider, poll.Token))
+                    .ConfigureAwait(false);
+                await poll.CancelAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _sessions.Changed -= Wake;
+            }
+        }
+    }
+
+    /// <summary>Zeroes a picture the player handed over in memory that will never be admitted.</summary>
+    private static void Discard(ManualImageInput input)
+    {
+        if (input.Image is { } image
+            && System.Runtime.InteropServices.MemoryMarshal.TryGetArray(image.Pixels, out var owned))
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(owned.AsSpan());
         }
     }
 
@@ -306,38 +430,13 @@ public sealed class ManualImageIntake(
         };
     }
 
-    private static int MarkCancelled(
-        IReadOnlyList<ManualImageInput> inputs,
-        int first,
-        Action<ManualImageBatchUpdate> report)
-    {
-        for (var index = first; index < inputs.Count; index++)
-        {
-            report(new(inputs[index].Id, ShellText.CaptureRowCancelled, true));
-        }
-
-        return inputs.Count - first;
-    }
-
-    private static int CancelRemaining(
-        IReadOnlyList<PreparedImage> prepared,
-        int first,
-        Action<ManualImageBatchUpdate> report)
-    {
-        for (var index = first; index < prepared.Count; index++)
-        {
-            prepared[index].Source.Dispose();
-            report(new(prepared[index].Input.Id, ShellText.CaptureRowCancelled, true));
-        }
-
-        return prepared.Count - first;
-    }
-
-    private sealed class PreparedImage(ManualImageInput input, MemoryCaptureSource source)
+    private sealed class PreparedImage(ManualImageInput input, MemoryCaptureSource source, long pixelBytes)
     {
         public ManualImageInput Input { get; } = input;
 
         public MemoryCaptureSource Source { get; } = source;
+
+        public long PixelBytes { get; } = pixelBytes;
 
         public bool HandedOff { get; set; }
     }
