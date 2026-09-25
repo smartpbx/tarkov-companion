@@ -1,0 +1,72 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupNetworkControlsView"
+             x:DataType="vm:SetupNetworkControlsViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#292] Local only, then one row per thing that leaves the PC. A row's switch is the player's
+       choice; the state beside it is what is happening now. -->
+  <UserControl.Styles>
+    <Style Selector="TextBlock.network-state">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.network-state.blocked">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- Under Local only a service switch changes nothing until it is off, and looks it. -->
+    <Style Selector="ToggleSwitch:disabled">
+      <Setter Property="Opacity" Value="0.4" />
+    </Style>
+  </UserControl.Styles>
+  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-network">
+    <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+    <Border Classes="v2-card" Padding="12,10">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding LocalOnlyTitle}" />
+          <TextBlock Classes="v2-label" Text="{Binding LocalOnlyLine}" TextWrapping="Wrap" />
+          <TextBlock Classes="v2-label" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
+                     IsVisible="{Binding IsForced}" Text="{Binding ForcedNote}"
+                     AutomationProperties.AutomationId="v2-setup-network-forced" />
+        </StackPanel>
+        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                      IsChecked="{Binding IsLocalOnly, Mode=OneWay}"
+                      IsEnabled="{Binding CanToggleLocalOnly}"
+                      OnContent="{Binding OnLabel}" OffContent="{Binding OffLabel}"
+                      AutomationProperties.AutomationId="v2-setup-network-local-only"
+                      AutomationProperties.Name="{Binding LocalOnlyTitle}"
+                      Command="{Binding ToggleLocalOnlyCommand}" />
+      </Grid>
+    </Border>
+    <ItemsControl ItemsSource="{Binding Rows}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SetupNetworkServiceRowViewModel">
+          <Border Classes="v2-card" Padding="12,8" Margin="16,0,0,0">
+            <Grid ColumnDefinitions="*,120,Auto" ColumnSpacing="12">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
+                <TextBlock Classes="v2-label" Text="{Binding Line}" TextWrapping="Wrap" />
+              </StackPanel>
+              <TextBlock Grid.Column="1" Classes="v2-label network-state" VerticalAlignment="Center" FontWeight="SemiBold"
+                         HorizontalAlignment="Right"
+                         Classes.blocked="{Binding IsBlocked}"
+                         Text="{Binding StateLabel}"
+                         AutomationProperties.AutomationId="{Binding AutomationId}" />
+              <!-- A fixed column, so game data's state (it has no switch) lines up with the rest. -->
+              <Panel Grid.Column="2" Width="64" />
+              <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
+                            IsVisible="{Binding HasSwitch}"
+                            IsChecked="{Binding IsOn, Mode=OneWay}"
+                            IsEnabled="{Binding CanToggle}"
+                            OnContent="" OffContent=""
+                            AutomationProperties.Name="{Binding Title}"
+                            Command="{Binding ToggleCommand}" />
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>

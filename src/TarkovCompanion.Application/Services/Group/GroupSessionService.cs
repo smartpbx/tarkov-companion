@@ -10,6 +10,7 @@ using TarkovCompanion.Application.Services.Feedback;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Network;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -183,8 +184,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         GroupKitShare? kits = null,
         TimeProvider? clock = null,
         // [#289] The extract, note and ready state set on the Team workspace. Optional like the rest.
-        GroupSquadStatus? status = null)
+        GroupSquadStatus? status = null,
+        // [#292] Local only and the squad/report switches; null allows everything, as before.
+        INetworkPolicy? network = null)
     {
+        _network = network;
         _clock = clock ?? TimeProvider.System;
         _settings = settings;
         _stateStore = stateStore;
@@ -196,6 +200,10 @@ public sealed class GroupSessionService : IAsyncDisposable
     }
 
     private readonly GroupSquadStatus? _status;
+    private readonly INetworkPolicy? _network;
+
+    /// <summary>[#292] Local only or squad sharing switched off: nothing goes to the relay, not even a goodbye.</summary>
+    private NetworkVerdict SharingVerdict => _network?.Check(NetworkService.SquadSharing) ?? NetworkVerdict.Allowed;
 
     /// <summary>[#286] The lines this player shares with the squad, set by the Raid map.</summary>
     public GroupDrawingShare Drawings { get; } = new();
@@ -227,6 +235,12 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         // [#286] A line drawn or removed is sent now, like a ready toggle.
         Drawings.Changed += QuestsChanged;
+        if (_network is not null)
+        {
+            // [#292] Local only switched off: say hello now rather than at the end of a tick.
+            _network.Changed += NetworkChanged;
+        }
+
         _worker = Task.Run(() => RunAsync(_stopping.Token));
     }
 
@@ -238,6 +252,8 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// list. Nothing is sent when nothing changed, and the relay wakes the others only when what
     /// this member says differs from what it said last.
     /// </remarks>
+    private void NetworkChanged(object? sender, EventArgs eventArgs) => QuestsChanged();
+
     private void QuestsChanged()
     {
         Interlocked.Increment(ref _localChanges);
@@ -554,7 +570,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         string? colour = null)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
-        if (!settings.IsUsable || string.IsNullOrWhiteSpace(mapId))
+        if (!settings.IsUsable || string.IsNullOrWhiteSpace(mapId) || SharingVerdict != NetworkVerdict.Allowed)
         {
             return null;
         }
@@ -617,7 +633,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     public async Task<bool> RemoveMarkAsync(long id, CancellationToken cancellationToken, string? why = null)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
-        if (!settings.IsUsable || id <= 0)
+        if (!settings.IsUsable || id <= 0 || SharingVerdict != NetworkVerdict.Allowed)
         {
             // Zero is the id a mark carries while it is still on its way to the server. There
             // is nothing there to remove yet, and asking would delete whatever the server
@@ -647,7 +663,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     public async Task<bool> ClearMarksAsync(string? mapId, bool reachedOnly, CancellationToken cancellationToken)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
-        if (!settings.IsUsable)
+        if (!settings.IsUsable || SharingVerdict != NetworkVerdict.Allowed)
         {
             return false;
         }
@@ -756,6 +772,24 @@ public sealed class GroupSessionService : IAsyncDisposable
     {
         _waitOutTheTick = false;
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
+        if (settings.IsEnabled && SharingVerdict is var verdict && verdict != NetworkVerdict.Allowed)
+        {
+            // [#292] Asked before every exchange, so the switch takes effect within one tick and
+            // the panel says why rather than "Server unreachable". No goodbye is sent: that is
+            // traffic too, and the relay forgets a silent member by itself in three minutes.
+            _roomRevision = null;
+            _relayHolds = false;
+            _waitOutTheTick = true;
+            _lastGood = null;
+            Publish(GroupSnapshot.Off.Saying(new(verdict == NetworkVerdict.LocalOnly
+                    ? GroupStatus.LocalOnly
+                    : GroupStatus.SwitchedOff)) with
+            {
+                UpdatedUtc = _clock.GetUtcNow(),
+            });
+            return;
+        }
+
         if (!settings.IsEnabled)
         {
             // Nothing is being exchanged, so there is no revision and nothing to hold against:
@@ -1387,6 +1421,15 @@ public sealed class GroupSessionService : IAsyncDisposable
     public async Task<ReportSendResult> TrySendReportAsync(string report, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(report);
+        // [#292] Refused, not queued: a player who chose Local only must not have it sent later.
+        switch (_network?.Check(NetworkService.ProblemReports))
+        {
+            case NetworkVerdict.LocalOnly:
+                return new(ReportDelivery.Refused, "Not sent · Local only is on. Use Copy diagnostics instead.");
+            case NetworkVerdict.SwitchedOff:
+                return new(ReportDelivery.Refused, "Not sent · problem reports are off in Data & Privacy.");
+        }
+
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsUsable)
         {
@@ -1524,6 +1567,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         Drawings.Changed -= QuestsChanged;
+        if (_network is not null)
+        {
+            _network.Changed -= NetworkChanged;
+        }
         // Said out loud rather than left to time out. DELETE /state/{name} has been served
         // since the relay was written and called by nothing, so a member who closed the
         // application stayed on everybody else's map for the full three-minute lifetime,
@@ -1572,6 +1619,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private async Task WithdrawAsync((string Server, string Key, string Name) identity, TimeSpan? budget = null)
     {
+        if (SharingVerdict != NetworkVerdict.Allowed)
+        {
+            return;
+        }
+
         try
         {
             using var leaving = new CancellationTokenSource(budget ?? WithdrawBudget);

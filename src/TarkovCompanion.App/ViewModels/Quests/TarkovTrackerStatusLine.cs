@@ -22,7 +22,12 @@ internal static class TarkovTrackerStatusLine
             : !status.FeatureEnabled
                 ? SetupText.QuestsTrackerOff
                 : !status.NetworkAccessEnabled
-                    ? SetupText.QuestsTrackerOffline
+                    // [#292] Local only, or this one service switched off in Data & Privacy.
+                    ? TarkovCompanion.App.Services.Network.AppNetworkPolicy.Current.Check(
+                        TarkovCompanion.Core.Network.NetworkService.TarkovTracker)
+                        == TarkovCompanion.Core.Network.NetworkVerdict.SwitchedOff
+                        ? SetupText.NetworkTrackerOff
+                        : SetupText.QuestsTrackerOffline
                     : status.RequiresReconnect
                         ? SetupText.QuestsTrackerRejected
                         : status.Connected

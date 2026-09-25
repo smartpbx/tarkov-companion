@@ -539,9 +539,13 @@
 
     <!-- [#292] What the data is and what leaves the machine; About. Both are layered and linkable. -->
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataPrivacySelected}">
-      <Panel IsVisible="{Binding HasAdmin}">
+      <StackPanel Classes="v2-stack" IsVisible="{Binding HasAdmin}">
+        <!-- [#292] Local only and what each service sends, above the explanation. -->
+        <Panel IsVisible="{Binding Admin.HasNetwork, FallbackValue=False}">
+          <setup:V2SetupNetworkControlsView DataContext="{Binding Admin.Network}" />
+        </Panel>
         <setup:V2SetupInfoPageView DataContext="{Binding Admin.DataPrivacy}" />
-      </Panel>
+      </StackPanel>
     </Border>
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
       <Panel IsVisible="{Binding HasAdmin}">

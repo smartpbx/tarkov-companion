@@ -256,7 +256,7 @@ public sealed class TarkovTrackerIntegrationService : ITarkovTrackerIntegrationS
         SessionState session,
         bool connected) => new(
             _options.Enabled,
-            _options.NetworkAccessEnabled,
+            _options.NetworkAllowedNow,
             _secretStore.IsAvailable,
             connected,
             session.RequiresReconnect,
@@ -296,7 +296,7 @@ public sealed class TarkovTrackerIntegrationService : ITarkovTrackerIntegrationS
             throw new InvalidOperationException("The optional TarkovTracker integration feature is disabled.");
         }
 
-        if (!_options.NetworkAccessEnabled)
+        if (!_options.NetworkAllowedNow)
         {
             throw new InvalidOperationException(
                 "The optional TarkovTracker integration is unavailable while network access is disabled.");
