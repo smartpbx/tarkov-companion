@@ -54,9 +54,6 @@ public static class V2ShellText
     {
         var age = nowUtc - observedUtc;
         return age < TimeSpan.Zero ? Get("V2.Shell.Age.Future")
-            : age < TimeSpan.FromMinutes(1) ? Format("V2.Shell.Age.Seconds", culture, (int)age.TotalSeconds)
-            : age < TimeSpan.FromHours(1) ? Format("V2.Shell.Age.Minutes", culture, (int)age.TotalMinutes)
-            : age < TimeSpan.FromDays(2) ? Format("V2.Shell.Age.Hours", culture, (int)age.TotalHours)
-            : Format("V2.Shell.Age.Days", culture, (int)age.TotalDays);
+            : TarkovCompanion.App.Localization.UnitText.Ago(age, culture);
     }
 }

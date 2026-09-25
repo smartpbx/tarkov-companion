@@ -5159,17 +5159,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _ => "Unknown",
     };
 
+    // [#879 follow-up] Through the string table's units, like Team's ages.
     private static string DescribeAge(TimeSpan? age) => age is not { } value
         ? "age unknown"
-        : value < TimeSpan.FromMinutes(1)
-            ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
-            : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
+        : TarkovCompanion.App.Localization.UnitText.Ago(value);
 
-    private static string DescribeCompactAge(TimeSpan? age) => age is not { } value
-        ? "age unknown"
-        : value < TimeSpan.FromMinutes(1)
-            ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)} s ago")
-            : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes} min ago");
+    private static string DescribeCompactAge(TimeSpan? age) => DescribeAge(age);
 
     /// <summary>
     /// Whether something the group shared belongs on the map being looked at.
@@ -5301,7 +5296,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 bearing,
                 string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{member.Name} · from a screenshot {(age < TimeSpan.FromMinutes(1) ? $"{(int)age.TotalSeconds}s" : $"{(int)age.TotalMinutes}m")} ago"),
+                    $"{member.Name} · from a screenshot {TarkovCompanion.App.Localization.UnitText.Ago(age)}"),
                 age > PlayerMarkerFreshFor || member.HasGoneQuiet)
             {
                 Scale = _markerScale,

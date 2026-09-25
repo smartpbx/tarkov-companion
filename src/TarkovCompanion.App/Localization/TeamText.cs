@@ -154,8 +154,6 @@ public static class TeamText
     public static string ReadinessUnknown => UiText.Get("Team.ReadinessUnknown");
     public static string ScavAvailableAt(string time) => UiText.Format("Team.ScavAvailableAt", time);
     public static string AtAnUnknownTime => UiText.Get("Team.AtAnUnknownTime");
-    public static string SecondsAgo(int seconds) => UiText.Format("Team.SecondsAgo", seconds);
-    public static string MinutesAgo(int minutes) => UiText.Format("Team.MinutesAgo", minutes);
     public static string Scav(string time) => UiText.Format("Team.Scav", time);
     public static string ScavTimerUnknown => UiText.Get("Team.ScavTimerUnknown");
     public static string GearLine(string slot, string item) => UiText.Format("Team.GearLine", slot, item);

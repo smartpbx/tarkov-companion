@@ -32,7 +32,7 @@ public sealed class LocalTimeSurfaceTests
 
         var result = SelfTestProbes.Folders(SelfTestProbeTests.Folders(logsChanged: Now.AddMinutes(-2)), Now, Took, Culture);
 
-        Assert.Contains(result.Facts, fact => fact.Text.Contains("last changed 2m ago (2026-09-18 16:58)", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("last changed 2 min ago (2026-09-18 16:58)", StringComparison.Ordinal));
         Assert.Contains(result.Facts, fact => fact.Text.Contains("(2026-09-18 16:59)", StringComparison.Ordinal));
         Assert.Contains(result.Facts, fact => fact.Text.Contains("(2026-09-09 17:00)", StringComparison.Ordinal));
         Assert.All(result.Facts, fact => Assert.DoesNotContain("UTC", fact.Text, StringComparison.Ordinal));
@@ -59,8 +59,8 @@ public sealed class LocalTimeSurfaceTests
         var result = SelfTestProbes.Logs(SelfTestProbeTests.Logs(), Now, Took, Culture);
 
         // The session began 20:30 UTC and the last raid line was 20:56 UTC.
-        Assert.Contains(result.Facts, fact => fact.Text.Contains("started 30m ago (2026-09-18 16:30)", StringComparison.Ordinal));
-        Assert.Contains(result.Facts, fact => fact.Text.Contains("last line was 4m ago (2026-09-18 16:56)", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("started 30 min ago (2026-09-18 16:30)", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("last line was 4 min ago (2026-09-18 16:56)", StringComparison.Ordinal));
         Assert.All(result.Facts, fact => Assert.DoesNotContain("UTC", fact.Text, StringComparison.Ordinal));
     }
 

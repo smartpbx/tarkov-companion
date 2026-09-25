@@ -1507,13 +1507,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             return "future timestamp";
         }
 
-        return age < TimeSpan.FromMinutes(1)
-            ? $"{Math.Max(0, (int)age.TotalSeconds)}s ago"
-            : age < TimeSpan.FromHours(1)
-                ? $"{(int)age.TotalMinutes}m ago"
-                : age < TimeSpan.FromDays(2)
-                    ? $"{(int)age.TotalHours}h ago"
-                    : $"{(int)age.TotalDays}d ago";
+        return TarkovCompanion.App.Localization.UnitText.Ago(age);
     }
 
     private async Task MutateAsync(Func<QuestProfileScope, Task> mutation)

@@ -92,8 +92,7 @@ public static partial class RaidText
     public static string AnEarlierRaid => UiText.Get("Raid.AnEarlierRaid");
     public static string PositionUnknown => UiText.Get("Raid.PositionUnknown");
     public static string FromScreenshotJustNow => UiText.Get("Raid.FromScreenshotJustNow");
-    public static string FromScreenshotSecondsAgo(int seconds) => UiText.Format("Raid.FromScreenshotSecondsAgo", seconds);
-    public static string FromScreenshotMinutesAgo(int minutes) => UiText.Format("Raid.FromScreenshotMinutesAgo", minutes);
+    public static string FromScreenshotAgo(TimeSpan age) => UiText.Format("Raid.FromScreenshotAgo", UnitText.Ago(age));
     public static string WatchingMember(string member) => UiText.Format("Raid.WatchingMember", member);
     public static string FollowMember(string member, string? map) => UiText.Format("Raid.FollowMember", member, map);
     public static string RaidPlanWidth => UiText.Get("Raid.RaidPlanWidth");

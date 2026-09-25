@@ -54,7 +54,7 @@ public sealed record TeamPresenceRowViewModel(string Name, string SinceLabel, Te
 
     public bool HasDetail => Detail.Length > 0;
 
-    /// <summary>Package 29 (parity): "312, -104 · from a screenshot 40s ago", as V1's Group page said it; empty when no position was shared.</summary>
+    /// <summary>Package 29 (parity): "312, -104 · from a screenshot 40 s ago", as V1's Group page said it; empty when no position was shared.</summary>
     public string Position { get; init; } = string.Empty;
 
     public bool HasPosition => Position.Length > 0;

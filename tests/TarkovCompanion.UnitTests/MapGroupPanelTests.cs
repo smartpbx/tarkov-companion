@@ -68,14 +68,14 @@ public sealed class MapGroupPanelTests
             Member("Nate", "ground-zero", RaidLifecycleState.InRaid, age: TimeSpan.FromSeconds(18)),
             isHere: true,
             Locations);
-        Assert.Equal("112, -44 · 18s ago", fresh.Position);
+        Assert.Equal("112, -44 · 18 s ago", fresh.Position);
         Assert.False(fresh.IsStale);
 
         var old = MapViewModel.Describe(
             Member("Nate", "ground-zero", RaidLifecycleState.InRaid, age: TimeSpan.FromMinutes(8)),
             isHere: true,
             Locations);
-        Assert.Equal("112, -44 · 8m ago", old.Position);
+        Assert.Equal("112, -44 · 8 min ago", old.Position);
         Assert.True(old.IsStale);
     }
 
