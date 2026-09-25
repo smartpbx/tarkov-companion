@@ -162,6 +162,38 @@ public sealed class RaidCockpitExtractRowsTests
     }
 
     [Fact]
+    public void A_routed_train_row_keeps_the_time_left_and_reads_the_same_as_the_shown_row()
+    {
+        // #889: WithRoute dropped the time left, so a routed train said "arrives with 16–12 min
+        // left" until the next tick, and every rebuild replaced the whole list.
+        var requirements = new MapExtractRequirements([], null, false, false)
+        {
+            Conditions =
+            [
+                new(
+                    MapExtractConditionKind.TimedWindow,
+                    [],
+                    new(TimeSpan.FromMinutes(16), TimeSpan.FromMinutes(12), TimeSpan.FromMinutes(7))),
+            ],
+        };
+        RaidExtractRowViewModel[] Build(string timeLeft) =>
+        [
+            .. RaidCockpitViewModel.BuildExtractRows([
+                Object("train", MapSceneObjectKind.Extract, "Armored Train", MapFeatureFaction.Shared, MapSceneOfferState.Unknown, requirements),
+            ], timeLeft: timeLeft).Select(row => row.WithRoute("~2 min", isRouted: true, command: new TarkovCompanion.App.ViewModels.DelegateCommand(() => { }))),
+        ];
+        var shown = Build("0:19:00");
+        Assert.Equal("Train in ~3 min, stays 7 min", Assert.Single(shown).RequirementText);
+
+        // The one-second tick moves the shown row on; the next rebuild's rows must match it.
+        shown[0].UpdateTimeLeft("0:10:00");
+        var rerouted = shown[0].WithRoute("~2 min", isRouted: true, command: new TarkovCompanion.App.ViewModels.DelegateCommand(() => { }));
+
+        Assert.Equal("Train here, up to 5 min left", rerouted.RequirementText);
+        Assert.True(RaidExtractRowViewModel.ReadSame(shown, Build("0:10:00")));
+    }
+
+    [Fact]
     public void Rows_built_again_from_the_same_extracts_read_the_same_and_a_changed_offer_does_not()
     {
         // [#453] The cockpit keeps the list it shows when a rebuild's rows read the same, so the

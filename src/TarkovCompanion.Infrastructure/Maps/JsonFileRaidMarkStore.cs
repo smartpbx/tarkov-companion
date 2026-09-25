@@ -33,7 +33,12 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
     private readonly string _storePath;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private List<RaidMark> _marks = [];
+    // #889: published copy-on-write. Readers (the UI thread, GroupMarkForwarder on whatever thread
+    // Changed fired on) enumerate this without the gate, so a writer never changes an array it has
+    // published: it builds a new one and swaps it in. Mutating the live List in place let a
+    // tablet's placement on the relay pool thread break a foreach on the expiry timer's thread,
+    // inside async void OnExpiryDue, which ends the process.
+    private RaidMark[] _marks = [];
     private bool _loaded;
     private ITimer? _expiryTimer;
     private bool _disposed;
@@ -48,16 +53,18 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
     /// <summary>
     /// Never includes an expired ping. Filters rather than mutates <c>_marks</c>: reading this is
     /// not itself allowed to touch the file, and the timer below (or the next add/move/rename/
-    /// remove/load) is what actually drops one and rewrites it.
+    /// remove/load) is what actually drops one and rewrites it. Returns a snapshot no later write
+    /// changes (#889).
     /// </summary>
     public IReadOnlyList<RaidMark> Marks
     {
         get
         {
             var now = _timeProvider.GetUtcNow();
-            return _marks.Exists(mark => IsExpired(mark, now))
-                ? [.. _marks.Where(mark => !IsExpired(mark, now))]
-                : _marks;
+            var marks = Volatile.Read(ref _marks);
+            return Array.Exists(marks, mark => IsExpired(mark, now))
+                ? [.. marks.Where(mark => !IsExpired(mark, now))]
+                : marks;
         }
     }
 
@@ -75,7 +82,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             }
 
             var document = await ReadOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-            _marks = document is null ? [] : [.. document.Marks.Select(ToMark).OfType<RaidMark>()];
+            Volatile.Write(ref _marks, document is null ? [] : [.. document.Marks.Select(ToMark).OfType<RaidMark>()]);
             _loaded = true;
             // An old file full of stale pings (from before this fix, or from a desktop that was
             // off for an hour) cleans itself the first time anything loads it, rather than
@@ -271,14 +278,19 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            mutate(_marks);
-            PruneExpired();
-            if (_marks.Count > MaximumMarks)
+            // A private copy: the published array is never changed after readers can see it.
+            var next = new List<RaidMark>(_marks);
+            mutate(next);
+            var now = _timeProvider.GetUtcNow();
+            next.RemoveAll(mark => IsExpired(mark, now));
+            if (next.Count > MaximumMarks)
             {
                 // Oldest first: a mark placed minutes ago is more likely to still matter than
                 // one placed a raid ago.
-                _marks = [.. _marks.OrderByDescending(mark => mark.CreatedUtc).Take(MaximumMarks)];
+                next = [.. next.OrderByDescending(mark => mark.CreatedUtc).Take(MaximumMarks)];
             }
+
+            Volatile.Write(ref _marks, [.. next]);
 
             await WriteUntilNoExpiredMarksAsync(cancellationToken).ConfigureAwait(false);
             ScheduleNextExpiry();
@@ -350,7 +362,16 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
 
         if (pruned)
         {
-            Changed?.Invoke();
+            // Outside every try above and inside async void: a subscriber's exception here would
+            // escape on the thread pool and end the process (#889), so it stops at this line.
+            try
+            {
+                Changed?.Invoke();
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                System.Diagnostics.Trace.TraceWarning($"Raid mark expiry subscriber failed: {exception.GetType().Name}");
+            }
         }
     }
 
@@ -402,7 +423,14 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
     private bool PruneExpired()
     {
         var now = _timeProvider.GetUtcNow();
-        return _marks.RemoveAll(mark => IsExpired(mark, now)) > 0;
+        var marks = _marks;
+        if (!Array.Exists(marks, mark => IsExpired(mark, now)))
+        {
+            return false;
+        }
+
+        Volatile.Write(ref _marks, [.. marks.Where(mark => !IsExpired(mark, now))]);
+        return true;
     }
 
     private static bool IsExpired(RaidMark mark, DateTimeOffset now) =>

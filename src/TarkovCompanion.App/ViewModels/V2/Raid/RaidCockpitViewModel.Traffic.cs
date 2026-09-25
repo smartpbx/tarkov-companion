@@ -4,6 +4,7 @@ using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Application.Services.Strategy.Prior;
 using TarkovCompanion.Core.Common;
@@ -186,23 +187,59 @@ public sealed partial class RaidCockpitViewModel
     /// </remarks>
     private RaidPhase CurrentPriorPhase(string mapId, DateTimeOffset nowUtc)
     {
-        var raid = _stateStore.Current.Raid;
-        _priorPhaseFromClock = false;
-        if (raid.State != RaidLifecycleState.InRaid || raid.StartedUtc is not { } started ||
+        // #889: the raid as the strip above sees it, with "Set time left" and "Started now" laid
+        // over what was read. The raw snapshot left the card saying "from the raid clock" while
+        // weighting a raid with 8:00 left as early.
+        var raid = _raid.Corrections.Apply(_stateStore.Current.Raid);
+        var phase = ClockPhase(raid, mapId, _raid.Corrections.IsManual(RaidCorrectionField.Clock), nowUtc);
+        _priorPhaseFromClock = phase is not null;
+        return phase ?? RaidPhase.Early;
+    }
+
+    /// <summary>
+    /// The phase the raid clock gives, or null when nothing about this raid says where in it we are.
+    /// </summary>
+    /// <remarks>
+    /// #889. A clock read off a screenshot or set by hand wins, as it does for the strip
+    /// (<see cref="RaidTimer.Resolve"/>): time left against the nominal forty. Otherwise the count
+    /// from the start, except a scav's, whose start is when it joined a raid already running
+    /// (<see cref="RaidTimer.CanCountFromStart"/>) unless the player set it by hand.
+    /// </remarks>
+    internal static RaidPhase? ClockPhase(RaidSnapshot raid, string mapId, bool clockSetByHand, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(raid);
+        if (raid.State != RaidLifecycleState.InRaid ||
             !string.Equals(raid.MapId, mapId, StringComparison.OrdinalIgnoreCase))
         {
-            return RaidPhase.Early;
+            return null;
         }
 
-        _priorPhaseFromClock = true;
+        double elapsedMinutes;
+        if (raid.RaidClock is { } clock && raid.RaidClockReadUtc is { } readUtc)
+        {
+            var left = RaidTimer.Resolve((clock, readUtc), null, null, nowUtc).Remaining ?? TimeSpan.Zero;
+            elapsedMinutes = NominalRaidMinutes - left.TotalMinutes;
+        }
+        else if (raid.StartedUtc is { } started && (clockSetByHand || !IsScav(raid.Side)))
+        {
+            elapsedMinutes = (nowUtc - started).TotalMinutes;
+        }
+        else
+        {
+            return null;
+        }
 
-        return (nowUtc - started).TotalMinutes switch
+        return elapsedMinutes switch
         {
             < 13 => RaidPhase.Early,
             < 27 => RaidPhase.Mid,
             _ => RaidPhase.Late,
         };
     }
+
+    private const double NominalRaidMinutes = 40;
+
+    private static bool IsScav(string? side) => side?.Trim().ToLowerInvariant() is "scav" or "savage";
 
     /// <summary>
     /// The traffic layer and its hotspot objects for this scene, rebuilding the prior only when

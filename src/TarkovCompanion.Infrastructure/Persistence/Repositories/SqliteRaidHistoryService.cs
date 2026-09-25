@@ -32,6 +32,7 @@ public sealed class SqliteRaidHistoryService(
           AND raid.id IN (
               SELECT id FROM raids
               WHERE map_id IS NOT NULL AND lower(map_id) = lower($mapId)
+                AND deleted_utc IS NULL
               ORDER BY start_utc DESC
               LIMIT $limit
           )

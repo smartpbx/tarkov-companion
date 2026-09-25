@@ -200,6 +200,31 @@ public sealed class SquadAfterRaidCockpitTests
         Assert.Null(forwarder.LocalIdFor(401));
     }
 
+    /// <summary>
+    /// #889: a new group key is another room, which never held this player's waypoints. Its first
+    /// snapshot is not a squad removing them, and the local waypoints stay.
+    /// </summary>
+    [Fact]
+    public async Task Joining_another_group_keeps_the_players_own_waypoints()
+    {
+        var store = new FakeMarkStore(NowUtc);
+        using var forwarder = new GroupMarkForwarder(
+            store,
+            mark => new WorldPosition(mark.State.X, 0, -mark.State.Y),
+            (_, _, _, _) => Task.FromResult<long?>(401),
+            _ => Task.CompletedTask,
+            new FixedClock(NowUtc));
+
+        var waypoint = await store.PlaceAsync("customs", null, 5, 5, null, RaidMarkScope.Squad, RaidMarkLifetime.UntilRemoved);
+        await WaitUntilAsync(() => forwarder.IsForwarded(401));
+        Assert.Empty(forwarder.ObserveGroup(new HashSet<long> { 401 }, "room-a"));
+
+        Assert.Empty(forwarder.ObserveGroup(new HashSet<long> { 77 }, "room-b"));
+        Assert.Empty(forwarder.ObserveGroup(new HashSet<long>(), "room-b"));
+        Assert.Null(forwarder.LocalIdFor(401));
+        Assert.Contains(store.Marks, mark => mark.Id == waypoint.Id);
+    }
+
     [Fact]
     public async Task A_moved_waypoint_is_replaced_on_the_relay_and_old_marks_are_never_replayed()
     {

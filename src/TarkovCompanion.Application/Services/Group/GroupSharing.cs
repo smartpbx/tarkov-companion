@@ -452,6 +452,28 @@ public sealed record GroupSnapshot(
     public GroupPositionLatencySnapshot PositionLatency { get; init; } = GroupPositionLatencySnapshot.None;
 
     /// <summary>
+    /// [#889] Which room this came from, as <see cref="RoomOf"/> made it; null where unknown.
+    /// </summary>
+    /// <remarks>
+    /// The settings can change while the app runs, and the next snapshot is then another room's.
+    /// Without this, a reader comparing waypoint ids across snapshots took every one of the old
+    /// room's for a removal.
+    /// </remarks>
+    public string? Room { get; init; }
+
+    private static readonly byte[] RoomSalt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
+
+    /// <summary>
+    /// A room's identity for comparing two snapshots within this run, and nothing else: salted
+    /// per process, so it names no key anywhere it could be read (the key is the room's password).
+    /// </summary>
+    public static string RoomOf(string? serverUri, string? key)
+    {
+        var text = System.Text.Encoding.UTF8.GetBytes($"{serverUri?.Trim().TrimEnd('/').ToUpperInvariant()}\n{key}");
+        return Convert.ToHexString(System.Security.Cryptography.HMACSHA256.HashData(RoomSalt, text), 0, 8);
+    }
+
+    /// <summary>
     /// [#314] The status line as a <see cref="GroupStatus"/> phrase, which the App words. Where it
     /// is set, <see cref="Detail"/> is empty; <see cref="Detail"/> is shown only where this is
     /// null, which is a fixture or a demo that wrote its own line.
