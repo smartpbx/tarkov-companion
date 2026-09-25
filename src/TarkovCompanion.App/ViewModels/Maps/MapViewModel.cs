@@ -1348,7 +1348,7 @@ public sealed record QuestMapAssociationViewModel(
     bool IsUnsupported,
     bool IsFloorFiltered);
 
-public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
+public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly HttpClient? _ownedHttpClient;
     private readonly TarkovDevMapCatalogClient _catalogClient;
@@ -2094,13 +2094,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(HideControlsWhenIdle));
 
             UiActivity.Step("map:catalog?");
+            CatalogState = MapCatalogState.Loading;
             var result = await _catalogClient.GetAsync(_lifetime.Token).ConfigureAwait(true);
             UiActivity.Step("map:catalog");
             if (result.Catalog is null)
             {
-                Status = result.Message ?? "Map catalog unavailable.";
+                // [#292] The message is the exception's; it goes to the log, and the page says it
+                // in plain words.
+                WorkspaceFault.Record("map", "load catalog", result.Message ?? "no catalog");
+                CatalogFailed(MapCatalogStates.From(result));
                 return;
             }
+
+            CatalogState = MapCatalogState.Loaded;
 
             _mapCatalogProvenance = result.Catalog.Provenance;
 
@@ -2128,7 +2134,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (Exception exception)
         {
-            Status = $"Map catalog unavailable · {exception.Message}";
+            WorkspaceFault.Record("map", "load catalog", exception);
+            CatalogFailed(MapCatalogState.Failed);
         }
     }
 

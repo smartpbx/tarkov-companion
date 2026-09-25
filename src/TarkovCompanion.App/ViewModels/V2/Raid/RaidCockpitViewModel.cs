@@ -1894,6 +1894,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             UnavailableReason = WaitingForMap();
         }
 
+        if (e.PropertyName is nameof(MapViewModel.CatalogState))
+        {
+            MapCatalogStateChanged();
+        }
+
         if (e.PropertyName is nameof(MapViewModel.FloorSource) or nameof(MapViewModel.AutoSelectsFloor))
         {
             // [V2 rough package 46] Beside the ladder that chooses the floor, not only in the
