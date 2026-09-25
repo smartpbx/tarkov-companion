@@ -1,6 +1,6 @@
 namespace TarkovCompanion.App.Localization;
 
-/// <summary>Every word the Team workspace (Team, Group, Tablet preview) shows, typed, from Localization/Strings (#314).</summary>
+/// <summary>Every word the Team workspace (Squad, Group, Devices) shows, typed, from Localization/Strings (#314).</summary>
 /// <remarks>
 /// Moved off literals the way <see cref="DebriefText"/> was. The view binds these with x:Static, so
 /// a label that is not here fails the XAML compile. A counted phrase is a method taking the count.
@@ -19,6 +19,12 @@ public static class TeamText
     public static string Reload => UiText.Get("Team.Reload");
     public static string ReloadSharingSettings => UiText.Get("Team.ReloadSharingSettings");
     public static string ShareThisSession => UiText.Get("Team.ShareThisSession");
+    public static string BlockedByLocalOnly => UiText.Get("Team.BlockedByLocalOnly");
+    public static string BlockedBySharingOff => UiText.Get("Team.BlockedBySharingOff");
+    public static string ChangeBlock => UiText.Get("Team.ChangeBlock");
+    public static string ChangeBlockName => UiText.Get("Team.ChangeBlockName");
+    public static string UnsavedFields => UiText.Get("Team.UnsavedFields");
+    public static string SaveFailed(string reason) => UiText.Format("Team.SaveFailed", reason);
     public static string ServerAddress => UiText.Get("Team.ServerAddress");
     public static string DisplayName => UiText.Get("Team.DisplayName");
     public static string GroupKey => UiText.Get("Team.GroupKey");

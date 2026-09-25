@@ -73,6 +73,19 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 288] "on" when Plan rows include the engine's short reason.</summary>
     public const string PlanLearnMode = "plan.learn-mode";
 
+    /// <summary>[#902 P8] One page's remembered filters, chips and sorts; see <see cref="PageState"/>.</summary>
+    public const string PageIntel = "page.intel";
+    public const string PageAmmo = "page.ammo";
+    public const string PageKeys = "page.keys";
+    public const string PageCrafts = "page.crafts";
+    public const string PagePlan = "page.plan";
+    public const string PageHideout = "page.hideout";
+    public const string PageDebrief = "page.debrief";
+    public const string PageStash = "page.stash";
+
+    /// <summary>[#902 P8] The Loot Scan's risk and verdict chip. Its phase is per raid and never stored.</summary>
+    public const string PageLoot = "page.loot";
+
     /// <summary>Whether one card of the Raid side panel is open ("open"/"closed"); see RaidPanelCards.</summary>
     public static string RaidCard(string cardId) => $"raid.card.{cardId}";
 }

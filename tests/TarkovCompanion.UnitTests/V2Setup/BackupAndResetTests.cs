@@ -70,9 +70,14 @@ public sealed class BackupAndResetTests : IDisposable
         Assert.True(network.IsLocalOnly);
         Assert.True(lootScan.TabletOnly);
 
+        // Team and Setup's squad row re-read group.json on this event (#903).
+        var groupChanges = 0;
+        app.Group.Changed += (_, _) => groupChanges++;
+
         await ((AsyncDelegateCommand)app.Admin.ResetAllCommand).ExecuteAsync();
         Assert.True(app.Admin.HasPendingChange);
         await ((AsyncDelegateCommand)app.Admin.ConfirmCommand).ExecuteAsync();
+        Assert.Equal(1, groupChanges);
 
         Assert.Empty(SetupSettingsDiff.Compare(await app.Admin.CaptureCurrentAsync(), SetupSettingsSnapshot.Default));
 

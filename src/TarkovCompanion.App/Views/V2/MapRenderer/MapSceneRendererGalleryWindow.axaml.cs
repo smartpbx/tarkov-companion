@@ -96,7 +96,7 @@ public sealed record MapSceneRendererGalleryViewModel(
     private static MapSceneSnapshot Scene(HighValueLootLayerResult loot)
     {
         var reference = new MapSceneLayer(new("extracts"), "Extracts", 10, true);
-        var observations = new MapSceneLayer(new("companion-markers"), "Companion markers", 20, true);
+        var observations = new MapSceneLayer(new("squad"), "Squad", 20, true);
         var hazards = new MapSceneLayer(new("hazards"), "Hazards", 25, true);
         var estimates = new MapSceneLayer(new("estimates"), "Historical estimates", 30, true);
         var objects = loot.Objects.Concat(

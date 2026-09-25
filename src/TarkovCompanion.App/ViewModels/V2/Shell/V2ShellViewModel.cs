@@ -457,6 +457,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var chainPlanner = acquisitionChains ?? NullAcquisitionChainPlanningService.Instance;
         IntelAcquisitionChain = new(chainPlanner);
         CraftsBartersWorkspace = new(_intelTrade, chainPlanner, id => OpenSuggestedItem(id, "v2-crafts-open-intel"), learnMode);
+        RestoreIntelPage(learnMode?.Layout);
         // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
         SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
         if (legacy is not null)
@@ -559,6 +560,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             // [#292] "No map saved on this PC yet" opens the Local only switch.
             raidMap.OpenDataPrivacyRequested += RaidOpenDataPrivacyRequested;
+        }
+
+        if (_team is not null)
+        {
+            // [#902] "Blocked · Local only is on · Change" beside Team's sharing switch.
+            _team.OpenDataPrivacyRequested += TeamOpenDataPrivacyRequested;
         }
 
         WireLegacyContext();
@@ -1667,6 +1674,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private void RaidOpenDataPrivacyRequested(object? sender, EventArgs e)
     {
         var opened = Router.Navigate(V2Routes.Setup, "v2-raid-map-catalog-action");
+        Act(opened);
+        if (opened.Succeeded)
+        {
+            SetupWorkspace?.Select(V2SetupSection.DataPrivacy);
+        }
+    }
+
+    private void TeamOpenDataPrivacyRequested(object? sender, EventArgs e)
+    {
+        var opened = Router.Navigate(V2Routes.Setup, "v2-team-sharing-blocked-change");
         Act(opened);
         if (opened.Succeeded)
         {
@@ -3588,6 +3605,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (RaidCockpitWorkspace is { } raidMap)
         {
             raidMap.OpenDataPrivacyRequested -= RaidOpenDataPrivacyRequested;
+        }
+
+        if (_team is not null)
+        {
+            _team.OpenDataPrivacyRequested -= TeamOpenDataPrivacyRequested;
         }
 
         _updateNotice?.Dispose();

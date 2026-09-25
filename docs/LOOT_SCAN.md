@@ -28,9 +28,9 @@ was shown as unpinned and weighed on price.
 | Holdings to subtract from a need | `IObservedInventoryEvidenceReader`, when a snapshot exists for the same profile and data sync. | No stash scan yet: the engine says so and the answer stays a review. |
 | Flea fee and net | `FleaMarketFee`, from the item's base price and the two rates in the items payload. | Rates or base price not synced. |
 | How readily another copy is had | Trader buy offers and the last listing count, from the item's retained source row. | The payload carries no listing count for a flea item. |
-| Raid phase | The raid clock the way the rest of the app counts it, in thirds. The player can pick it instead. | Not in a raid, or the map's length for this side is unknown. |
+| Raid phase | The raid clock the way the rest of the app counts it, in thirds. The player can pick it instead, for that raid only: the next raid is counted again. | Not in a raid, or the map's length for this side is unknown. |
 | Event state (Safe, Allergic, Untested) | `LootScanEventStateSource`: the running events in `IEventCatalog` and the results the Events page wrote into the active profile. An Allergic result in any running event wins. | No running event lists the item: a settled "outside every event". The event folder cannot be read: not claimed. |
-| Risk | The player's setting in the workspace, "Normal" until changed, kept for the session. | Never. |
+| Risk | The player's setting in the workspace, "Normal" until changed, kept across restarts (`page.loot`). | Never. |
 | Carried grids | Every visible backpack, tactical-rig and pocket grid on the in-raid Gear screen (`GearScreenLayoutReader`). Each framed grid stays separate through capture and planning. | A verified grid can support a fit. If backpack or pocket coverage is unread, a wanted item with no verified fit reads "TAKE?" rather than claiming no room. |
 
 ## How near a quest is

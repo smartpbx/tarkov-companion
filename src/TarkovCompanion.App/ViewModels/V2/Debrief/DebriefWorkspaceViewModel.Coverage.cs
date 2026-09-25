@@ -34,6 +34,7 @@ public sealed partial class DebriefWorkspaceViewModel
         {
             if (SetProperty(ref _isStatsView, value))
             {
+                SavePageState();
                 OnPropertyChanged(nameof(IsListView));
             }
         }

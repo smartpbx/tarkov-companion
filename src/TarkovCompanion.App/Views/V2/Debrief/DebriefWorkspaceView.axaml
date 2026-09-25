@@ -422,6 +422,11 @@
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" Width="40" Height="40" Stretch="Uniform"
                   HorizontalAlignment="Center" />
             <TextBlock Classes="v2-debrief-muted" Text="{Binding NoRaidsMessage}" HorizontalAlignment="Center" />
+            <!-- [#902 P8] Filters and the archive/Show all switches are remembered, so an empty
+                 list that is only hidden says so and offers the way back. -->
+            <Button Classes="v2-outline" HorizontalAlignment="Center" IsVisible="{Binding ShowsEmptyReset}"
+                    Content="{Binding EmptyResetLabel}" Command="{Binding ShowEverythingCommand}"
+                    AutomationProperties.AutomationId="v2-debrief-show-everything" />
           </StackPanel>
         </Grid>
       </Border>

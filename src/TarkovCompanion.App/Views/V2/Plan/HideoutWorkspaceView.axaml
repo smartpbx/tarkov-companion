@@ -74,10 +74,15 @@
     <Border Grid.Column="0" Classes="v2-hideout-card" Margin="16,8,0,16">
       <Grid RowDefinitions="Auto,*">
         <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
-          <Grid ColumnDefinitions="*,Auto">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
             <TextBlock Classes="v2-heading-2" Text="{x:Static l:PlanText.HideoutTitle}" AutomationProperties.HeadingLevel="2"
                        VerticalAlignment="Center" />
-            <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
+            <!-- [#902 P8] Learn mode changes this page's text, so its switch is here too. -->
+            <ToggleButton Grid.Column="1" Classes="v2-target v2-intel-chip v2-intel-chip-small" VerticalAlignment="Center"
+                          Content="{x:Static l:PlanText.Learn}" IsChecked="{Binding LearnMode.IsEnabled}"
+                          AutomationProperties.AutomationId="v2-hideout-learn-mode"
+                          AutomationProperties.Name="{x:Static l:PlanText.LearnMode}" />
+            <Button Grid.Column="2" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
                     VerticalAlignment="Center"
                     AutomationProperties.AutomationId="v2-hideout-refresh" AutomationProperties.Name="{x:Static l:PlanText.HideoutRefresh}"
                     ToolTip.Tip="{x:Static l:PlanText.HideoutRefresh}" Command="{Binding RefreshCommand}">

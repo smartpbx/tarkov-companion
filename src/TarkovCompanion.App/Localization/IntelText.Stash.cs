@@ -129,6 +129,7 @@ public static partial class IntelText
     public static string StashCalibres(int count) => UiText.Format("Intel.Stash.Calibres", count);
     public static string StashKeyCount(int count) => UiText.Format("Intel.Stash.KeyCount", count);
     public static string StashItemCount(int count) => UiText.Format("Intel.Stash.ItemCount", count);
+    public static string StashShowingGroup(string group, int count) => UiText.Format("Intel.Stash.ShowingGroup", group, count);
     public static string StashUndoAction(string action) => UiText.Format("Intel.Stash.UndoAction", action);
     public static string StashTotals(string roubles, string cells) => UiText.Format("Intel.Stash.Totals", roubles, cells);
     public static string StashChanges(int count, string since) => UiText.Format("Intel.Stash.Changes", count, since);

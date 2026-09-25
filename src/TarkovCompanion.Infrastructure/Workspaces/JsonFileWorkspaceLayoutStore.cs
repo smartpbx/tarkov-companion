@@ -16,8 +16,8 @@ namespace TarkovCompanion.Infrastructure.Workspaces;
 /// </remarks>
 public sealed class JsonFileWorkspaceLayoutStore : IWorkspaceLayoutStore
 {
-    private const int MaximumBytes = 32 * 1024;
-    private const int MaximumEntries = 64;
+    private const int MaximumBytes = 64 * 1024;
+    private const int MaximumEntries = 128;
     private const int MaximumValueLength = 256;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

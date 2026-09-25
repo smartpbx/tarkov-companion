@@ -94,7 +94,12 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
         {
             _gate.Release();
         }
+
+        // After the gate, so a listener that reads straight back is not queued behind this save.
+        Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    public event EventHandler? Changed;
 
     private async Task<GroupDocument?> ReadOrDefaultAsync(CancellationToken cancellationToken)
     {

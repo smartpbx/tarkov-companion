@@ -81,13 +81,13 @@ public sealed partial class RaidCockpitViewModel
         if (_prior is not { Field: { } field } prior)
         {
             SetRoutes([], string.Empty, needsStart: false, signature: null);
-            return ([], []);
+            return ([RouteLayer()], []);
         }
 
         if (RouteStart(model) is not { } start)
         {
             SetRoutes([], string.Empty, needsStart: true, signature: null);
-            return ([], []);
+            return ([RouteLayer()], []);
         }
 
         // [Issue 573] A co-op extract is not a suggested-route target either, unless the player
@@ -130,7 +130,7 @@ public sealed partial class RaidCockpitViewModel
 
         if (ShownRoute is not { } shown)
         {
-            return ([], []);
+            return ([RouteLayer()], []);
         }
 
         var (estimate, provenance) = PriorEstimate(prior, transformVersion);
@@ -169,8 +169,15 @@ public sealed partial class RaidCockpitViewModel
             shown.Plan.LowerContact,
             new(RouteColor, LineThickness: 4));
         _routeStyles = styles;
-        return ([new(RouteLayerId, RaidText.LayerSuggestedRoutes, 65, true)], objects);
+        return ([RouteLayer()], objects);
     }
+
+    /// <summary>
+    /// [#902] Declared whether or not a route is drawn, so its Layers row is always there: it used
+    /// to exist only while a route did, so a player could not turn the path off ahead of time, and
+    /// one turned off had no switch in sight when the next route was planned.
+    /// </summary>
+    private static MapSceneLayer RouteLayer() => new(RouteLayerId, RaidText.LayerSuggestedRoutes, 65, true);
 
     private MapSceneObjectId? _routeStartSpawnId;
 

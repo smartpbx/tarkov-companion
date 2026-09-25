@@ -671,6 +671,13 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
+    <!-- [#902] Loot focus is on: the gem reads pressed, like a checked icon toggle, so the way
+         back is the button the player just pressed. A Button rather than a ToggleButton so UI
+         Automation still invokes it by the same pattern the Windows gallery uses. -->
+    <Style Selector="Button.v2-icon-btn.v2-loot-focus-on">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
     <!-- [#591] Zoom, fit and the loot preset already float at the standard 32 DIP target
          (Button.v2-target); left dim until the player is actually reaching for them so the group
          reads as chrome, not as something drawn on the terrain beside it. Still hit-testable and
@@ -814,10 +821,11 @@
           <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Fit}" />
         </Button>
         <Button Classes="v2-target v2-icon-btn" Command="{Binding HighValueLootPresetCommand}"
+                Classes.v2-loot-focus-on="{Binding IsLootFocused}"
                 IsVisible="{Binding HasHighValueLoot}"
                 AutomationProperties.AutomationId="v2-map-loot-preset"
                 AutomationProperties.Name="{Binding HighValueLootPresetLabel}" ToolTip.Tip="{Binding HighValueLootPresetLabel}">
-          <!-- A gem, not "$": this shows the high-value loot layer, named in the tooltip. -->
+          <!-- A gem, not "$": Loot focus, named in the tooltip. -->
           <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gem}" />
         </Button>
         <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasHighValueLoot}">
@@ -1468,14 +1476,11 @@
               <ItemsControl ItemsSource="{Binding Layers}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:MapSceneRendererLayerViewModel">
-                    <!-- V2 rough package 39: the switch carries the count, and an empty layer that
-                         is off cannot be switched on to an empty map. One that is on can always
-                         be switched off (CanToggle), or the control is stuck and UI Automation's
-                         Toggle throws on it. -->
+                    <!-- V2 rough package 39: the switch carries the count. [#902] Always enabled:
+                         an empty layer says "none on this map" and can still be switched. -->
                     <ToggleButton Classes="v2-map-choice" HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Left"
                                   IsChecked="{Binding IsVisible, Mode=OneWay}"
-                                  IsEnabled="{Binding CanToggle}"
                                   AutomationProperties.AutomationId="{Binding AutomationId}"
                                   AutomationProperties.Name="{Binding ToggleLabel}"
                                   AutomationProperties.HelpText="{Binding StateLabel}"

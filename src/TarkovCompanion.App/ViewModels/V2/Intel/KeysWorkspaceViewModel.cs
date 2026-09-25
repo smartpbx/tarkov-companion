@@ -114,6 +114,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     private readonly Action<string>? _openItem;
     private KeyVerdictFilter _filter;
     private IReadOnlyList<KeyListRowViewModel>? _rows;
+    private readonly TarkovCompanion.Application.Services.Workspaces.PageState _state;
 
     public KeysWorkspaceViewModel(
         KeysPageViewModel page,
@@ -123,6 +124,9 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         LearnMode = learnMode ?? new();
         _page = page ?? throw new ArgumentNullException(nameof(page));
         _openItem = openItem;
+        // [#902 P8] The verdict chip comes back after a visit elsewhere and a restart.
+        _state = LearnMode.Page(TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutKeys.PageKeys);
+        _filter = _state.Enum("filter", KeyVerdictFilter.All);
         VerdictFilters =
         [
             new(KeyVerdictFilter.All, IntelText.KeysFilterAll, SelectFilter),
@@ -166,6 +170,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _filter, value))
             {
+                _state.SetEnum("filter", value, KeyVerdictFilter.All);
                 MarkChips();
                 RaiseKeys();
                 // A chip that hides the open key opens the first key it shows instead, so the
@@ -205,6 +210,13 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     public bool HasKeys => Keys.Count > 0;
 
     public bool ShowsNoKeys => !HasKeys;
+
+    /// <summary>[#902 P8] A remembered chip emptied the list: one click shows every key again.</summary>
+    public bool ShowsFilterReset => ShowsNoKeys && _page.Keys.Count > 0 && Filter != KeyVerdictFilter.All;
+
+    public ICommand ClearFilterCommand => _clearFilter ??= new DelegateCommand(() => Filter = KeyVerdictFilter.All);
+
+    private ICommand? _clearFilter;
 
     /// <summary>Why the list is empty, in the terms of whichever of the page and the chip emptied it.</summary>
     public string NoKeysLabel => _page.Keys.Count > 0
@@ -323,6 +335,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasKeys));
         OnPropertyChanged(nameof(ShowsNoKeys));
         OnPropertyChanged(nameof(NoKeysLabel));
+        OnPropertyChanged(nameof(ShowsFilterReset));
         OnPropertyChanged(nameof(KeyCountLabel));
         OnPropertyChanged(nameof(ShowsKeyCount));
     }

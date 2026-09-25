@@ -48,7 +48,7 @@ public sealed class GroupPageViewModel : PageViewModel
     private string _myLoadout = "Nobody in your party is running this yet.";
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
 
-    public GroupPageViewModel(IGroupSettingsStore settings)
+    public GroupPageViewModel(IGroupSettingsStore settings, Action<Action>? dispatch = null)
         : base(
             "Group",
             "Share this session, and see theirs",
@@ -56,6 +56,46 @@ public sealed class GroupPageViewModel : PageViewModel
     {
         _settings = settings;
         SaveCommand = new AsyncDelegateCommand(SaveAsync);
+        // [#902] Team saves its switches the moment they are flipped. This page read group.json once
+        // at startup, so Setup, which shows its state, kept saying what was true at launch.
+        var post = dispatch ?? PostToUi;
+        _settings.Changed += (_, _) => post(() => _ = RefreshSwitchesAsync());
+    }
+
+    private static void PostToUi(Action action)
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(action);
+    }
+
+    /// <summary>
+    /// The three sharing switches as one read-only line, for Setup (#902).
+    /// </summary>
+    /// <remarks>
+    /// Setup used to carry its own "Sync quests with squad" switch over the same stored value, and
+    /// went stale beside Team's. The switches live on Team only; Setup says what they are and links there.
+    /// </remarks>
+    public string SharingSummary => SetupText.SquadSharingSummary(IsEnabled, SharesLoadout, SharesQuests);
+
+    private async Task RefreshSwitchesAsync()
+    {
+        try
+        {
+            var stored = await _settings.GetAsync(CancellationToken.None).ConfigureAwait(true);
+            IsEnabled = stored.IsEnabled;
+            SharesLoadout = stored.SharesLoadout;
+            SharesQuests = stored.SharesQuests;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The next save or restart reads it again; the old values are the best there is meanwhile.
+            TarkovCompanion.App.Services.Diagnostics.CrashLog.Write("group-page", $"refresh: {exception.Message}");
+        }
     }
 
     public AsyncDelegateCommand SaveCommand { get; }
@@ -126,7 +166,13 @@ public sealed class GroupPageViewModel : PageViewModel
     public bool IsEnabled
     {
         get => _isEnabled;
-        set => SetProperty(ref _isEnabled, value);
+        set
+        {
+            if (SetProperty(ref _isEnabled, value))
+            {
+                OnPropertyChanged(nameof(SharingSummary));
+            }
+        }
     }
 
     public string ServerUri
@@ -161,7 +207,13 @@ public sealed class GroupPageViewModel : PageViewModel
     public bool SharesLoadout
     {
         get => _sharesLoadout;
-        set => SetProperty(ref _sharesLoadout, value);
+        set
+        {
+            if (SetProperty(ref _sharesLoadout, value))
+            {
+                OnPropertyChanged(nameof(SharingSummary));
+            }
+        }
     }
 
     public bool SharesQuests
@@ -171,41 +223,8 @@ public sealed class GroupPageViewModel : PageViewModel
         {
             if (SetProperty(ref _sharesQuests, value))
             {
-                OnPropertyChanged(nameof(SyncsSquadQuests));
+                OnPropertyChanged(nameof(SharingSummary));
             }
-        }
-    }
-
-    /// <summary>
-    /// [#780] Setup &gt; Team &amp; Devices' opt-out: the same setting as <see cref="SharesQuests"/>,
-    /// saved the moment it is flipped rather than with the rest of the group form.
-    /// </summary>
-    public bool SyncsSquadQuests
-    {
-        get => _sharesQuests;
-        set
-        {
-            if (value == _sharesQuests)
-            {
-                return;
-            }
-
-            SharesQuests = value;
-            _ = SaveSquadQuestsAsync(value);
-        }
-    }
-
-    private async Task SaveSquadQuestsAsync(bool value)
-    {
-        try
-        {
-            var stored = await _settings.GetAsync(CancellationToken.None).ConfigureAwait(true);
-            await _settings.SaveAsync(stored with { SharesQuests = value }, CancellationToken.None).ConfigureAwait(true);
-            SaveStatus = value ? "Saved · quests sync with your squad" : "Saved · quests stay on this PC";
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            SaveStatus = $"Couldn't save: {exception.Message}";
         }
     }
 

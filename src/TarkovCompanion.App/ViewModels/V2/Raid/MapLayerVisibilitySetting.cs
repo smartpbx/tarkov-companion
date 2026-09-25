@@ -20,6 +20,19 @@ internal sealed class MapLayerVisibilitySetting
 {
     private const int MaximumValueLength = 256;
 
+    /// <summary>
+    /// [#902] The four V1 layers no map has any more. A player who switched one off before it
+    /// was removed still has "companion-markers:0" stored, which would take a place in the
+    /// capped value for good; they are dropped on read, and gone from the value at the next write.
+    /// </summary>
+    private static readonly IReadOnlySet<string> RetiredLayerIds = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "companion-markers",
+        "routes",
+        "risk-traffic",
+        "filters",
+    };
+
     private readonly IWorkspaceLayoutStore? _store;
     private readonly List<(string Id, bool IsVisible)> _choices;
 
@@ -63,6 +76,24 @@ internal sealed class MapLayerVisibilitySetting
     }
 
     /// <summary>
+    /// Remembers a Layers-menu change once the scene has taken it. A change Loot focus made is
+    /// not the player's choice for that layer: Loot focus is undone by pressing it again, and
+    /// saving its steps is what made the old gem preset hide every layer on every map for good.
+    /// </summary>
+    public void Record(MapSceneViewChange change, MapSceneViewChangeStatus status, bool isLootFocus)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (!isLootFocus &&
+            change.Kind == MapSceneViewChangeKind.SetLayerVisibility &&
+            status == MapSceneViewChangeStatus.Applied &&
+            change.LayerId is { } layerId &&
+            change.IsVisible is { } isVisible)
+        {
+            Set(layerId, isVisible);
+        }
+    }
+
+    /// <summary>
     /// The requested layer states with every remembered choice laid over them. A stored layer the
     /// scene does not have is harmless: the assembler reads states only for layers it builds.
     /// </summary>
@@ -99,7 +130,7 @@ internal sealed class MapLayerVisibilitySetting
             }
 
             var id = entry[..colon];
-            if (IsStorable(id) && !choices.Any(choice => string.Equals(choice.Id, id, StringComparison.Ordinal)))
+            if (IsStorable(id) && !RetiredLayerIds.Contains(id) && !choices.Any(choice => string.Equals(choice.Id, id, StringComparison.Ordinal)))
             {
                 choices.Add((id, entry[(colon + 1)..] == "1"));
             }

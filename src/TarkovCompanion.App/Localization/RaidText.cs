@@ -51,6 +51,8 @@ public static partial class RaidText
     public static string VisitedCount(int count) => UiText.Format("Raid.VisitedCount", count);
     public static string SquadNames => UiText.Get("Raid.SquadNames");
     public static string SquadNamesTip => UiText.Get("Raid.SquadNamesTip");
+    public static string LootFocus => UiText.Get("Raid.LootFocus");
+    public static string LootFocusTip => UiText.Get("Raid.LootFocusTip");
     public static string FrameAreaTip => UiText.Get("Raid.FrameAreaTip");
     public static string ShowWholeFloor => UiText.Get("Raid.ShowWholeFloor");
     public static string FrameArea(string area) => UiText.Format("Raid.FrameArea", area);

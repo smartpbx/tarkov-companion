@@ -170,7 +170,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         // [#289] The extract, note and ready state this player shares. Optional like the rest.
         GroupSquadStatus? squadStatus = null,
         // [#891] The relay stamps squad marks with its own clock; this PC's may be hours out.
-        TarkovCompanion.Application.Services.Devices.RelayClockOffsetTracker? relayClock = null)
+        TarkovCompanion.Application.Services.Devices.RelayClockOffsetTracker? relayClock = null,
+        // [#902] Local only, or the Squad sharing permission, can stop what these switches start.
+        TarkovCompanion.Core.Network.INetworkPolicy? networkPolicy = null,
+        Action<Action>? dispatch = null)
     {
         _relayClock = relayClock;
         _groupSession = groupSession ?? throw new ArgumentNullException(nameof(groupSession));
@@ -201,6 +204,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         // Every other workspace has one. Without it, a Team pane that failed to read its settings
         // had no way back short of restarting the application.
         ReloadCommand = new AsyncDelegateCommand(LoadAsync);
+        AttachSharingState(networkPolicy, dispatch);
     }
 
     /// <summary>
@@ -283,14 +287,11 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     {
         try
         {
+            // A switch flipped a moment ago is written first, or this read would put it back.
+            await PendingSave.ConfigureAwait(true);
             var stored = await _groupSettings.GetAsync(cancellationToken).ConfigureAwait(true);
-            IsEnabled = stored.IsEnabled;
-            ServerUri = stored.ServerUri ?? string.Empty;
-            DisplayName = stored.DisplayName ?? string.Empty;
-            Key = stored.Key ?? string.Empty;
-            SharesLoadout = stored.SharesLoadout;
-            SharesQuests = stored.SharesQuests;
-            Status = stored.IsEnabled ? TeamText.Saved : TeamText.NotSharing;
+            ApplyStored(stored);
+            Status = HasUnsavedFields ? TeamText.UnsavedFields : stored.IsEnabled ? TeamText.Saved : TeamText.NotSharing;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -310,41 +311,78 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     }
 
     /// <summary>Whether anything is published at all — the one switch that joins or leaves a group.</summary>
+    /// <remarks>[#902] Saved the moment it is flipped, like the two below it.</remarks>
     public bool IsEnabled
     {
         get => _isEnabled;
-        set => SetProperty(ref _isEnabled, value);
+        set
+        {
+            if (SetProperty(ref _isEnabled, value))
+            {
+                SwitchFlipped();
+            }
+        }
     }
 
     public string ServerUri
     {
         get => _serverUri;
-        set => SetProperty(ref _serverUri, value);
+        set
+        {
+            if (SetProperty(ref _serverUri, value))
+            {
+                FieldEdited();
+            }
+        }
     }
 
     public string DisplayName
     {
         get => _displayName;
-        set => SetProperty(ref _displayName, value);
+        set
+        {
+            if (SetProperty(ref _displayName, value))
+            {
+                FieldEdited();
+            }
+        }
     }
 
     /// <summary>The one thing a group agrees between themselves — typing a new one creates a group; an existing one joins it.</summary>
     public string Key
     {
         get => _key;
-        set => SetProperty(ref _key, value);
+        set
+        {
+            if (SetProperty(ref _key, value))
+            {
+                FieldEdited();
+            }
+        }
     }
 
     public bool SharesLoadout
     {
         get => _sharesLoadout;
-        set => SetProperty(ref _sharesLoadout, value);
+        set
+        {
+            if (SetProperty(ref _sharesLoadout, value))
+            {
+                SwitchFlipped();
+            }
+        }
     }
 
     public bool SharesQuests
     {
         get => _sharesQuests;
-        set => SetProperty(ref _sharesQuests, value);
+        set
+        {
+            if (SetProperty(ref _sharesQuests, value))
+            {
+                SwitchFlipped();
+            }
+        }
     }
 
     /// <summary>Package 29 (parity): this player's own kit, as the rest of the group described it back (V1's "Your kit, as your party sees it").</summary>
@@ -366,14 +404,14 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     private async Task SaveAsync()
     {
         var settings = new GroupSharingSettings(IsEnabled, Trimmed(ServerUri), Trimmed(DisplayName), Trimmed(Key), SharesLoadout, SharesQuests);
-        await _groupSettings.SaveAsync(settings, CancellationToken.None).ConfigureAwait(true);
+        if (!await SaveOwnAsync(_ => settings).ConfigureAwait(true))
+        {
+            return;
+        }
+
         _confirmingLeave = false;
         OnPropertyChanged(nameof(LeaveLabel));
-        Status = !settings.IsEnabled
-            ? TeamText.SavedSharingOff
-            : settings.Gap is { } missing
-                ? TeamText.SavedStillNeeds(PhraseText.Say(missing))
-                : TeamText.SavedSharingStarts;
+        Status = SavedStatus(settings);
     }
 
     /// <summary>Leaves the group on the second press, so a stray click cannot end sharing by accident.</summary>
@@ -387,8 +425,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             return;
         }
 
+        _confirmingLeave = false;
+        OnPropertyChanged(nameof(LeaveLabel));
         IsEnabled = false;
-        await SaveAsync().ConfigureAwait(true);
+        await PendingSave.ConfigureAwait(true);
     }
 
     private static string? Trimmed(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

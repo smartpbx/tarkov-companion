@@ -123,6 +123,23 @@ public sealed class MapSceneFloorStackTests
         Assert.NotEqual(before, renderer.FloorLayers.Select(plate => plate.Offset).ToArray());
     }
 
+    [Fact]
+    public void In_the_stack_the_traffic_switch_says_the_heatmap_is_flat_view_only()
+    {
+        // [#902] The heat picture is drawn on the flat plan only; in the stack the switch read on
+        // and counted in "Layers · N on" while nothing was drawn.
+        static string TrafficLabel(MapSceneRendererViewModel renderer) =>
+            renderer.Layers.Single(layer => layer.Layer.Id == MapSceneRendererViewModel.TrafficHeatLayerId).Label;
+
+        var stacked = Stacked();
+        Assert.True(stacked.HasFloorStack);
+        Assert.Contains("flat view only", TrafficLabel(stacked), StringComparison.Ordinal);
+
+        var flat = Stacked(mode: MapSceneMode.Flat2D);
+        Assert.False(flat.HasFloorStack);
+        Assert.DoesNotContain("flat view only", TrafficLabel(flat), StringComparison.Ordinal);
+    }
+
     private static MapSceneRendererViewModel Stacked(
         string selectedFloor = "first",
         string? missingArtworkFor = null,
@@ -143,7 +160,7 @@ public sealed class MapSceneFloorStackTests
             ["first", "second", "basement"],
             new(MapSceneCapability.Available, MapSceneCapability.Available, MapSceneCapability.Unavailable("No interior model.")),
             new(mode, selectedFloor, new(100, 70, 1, 0, 0), []),
-            [new MapSceneLayer(new("extracts"), "Extracts", 10, true)],
+            [new MapSceneLayer(new("extracts"), "Extracts", 10, true), new MapSceneLayer(MapSceneRendererViewModel.TrafficHeatLayerId, "Modelled traffic", 5, true)],
             [Extract()],
             [Background(), .. elevations.Keys.Select(FloorAsset)]);
 

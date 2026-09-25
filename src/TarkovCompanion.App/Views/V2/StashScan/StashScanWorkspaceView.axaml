@@ -98,28 +98,33 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     </Style>
 
-    <!-- Sort-plan tiles: the group's own colour, quiet until the grouping is actually wired. -->
-    <Style Selector="Border.stash-plan-tile">
+    <!-- Sort-plan tiles: the group's own colour. [#902 P8] Each is a button that narrows the item
+         list to its group; a group the plan has not sorted yet is disabled, not decorative. -->
+    <Style Selector="Button.stash-plan-tile">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="14,10" />
     </Style>
-    <Style Selector="Border.stash-plan-tile.review">
+    <Style Selector="Button.stash-plan-tile.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Button.stash-plan-tile.review">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
-    <Style Selector="Border.stash-plan-tile.review TextBlock.stash-plan-count">
+    <Style Selector="Button.stash-plan-tile.review TextBlock.stash-plan-count">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
     <!-- #283: the plan's groups. Keep reads as settled, Sell as something to act on. -->
-    <Style Selector="Border.stash-plan-tile.keep TextBlock.stash-plan-count">
+    <Style Selector="Button.stash-plan-tile.keep TextBlock.stash-plan-count">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
-    <Style Selector="Border.stash-plan-tile.sell TextBlock.stash-plan-count">
+    <Style Selector="Button.stash-plan-tile.sell TextBlock.stash-plan-count">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
-    <Style Selector="Border.stash-plan-tile.organize TextBlock.stash-plan-count">
+    <Style Selector="Button.stash-plan-tile.organize TextBlock.stash-plan-count">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Info}" />
     </Style>
     <Style Selector="TextBlock.stash-group">
@@ -375,6 +380,12 @@
             <StackPanel Spacing="18">
               <StackPanel Spacing="8">
                 <TextBlock Classes="v2-heading-3" Text="{x:Static l:IntelText.StashItems}" AutomationProperties.HeadingLevel="3" />
+                <!-- [#902 P8] A sort-plan tile narrowed the list: say which, and offer the way back. -->
+                <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasGroupFilter}">
+                  <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding GroupFilterLabel}" />
+                  <Button Classes="v2-outline" Command="{Binding ShowAllGroupsCommand}"
+                          Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-stash-show-all" />
+                </StackPanel>
                 <ItemsControl ItemsSource="{Binding Items}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -467,14 +478,18 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:StashPlanTileViewModel">
-                <Border Classes="stash-plan-tile" Classes.review="{Binding IsReview}"
+                <Button Classes="stash-plan-tile" Classes.review="{Binding IsReview}" Classes.selected="{Binding IsSelected}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Command="{Binding SelectCommand}" IsEnabled="{Binding IsWired}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                        AutomationProperties.Name="{Binding Label}"
                         Classes.organize="{Binding IsOrganize}"
                         Classes.keep="{Binding IsKeep}" Classes.sell="{Binding IsSell}" Margin="0,0,8,8">
                   <StackPanel Spacing="2">
                     <TextBlock Classes="v2-label" Text="{Binding Label}" />
                     <TextBlock Classes="stash-plan-count" Text="{Binding CountLabel}" />
                   </StackPanel>
-                </Border>
+                </Button>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
