@@ -642,25 +642,35 @@
               <Flyout Placement="TopEdgeAlignedRight">
                 <ScrollViewer MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
                   <StackPanel Spacing="10">
-                  <ItemsControl x:DataType="mapVm:MapSceneRendererViewModel" ItemsSource="{Binding Layers}"
+                  <!-- [#902] Under headers (You, Squad, Routes, Quests, Map, Marks & drawings, Loot,
+                       Traffic), each row always switchable: an empty layer reads "none on this map"
+                       rather than greying out, because its choice is kept for every map. -->
+                  <ItemsControl x:DataType="mapVm:MapSceneRendererViewModel" ItemsSource="{Binding LayerGroups}"
                                 MinWidth="260"
                                 AutomationProperties.AccessibilityView="Control"
                                 AutomationProperties.Name="{x:Static l:RaidText.MapLayers}">
                     <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="mapVm:MapSceneRendererLayerViewModel">
-                        <!-- No AutomationProperties.AutomationId here: this switch shares its view model
-                             (and so its AutomationId) with the renderer's own Layers list further down the
-                             same visual tree, and a duplicate id would make either one ambiguous to UIA. -->
-                        <!-- V2 rough package 39: the switch says how many things it would show, and
-                             an empty layer that is off cannot be switched on to an empty plan, leaving
-                             the player to work out why. One that is on can always be switched off. -->
-                        <ToggleSwitch Classes="v2-layer-switch" HorizontalAlignment="Stretch"
-                                      IsChecked="{Binding IsVisible, Mode=OneWay}"
-                                      IsEnabled="{Binding CanToggle}"
-                                      OnContent="{Binding Label}" OffContent="{Binding Label}"
-                                      AutomationProperties.Name="{Binding ToggleLabel}"
-                                      AutomationProperties.HelpText="{Binding StateLabel}"
-                                      Command="{Binding ToggleCommand}" />
+                      <DataTemplate x:DataType="mapVm:MapSceneRendererLayerGroupViewModel">
+                        <StackPanel Spacing="2" Margin="0,0,0,6"
+                                    AutomationProperties.AutomationId="{Binding AutomationId}">
+                          <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding Header}"
+                                     AutomationProperties.HeadingLevel="3" />
+                          <ItemsControl ItemsSource="{Binding Layers}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="mapVm:MapSceneRendererLayerViewModel">
+                                <!-- No AutomationProperties.AutomationId here: this switch shares its view model
+                                     (and so its AutomationId) with the renderer's own Layers list further down the
+                                     same visual tree, and a duplicate id would make either one ambiguous to UIA. -->
+                                <ToggleSwitch Classes="v2-layer-switch" HorizontalAlignment="Stretch"
+                                              IsChecked="{Binding IsVisible, Mode=OneWay}"
+                                              OnContent="{Binding Label}" OffContent="{Binding Label}"
+                                              AutomationProperties.Name="{Binding ToggleLabel}"
+                                              AutomationProperties.HelpText="{Binding StateLabel}"
+                                              Command="{Binding ToggleCommand}" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
@@ -812,6 +822,17 @@
                                 AutomationProperties.AutomationId="v2-raid-visited"
                                 AutomationProperties.Name="{x:Static l:RaidText.ShowVisited}"
                                 ToolTip.Tip="{x:Static l:RaidText.ShowVisitedTip}" />
+                  <!-- [#902] Loot focus: the same state as the map's gem button. Pressed again, every
+                       layer comes back as it was; it is never saved. -->
+                  <Panel DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
+                         IsVisible="{Binding HasHighValueLoot, FallbackValue=False}">
+                    <ToggleButton Classes="v2-menu-row"
+                                  Content="{x:Static l:RaidText.LootFocus}"
+                                  IsChecked="{Binding IsLootFocused, Mode=OneWay}"
+                                  Command="{Binding HighValueLootPresetCommand}"
+                                  AutomationProperties.AutomationId="v2-raid-loot-focus"
+                                  ToolTip.Tip="{x:Static l:RaidText.LootFocusTip}" />
+                  </Panel>
                   <ToggleButton Classes="v2-menu-row"
                                 Content="{x:Static l:RaidText.SquadNames}"
                                 IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"

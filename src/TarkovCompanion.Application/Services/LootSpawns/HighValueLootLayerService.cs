@@ -1284,16 +1284,25 @@ public sealed class HighValueLootLayerService
     private sealed record SourcedProfileNeed(string CandidateId, LootSpawnProfileNeed Need);
 }
 
-/// <summary>The one-action layer preset; the shell supplies any additional user-required context.</summary>
+/// <summary>Loot focus's layer states; the shell supplies any additional user-required context.</summary>
+/// <remarks>
+/// [#902] The kept list named V1 ids ("companion-markers", "routes", "pings", "waypoints") that
+/// no V2 map has, so the Raid map's focus hid the player's own marker, the squad, their marks and
+/// every route. These are the V2 ids: where you are, who you are with, what you and they marked,
+/// and the ways out.
+/// </remarks>
 public static class HighValueLootLayerPreset
 {
     private static readonly IReadOnlySet<string> BuiltInOrientationLayers = new HashSet<string>(StringComparer.Ordinal)
     {
         "extracts",
-        "companion-markers",
-        "routes",
-        "pings",
-        "waypoints",
+        "you",
+        "squad",
+        "my-marks",
+        "group-marks",
+        "drawings",
+        "objective-route",
+        "traffic-routes",
         // [Issue 563] Place names are orientation, not a marker layer. Hiding them left the
         // preset's own map artwork unreadable: "all the names of places disappear ... no loot
         // shows up tho either" was every place name gone and an empty loot layer, both at once.

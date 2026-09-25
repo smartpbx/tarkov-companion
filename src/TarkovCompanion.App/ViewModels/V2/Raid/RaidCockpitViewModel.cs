@@ -2802,7 +2802,16 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 796] The player's own Layers-menu choices, on every build and not only a new
         // map: a layer that arrives later (the heatmap once traffic loads) would otherwise open
         // at its default. Laid over the Spawns rule above, so a choice beats a default.
-        requestedView = requestedView with { Layers = _layerVisibility.Apply(requestedView.Layers) };
+        // [#902] While Loot focus is on, the layers it hid stay hidden through each rebuild: only
+        // a layer the view does not have yet takes its remembered choice.
+        var remembered = _layerVisibility.Apply(requestedView.Layers);
+        if (Renderer?.IsLootFocused == true)
+        {
+            var held = requestedView.Layers.Select(state => state.LayerId).ToHashSet();
+            remembered = [.. requestedView.Layers, .. remembered.Where(state => !held.Contains(state.LayerId))];
+        }
+
+        requestedView = requestedView with { Layers = remembered };
 
         // [V2 rough package 39] The mode follows V1's own "Stack" toggle, which is also what the
         // renderer's presentation control now pushes back here.
@@ -3312,15 +3321,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             Renderer.Present(result.Scene);
         }
 
-        // [Issue 796] Remembered from here, so a toggle from the Layers menu, the loot preset or
-        // the paired tablet (which drives this same renderer) is kept alike.
-        if (change.Kind == MapSceneViewChangeKind.SetLayerVisibility &&
-            result.Status == MapSceneViewChangeStatus.Applied &&
-            change.LayerId is { } layerId &&
-            change.IsVisible is { } isVisible)
-        {
-            _layerVisibility.Set(layerId, isVisible);
-        }
+        // [Issue 796] Remembered from here, so a toggle from the Layers menu or the paired tablet
+        // (which drives this same renderer) is kept alike. [#902] Loot focus's own steps are not.
+        _layerVisibility.Record(change, result.Status, Renderer.IsDispatchingLootFocus);
 
         // [V2 rough package 22] A floor change has to reach V1 too: V1 owns the floor the
         // artwork is rasterized for, so a renderer-only change would filter the markers to the

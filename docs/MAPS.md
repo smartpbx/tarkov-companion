@@ -8,7 +8,7 @@ The catalog and artwork caches are separate. Both use maximum response sizes, pe
 
 A photographed map loads coarse level first (32 tiles or fewer, drawn under the sharp ones), is published twice a second as sharp tiles arrive, and keeps decoded tiles in a 128 MB in-memory LRU across map changes — two maximum-size sharp tile sets, with the current map's coarse underlay temporarily protected too. The artwork cache keeps running totals and rescans its directory only when they say a bound is near (8192 entries, 512 MB), giving back an eighth when one is crossed; measured 2026-09-20, a first visit to Reserve went from 53.6 s to 0.6 s for a first picture and 3.1 s complete. The app opens on the last map on screen (`#last-map` in `map-defaults.json`), and on Customs when there is none. The plan's picture is replaced at every publication, and the tablet publisher PNG-encodes it on a pool thread, so the cockpit retires a replaced picture through `PictureLeases` and frees it only when no reader holds a lease: freed under the encoder it was a native access violation on every launch (2.0.1278, fixed 2026-09-20).
 
-The map view provides explicit location, visual-variant, and upstream floor selectors. PNG tiles or explicitly published SVG assets form the background; SVG floor selection renders only the explicitly named upstream group while retaining the cached original. Labels, companion markers, extracts, routes, risk/traffic predictions, and filters are independent hideable/highlightable overlay layers. Scroll/pointer controls provide pan and bounded zoom. When an asset, offline cache, floor, or validated transform is unavailable, the view says so and does not substitute invented geometry.
+The map view provides explicit location, visual-variant, and upstream floor selectors. PNG tiles or explicitly published SVG assets form the background; SVG floor selection renders only the explicitly named upstream group while retaining the cached original. Labels, extracts, spawns, locked doors, switches and quest objectives are independent hideable/highlightable overlay layers. Scroll/pointer controls provide pan and bounded zoom. When an asset, offline cache, floor, or validated transform is unavailable, the view says so and does not substitute invented geometry.
 
 Map metadata enters the application through `IMapDefinitionCache` and `MapDataService`. The normalized cache JSON reader accepts unknown fields so a source can add data without breaking an installed client, but it rejects missing map, floor, or extract identities. Each definition keeps its `DataProvenance`; map artwork is referenced rather than embedded and must retain its own attribution and distribution terms.
 
@@ -126,7 +126,7 @@ Map-only and unresolved-floor entries stay in the same paged accessible list wit
 point clustering applies to positioned loot objects; the typed list remains the route to every
 source record.
 
-The **High-value loot only** preset is emitted as a serialized sequence of the existing
+**Loot focus** (the gem, and View › Loot focus; it replaced the one-way "High-value loot only" preset in #902) is emitted as a serialized sequence of the existing
 revision-checked layer-visibility changes. It retains built-in orientation layers, visible hazards,
 the selected object's layer, and any visible safety/context layers in the host's bounded preserve
 set; it leaves camera, floor, and selection unchanged. The sequence is deliberately non-atomic:
@@ -149,6 +149,9 @@ Every layer the player turns on or off in the Raid map's Layers menu (or from th
 which drives the same renderer) is remembered by layer id in `workspace-layout.json`
 (`raid.layer-visibility`), globally rather than per map, and laid over every scene build. A layer
 never touched keeps its map default, such as Switches on for Labs, Reserve and Interchange (#796).
+Every row is always switchable; an empty layer says "none on this map" (#902). Loot focus steps are
+not saved, and a second press restores the layers it changed. Stored choices for the removed V1
+layers (companion-markers, routes, risk-traffic, filters) are dropped on read.
 
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential
