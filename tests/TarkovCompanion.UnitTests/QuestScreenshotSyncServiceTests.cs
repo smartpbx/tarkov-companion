@@ -156,7 +156,7 @@ public sealed class QuestScreenshotSyncServiceTests
         await Assert.IsType<AsyncDelegateCommand>(viewModel.ReviewPassiveOfferCommand).ExecuteAsync();
 
         Assert.Equal(V2Routes.Setup, navigated);
-        Assert.True(workspace.IsProgressSelected);
+        Assert.True(workspace.IsProfileProgressSelected);
         Assert.Equal(["tasks-1.png", "tasks-2.png"], images.Paths);
         Assert.True(viewModel.HasPreview);
         Assert.Equal("Read 2 screenshots · fixture OCR", viewModel.Status);

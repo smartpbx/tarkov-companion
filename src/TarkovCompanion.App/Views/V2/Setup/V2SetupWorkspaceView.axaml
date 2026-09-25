@@ -6,9 +6,7 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup"
              xmlns:updates="using:TarkovCompanion.App.Services.Updates"
-             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests"
-             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
-             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
+             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests">
   <UserControl.Styles>
     <!-- A settings section reads as a readable column, not a full-width slab. -->
     <Style Selector="Border.v2-card.v2-setup-section">
@@ -28,11 +26,12 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     </Style>
   </UserControl.Styles>
-  <!-- V2 rough package 17 (home): compact section tabs like the shell's own, the home overview
-       first, then one settings section at a time. -->
-  <StackPanel Classes="v2-stack" Margin="16,8,16,0">
+  <!-- [#902 P6] The section tabs sit above the scroller, so they stay in view at the foot of a long
+       section. They used to scroll away with the content, and changing section meant scrolling back
+       to the top first. The shell hosts this page without a scroller of its own for the same reason. -->
+  <Grid RowDefinitions="Auto,*">
     <!-- #833: at 200% text the tabs wrap across the width; they stop short of the floating banner. -->
-    <ItemsControl ItemsSource="{Binding Sections}" setup:FloatingBannerClearance.ClearsWhatsNewBanner="True"
+    <ItemsControl Grid.Row="0" Margin="16,8,16,6" ItemsSource="{Binding Sections}" setup:FloatingBannerClearance.ClearsWhatsNewBanner="True"
                   AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.AutomationId="v2-setup-sections"
                   AutomationProperties.LandmarkType="Navigation"
@@ -49,582 +48,602 @@
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
+    <ScrollViewer Grid.Row="1" x:Name="SectionScroller" HorizontalScrollBarVisibility="Disabled"
+                  AutomationProperties.AutomationId="v2-setup-scroller">
+      <StackPanel Classes="v2-stack" Margin="16,4,16,16">
+        <StackPanel Classes="v2-stack" IsVisible="{Binding IsOverviewSelected}">
+          <Border Classes="v2-card v2-setup-section" IsVisible="{Binding ShowsQuestSyncOffer}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:SetupText.WorkspaceQuestOfferHeading}" />
+                <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceQuestOfferNote}" />
+              </StackPanel>
+              <Button Grid.Column="1" Classes="v2-target primary" Content="{x:Static l:SetupText.WorkspaceQuestOfferSync}"
+                      Command="{Binding OpenQuestSyncCommand}"
+                      AutomationProperties.AutomationId="v2-quest-sync-offer" />
+            </Grid>
+          </Border>
+          <setup:V2HomeOverviewView DataContext="{Binding Overview}" />
+        </StackPanel>
 
-    
-
-    <StackPanel Classes="v2-stack" IsVisible="{Binding IsOverviewSelected}">
-      <Border Classes="v2-card v2-setup-section" IsVisible="{Binding ShowsQuestSyncOffer}">
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-          <StackPanel Spacing="3">
-            <TextBlock Classes="v2-heading-3" Text="{x:Static l:SetupText.WorkspaceQuestOfferHeading}" />
-            <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.WorkspaceQuestOfferNote}" />
+        <!-- [#902 P6] Game & Capture: the folders the game writes, what reads them, the shortcut that
+             takes a capture, what happens to the screenshots afterwards and what a Loot scan does next.
+             One pipeline, which used to be spread over Game & Profile, Recognition, Privacy and the palette. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsGameCaptureSelected}">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-heading-3" Text="{Binding FoldersHeading}" AutomationProperties.HeadingLevel="3" />
+            <!-- Saved when a field loses focus; the Save button beside them is gone. -->
+            <TextBlock Classes="v2-body" Text="{Binding WatchedFolders.Text}" />
+            <TextBlock Classes="v2-label" Text="{Binding Settings.GameFolderStatus}" />
+            <StackPanel Classes="v2-field">
+              <TextBlock Classes="v2-label" Text="{Binding ScreenshotFolderLabel}" />
+              <TextBox Classes="v2-field-input" Text="{Binding Settings.ScreenshotFolder}" LostFocus="OnFolderLostFocus"
+                        PlaceholderText="{Binding FolderPlaceholder}"
+                        AutomationProperties.AutomationId="v2-setup-screenshot-folder"
+                        AutomationProperties.Name="{Binding ScreenshotFolderLabel}" />
+            </StackPanel>
+            <StackPanel Classes="v2-field">
+              <TextBlock Classes="v2-label" Text="{Binding LogFolderLabel}" />
+              <TextBox Classes="v2-field-input" Text="{Binding Settings.LogFolder}" LostFocus="OnFolderLostFocus"
+                        PlaceholderText="{Binding FolderPlaceholder}"
+                        AutomationProperties.AutomationId="v2-setup-log-folder"
+                        AutomationProperties.Name="{Binding LogFolderLabel}" />
+            </StackPanel>
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding RecognitionHeading}" AutomationProperties.HeadingLevel="3" />
+            <TextBlock Classes="v2-body" Text="{Binding Settings.RecognitionProvider}" />
+            <TextBlock Classes="v2-label" IsVisible="{Binding Settings.RecognitionNeedsRuntime}"
+                       Text="{Binding RecognitionRuntimeWarning}" />
+            <TextBlock Classes="v2-label" Text="{Binding Settings.ScanProvider}" />
+            <TextBlock Classes="v2-label" Text="{Binding ScanHint}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding HasShell}">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Shell.CaptureShortcutSwitchLabel, FallbackValue=''}" />
+                <TextBlock Classes="v2-label" Text="{Binding CaptureShortcutLine}" TextWrapping="Wrap" />
+              </StackPanel>
+              <!-- [#902 P9] Same state as the palette command and the Capture dialog's switch. -->
+              <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                            IsChecked="{Binding Shell.CaptureShortcutEnabled, Mode=OneWay, FallbackValue=False}"
+                            Command="{Binding Shell.ToggleCaptureShortcutCommand, FallbackValue={x:Null}}"
+                            AutomationProperties.AutomationId="v2-setup-capture-shortcut"
+                            AutomationProperties.Name="{Binding Shell.CaptureShortcutSwitchLabel, FallbackValue=''}" />
+            </Grid>
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding CleanupHeading}" AutomationProperties.HeadingLevel="3" />
+            <TextBlock Classes="v2-body" Text="{Binding ScreenshotIntro}" />
+            <StackPanel Classes="v2-field" IsVisible="{Binding Settings.CanTidyScreenshots}">
+              <TextBlock Classes="v2-label" Text="{Binding RetentionValueLabel}" />
+              <TextBlock Classes="v2-body" Text="{Binding Settings.RetentionDisplay}" />
+            </StackPanel>
+            <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" TextWrapping="Wrap" />
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
+                      IsVisible="{Binding NoCleanup}"
+                      IsEnabled="{Binding Settings.CanTidyScreenshots}"
+                      Content="{Binding Settings.ScreenshotTidyingLabel}" Command="{Binding Settings.ToggleScreenshotTidyingCommand}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-choose-retention"
+                      IsEnabled="{Binding Settings.CanTidyScreenshots}"
+                      Content="{Binding RetentionLabel}" Command="{Binding Settings.ChooseRetentionCommand}" />
+            </WrapPanel>
+            <TextBlock Classes="v2-label" Text="{Binding RecycleNote}" TextWrapping="Wrap"
+                       IsVisible="{Binding Settings.CanTidyScreenshots}" />
+            <!-- [#309] Turning tidying on goes through a preview of exactly what it would move; a dry run and
+                 the last runs are here too. -->
+            <Panel IsVisible="{Binding HasCleanup}">
+              <setup:V2SetupCleanupView DataContext="{Binding Cleanup}" />
+            </Panel>
+            <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
+                    AutomationProperties.AutomationId="v2-setup-open-privacy-detail"
+                    Content="{Binding OpenPrivacyDetailLabel}" Command="{Binding OpenPrivacyDetailCommand}" />
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding LootScanHeading}" AutomationProperties.HeadingLevel="3" />
+            <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
+              <setup:V2SetupLootReturnView DataContext="{Binding Admin.LootScan}" />
+            </Panel>
           </StackPanel>
-          <Button Grid.Column="1" Classes="v2-target primary" Content="{x:Static l:SetupText.WorkspaceQuestOfferSync}"
-                  Command="{Binding OpenQuestSyncCommand}"
-                  AutomationProperties.AutomationId="v2-quest-sync-offer" />
-        </Grid>
-      </Border>
-      <setup:V2HomeOverviewView DataContext="{Binding Overview}" />
-    </StackPanel>
+        </Border>
 
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsGameProfileSelected}">
-      <StackPanel Classes="v2-stack">
-        <!-- [#269] Profiles first: the game mode they carry decides what data everything below shows. -->
-        <Panel IsVisible="{Binding HasProfiles}">
-          <setup:V2SetupProfilesView DataContext="{Binding Profiles}" />
-        </Panel>
-        <Separator Margin="0,6" />
-        <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
-        <TextBlock Classes="v2-body" Text="{Binding WatchedFolders.Text}" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.GameFolderStatus}" />
-        <StackPanel Classes="v2-field">
-          <TextBlock Classes="v2-label" Text="{Binding ScreenshotFolderLabel}" />
-          <TextBox Classes="v2-field-input" Text="{Binding Settings.ScreenshotFolder}"
-                    PlaceholderText="{Binding FolderPlaceholder}"
-                    AutomationProperties.AutomationId="v2-setup-screenshot-folder"
-                    AutomationProperties.Name="{Binding ScreenshotFolderLabel}" />
-        </StackPanel>
-        <StackPanel Classes="v2-field">
-          <TextBlock Classes="v2-label" Text="{Binding LogFolderLabel}" />
-          <TextBox Classes="v2-field-input" Text="{Binding Settings.LogFolder}"
-                    PlaceholderText="{Binding FolderPlaceholder}"
-                    AutomationProperties.AutomationId="v2-setup-log-folder"
-                    AutomationProperties.Name="{Binding LogFolderLabel}" />
-        </StackPanel>
-        <Button Classes="v2-target" HorizontalAlignment="Left"
-                AutomationProperties.AutomationId="v2-setup-save-folders"
-                Content="{Binding SaveFoldersLabel}" Command="{Binding Settings.SaveGameFoldersCommand}" />
-        <!-- [#314] The interface language, beside the profile whose game data has a language of its own. -->
-        <StackPanel Classes="v2-stack" IsVisible="{Binding HasLanguage}">
-          <Separator Margin="0,6" />
-          <setup:V2SetupLanguageView DataContext="{Binding Language}" />
-        </StackPanel>
-      </StackPanel>
-    </Border>
-
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsRecognitionSelected}">
-      <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding Settings.RecognitionProvider}" />
-        <TextBlock Classes="v2-label" IsVisible="{Binding Settings.RecognitionNeedsRuntime}"
-                   Text="{Binding RecognitionRuntimeWarning}" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.ScanProvider}" />
-        <TextBlock Classes="v2-label" Text="{Binding ScanHint}" TextWrapping="Wrap" />
-        <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
-          <setup:V2SetupLootReturnView DataContext="{Binding Admin.LootScan}" />
-        </Panel>
-      </StackPanel>
-    </Border>
-
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataSelected}">
-      <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding Settings.DataStatus}" />
-        <TextBlock Classes="v2-label" Text="{Binding DatabasePath.Text}" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.DiagnosticChannel}" />
-        <Button Classes="v2-target" HorizontalAlignment="Left"
-                AutomationProperties.AutomationId="v2-setup-sync"
-                Content="{Binding SyncLabel}" Command="{Binding Settings.SyncCommand}" />
-        <TextBlock Classes="v2-label" Text="{Binding OfflineNote}" TextWrapping="Wrap"
-                   IsVisible="{Binding Settings.IsOffline}" />
-        <!-- [#292] Source, coverage, last attempt, last success, next refresh, and why it is not current. -->
-        <Panel IsVisible="{Binding HasAdmin}">
-          <setup:V2SetupDataDetailView DataContext="{Binding Admin.Data}" />
-        </Panel>
-        <!-- #292 task 3: the database's own migration version and verified backup. -->
-        <Panel IsVisible="{Binding HasDatabaseStatus}">
-          <setup:V2SetupDatabaseStatusView DataContext="{Binding DatabaseStatus}" />
-        </Panel>
-        <!-- [Issue 318] The same for the loot-spawn layer: per map, how many of the published spawn records
-             have a position and a floor, from the last verified import (works offline). -->
-        <StackPanel Classes="v2-stack" IsVisible="{Binding HasLootCoverage}"
-                    AutomationProperties.AutomationId="v2-setup-loot-coverage">
-          <TextBlock Classes="v2-body" Text="{Binding LootCoverage.Title}" />
-          <TextBlock Classes="v2-label" Text="{Binding LootCoverage.Status}" TextWrapping="Wrap" />
-          <ItemsControl ItemsSource="{Binding LootCoverage.Rows}" IsVisible="{Binding LootCoverage.HasRows}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:LootCoverageRowViewModel">
-                <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
-                  <TextBlock Classes="v2-label" Text="{Binding MapName}" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-        <!-- [Issue 379] How much of each map's quest objectives the quest data can place, so a gap is a
-             number here rather than a marker that is silently missing on the Raid map. -->
-        <StackPanel Classes="v2-stack" IsVisible="{Binding HasQuestCoverage}"
-                    AutomationProperties.AutomationId="v2-setup-quest-coverage">
-          <TextBlock Classes="v2-body" Text="{Binding QuestCoverage.Title}" />
-          <TextBlock Classes="v2-label" Text="{Binding QuestCoverage.Status}" TextWrapping="Wrap" />
-          <ItemsControl ItemsSource="{Binding QuestCoverage.Rows}" IsVisible="{Binding QuestCoverage.HasRows}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:QuestCoverageRowViewModel">
-                <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
-                  <TextBlock Classes="v2-label" Text="{Binding MapName}" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </StackPanel>
-    </Border>
-
-    <!-- Package 29 (parity): the quest exchange and TarkovTracker import, which only V1's Settings
-         page could reach. Bound through Settings.Quests so the preview, the confirm and the undo
-         stay together, as they do in V1. -->
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsProgressSelected}">
-      <StackPanel Classes="v2-stack">
-        <StackPanel Classes="v2-stack" IsVisible="{Binding HasRecommendationHorizons}">
-          <TextBlock Classes="v2-heading-2" Text="{Binding RecommendationHorizons.Heading}"
-                     AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-label" Text="{Binding RecommendationHorizons.Hint}" TextWrapping="Wrap" />
-          <TextBlock Classes="v2-body" Text="{Binding RecommendationHorizons.QuestLabel}" />
-          <ItemsControl ItemsSource="{Binding RecommendationHorizons.QuestChoices}">
-            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:RecommendationHorizonChoiceViewModel">
-                <Button Classes="v2-target" Margin="0,0,8,6" Content="{Binding DisplayLabel}"
-                        AutomationProperties.AutomationId="{Binding AutomationId}" Command="{Binding ChooseCommand}" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <TextBlock Classes="v2-body" Text="{Binding RecommendationHorizons.HideoutLabel}" />
-          <ItemsControl ItemsSource="{Binding RecommendationHorizons.HideoutChoices}">
-            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:RecommendationHorizonChoiceViewModel">
-                <Button Classes="v2-target" Margin="0,0,8,6" Content="{Binding DisplayLabel}"
-                        AutomationProperties.AutomationId="{Binding AutomationId}" Command="{Binding ChooseCommand}" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <Border Height="1" Background="{DynamicResource V2.Brush.Border}" Margin="0,4,0,8" />
-        </StackPanel>
-        <Panel IsVisible="{Binding HasQuestSync}">
-          <setup:QuestScreenshotSyncView DataContext="{Binding QuestSync}" />
-        </Panel>
-        <TextBlock Classes="v2-body" Text="{Binding ExchangeTitle}" />
-        <TextBlock Classes="v2-label" Text="{Binding ExchangeNote}" TextWrapping="Wrap" />
-        <TextBox Classes="v2-field-input" Text="{Binding Settings.Quests.ExchangePath}"
-                 PlaceholderText="{Binding ExchangePathPlaceholder}"
-                 AutomationProperties.AutomationId="v2-setup-exchange-path"
-                 AutomationProperties.Name="{Binding ExchangePathPlaceholder}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-progress"
-                  Content="{Binding ExportLabel}" Command="{Binding Settings.Quests.ExportProgressCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import"
-                  Content="{Binding PreviewImportLabel}" Command="{Binding Settings.Quests.PreviewImportCommand}" />
-          <Button Classes="v2-target" Content="{Binding KeepLocalLabel}"
-                  Command="{Binding Settings.Quests.KeepLocalConflictsCommand}" />
-          <Button Classes="v2-target" Content="{Binding UseIncomingLabel}"
-                  Command="{Binding Settings.Quests.UseIncomingConflictsCommand}" />
-          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-apply-import"
-                  Content="{Binding ApplyImportLabel}" Command="{Binding Settings.Quests.ApplyImportCommand}" />
-          <Button Classes="v2-target" Content="{Binding UndoImportLabel}"
-                  Command="{Binding Settings.Quests.UndoLastImportCommand}" />
-        </WrapPanel>
-        <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.ImportPreviewSummary}" TextWrapping="Wrap" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.Quests.ExchangeStatus}" TextWrapping="Wrap" />
-        <ScrollViewer IsVisible="{Binding Settings.Quests.HasImportProposals}" MaxHeight="240"
-                      VerticalScrollBarVisibility="Auto">
-          <ItemsControl ItemsSource="{Binding Settings.Quests.ImportProposals}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="quests:QuestImportProposalViewModel">
-                <StackPanel Spacing="2" Margin="0,0,0,10">
-                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <TextBlock Classes="v2-body" Text="{Binding Classification}" />
-                    <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Entity}" TextWrapping="Wrap" />
-                    <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Resolution}" />
-                  </Grid>
-                  <TextBlock Classes="v2-label" Text="{Binding LocalValue}" TextWrapping="Wrap" />
-                  <TextBlock Classes="v2-label" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
-                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
-                </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-        <StackPanel Classes="v2-stack" IsVisible="{Binding Settings.Quests.HasImportHistory}">
-          <TextBlock Classes="v2-body" Text="{Binding ImportHistoryTitle}" />
-          <ItemsControl ItemsSource="{Binding Settings.Quests.ImportHistory}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="quests:QuestImportHistoryRowViewModel">
-                <StackPanel Spacing="2" Margin="0,0,0,10">
-                  <TextBlock Classes="v2-body" Text="{Binding Title}" TextWrapping="Wrap" />
-                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
-                  <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
+        <!-- [#902 P6] Profile & Progress: who is playing, how far ahead advice looks, and every way progress
+             arrives or leaves. The profile file and the quest file merge are one panel now. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsProfileProgressSelected}">
+          <StackPanel Classes="v2-stack">
+            <!-- [#269] Profiles first: the game mode they carry decides what data everything below shows. -->
+            <Panel IsVisible="{Binding HasProfiles}">
+              <setup:V2SetupProfilesView DataContext="{Binding Profiles}" />
+            </Panel>
+            <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
+            <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
+            <Separator Margin="0,6" />
+            <StackPanel Classes="v2-stack" IsVisible="{Binding HasRecommendationHorizons}">
+              <TextBlock Classes="v2-heading-2" Text="{Binding RecommendationHorizons.Heading}"
+                         AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding RecommendationHorizons.Hint}" TextWrapping="Wrap" />
+              <TextBlock Classes="v2-body" Text="{Binding RecommendationHorizons.QuestLabel}" />
+              <ItemsControl ItemsSource="{Binding RecommendationHorizons.QuestChoices}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:RecommendationHorizonChoiceViewModel">
+                    <Button Classes="v2-target v2-choice" Margin="0,0,4,4" Content="{Binding DisplayLabel}" Classes.selected="{Binding IsCurrent}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}" Command="{Binding ChooseCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="v2-body" Text="{Binding RecommendationHorizons.HideoutLabel}" />
+              <ItemsControl ItemsSource="{Binding RecommendationHorizons.HideoutChoices}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:RecommendationHorizonChoiceViewModel">
+                    <Button Classes="v2-target v2-choice" Margin="0,0,4,4" Content="{Binding DisplayLabel}" Classes.selected="{Binding IsCurrent}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}" Command="{Binding ChooseCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Border Height="1" Background="{DynamicResource V2.Brush.Border}" Margin="0,4,0,8" />
+            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding HasLearnMode}">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding LearnModeTitle}" />
+                <TextBlock Classes="v2-label" Text="{Binding LearnModeLine}" TextWrapping="Wrap" />
+              </StackPanel>
+              <!-- The same setting as Plan's Learn chip, not a copy of it. -->
+              <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                            IsChecked="{Binding LearnMode.IsEnabled, Mode=TwoWay, FallbackValue=False}"
+                            AutomationProperties.AutomationId="v2-setup-learn-mode"
+                            AutomationProperties.Name="{Binding LearnModeTitle}" />
+            </Grid>
+            <Panel IsVisible="{Binding HasQuestSync}">
+              <setup:QuestScreenshotSyncView DataContext="{Binding QuestSync}" />
+            </Panel>
+            <TextBlock Classes="v2-body" Text="{Binding TrackerTitle}" Margin="0,8,0,0" />
+            <TextBlock Classes="v2-label" Text="{Binding TrackerNote}" TextWrapping="Wrap" />
+            <TextBox Classes="v2-field-input" PasswordChar="●"
+                     Text="{Binding Settings.Quests.TarkovTrackerToken}"
+                     IsEnabled="{Binding Settings.Quests.CanConnectTarkovTracker}"
+                     PlaceholderText="{Binding TrackerTokenPlaceholder}"
+                     AutomationProperties.AutomationId="v2-setup-tracker-token"
+                     AutomationProperties.Name="{Binding TrackerTitle}" />
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-connect"
+                      IsEnabled="{Binding Settings.Quests.CanConnectTarkovTracker}"
+                      Content="{Binding TrackerConnectLabel}" Command="{Binding Settings.Quests.ConnectTarkovTrackerCommand}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-refresh"
+                      IsEnabled="{Binding Settings.Quests.CanRefreshTarkovTracker}"
+                      Content="{Binding TrackerRefreshLabel}" Command="{Binding Settings.Quests.RefreshTarkovTrackerCommand}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-disconnect"
+                      IsEnabled="{Binding Settings.Quests.CanDisconnectTarkovTracker}"
+                      Content="{Binding TrackerDisconnectLabel}" Command="{Binding Settings.Quests.DisconnectTarkovTrackerCommand}" />
+            </WrapPanel>
+            <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.TarkovTrackerStatus}" TextWrapping="Wrap" />
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding MoveProgressHeading}" AutomationProperties.HeadingLevel="3" />
+            <Panel IsVisible="{Binding Profiles.HasTransfer, FallbackValue=False}">
+              <setup:V2SetupProfileTransferView DataContext="{Binding Profiles.Transfer}" />
+            </Panel>
+            <Expander Header="{Binding MergeProgressHeading}" HorizontalAlignment="Stretch"
+                      AutomationProperties.AutomationId="v2-setup-progress-merge">
+              <StackPanel Classes="v2-stack">
+                <TextBlock Classes="v2-body" Text="{Binding ExchangeTitle}" />
+                <TextBlock Classes="v2-label" Text="{Binding ExchangeNote}" TextWrapping="Wrap" />
+                <TextBox Classes="v2-field-input" Text="{Binding Settings.Quests.ExchangePath}"
+                         PlaceholderText="{Binding ExchangePathPlaceholder}"
+                         AutomationProperties.AutomationId="v2-setup-exchange-path"
+                         AutomationProperties.Name="{Binding ExchangePathPlaceholder}" />
+                <WrapPanel Classes="v2-toolbar">
+                  <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-progress"
+                          Content="{Binding ExportLabel}" Command="{Binding Settings.Quests.ExportProgressCommand}" />
+                  <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import"
+                          Content="{Binding PreviewImportLabel}" Command="{Binding Settings.Quests.PreviewImportCommand}" />
+                  <Button Classes="v2-target" Content="{Binding KeepLocalLabel}"
+                          Command="{Binding Settings.Quests.KeepLocalConflictsCommand}" />
+                  <Button Classes="v2-target" Content="{Binding UseIncomingLabel}"
+                          Command="{Binding Settings.Quests.UseIncomingConflictsCommand}" />
+                  <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-apply-import"
+                          Content="{Binding ApplyImportLabel}" Command="{Binding Settings.Quests.ApplyImportCommand}" />
+                  <Button Classes="v2-target" Content="{Binding UndoImportLabel}"
+                          Command="{Binding Settings.Quests.UndoLastImportCommand}" />
+                </WrapPanel>
+                <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.ImportPreviewSummary}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-label" Text="{Binding Settings.Quests.ExchangeStatus}" TextWrapping="Wrap" />
+                <ScrollViewer IsVisible="{Binding Settings.Quests.HasImportProposals}" MaxHeight="240"
+                              VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding Settings.Quests.ImportProposals}">
                     <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="quests:QuestImportHistoryLineViewModel">
-                        <Grid ColumnDefinitions="200,*" ColumnSpacing="10">
-                          <TextBlock Classes="v2-label" Text="{Binding What}" TextWrapping="Wrap" />
-                          <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Why}" TextWrapping="Wrap" />
-                        </Grid>
+                      <DataTemplate x:DataType="quests:QuestImportProposalViewModel">
+                        <StackPanel Spacing="2" Margin="0,0,0,10">
+                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <TextBlock Classes="v2-body" Text="{Binding Classification}" />
+                            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Entity}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Resolution}" />
+                          </Grid>
+                          <TextBlock Classes="v2-label" Text="{Binding LocalValue}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+                <StackPanel Classes="v2-stack" IsVisible="{Binding Settings.Quests.HasImportHistory}">
+                  <TextBlock Classes="v2-body" Text="{Binding ImportHistoryTitle}" />
+                  <ItemsControl ItemsSource="{Binding Settings.Quests.ImportHistory}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="quests:QuestImportHistoryRowViewModel">
+                        <StackPanel Spacing="2" Margin="0,0,0,10">
+                          <TextBlock Classes="v2-body" Text="{Binding Title}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                          <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="quests:QuestImportHistoryLineViewModel">
+                                <Grid ColumnDefinitions="200,*" ColumnSpacing="10">
+                                  <TextBlock Classes="v2-label" Text="{Binding What}" TextWrapping="Wrap" />
+                                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Why}" TextWrapping="Wrap" />
+                                </Grid>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
                 </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-
-        <TextBlock Classes="v2-body" Text="{Binding TrackerTitle}" Margin="0,8,0,0" />
-        <TextBlock Classes="v2-label" Text="{Binding TrackerNote}" TextWrapping="Wrap" />
-        <TextBox Classes="v2-field-input" PasswordChar="●"
-                 Text="{Binding Settings.Quests.TarkovTrackerToken}"
-                 IsEnabled="{Binding Settings.Quests.CanConnectTarkovTracker}"
-                 PlaceholderText="{Binding TrackerTokenPlaceholder}"
-                 AutomationProperties.AutomationId="v2-setup-tracker-token"
-                 AutomationProperties.Name="{Binding TrackerTitle}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-connect"
-                  IsEnabled="{Binding Settings.Quests.CanConnectTarkovTracker}"
-                  Content="{Binding TrackerConnectLabel}" Command="{Binding Settings.Quests.ConnectTarkovTrackerCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-refresh"
-                  IsEnabled="{Binding Settings.Quests.CanRefreshTarkovTracker}"
-                  Content="{Binding TrackerRefreshLabel}" Command="{Binding Settings.Quests.RefreshTarkovTrackerCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-disconnect"
-                  IsEnabled="{Binding Settings.Quests.CanDisconnectTarkovTracker}"
-                  Content="{Binding TrackerDisconnectLabel}" Command="{Binding Settings.Quests.DisconnectTarkovTrackerCommand}" />
-        </WrapPanel>
-        <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.TarkovTrackerStatus}" TextWrapping="Wrap" />
-      </StackPanel>
-    </Border>
-
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsTeamDevicesSelected}">
-      <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding Group.Status}" />
-        <!-- [#902] Read-only: the switches live on Team › Group and save there. A second switch
-             here went stale beside Team's. -->
-        <TextBlock Classes="v2-body" Text="{Binding Group.SharingSummary}" TextWrapping="Wrap"
-                   AutomationProperties.AutomationId="v2-setup-squad-sharing-summary" />
-        <Button Classes="v2-target" HorizontalAlignment="Left"
-                AutomationProperties.AutomationId="v2-setup-open-team"
-                Content="{Binding OpenTeamLabel}" Command="{Binding OpenTeamCommand}" />
-        <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
-                AutomationProperties.AutomationId="v2-setup-open-sharing-detail"
-                Content="{Binding OpenSharingDetailLabel}" Command="{Binding OpenSharingDetailCommand}" />
-      </StackPanel>
-    </Border>
-
-    <!-- V2 rough package 36 (self-updating builds): the channel, what is installed, what is
-         available, one press to update, and where the data is. A build run from a folder says
-         so and points at the installer instead of offering buttons that cannot act. -->
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsUpdatesSelected}">
-      <StackPanel Classes="v2-stack">
-        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
-          <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding UpdateChannelLabel}" />
-          <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.UpdateChannelName}"
-                     AutomationProperties.AutomationId="v2-setup-update-channel" />
-          <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding InstalledBuildLabel}" />
-          <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.InstalledBuild}"
-                     AutomationProperties.AutomationId="v2-setup-installed-build" />
-          <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding AvailableBuildLabel}" />
-          <TextBlock Grid.Row="2" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.AvailableBuild}"
-                     AutomationProperties.AutomationId="v2-setup-available-build" />
-        </Grid>
-        <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateStatus}" TextWrapping="Wrap" />
-        <ProgressBar Classes="v2-setup-progress" Minimum="0" Maximum="100"
-                     IsVisible="{Binding Settings.IsDownloadingUpdate}"
-                     Value="{Binding Settings.UpdatePercent}"
-                     AutomationProperties.AutomationId="v2-setup-update-progress"
-                     AutomationProperties.Name="{Binding Settings.UpdateStatus}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-check-update"
-                  IsEnabled="{Binding Settings.CanCheckForUpdate}"
-                  Content="{Binding CheckUpdateButtonLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
-          <Button Classes="v2-target primary" IsVisible="{Binding Settings.ShowsUpdateNow}"
-                  IsEnabled="{Binding Settings.IsUpdateIdle}"
-                  AutomationProperties.AutomationId="v2-setup-update-now"
-                  Content="{Binding UpdateNowLabel}" Command="{Binding Settings.UpdateNowCommand}" />
-          <!-- #599: a downloaded build that was tried and did not apply. Offered again, by name,
-               with the installer beside it as the way out that does not depend on the updater. -->
-          <Button Classes="v2-target primary" IsVisible="{Binding Settings.UpdateDidNotApply}"
-                  IsEnabled="{Binding Settings.IsUpdateIdle}"
-                  AutomationProperties.AutomationId="v2-setup-apply-now"
-                  Content="{x:Static updates:PendingUpdateText.ApplyNow}" Command="{Binding Settings.UpdateNowCommand}" />
-          <Button Classes="v2-target" IsVisible="{Binding Settings.UpdateDidNotApply}"
-                  AutomationProperties.AutomationId="v2-setup-run-installer"
-                  Content="{x:Static updates:PendingUpdateText.RunInstaller}" Click="OnGetInstaller" />
-          <Button Classes="v2-target primary" IsVisible="{Binding Settings.IsRunFromFolder}"
-                  AutomationProperties.AutomationId="v2-setup-get-installer"
-                  Content="{Binding GetInstallerLabel}" Click="OnGetInstaller" />
-        </WrapPanel>
-        <SelectableTextBlock Classes="v2-label" IsVisible="{Binding Settings.IsRunFromFolder}"
-                             Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
-        <StackPanel Classes="v2-field" IsVisible="{Binding Settings.UpdateDidNotApply}">
-          <TextBlock Classes="v2-body" Text="{x:Static updates:PendingUpdateText.Advice}" TextWrapping="Wrap"
-                     AutomationProperties.AutomationId="v2-setup-update-advice" />
-          <SelectableTextBlock Classes="v2-label" Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
-        </StackPanel>
-        <TextBlock Classes="v2-label" Text="{Binding UpdateDataFolder.Text}" TextWrapping="Wrap"
-                   AutomationProperties.AutomationId="v2-setup-update-data-folder" />
-        <!-- [#292] What is in the waiting build, and how to go back to an earlier one. -->
-        <StackPanel Classes="v2-field" IsVisible="{Binding Settings.HasUpdateNotes}">
-          <TextBlock Classes="v2-label" Text="{Binding UpdateNotesHeading}" />
-          <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateNotes}" TextWrapping="Wrap"
-                     AutomationProperties.AutomationId="v2-setup-update-notes" />
-        </StackPanel>
-        <StackPanel Classes="v2-field">
-          <setup:V2SetupRollbackView DataContext="{Binding Settings.Rollback}" />
-          <TextBlock Classes="v2-body" Text="{Binding GoingBackNote}" TextWrapping="Wrap"
-                     IsVisible="{Binding Settings.Rollback.ShowsInstallerNote}" />
-        </StackPanel>
-      </StackPanel>
-    </Border>
-
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsPrivacySelected}">
-      <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding ScreenshotIntro}" />
-        <StackPanel Classes="v2-field" IsVisible="{Binding Settings.CanTidyScreenshots}">
-          <TextBlock Classes="v2-label" Text="{Binding RetentionValueLabel}" />
-          <TextBlock Classes="v2-body" Text="{Binding Settings.RetentionDisplay}" />
-        </StackPanel>
-        <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" TextWrapping="Wrap" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
-                  IsVisible="{Binding NoCleanup}"
-                  IsEnabled="{Binding Settings.CanTidyScreenshots}"
-                  Content="{Binding Settings.ScreenshotTidyingLabel}" Command="{Binding Settings.ToggleScreenshotTidyingCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-choose-retention"
-                  IsEnabled="{Binding Settings.CanTidyScreenshots}"
-                  Content="{Binding RetentionLabel}" Command="{Binding Settings.ChooseRetentionCommand}" />
-        </WrapPanel>
-        <TextBlock Classes="v2-label" Text="{Binding RecycleNote}" TextWrapping="Wrap"
-                   IsVisible="{Binding Settings.CanTidyScreenshots}" />
-        <!-- [#309] Turning tidying on goes through a preview of exactly what it would move; a dry run and
-             the last runs are here too. -->
-        <Panel IsVisible="{Binding HasCleanup}">
-          <setup:V2SetupCleanupView DataContext="{Binding Cleanup}" />
-        </Panel>
-        <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
-                AutomationProperties.AutomationId="v2-setup-open-privacy-detail"
-                Content="{Binding OpenPrivacyDetailLabel}" Command="{Binding OpenPrivacyDetailCommand}" />
-      </StackPanel>
-    </Border>
-
-    <!-- V2 rough package 43 (#314): the five notifications. Every row says when it happens in
-         one sentence, whether it is allowed to interrupt a raid, and carries a button that sends
-         the real thing so the switch can be judged without waiting for the raid to go wrong. -->
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsNotificationsSelected}"
-            AutomationProperties.AutomationId="v2-setup-notifications">
-      <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding NotificationsIntro}" TextWrapping="Wrap" />
-        <TextBlock Classes="v2-label" Text="{Binding NotificationsRaidNote}" TextWrapping="Wrap" />
-        <!-- The visibility is the workspace's question and the rows are the notification view
-             model's, so they cannot share an element: x:DataType here would re-type the binding
-             above it. -->
-        <Panel IsVisible="{Binding HasNotifications}">
-        <StackPanel Classes="v2-stack" DataContext="{Binding Notifications}"
-                    x:DataType="vm:SetupNotificationsViewModel">
-          <TextBlock Classes="v2-label" Text="{Binding TrayStatusLine}" TextWrapping="Wrap"
-                     AutomationProperties.AutomationId="v2-setup-notifications-tray" />
-          <ItemsControl ItemsSource="{Binding Rows}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:SetupNotificationRowViewModel">
-                <Border Classes="v2-card" Padding="12,10">
-                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                    <StackPanel Spacing="2">
-                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
-                      <TextBlock Classes="v2-label" Text="{Binding Description}" TextWrapping="Wrap" />
-                      <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding WhenLabel}" />
-                    </StackPanel>
-                    <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
-                            AutomationProperties.AutomationId="{Binding TestAutomationId}"
-                            Content="{x:Static l:SetupText.NotificationsTestLabel}" Command="{Binding TestCommand}" />
-                    <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
-                                  IsChecked="{Binding IsEnabled, Mode=OneWay}"
-                                  OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
-                                  AutomationProperties.AutomationId="{Binding AutomationId}"
-                                  AutomationProperties.Name="{Binding Title}"
-                                  Command="{Binding ToggleCommand}" />
-                  </Grid>
-                </Border>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <Border Classes="v2-card" Padding="12,10">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <StackPanel Spacing="2">
-                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding PopupTitle}" />
-                <TextBlock Classes="v2-label" Text="{Binding PopupDescription}" TextWrapping="Wrap" />
               </StackPanel>
-              <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                            IsChecked="{Binding ShowsPopup, Mode=OneWay}"
-                            OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
-                            AutomationProperties.AutomationId="v2-setup-notification-popup"
-                            AutomationProperties.Name="{Binding PopupTitle}"
-                            Command="{Binding TogglePopupCommand}" />
-            </Grid>
-          </Border>
-          <!-- #314: quiet hours hold the pop-up back overnight; the tray still counts. -->
-          <Border Classes="v2-card" Padding="12,10">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
-              <StackPanel Spacing="2">
-                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding QuietHoursTitle}" />
-                <TextBlock Classes="v2-label" Text="{Binding QuietHoursDescription}" TextWrapping="Wrap" />
-              </StackPanel>
-              <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:SetupText.NotificationsQuietFromLabel}" VerticalAlignment="Center" />
-              <ComboBox Grid.Column="2" Width="96" VerticalAlignment="Center"
-                        ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietFromHour}"
-                        IsEnabled="{Binding QuietHours}"
-                        AutomationProperties.AutomationId="v2-setup-notification-quiet-from"
-                        AutomationProperties.Name="{x:Static l:SetupText.NotificationsQuietFromName}" />
-              <TextBlock Grid.Column="3" Classes="v2-label" Text="{x:Static l:SetupText.NotificationsQuietToLabel}" VerticalAlignment="Center" />
-              <ComboBox Grid.Column="4" Width="96" VerticalAlignment="Center"
-                        ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietToHour}"
-                        IsEnabled="{Binding QuietHours}"
-                        AutomationProperties.AutomationId="v2-setup-notification-quiet-to"
-                        AutomationProperties.Name="{x:Static l:SetupText.NotificationsQuietUntilName}" />
-              <ToggleSwitch Grid.Column="5" VerticalAlignment="Center"
-                            IsChecked="{Binding QuietHours, Mode=OneWay}"
-                            OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
-                            AutomationProperties.AutomationId="v2-setup-notification-quiet"
-                            AutomationProperties.Name="{Binding QuietHoursTitle}"
-                            Command="{Binding ToggleQuietHoursCommand}" />
-            </Grid>
-          </Border>
-          <!-- [#902 P9] What the notifications said, since the tray only counts them. -->
-          <StackPanel Classes="v2-stack" DataContext="{Binding Recent}" x:DataType="vm:RecentNotificationsViewModel"
-                      AutomationProperties.AutomationId="v2-setup-notifications-recent">
-            <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
-            <TextBlock Classes="v2-label" Text="{Binding Empty}" IsVisible="{Binding HasNoRows}" />
-            <ItemsControl ItemsSource="{Binding Rows}" IsVisible="{Binding HasRows}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:RecentNotificationRowViewModel">
-                  <Grid ColumnDefinitions="56,*" ColumnSpacing="12" Margin="0,3">
-                    <TextBlock Classes="v2-label" Text="{Binding TimeLabel}" />
-                    <StackPanel Grid.Column="1" Spacing="1">
-                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                      <TextBlock Classes="v2-label" Text="{Binding Body}" TextWrapping="Wrap" IsVisible="{Binding HasBody}" />
-                    </StackPanel>
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </StackPanel>
-        </Panel>
-      </StackPanel>
-    </Border>
-
-    <!-- #292/#315: renamed from Appearance and gathered into one Accessibility section, since
-         theme, colour vision, text size, density, reduced motion and the focus ring are all
-         accessibility settings first. Extracted to its own view/view-model pair rather than grown
-         in place, per the hot-file rule this file is under. -->
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAccessibilitySelected}">
-      <StackPanel Classes="v2-stack">
-        <Panel IsVisible="{Binding HasAccessibility}">
-          <setup:V2SetupAccessibilityView DataContext="{Binding Accessibility}" />
-        </Panel>
-
-        <TextBlock Classes="v2-label" Text="{Binding ScaleLabel}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-smaller"
-                  Content="{Binding SmallerLabel}" Command="{Binding DecreaseScaleCommand}" />
-          <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Legacy.InterfaceScaleLabel}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-larger"
-                  Content="{Binding LargerLabel}" Command="{Binding IncreaseScaleCommand}" />
-        </WrapPanel>
-        <TextBlock Classes="v2-label" Text="{Binding ScaleHint}" TextWrapping="Wrap" />
-        <TextBlock Classes="v2-label" Text="{Binding ScaleScope}" TextWrapping="Wrap" />
-      </StackPanel>
-    </Border>
-
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDisplaysSelected}">
-      <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" TextWrapping="Wrap" />
-        <!-- [#292] The monitors the machine has, and the game window a scan captures. -->
-        <Panel IsVisible="{Binding HasAdmin}">
-          <setup:V2SetupDisplaysView DataContext="{Binding Admin.Displays}" />
-        </Panel>
-      </StackPanel>
-    </Border>
-
-    <!-- [#292] What the data is and what leaves the machine; About. Both are layered and linkable. -->
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataPrivacySelected}">
-      <StackPanel Classes="v2-stack" IsVisible="{Binding HasAdmin}">
-        <!-- [#292] Local only and what each service sends, above the explanation. -->
-        <Panel IsVisible="{Binding Admin.HasNetwork, FallbackValue=False}">
-          <setup:V2SetupNetworkControlsView DataContext="{Binding Admin.Network}" />
-        </Panel>
-        <setup:V2SetupInfoPageView DataContext="{Binding Admin.DataPrivacy}" />
-      </StackPanel>
-    </Border>
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
-      <StackPanel Classes="v2-stack">
-        <!-- [#902 P9] This build's change list, which could not be read again once dismissed. -->
-        <Button Classes="v2-target" HorizontalAlignment="Left"
-                IsVisible="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).HasWhatsNew, FallbackValue=False}"
-                Content="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenWhatsNewLabel}"
-                Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenWhatsNewCommand}"
-                AutomationProperties.AutomationId="v2-setup-whats-new" />
-        <Panel IsVisible="{Binding HasAdmin}">
-          <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
-        </Panel>
-      </StackPanel>
-    </Border>
-
-
-    <!-- V2 rough package 41 (#292, #281): the self-test comes first in Diagnostics, because
-         "is it working" is the question this section is opened to answer. -->
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDiagnosticsSelected}">
-      <StackPanel Classes="v2-stack">
-        <Border Classes="v2-card" IsVisible="{Binding Pairing.HasClockSkewNotice}"
-                AutomationProperties.AutomationId="v2-setup-clock-skew">
-          <StackPanel Classes="v2-stack">
-            <TextBlock Classes="v2-body" TextWrapping="Wrap"
-                       Text="{Binding Pairing.ClockSkewNotice}" />
-            <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                       Text="{Binding Pairing.ClockSkewHelp}" />
+            </Expander>
           </StackPanel>
         </Border>
-        <!-- [#454] The run before this one died without shutting down: where it was when it did.
-             Above the self-test, because it is the one line here about something that already went wrong. -->
-        <TextBlock Classes="v2-body" IsVisible="{Binding HasPreviousRunNotice}" Text="{Binding PreviousRunNotice}"
-                   TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}"
-                   AutomationProperties.AutomationId="v2-setup-previous-run" />
-        <TextBlock Classes="v2-label" IsVisible="{Binding HasSelfTest}" Text="{Binding SelfTestHeading}"
-                   AutomationProperties.HeadingLevel="2" />
-        <TextBlock Classes="v2-body" IsVisible="{Binding HasSelfTest}" TextWrapping="Wrap" Text="{Binding SelfTestIntro}" />
-        <Panel IsVisible="{Binding HasSelfTest}">
-          <setup:V2SelfTestView DataContext="{Binding SelfTest}" />
+
+        <!-- V2 rough package 43 (#314): the five notifications. Every row says when it happens in
+             one sentence, whether it is allowed to interrupt a raid, and carries a button that sends
+             the real thing so the switch can be judged without waiting for the raid to go wrong. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsNotificationsSelected}"
+                AutomationProperties.AutomationId="v2-setup-notifications">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-body" Text="{Binding NotificationsIntro}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-label" Text="{Binding NotificationsRaidNote}" TextWrapping="Wrap" />
+            <!-- The visibility is the workspace's question and the rows are the notification view
+                 model's, so they cannot share an element: x:DataType here would re-type the binding
+                 above it. -->
+            <Panel IsVisible="{Binding HasNotifications}">
+            <StackPanel Classes="v2-stack" DataContext="{Binding Notifications}"
+                        x:DataType="vm:SetupNotificationsViewModel">
+              <TextBlock Classes="v2-label" Text="{Binding TrayStatusLine}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-setup-notifications-tray" />
+              <ItemsControl ItemsSource="{Binding Rows}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SetupNotificationRowViewModel">
+                    <Border Classes="v2-card" Padding="12,10">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="2">
+                          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
+                          <TextBlock Classes="v2-label" Text="{Binding Description}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding WhenLabel}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
+                                AutomationProperties.AutomationId="{Binding TestAutomationId}"
+                                Content="{x:Static l:SetupText.NotificationsTestLabel}" Command="{Binding TestCommand}" />
+                        <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
+                                      IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                      OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
+                                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                                      AutomationProperties.Name="{Binding Title}"
+                                      Command="{Binding ToggleCommand}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Border Classes="v2-card" Padding="12,10">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="2">
+                    <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding PopupTitle}" />
+                    <TextBlock Classes="v2-label" Text="{Binding PopupDescription}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                IsChecked="{Binding ShowsPopup, Mode=OneWay}"
+                                OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
+                                AutomationProperties.AutomationId="v2-setup-notification-popup"
+                                AutomationProperties.Name="{Binding PopupTitle}"
+                                Command="{Binding TogglePopupCommand}" />
+                </Grid>
+              </Border>
+              <!-- #314: quiet hours hold the pop-up back overnight; the tray still counts. -->
+              <Border Classes="v2-card" Padding="12,10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+                  <StackPanel Spacing="2">
+                    <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding QuietHoursTitle}" />
+                    <TextBlock Classes="v2-label" Text="{Binding QuietHoursDescription}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:SetupText.NotificationsQuietFromLabel}" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="2" Width="96" VerticalAlignment="Center"
+                            ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietFromHour}"
+                            IsEnabled="{Binding QuietHours}"
+                            AutomationProperties.AutomationId="v2-setup-notification-quiet-from"
+                            AutomationProperties.Name="{x:Static l:SetupText.NotificationsQuietFromName}" />
+                  <TextBlock Grid.Column="3" Classes="v2-label" Text="{x:Static l:SetupText.NotificationsQuietToLabel}" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="4" Width="96" VerticalAlignment="Center"
+                            ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietToHour}"
+                            IsEnabled="{Binding QuietHours}"
+                            AutomationProperties.AutomationId="v2-setup-notification-quiet-to"
+                            AutomationProperties.Name="{x:Static l:SetupText.NotificationsQuietUntilName}" />
+                  <ToggleSwitch Grid.Column="5" VerticalAlignment="Center"
+                                IsChecked="{Binding QuietHours, Mode=OneWay}"
+                                OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
+                                AutomationProperties.AutomationId="v2-setup-notification-quiet"
+                                AutomationProperties.Name="{Binding QuietHoursTitle}"
+                                Command="{Binding ToggleQuietHoursCommand}" />
+                </Grid>
+              </Border>
+              <!-- [#902 P9] What the notifications said, since the tray only counts them. -->
+              <StackPanel Classes="v2-stack" DataContext="{Binding Recent}" x:DataType="vm:RecentNotificationsViewModel"
+                          AutomationProperties.AutomationId="v2-setup-notifications-recent">
+                <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-label" Text="{Binding Empty}" IsVisible="{Binding HasNoRows}" />
+                <ItemsControl ItemsSource="{Binding Rows}" IsVisible="{Binding HasRows}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RecentNotificationRowViewModel">
+                      <Grid ColumnDefinitions="56,*" ColumnSpacing="12" Margin="0,3">
+                        <TextBlock Classes="v2-label" Text="{Binding TimeLabel}" />
+                        <StackPanel Grid.Column="1" Spacing="1">
+                          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding Body}" TextWrapping="Wrap" IsVisible="{Binding HasBody}" />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+            </Panel>
+          </StackPanel>
+        </Border>
+
+        <!-- [#902 P6] Appearance & Window: how the app looks and where its window goes. Language and the
+             displays joined the old Accessibility section; each choice is a picker, not a tab. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAppearanceWindowSelected}">
+          <StackPanel Classes="v2-stack">
+            <Panel IsVisible="{Binding HasAccessibility}">
+              <setup:V2SetupAccessibilityView DataContext="{Binding Accessibility}" />
+            </Panel>
+
+            <TextBlock Classes="v2-label" Text="{Binding ScaleLabel}" />
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-smaller"
+                      Content="{Binding SmallerLabel}" Command="{Binding DecreaseScaleCommand}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Legacy.InterfaceScaleLabel}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-larger"
+                      Content="{Binding LargerLabel}" Command="{Binding IncreaseScaleCommand}" />
+            </WrapPanel>
+            <TextBlock Classes="v2-label" Text="{Binding ScaleHint}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-label" Text="{Binding ScaleScope}" TextWrapping="Wrap" />
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding WindowHeading}" AutomationProperties.HeadingLevel="3" />
+            <!-- [#314] The interface language, beside the profile whose game data has a language of its own. -->
+            <StackPanel Classes="v2-stack" IsVisible="{Binding HasLanguage}">
+              <setup:V2SetupLanguageView DataContext="{Binding Language}" />
+            </StackPanel>
+            <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" TextWrapping="Wrap" />
+            <!-- [#292] The monitors the machine has, and the game window a scan captures. -->
+            <Panel IsVisible="{Binding HasAdmin}">
+              <setup:V2SetupDisplaysView DataContext="{Binding Admin.Displays}" />
+            </Panel>
+          </StackPanel>
+        </Border>
+
+        <!-- [#902 P6] Data & Network: Local only first, then each thing that goes online with its state now,
+             then the game data and the squad, then what is kept and what leaves. This was three tabs
+             (Data, Privacy, Data & Privacy), and Local only was the thirteenth of fourteen. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataNetworkSelected}">
+          <StackPanel Classes="v2-stack">
+            <!-- [#292] Local only and what each service sends, above the explanation. -->
+            <Panel IsVisible="{Binding Admin.HasNetwork, FallbackValue=False}">
+              <setup:V2SetupNetworkControlsView DataContext="{Binding Admin.Network}" />
+            </Panel>
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding GameDataHeading}" AutomationProperties.HeadingLevel="3" />
+            <TextBlock Classes="v2-body" Text="{Binding Settings.DataStatus}" />
+            <TextBlock Classes="v2-label" Text="{Binding DatabasePath.Text}" />
+            <TextBlock Classes="v2-label" Text="{Binding Settings.DiagnosticChannel}" />
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-setup-sync"
+                    Content="{Binding SyncLabel}" Command="{Binding Settings.SyncCommand}" />
+            <TextBlock Classes="v2-label" Text="{Binding OfflineNote}" TextWrapping="Wrap"
+                       IsVisible="{Binding Settings.IsOffline}" />
+            <!-- [#292] Source, coverage, last attempt, last success, next refresh, and why it is not current. -->
+            <Panel IsVisible="{Binding HasAdmin}">
+              <setup:V2SetupDataDetailView DataContext="{Binding Admin.Data}" />
+            </Panel>
+            <!-- #292 task 3: the database's own migration version and verified backup. -->
+            <Panel IsVisible="{Binding HasDatabaseStatus}">
+              <setup:V2SetupDatabaseStatusView DataContext="{Binding DatabaseStatus}" />
+            </Panel>
+            <!-- [Issue 318] The same for the loot-spawn layer: per map, how many of the published spawn records
+                 have a position and a floor, from the last verified import (works offline). -->
+            <StackPanel Classes="v2-stack" IsVisible="{Binding HasLootCoverage}"
+                        AutomationProperties.AutomationId="v2-setup-loot-coverage">
+              <TextBlock Classes="v2-body" Text="{Binding LootCoverage.Title}" />
+              <TextBlock Classes="v2-label" Text="{Binding LootCoverage.Status}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding LootCoverage.Rows}" IsVisible="{Binding LootCoverage.HasRows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LootCoverageRowViewModel">
+                    <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
+                      <TextBlock Classes="v2-label" Text="{Binding MapName}" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+            <!-- [Issue 379] How much of each map's quest objectives the quest data can place, so a gap is a
+                 number here rather than a marker that is silently missing on the Raid map. -->
+            <StackPanel Classes="v2-stack" IsVisible="{Binding HasQuestCoverage}"
+                        AutomationProperties.AutomationId="v2-setup-quest-coverage">
+              <TextBlock Classes="v2-body" Text="{Binding QuestCoverage.Title}" />
+              <TextBlock Classes="v2-label" Text="{Binding QuestCoverage.Status}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding QuestCoverage.Rows}" IsVisible="{Binding QuestCoverage.HasRows}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestCoverageRowViewModel">
+                    <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
+                      <TextBlock Classes="v2-label" Text="{Binding MapName}" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding SquadHeading}" AutomationProperties.HeadingLevel="3" />
+            <TextBlock Classes="v2-body" Text="{Binding Group.Status}" />
+            <!-- [#902] Read-only: the switches live on Team › Group and save there. A second switch
+                 here went stale beside Team's. -->
+            <TextBlock Classes="v2-body" Text="{Binding Group.SharingSummary}" TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="v2-setup-squad-sharing-summary" />
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-setup-open-team"
+                    Content="{Binding OpenTeamLabel}" Command="{Binding OpenTeamCommand}" />
+            <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
+                    AutomationProperties.AutomationId="v2-setup-open-sharing-detail"
+                    Content="{Binding OpenSharingDetailLabel}" Command="{Binding OpenSharingDetailCommand}" />
+            <Separator Margin="0,6" />
+            <Panel IsVisible="{Binding HasAdmin}">
+              <setup:V2SetupInfoPageView DataContext="{Binding Admin.DataPrivacy}" />
+            </Panel>
+          </StackPanel>
+        </Border>
+
+        <!-- [#902 P6] Updates & Diagnostics. The feature flags lead the diagnostics rather than sitting under
+             the self-test: two of them (the Raid pencil, tablet cards) are things a player turns on. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsUpdatesDiagnosticsSelected}">
+          <StackPanel Classes="v2-stack">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
+              <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding UpdateChannelLabel}" />
+              <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.UpdateChannelName}"
+                         AutomationProperties.AutomationId="v2-setup-update-channel" />
+              <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding InstalledBuildLabel}" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.InstalledBuild}"
+                         AutomationProperties.AutomationId="v2-setup-installed-build" />
+              <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding AvailableBuildLabel}" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.AvailableBuild}"
+                         AutomationProperties.AutomationId="v2-setup-available-build" />
+            </Grid>
+            <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateStatus}" TextWrapping="Wrap" />
+            <ProgressBar Classes="v2-setup-progress" Minimum="0" Maximum="100"
+                         IsVisible="{Binding Settings.IsDownloadingUpdate}"
+                         Value="{Binding Settings.UpdatePercent}"
+                         AutomationProperties.AutomationId="v2-setup-update-progress"
+                         AutomationProperties.Name="{Binding Settings.UpdateStatus}" />
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-check-update"
+                      IsEnabled="{Binding Settings.CanCheckForUpdate}"
+                      Content="{Binding CheckUpdateButtonLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
+              <Button Classes="v2-target primary" IsVisible="{Binding Settings.ShowsUpdateNow}"
+                      IsEnabled="{Binding Settings.IsUpdateIdle}"
+                      AutomationProperties.AutomationId="v2-setup-update-now"
+                      Content="{Binding UpdateNowLabel}" Command="{Binding Settings.UpdateNowCommand}" />
+              <!-- #599: a downloaded build that was tried and did not apply. Offered again, by name,
+                   with the installer beside it as the way out that does not depend on the updater. -->
+              <Button Classes="v2-target primary" IsVisible="{Binding Settings.UpdateDidNotApply}"
+                      IsEnabled="{Binding Settings.IsUpdateIdle}"
+                      AutomationProperties.AutomationId="v2-setup-apply-now"
+                      Content="{x:Static updates:PendingUpdateText.ApplyNow}" Command="{Binding Settings.UpdateNowCommand}" />
+              <Button Classes="v2-target" IsVisible="{Binding Settings.UpdateDidNotApply}"
+                      AutomationProperties.AutomationId="v2-setup-run-installer"
+                      Content="{x:Static updates:PendingUpdateText.RunInstaller}" Click="OnGetInstaller" />
+              <Button Classes="v2-target primary" IsVisible="{Binding Settings.IsRunFromFolder}"
+                      AutomationProperties.AutomationId="v2-setup-get-installer"
+                      Content="{Binding GetInstallerLabel}" Click="OnGetInstaller" />
+            </WrapPanel>
+            <SelectableTextBlock Classes="v2-label" IsVisible="{Binding Settings.IsRunFromFolder}"
+                                 Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
+            <StackPanel Classes="v2-field" IsVisible="{Binding Settings.UpdateDidNotApply}">
+              <TextBlock Classes="v2-body" Text="{x:Static updates:PendingUpdateText.Advice}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-setup-update-advice" />
+              <SelectableTextBlock Classes="v2-label" Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBlock Classes="v2-label" Text="{Binding UpdateDataFolder.Text}" TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="v2-setup-update-data-folder" />
+            <!-- [#292] What is in the waiting build, and how to go back to an earlier one. -->
+            <StackPanel Classes="v2-field" IsVisible="{Binding Settings.HasUpdateNotes}">
+              <TextBlock Classes="v2-label" Text="{Binding UpdateNotesHeading}" />
+              <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateNotes}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-setup-update-notes" />
+            </StackPanel>
+            <StackPanel Classes="v2-field">
+              <setup:V2SetupRollbackView DataContext="{Binding Settings.Rollback}" />
+              <TextBlock Classes="v2-body" Text="{Binding GoingBackNote}" TextWrapping="Wrap"
+                         IsVisible="{Binding Settings.Rollback.ShowsInstallerNote}" />
+            </StackPanel>
+            <!-- [#902 P9] This build's change list, which could not be read again once dismissed. -->
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    IsVisible="{Binding Shell.HasWhatsNew, FallbackValue=False}"
+                    Content="{Binding Shell.OpenWhatsNewLabel, FallbackValue=''}"
+                    Command="{Binding Shell.OpenWhatsNewCommand, FallbackValue={x:Null}}"
+                    AutomationProperties.AutomationId="v2-setup-whats-new" />
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding FeaturesHeading}" AutomationProperties.HeadingLevel="3" />
+            <Panel IsVisible="{Binding HasFeatureFlags}">
+              <setup:V2SetupFeatureFlagsView DataContext="{Binding FeatureFlags}" />
+            </Panel>
+            <Separator Margin="0,6" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding DiagnosticsHeading}" AutomationProperties.HeadingLevel="3" />
+            <Border Classes="v2-card" IsVisible="{Binding Pairing.HasClockSkewNotice}"
+                    AutomationProperties.AutomationId="v2-setup-clock-skew">
+              <StackPanel Classes="v2-stack">
+                <TextBlock Classes="v2-body" TextWrapping="Wrap"
+                           Text="{Binding Pairing.ClockSkewNotice}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                           Text="{Binding Pairing.ClockSkewHelp}" />
+              </StackPanel>
+            </Border>
+            <!-- [#454] The run before this one died without shutting down: where it was when it did.
+                 Above the self-test, because it is the one line here about something that already went wrong. -->
+            <TextBlock Classes="v2-body" IsVisible="{Binding HasPreviousRunNotice}" Text="{Binding PreviousRunNotice}"
+                       TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}"
+                       AutomationProperties.AutomationId="v2-setup-previous-run" />
+            <TextBlock Classes="v2-label" IsVisible="{Binding HasSelfTest}" Text="{Binding SelfTestHeading}"
+                       AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-body" IsVisible="{Binding HasSelfTest}" TextWrapping="Wrap" Text="{Binding SelfTestIntro}" />
+            <Panel IsVisible="{Binding HasSelfTest}">
+              <setup:V2SelfTestView DataContext="{Binding SelfTest}" />
+            </Panel>
+            <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
+              <setup:V2SetupLootTimingView DataContext="{Binding Admin.LootScan}" />
+            </Panel>
+            <StackPanel Classes="v2-field">
+              <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
+              <TextBlock Classes="v2-body" Text="{Binding CompanionLogPath.Text}" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBlock Classes="v2-body" Text="{Binding Settings.DiagnosticsStatus}" />
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-copy-diagnostics"
+                      Content="{Binding CopyDiagnosticsLabel}" Command="{Binding Settings.CopyDiagnosticsCommand}" />
+              <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-problem"
+                      IsVisible="{Binding !HasAdmin}"
+                      Content="{Binding ReportProblemLabel}" Command="{Binding Settings.ReportProblemCommand}" />
+            </WrapPanel>
+            <!-- [#292/#309] Reporting is read-then-send: the whole report is shown, and Send sends that text. -->
+            <Panel IsVisible="{Binding HasAdmin}">
+              <setup:V2SetupReportView DataContext="{Binding Admin.Report}" />
+            </Panel>
+            <!-- Where a report goes, said at the button that sends it, as V1 does. -->
+            <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
+          <Panel IsVisible="{Binding HasAdmin}">
+            <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
+          </Panel>
+        </Border>
+
+        <!-- #902: after every section, so it sits at the section's foot. It shows "Reset this section"
+             where the section is the home of a registered setting, and Backup & reset under About
+             only. It once lived under Accessibility alone, where nobody looked for "Reset everything". -->
+        <Panel IsVisible="{Binding HasSettingsAdmin}">
+          <setup:V2SetupSettingsAdminView DataContext="{Binding SettingsAdmin}" />
         </Panel>
-        <Panel IsVisible="{Binding HasFeatureFlags}">
-          <setup:V2SetupFeatureFlagsView DataContext="{Binding FeatureFlags}" />
-        </Panel>
-        <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
-          <setup:V2SetupLootTimingView DataContext="{Binding Admin.LootScan}" />
-        </Panel>
-        <StackPanel Classes="v2-field">
-          <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
-          <TextBlock Classes="v2-body" Text="{Binding CompanionLogPath.Text}" TextWrapping="Wrap" />
-        </StackPanel>
-        <TextBlock Classes="v2-body" Text="{Binding Settings.DiagnosticsStatus}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-copy-diagnostics"
-                  Content="{Binding CopyDiagnosticsLabel}" Command="{Binding Settings.CopyDiagnosticsCommand}" />
-          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-problem"
-                  IsVisible="{Binding !HasAdmin}"
-                  Content="{Binding ReportProblemLabel}" Command="{Binding Settings.ReportProblemCommand}" />
-        </WrapPanel>
-        <!-- [#292/#309] Reporting is read-then-send: the whole report is shown, and Send sends that text. -->
-        <Panel IsVisible="{Binding HasAdmin}">
-          <setup:V2SetupReportView DataContext="{Binding Admin.Report}" />
-        </Panel>
-        <!-- Where a report goes, said at the button that sends it, as V1 does. -->
-        <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
       </StackPanel>
-    </Border>
-    <!-- #902: after every section, so it sits at the section's foot. It shows "Reset this section"
-         where the section is the home of a registered setting, and Backup & reset under About
-         only. It once lived under Accessibility alone, where nobody looked for "Reset everything". -->
-    <Panel IsVisible="{Binding HasSettingsAdmin}">
-      <setup:V2SetupSettingsAdminView DataContext="{Binding SettingsAdmin}" />
-    </Panel>
-  </StackPanel>
+    </ScrollViewer>
+  </Grid>
 </UserControl>

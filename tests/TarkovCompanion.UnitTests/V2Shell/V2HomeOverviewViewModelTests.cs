@@ -151,15 +151,46 @@ public sealed class V2HomeOverviewViewModelTests
         Assert.Equal("Screenshots are recycled after 7 days.", overview.CleanupDetail);
     }
 
+    /// <summary>
+    /// [#902 P6] The card said "Diagnostics: Local only · Nothing is sent unless you report a
+    /// problem" whatever the switches were. It now reads the network policy and follows it.
+    /// </summary>
     [Fact]
-    public void ReviewPrivacyOpensThePrivacySectionRatherThanAnotherPage()
+    public void ThePrivacyCardSaysWhatTheNetworkPolicyAllowsAndFollowsIt()
+    {
+        var policy = new TarkovCompanion.Application.Services.Network.NetworkPolicyService(new NetworkControlsInMemory());
+        var overview = Overview();
+        overview.AttachNetwork(policy);
+
+        Assert.Equal("Network: 5 of 5 on", overview.TelemetryTitle);
+        Assert.Equal("Can go online: Game data, Squad sharing, Update checks, Problem reports, TarkovTracker sync.", overview.TelemetryDetail);
+
+        policy.Set(policy.Controls.With(TarkovCompanion.Core.Network.NetworkService.ProblemReports, false));
+        Assert.Equal("Network: 4 of 5 on", overview.TelemetryTitle);
+
+        policy.Set(policy.Controls with { LocalOnly = true });
+        Assert.Equal("Network: Local only", overview.TelemetryTitle);
+        Assert.Equal("Nothing leaves this PC.", overview.TelemetryDetail);
+    }
+
+    private sealed class NetworkControlsInMemory : TarkovCompanion.Core.Network.INetworkControlsStore
+    {
+        private TarkovCompanion.Core.Network.NetworkControls _controls = TarkovCompanion.Core.Network.NetworkControls.Default;
+
+        public TarkovCompanion.Core.Network.NetworkControls Read() => _controls;
+
+        public void Save(TarkovCompanion.Core.Network.NetworkControls controls) => _controls = controls;
+    }
+
+    [Fact]
+    public void ReviewPrivacyOpensDataAndNetworkWhereLocalOnlyIs()
     {
         V2SetupSection? selected = null;
         var overview = Overview(select: section => selected = section);
 
         overview.ReviewPrivacyCommand.Execute(null);
 
-        Assert.Equal(V2SetupSection.Privacy, selected);
+        Assert.Equal(V2SetupSection.DataNetwork, selected);
     }
 
     [Fact]

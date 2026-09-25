@@ -145,18 +145,17 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
     public string MotionHint => SetupText.AppearanceMotionHint;
     public string ResetAllLabel => SetupText.AppearanceResetAllLabel;
 
-    /// <summary>The motion toggle's own label, which says what pressing it will do.</summary>
-    public string MotionToggleLabel => Current.ReduceMotion
-        ? SetupText.AppearanceMotionReduced
-        : SetupText.AppearanceMotionFull;
+    /// <summary>
+    /// [#902 P6] The switch's state. It was a button whose label was the state ("Animations on"),
+    /// so nobody could tell whether it said what is or what a press would do.
+    /// </summary>
+    public bool ReduceMotion => Current.ReduceMotion;
 
     public string FocusLabel => SetupText.AppearanceFocusLabel;
     public string FocusHint => SetupText.AppearanceFocusHint;
 
-    /// <summary>The focus toggle's own label, the same shape as <see cref="MotionToggleLabel"/>.</summary>
-    public string FocusToggleLabel => Current.FocusAlwaysVisible
-        ? SetupText.AppearanceFocusAlways
-        : SetupText.AppearanceFocusKeyboardOnly;
+    /// <summary>The focus switch's state, a real switch for the reason <see cref="ReduceMotion"/> gives.</summary>
+    public bool FocusAlwaysVisible => Current.FocusAlwaysVisible;
 
     /// <summary>What is in force now, in one line, so the section can be read without counting ticks.</summary>
     public string Summary => SetupText.AppearanceSummary(ThemeName(Current.Theme), Current.TextScalePercent, DensityName(Current.Density));
@@ -188,8 +187,8 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
         Mark(Densities, DensityId(current.Density));
         Mark(TextScales, $"text-{current.TextScalePercent}");
         OnPropertyChanged(nameof(Current));
-        OnPropertyChanged(nameof(MotionToggleLabel));
-        OnPropertyChanged(nameof(FocusToggleLabel));
+        OnPropertyChanged(nameof(ReduceMotion));
+        OnPropertyChanged(nameof(FocusAlwaysVisible));
         OnPropertyChanged(nameof(Summary));
     }
 

@@ -967,9 +967,8 @@
           <Panel Grid.Row="1" IsVisible="{Binding ShowsLootScan}">
             <lootViews:SavedLootScanView DataContext="{Binding LootHistory}" />
           </Panel>
-          <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowsSetupWorkspace}" HorizontalScrollBarVisibility="Disabled">
-            <ContentControl Content="{Binding SetupWorkspace}" />
-          </ScrollViewer>
+          <!-- [#902 P6] Setup scrolls inside itself, below its tab row, so the tabs stay in view. -->
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsSetupWorkspace}" Content="{Binding SetupWorkspace}" />
           </Grid>
 
           <!-- The Intel card for an item opened beside some other page changes columns. At wide B it

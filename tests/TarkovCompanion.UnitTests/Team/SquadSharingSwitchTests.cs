@@ -133,7 +133,7 @@ public sealed class SquadSharingSwitchTests : IDisposable
         Assert.Equal(1, opened);
 
         network.Set(network.Controls with { LocalOnly = false, SquadSharing = false });
-        Assert.Equal("Blocked · Squad sharing is off in Data & Privacy", team.SharingBlockedLabel);
+        Assert.Equal("Blocked · Squad sharing is off in Data & Network", team.SharingBlockedLabel);
 
         network.Set(network.Controls with { SquadSharing = true });
         Assert.False(team.IsSharingBlocked);

@@ -15,19 +15,19 @@ public sealed class V2SetupWorkspaceViewModelTests
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
 
         Assert.True(workspace.IsOverviewSelected);
-        Assert.False(workspace.IsGameProfileSelected);
+        Assert.False(workspace.IsGameCaptureSelected);
         Assert.True(Assert.Single(workspace.Sections, section => section.Section == V2SetupSection.Overview).IsCurrent);
         Assert.All(workspace.Sections.Where(section => section.Section != V2SetupSection.Overview), section => Assert.False(section.IsCurrent));
     }
 
     [Theory]
-    [InlineData(V2SetupSection.GameProfile)]
-    [InlineData(V2SetupSection.Recognition)]
-    [InlineData(V2SetupSection.Data)]
-    [InlineData(V2SetupSection.Progress)]
-    [InlineData(V2SetupSection.TeamDevices)]
-    [InlineData(V2SetupSection.Privacy)]
-    [InlineData(V2SetupSection.Diagnostics)]
+    [InlineData(V2SetupSection.GameCapture)]
+    [InlineData(V2SetupSection.ProfileProgress)]
+    [InlineData(V2SetupSection.Notifications)]
+    [InlineData(V2SetupSection.AppearanceWindow)]
+    [InlineData(V2SetupSection.DataNetwork)]
+    [InlineData(V2SetupSection.UpdatesDiagnostics)]
+    [InlineData(V2SetupSection.About)]
     public void SelectingASectionMakesItTheOnlyCurrentOne(V2SetupSection section)
     {
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
@@ -41,16 +41,16 @@ public sealed class V2SetupWorkspaceViewModelTests
     public void EachReadinessCheckThatNamesSetupMapsToTheSectionThatFixesIt()
     {
         Assert.True(V2SetupWorkspaceViewModel.TryMapReadinessCheck("game-log", out var gameLog));
-        Assert.Equal(V2SetupSection.GameProfile, gameLog);
+        Assert.Equal(V2SetupSection.GameCapture, gameLog);
 
         Assert.True(V2SetupWorkspaceViewModel.TryMapReadinessCheck("screenshots", out var screenshots));
-        Assert.Equal(V2SetupSection.GameProfile, screenshots);
+        Assert.Equal(V2SetupSection.GameCapture, screenshots);
 
         Assert.True(V2SetupWorkspaceViewModel.TryMapReadinessCheck("text-recognition", out var recognition));
-        Assert.Equal(V2SetupSection.Recognition, recognition);
+        Assert.Equal(V2SetupSection.GameCapture, recognition);
 
         Assert.True(V2SetupWorkspaceViewModel.TryMapReadinessCheck("game-data", out var data));
-        Assert.Equal(V2SetupSection.Data, data);
+        Assert.Equal(V2SetupSection.DataNetwork, data);
     }
 
     [Fact]
@@ -83,12 +83,12 @@ public sealed class V2SetupWorkspaceViewModelTests
     {
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
 
-        Assert.Contains(workspace.Sections, section => section.Section == V2SetupSection.Progress);
-        Assert.False(workspace.IsProgressSelected);
+        Assert.Contains(workspace.Sections, section => section.Section == V2SetupSection.ProfileProgress);
+        Assert.False(workspace.IsProfileProgressSelected);
 
-        workspace.Select(V2SetupSection.Progress);
+        workspace.Select(V2SetupSection.ProfileProgress);
 
-        Assert.True(workspace.IsProgressSelected);
+        Assert.True(workspace.IsProfileProgressSelected);
         Assert.False(workspace.IsOverviewSelected);
     }
 
@@ -99,7 +99,7 @@ public sealed class V2SetupWorkspaceViewModelTests
 
         workspace.OpenQuestSyncCommand.Execute(null);
 
-        Assert.True(workspace.IsProgressSelected);
+        Assert.True(workspace.IsProfileProgressSelected);
     }
 
     [Fact]
@@ -122,5 +122,17 @@ public sealed class V2SetupWorkspaceViewModelTests
 
         Assert.All(labels, label => Assert.False(string.IsNullOrWhiteSpace(label)));
         Assert.All(labels, label => Assert.True(label.Length <= 120, $"'{label}' is longer than a label may be."));
+    }
+
+    /// <summary>[#902 P6] Eight sections, in the proposal's order, each named on its tab.</summary>
+    [Fact]
+    public void SetupHasEightSectionsInOrder()
+    {
+        var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
+
+        Assert.Equal(
+            ["Overview", "Game & Capture", "Profile & Progress", "Notifications", "Appearance & Window", "Data & Network", "Updates & Diagnostics", "About"],
+            workspace.Sections.Select(section => section.Label));
+        Assert.Equal(Enum.GetValues<V2SetupSection>(), workspace.Sections.Select(section => section.Section));
     }
 }

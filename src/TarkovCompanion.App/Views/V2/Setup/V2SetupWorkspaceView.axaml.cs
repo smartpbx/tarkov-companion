@@ -11,6 +11,9 @@ namespace TarkovCompanion.App.Views.V2.Setup;
 /// <summary>The native V2 Setup page (#292): section tabs over the same view models V1 uses.</summary>
 public sealed partial class V2SetupWorkspaceView : UserControl
 {
+    private V2SetupWorkspaceViewModel? _wired;
+    private (string? Screenshots, string? Logs) _savedFolders;
+
     public V2SetupWorkspaceView()
     {
         AvaloniaXamlLoader.Load(this);
@@ -40,11 +43,57 @@ public sealed partial class V2SetupWorkspaceView : UserControl
         }
     }
 
+    /// <summary>
+    /// [#902 P6] A game folder is saved when its field loses focus, and only when it changed. The
+    /// Save button beside the two fields was the only one in Setup; every other row saves itself.
+    /// </summary>
+    private void OnFolderLostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is not V2SetupWorkspaceViewModel { Settings: { } settings })
+        {
+            return;
+        }
+
+        var chosen = (settings.ScreenshotFolder, settings.LogFolder);
+        if (chosen == _savedFolders)
+        {
+            return;
+        }
+
+        _savedFolders = chosen;
+        if (settings.SaveGameFoldersCommand.CanExecute(null))
+        {
+            settings.SaveGameFoldersCommand.Execute(null);
+        }
+    }
+
+    /// <summary>A new section starts at its top; the tab row above the scroller never moves.</summary>
+    private void OnPagePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(V2SetupWorkspaceViewModel.Selected) &&
+            this.FindControl<ScrollViewer>("SectionScroller") is { } scroller)
+        {
+            scroller.Offset = default;
+        }
+    }
+
     private void Wire()
     {
         if (DataContext is not V2SetupWorkspaceViewModel page)
         {
             return;
+        }
+
+        if (!ReferenceEquals(_wired, page))
+        {
+            if (_wired is not null)
+            {
+                _wired.PropertyChanged -= OnPagePropertyChanged;
+            }
+
+            _wired = page;
+            page.PropertyChanged += OnPagePropertyChanged;
+            _savedFolders = page.Settings is { } folders ? (folders.ScreenshotFolder, folders.LogFolder) : default;
         }
 
         if (page.Settings is { } settings)

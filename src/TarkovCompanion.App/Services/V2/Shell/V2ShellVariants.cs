@@ -187,7 +187,7 @@ public static class V2ShellVariants
     private static readonly IReadOnlyList<V2CapabilityId> SharedChrome =
         [V2Capabilities.Capture, V2Capabilities.Health, V2Capabilities.Commands, V2Capabilities.Continue];
 
-    /// <summary>Variant A: a workspace rail, Setup &amp; Admin under its own heading, Capture in the header.</summary>
+    /// <summary>Variant A: a workspace rail, Setup under its own heading, Capture in the header.</summary>
     public static V2ShellVariantDefinition A { get; } = new()
     {
         Mode = V2ShellMode.VariantA,
@@ -201,7 +201,9 @@ public static class V2ShellVariants
             new(V2Routes.Team, "V2.Shell.Label.Team"),
             new(V2Routes.Debrief, "V2.Shell.Label.Debrief"),
         ],
-        Setup = new(V2Routes.Setup, "V2.Shell.Label.SetupAdmin"),
+        // [#902 P6] "Setup" on the rail, the tray, the palette and the heading alike; "Setup & Admin"
+        // was the rail's name only, so the palette said one thing and the tray another.
+        Setup = new(V2Routes.Setup, "V2.Shell.Label.Setup"),
         SetupPlacement = V2SetupPlacement.LabelledRailSection,
         SearchPlacement = V2SearchPlacement.InsideItemsWorkspace,
         IntelPlacement = V2IntelPlacement.Workspace,

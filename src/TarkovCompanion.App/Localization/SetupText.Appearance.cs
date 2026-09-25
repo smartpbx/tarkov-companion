@@ -18,16 +18,12 @@ public static partial class SetupText
     public static string AppearanceDensityLabel => UiText.Get("Setup.Appearance.DensityLabel");
     public static string AppearanceMotionLabel => UiText.Get("Setup.Appearance.MotionLabel");
     public static string AppearanceMotionHint => UiText.Get("Setup.Appearance.MotionHint");
-    public static string AppearanceMotionFull => UiText.Get("Setup.Appearance.Motion.Full");
-    public static string AppearanceMotionReduced => UiText.Get("Setup.Appearance.Motion.Reduced");
     public static string AppearanceStateOn => UiText.Get("Setup.Appearance.StateOn");
     public static string AppearanceStateOff => UiText.Get("Setup.Appearance.StateOff");
     public static string AppearanceResetAllLabel => UiText.Get("Setup.Appearance.ResetAllLabel");
     public static string AppearanceSummary(object? arg0, object? arg1, object? arg2) => UiText.Format("Setup.Appearance.Summary", arg0, arg1, arg2);
     public static string AppearanceFocusLabel => UiText.Get("Setup.Appearance.FocusLabel");
     public static string AppearanceFocusHint => UiText.Get("Setup.Appearance.FocusHint");
-    public static string AppearanceFocusAlways => UiText.Get("Setup.Appearance.Focus.Always");
-    public static string AppearanceFocusKeyboardOnly => UiText.Get("Setup.Appearance.Focus.KeyboardOnly");
     public static string AccessibilityPreviewHeading => UiText.Get("Setup.Accessibility.PreviewHeading");
     public static string AccessibilityPreviewHint => UiText.Get("Setup.Accessibility.PreviewHint");
     public static string AccessibilityPreviewSampleHeading => UiText.Get("Setup.Accessibility.PreviewSampleHeading");

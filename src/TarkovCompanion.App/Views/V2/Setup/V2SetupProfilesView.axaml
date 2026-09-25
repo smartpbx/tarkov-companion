@@ -152,10 +152,7 @@
     <TextBlock Classes="v2-label" Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap"
                Classes.error="{Binding MessageIsError}"
                AutomationProperties.AutomationId="v2-setup-profile-message" />
-
-    <!-- [#269] Export this profile's progress to a file, or import one into it or a new profile. -->
-    <Panel Margin="0,12,0,0" IsVisible="{Binding HasTransfer}">
-      <setup:V2SetupProfileTransferView DataContext="{Binding Transfer}" />
-    </Panel>
+    <!-- [#902 P6] Moving progress to or from a file is in Setup › Profile & Progress, in the one
+         "Back up or move progress" panel beside the quest file merge. -->
   </StackPanel>
 </UserControl>

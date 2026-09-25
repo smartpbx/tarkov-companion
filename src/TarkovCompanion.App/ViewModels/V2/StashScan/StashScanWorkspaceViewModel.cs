@@ -821,6 +821,14 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public bool SelectedItemHasLoadoutLink => SelectedItem?.HasLoadoutLink == true;
 
+    /// <summary>
+    /// The selected item has an Intel page. Flat rather than "SelectedItem.HasItem" in the view: with
+    /// nothing selected that path logged a binding error, which the Windows gallery counts as a fault.
+    /// </summary>
+    public bool SelectedItemHasIntel => SelectedItem?.HasItem == true;
+
+    public string SelectedItemId => SelectedItem?.ItemId ?? string.Empty;
+
     public ICommand? SelectedItemOpenLoadoutCommand => SelectedItem?.OpenLoadoutCommand;
 
     /// <summary>The selected item's group and the whole of its reason, which a row has to trim.</summary>
@@ -888,6 +896,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 OnPropertyChanged(nameof(SelectedItemSortLabel));
                 OnPropertyChanged(nameof(SelectedItemHasLoadoutLink));
                 OnPropertyChanged(nameof(SelectedItemOpenLoadoutCommand));
+                OnPropertyChanged(nameof(SelectedItemHasIntel));
+                OnPropertyChanged(nameof(SelectedItemId));
             }
         }
     }

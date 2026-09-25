@@ -9,11 +9,11 @@
     <TextBlock Classes="v2-label" Text="{Binding Heading}" />
     <ItemsControl ItemsSource="{Binding Choices}" AutomationProperties.AutomationId="v2-setup-language-choices">
       <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-          <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+          <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
                   AutomationProperties.AutomationId="{Binding AutomationId}"
                   AutomationProperties.Name="{Binding Label}"
                   AutomationProperties.HelpText="{Binding AutomationState}"
