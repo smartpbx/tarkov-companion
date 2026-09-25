@@ -173,7 +173,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     transaction,
                     """
                     INSERT INTO item_sell_offers(item_id, vendor_id, vendor_name, value, currency, requirements_json, updated_utc)
-                    VALUES ($itemId, $vendorId, $vendorName, $value, $currency, NULL, $updatedUtc);
+                    VALUES ($itemId, $vendorId, COALESCE((SELECT name FROM traders WHERE id = $vendorId), $vendorName), $value, $currency, NULL, $updatedUtc);
                     """,
                     cancellationToken,
                     ("$itemId", item.Id),

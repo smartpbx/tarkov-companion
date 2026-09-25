@@ -376,11 +376,18 @@ public sealed class FleaPageViewModel : PageViewModel
             return IntelText.FleaPageNoSaleValue;
         }
 
-        var trader = price.BestTrader;
-        return trader is null
-            ? IntelText.FleaPageBestOnFlea(Roubles(best))
-            : IntelText.FleaPageBestVia(Roubles(best), price.BestSaleChannel, trader.TraderName);
+        // #874: the flea's own best said "Flea (<best trader's id>)", naming a trader that was not
+        // the best and by the id an item refresh had left in its name. The flea is named as the
+        // flea; a trader by name, or "a trader" while its name is still only an id.
+        return price.BestSaleChannel == SaleChannel.Trader && price.BestTrader is { } trader
+            ? IntelText.FleaPageBestAtTrader(Roubles(best), TraderLabel(trader))
+            : IntelText.FleaPageBestOnFlea(Roubles(best));
     }
+
+    internal static string TraderLabel(TraderOffer trader) =>
+        string.IsNullOrWhiteSpace(trader.TraderName) || string.Equals(trader.TraderName, trader.TraderId, StringComparison.Ordinal)
+            ? IntelText.FleaPageATrader
+            : trader.TraderName;
 
     private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
 

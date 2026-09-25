@@ -252,6 +252,40 @@ public sealed class FleaWorkspaceViewModelTests
         Assert.Equal("gpu", opened);
     }
 
+    /// <summary>
+    /// #874: searching "Salewa" read "Best 34,330 ₽ · Flea (54cb57776803fa99248b456e)" and
+    /// "1 results": the flea's best named the best trader, by the id an item refresh left as its name.
+    /// </summary>
+    [Theory]
+    [InlineData(34_330L, 7_695L, "54cb57776803fa99248b456e", "Best 34,330 ₽ on the flea")]
+    [InlineData(5_000L, 7_695L, "Therapist", "Best 7,695 ₽ at Therapist")]
+    [InlineData(5_000L, 7_695L, "54cb57776803fa99248b456e", "Best 7,695 ₽ at a trader")]
+    public async Task TheBestSaleNamesTheFleaOrATraderNeverAnId(long flea, long trader, string traderName, string expected)
+    {
+        var salewa = Item("544fb45d4bdc2dee738b4568", "Salewa first aid kit", "Salewa");
+        var repository = new FakeItemRepository(salewa)
+        {
+            Price = new ItemPriceSnapshot(
+                flea,
+                [new TraderOffer("54cb57776803fa99248b456e", traderName, trader, Provenance)],
+                null,
+                null,
+                null,
+                Provenance),
+        };
+        var page = new FleaPageViewModel(new RepositorySearch(repository), repository, new EmptyHistory());
+        var workspace = new FleaWorkspaceViewModel(page);
+        page.Apply(V2ShellTestData.Snapshot().WithData(DataAvailability.Current, 10, DateTimeOffset.UnixEpoch));
+
+        workspace.SearchQuery = "salewa";
+        await page.SearchAsync();
+
+        var row = Assert.Single(workspace.Results);
+        Assert.Equal(expected, row.BestSale);
+        Assert.Equal(expected, workspace.SelectedBestSale);
+        Assert.Equal("1 result from the local cache", workspace.SearchStatus);
+    }
+
     [Fact]
     public async Task ALookupThatFindsNothingSaysSoAndSelectsNothing()
     {

@@ -1871,17 +1871,21 @@ $StateShots = @(
     @{ state = "loading"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status"
         holding = '^Loading your quest board'; after = '^(?!Loading your quest board)' },
     @{ state = "loading"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status"
-        holding = '^Raid history has not been loaded'; after = '^(?!Raid history has not been loaded)' },
+        holding = '^Loading raid history'; after = '^(?!Loading raid history)' },
     @{ state = "loading"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-stash-status"
-        holding = '^Stash snapshots have not been loaded'; after = '^(?!Stash snapshots have not been loaded)' },
+        holding = '^Loading stash snapshots'; after = '^(?!Loading stash snapshots)' },
     @{ state = "degraded"; key = "raid"; address = "#/raid"; heading = "Raid"; message = "v2-shell-surface-state"; holding = '(?i)offline' },
     @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
     @{ state = "degraded"; key = "team-group"; address = "#/team/group"; heading = "Group"; message = "v2-team-group-status" },
     @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Tablet preview"; message = "v2-team-pairing-unavailable"; also = @("v2-team-pair-tablet") },
     @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
-    @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true },
-    @{ state = "error"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status" },
-    @{ state = "error"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-stash-status" }
+    @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true
+        recovered = "v2-plan-status"; recoveredPattern = "^(?!Quest data isn't available yet|Loading your quest board)" },
+    # [#871] Debrief and Stash show the same notice with Retry, and not the empty message beside it.
+    @{ state = "error"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-load-fault"; retry = $true
+        recovered = "v2-debrief-status"; recoveredPattern = '^(?!Loading raid history)\S' },
+    @{ state = "error"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-load-fault"; retry = $true
+        recovered = "v2-stash-status"; recoveredPattern = '^(?!Loading stash snapshots)\S' }
 )
 foreach ($State in $StateShots) {
     $Patterns = @([pscustomobject]@{ automationId = $State.message; pattern = $StateReadable })
@@ -1907,8 +1911,8 @@ foreach ($State in $StateShots) {
             targetAutomationId = "v2-load-fault-retry"; targetControlType = "Button"
         })
         $Steps.Add([pscustomobject]@{
-            action = "assert"; description = "Retry brought the quest board back"
-            expectedNamePatterns = @([pscustomobject]@{ automationId = "v2-plan-status"; pattern = "^(?!Quest data isn't available yet|Loading your quest board)" })
+            action = "assert"; description = "Retry brought $($State.address) back"
+            expectedNamePatterns = @([pscustomobject]@{ automationId = $State.recovered; pattern = $State.recoveredPattern })
         })
     }
     if ($State.ContainsKey("search")) {

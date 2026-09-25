@@ -119,7 +119,7 @@ public static partial class IntelText
     public static string FleaPageSold(long count) => UiText.Plural("Intel.Flea.Page.Sold", count);
     public static string FleaPageDimensions(int width, int height, int slots) => UiText.Format("Intel.Flea.Page.Dimensions", width, height, slots);
     public static string FleaPageSource(string moment) => UiText.Format("Intel.Flea.Page.Source", moment);
-    public static string FleaPageResults(int count) => UiText.Format("Intel.Flea.Page.Results", count);
+    public static string FleaPageResults(int count) => UiText.Plural("Intel.Flea.Page.Results", count);
     public static string FleaPageSearchFailed(string message) => UiText.Format("Intel.Flea.Page.SearchFailed", message);
     public static string FleaPageNoObservations(string item) => UiText.Format("Intel.Flea.Page.NoObservations", item);
     public static string FleaPageOneObservation(string item) => UiText.Format("Intel.Flea.Page.OneObservation", item);
@@ -130,5 +130,6 @@ public static partial class IntelText
     public static string FleaPageBand(string low, string high) => UiText.Format("Intel.Flea.Page.Band", low, high);
     public static string FleaPageBandAverage(string low, string high, string average) => UiText.Format("Intel.Flea.Page.BandAverage", low, high, average);
     public static string FleaPageBestOnFlea(string roubles) => UiText.Format("Intel.Flea.Page.BestOnFlea", roubles);
-    public static string FleaPageBestVia(string roubles, object channel, string trader) => UiText.Format("Intel.Flea.Page.BestVia", roubles, channel, trader);
+    public static string FleaPageBestAtTrader(string roubles, string trader) => UiText.Format("Intel.Flea.Page.BestAtTrader", roubles, trader);
+    public static string FleaPageATrader => UiText.Get("Intel.Flea.Page.ATrader");
 }

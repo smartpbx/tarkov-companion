@@ -352,7 +352,7 @@
     <!-- Centre: the selected map with its active objectives, numbered like the list. -->
     <Border x:Name="PlanMapCard" Grid.Column="1" Grid.Row="0" Classes="v2-plan-mapcard" Margin="16,8,16,16">
       <Grid>
-        <TextBlock Classes="v2-body" IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" TextAlignment="Center"
+        <TextBlock Classes="v2-body" IsVisible="{Binding ShowsNothingPlanned}" TextWrapping="Wrap" TextAlignment="Center"
                    HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Opacity="0.8"
                    Text="{x:Static l:PlanText.NothingPlanned}" />
         <TextBlock Classes="v2-body" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.8"

@@ -90,7 +90,9 @@ public static class DebriefText
     public static string MarkedWrong => UiText.Get("Debrief.MarkedWrong");
     public static string Restore => UiText.Get("Debrief.Restore");
     public static string Wrong => UiText.Get("Debrief.Wrong");
-    public static string NotLoaded => UiText.Get("Debrief.NotLoaded");
+    public static string Loading => UiText.Get("Debrief.Loading");
+    public static string LoadFailed => UiText.Get("Debrief.LoadFailed");
+    public static string LoadFailedDetail => UiText.Get("Debrief.LoadFailedDetail");
     public static string AllMaps => UiText.Get("Debrief.AllMaps");
     public static string AllTags => UiText.Get("Debrief.AllTags");
     public static string NoArchivedRaids => UiText.Get("Debrief.NoArchivedRaids");
@@ -164,7 +166,6 @@ public static class DebriefText
     public static string BulkDeletePreview(string raids, string date) => UiText.Format("Debrief.BulkDeletePreview", raids, date);
     public static string BulkDeleted(string raids, string date) => UiText.Format("Debrief.BulkDeleted", raids, date);
     public static string ReplayFailed(string reason) => UiText.Format("Debrief.ReplayFailed", reason);
-    public static string Unavailable(string reason) => UiText.Format("Debrief.Unavailable", reason);
     public static string Of(object part, object whole) => UiText.Format("Debrief.Of", part, whole);
     public static string NameTheView(int maximumLength, int maximumViews) => UiText.Format("Debrief.NameTheView", maximumLength, maximumViews);
     public static string SavedView(string name) => UiText.Format("Debrief.SavedView", name);

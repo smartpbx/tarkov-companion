@@ -1,4 +1,5 @@
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using TarkovCompanion.App.Localization;
 using System.Text.Json;
@@ -194,7 +195,8 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     private RaidFactSources _selectedSources = new(
         RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown);
     private bool _selectedLoadRecorded;
-    private string _status = DebriefText.NotLoaded;
+    private string _status = DebriefText.Loading;
+    private PageLoadState _loadState = PageLoadState.Loading;
     private string _correctedOutcome = string.Empty;
     private string _correctedNotes = string.Empty;
     private Func<string, string?> _mapName = _ => null;
@@ -305,6 +307,30 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
     public bool HasRaids => Raids.Count > 0;
 
     public bool HasNoRaids => !HasRaids;
+
+    /// <summary>#871/#872: loading, empty, loaded or failed — the view shows one message for one state.</summary>
+    public PageLoadState LoadState
+    {
+        get => _loadState;
+        private set
+        {
+            if (SetProperty(ref _loadState, value))
+            {
+                OnPropertyChanged(nameof(IsLoading));
+                OnPropertyChanged(nameof(ShowsNoRaids));
+            }
+        }
+    }
+
+    public bool IsLoading => _loadState == PageLoadState.Loading;
+
+    /// <summary>The empty message, only once a read has succeeded: a failed or unfinished read is not an empty history.</summary>
+    public bool ShowsNoRaids => HasNoRaids && _loadState.HasRead();
+
+    /// <summary>Shown in place of the table when the history could not be read, with Retry.</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => LoadAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
 
     /// <summary>Distinguishes an empty history from a filter that matched nothing in it.</summary>
     public string NoRaidsMessage => _showArchived
@@ -860,14 +886,20 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                 await SelectRaidAsync(Raids[0].RaidId, cancellationToken).ConfigureAwait(true);
             }
 
+            LoadFault.Clear();
+            LoadState = PageLoadStates.Read(_allRecords.Count > 0);
             RaiseAll();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // The exception goes to the log; the page says in words that the read failed, and
+            // does not also say the history is empty (#871).
             _allRecords = [];
             Raids = [];
             MapStats = [];
-            Status = DebriefText.Unavailable(exception.Message);
+            Status = string.Empty;
+            LoadFault.Show(DebriefText.LoadFailed, DebriefText.LoadFailedDetail);
+            LoadState = PageLoadState.Failed;
             WorkspaceFault.Record("debrief", "load", exception);
             RaiseAll();
         }
@@ -1894,6 +1926,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(Raids));
         OnPropertyChanged(nameof(HasRaids));
         OnPropertyChanged(nameof(HasNoRaids));
+        OnPropertyChanged(nameof(ShowsNoRaids));
         OnPropertyChanged(nameof(NoRaidsMessage));
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(HasNoSelection));

@@ -1152,9 +1152,26 @@ public sealed partial class DebriefWorkspaceViewModelTests
             return Task.CompletedTask;
         }
 
-        public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>(
-                [.. _raids.Values.Where(raid => !_deleted.Contains(raid.Id))]);
+        /// <summary>When set, <see cref="ListAsync"/> throws it: the read failed.</summary>
+        public Exception? ListFailure { get; set; }
+
+        /// <summary>When set, <see cref="ListAsync"/> waits for it: the read is still running.</summary>
+        public TaskCompletionSource? ListGate { get; set; }
+
+        public async Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken)
+        {
+            if (ListGate is { } gate)
+            {
+                await gate.Task.ConfigureAwait(false);
+            }
+
+            if (ListFailure is { } failure)
+            {
+                throw failure;
+            }
+
+            return [.. _raids.Values.Where(raid => !_deleted.Contains(raid.Id))];
+        }
 
         public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken)
         {
