@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TarkovCompanion.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TarkovCompanion.CompanionProtocol\TarkovCompanion.CompanionProtocol.csproj" />
     <ProjectReference Include="..\TarkovCompanion.Core\TarkovCompanion.Core.csproj" />
   </ItemGroup>

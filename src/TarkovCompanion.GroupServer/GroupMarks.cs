@@ -354,6 +354,9 @@ public sealed class GroupMarks
         }
     }
 
+    /// <summary>Called once a save has taken its snapshot and before it writes; for tests only.</summary>
+    internal Action? SnapshotTaken { get; set; }
+
     /// <summary>How many rooms hold marks, for tests and the health counts.</summary>
     public int RoomCount => _rooms.Count;
 
@@ -422,6 +425,7 @@ public sealed class GroupMarks
                     }
                 }
 
+                SnapshotTaken?.Invoke();
                 Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
                 var temporary = _storePath + ".writing";
                 File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot));

@@ -76,37 +76,41 @@ public sealed class GroupMarksBoundsTests : IDisposable
     /// Two squadmates dropping waypoints together could have the older snapshot written last.
     /// </summary>
     /// <remarks>
-    /// Run many times over because the window is narrow; on the old Save a run of this loses a
-    /// waypoint from the file most times it is tried.
+    /// Clay's save is held just after it has taken its snapshot while Geo drops a waypoint and
+    /// saves. The old save took its snapshot outside the write gate, so Geo's newer file was
+    /// written first and Clay's older one over it, and Geo's waypoint was gone after a restart.
+    /// Now the snapshot is taken inside the gate, so Geo waits and writes after Clay.
     /// </remarks>
     [Fact]
-    public async Task Waypoints_dropped_at_once_all_reach_the_file()
+    public async Task A_slower_save_never_writes_an_older_plan_over_a_newer_one()
     {
-        const int Threads = 8;
-        const int Each = 25;
-        for (var round = 0; round < 10; round++)
-        {
-            var path = Path.Combine(_directory, $"marks-{round}.json");
-            var marks = new GroupMarks(new MovableClock(Now), path);
-            using var start = new Barrier(Threads);
-            var workers = Enumerable.Range(0, Threads)
-                .Select(thread => Task.Factory.StartNew(
-                    () =>
-                    {
-                        start.SignalAndWait();
-                        for (var index = 0; index < Each; index++)
-                        {
-                            marks.AddWaypoint($"room-{thread}", "Clay", "bigmap", index, 0, 0, null);
-                        }
-                    },
-                    TaskCreationOptions.LongRunning))
-                .ToArray();
-            await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(60));
+        var path = Path.Combine(_directory, "marks.json");
+        var marks = new GroupMarks(new MovableClock(Now), path);
+        marks.AddWaypoint("room", "Clay", "bigmap", 1, 0, 0, "first");
 
-            var restarted = new GroupMarks(new MovableClock(Now), path);
-            var saved = Enumerable.Range(0, Threads).Sum(thread => restarted.Read($"room-{thread}").Waypoints.Count);
-            Assert.Equal(Threads * Each, saved);
-        }
+        using var geoDone = new ManualResetEventSlim();
+        Task? geo = null;
+        marks.SnapshotTaken = () =>
+        {
+            marks.SnapshotTaken = null;
+            geo = Task.Run(() =>
+            {
+                marks.AddWaypoint("room", "Geo", "bigmap", 2, 0, 0, "geo");
+                geoDone.Set();
+            });
+
+            // Long enough for Geo's whole save when nothing holds it back; with the gate held
+            // it cannot finish, and Clay goes on after the wait.
+            geoDone.Wait(TimeSpan.FromSeconds(1));
+        };
+
+        await Task.Run(() => marks.AddWaypoint("room", "Clay", "bigmap", 3, 0, 0, "clay"));
+        await geo!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var restarted = new GroupMarks(new MovableClock(Now), path);
+        Assert.Equal(
+            ["clay", "first", "geo"],
+            restarted.Read("room").Waypoints.Select(waypoint => waypoint.Label!).Order(StringComparer.Ordinal));
     }
 
     /// <summary>

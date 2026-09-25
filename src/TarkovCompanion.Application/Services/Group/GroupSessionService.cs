@@ -1139,8 +1139,11 @@ public sealed class GroupSessionService : IAsyncDisposable
             // publishes none and nobody is handed a list that was never theirs.
             Extracts = IsScav(raid) ? [] : [.. raid.ActiveExtracts.Select(extract => extract.Name)],
             Transits = IsScav(raid) ? [] : raid.Transits,
-            RaidClockSeconds = raid.RaidClock?.TotalSeconds,
-            RaidClockAgeSeconds = raid.RaidClockReadUtc is { } read
+            // #886: left out once the player has left the raid, like the trail. The raid state
+            // keeps the last reading through PostRaid, and a clock for a raid that is over is
+            // both wrong to show and, with its age growing, a new state on every publish.
+            RaidClockSeconds = hasLeft ? null : raid.RaidClock?.TotalSeconds,
+            RaidClockAgeSeconds = !hasLeft && raid.RaidClockReadUtc is { } read
                 ? Math.Max(0, (now - read.ToUniversalTime()).TotalSeconds)
                 : null,
         };
