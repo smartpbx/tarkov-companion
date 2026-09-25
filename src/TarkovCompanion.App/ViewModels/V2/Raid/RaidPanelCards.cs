@@ -44,6 +44,15 @@ public sealed class RaidPanelCardViewModel : BindableViewModel
 
     public ICommand ToggleCommand { get; }
 
+    /// <summary>[#902] Sets the card to what is stored again, after Backup &amp; reset; not remembered.</summary>
+    internal void Restore(bool isExpanded)
+    {
+        if (SetProperty(ref _isExpanded, isExpanded, nameof(IsExpanded)))
+        {
+            OnPropertyChanged(nameof(IsCollapsed));
+        }
+    }
+
     /// <summary>Opens the card for something the app wants seen, without remembering it.</summary>
     public void Reveal()
     {
@@ -71,6 +80,7 @@ public sealed class RaidPanelCards
     };
 
     private readonly IWorkspaceLayoutStore? _layout;
+    private readonly List<RaidPanelCardViewModel> _all = [];
 
     public RaidPanelCards(IWorkspaceLayoutStore? layout)
     {
@@ -125,15 +135,26 @@ public sealed class RaidPanelCards
 
     public RaidPanelCardViewModel Corrections { get; }
 
+    /// <summary>[#902] Every card back to what is stored, or its default, after Backup &amp; reset.</summary>
+    public void Reload()
+    {
+        foreach (var card in _all)
+        {
+            card.Restore(IsStoredOpen(card.Id));
+        }
+    }
+
     private RaidPanelCardViewModel Card(string id)
     {
-        var stored = _layout?.Get(WorkspaceLayoutKeys.RaidCard(id));
-        var isExpanded = stored switch
-        {
-            "open" => true,
-            "closed" => false,
-            _ => !ClosedByDefault.Contains(id),
-        };
-        return new(id, isExpanded, (key, open) => _layout?.Set(WorkspaceLayoutKeys.RaidCard(key), open ? "open" : "closed"));
+        var card = new RaidPanelCardViewModel(id, IsStoredOpen(id), (key, open) => _layout?.Set(WorkspaceLayoutKeys.RaidCard(key), open ? "open" : "closed"));
+        _all.Add(card);
+        return card;
     }
+
+    private bool IsStoredOpen(string id) => _layout?.Get(WorkspaceLayoutKeys.RaidCard(id)) switch
+    {
+        "open" => true,
+        "closed" => false,
+        _ => !ClosedByDefault.Contains(id),
+    };
 }

@@ -372,3 +372,8 @@ Publication `json-tarkov-dev-v1-81cdd9f9bf97f0143fe9ad06`, data through 2026-09-
 is a band and never a figure: the ends are a flat-out sprint straight at you and a careful advance
 that is not straight at all, both rounded outwards onto a coarse ladder, so the band can only be
 wider than the arithmetic. Scav runs get nothing at all, which is `SpawnProximity`'s existing rule.
+
+On the Raid map (#902) the nearby spawn areas of the first five minutes are their own layer,
+"Nearby spawns · first 5 min" (on), beside "All spawns" (off, kept for the whole raid); both are
+modelled spawn areas, never detections. The player's past trails are the "My trail" layer (off),
+read for the open map only while it is on.

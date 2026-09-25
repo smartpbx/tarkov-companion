@@ -1399,7 +1399,18 @@ internal static class Program
                 // [Issue 571] Marks an objective done by hand for the render — the same "Done" the
                 // Objectives list offers — so a before/after render can show it leaving the map and
                 // the list without driving a live app through the gesture.
-                if (StringOption(args, "--mark-objective-done") is { } markObjectiveDone)
+                // [#902 P4] "all": every objective on the map, for the card's "All N done".
+                if (StringOption(args, "--mark-objective-done") is "all")
+                {
+                    for (var guard = 0; guard < 64 && raid.QuestObjectives.FirstOrDefault(item => item.CanToggleDone && !item.IsDone) is { } next; guard++)
+                    {
+                        next.ToggleDoneCommand.Execute(null);
+                        Pump(80);
+                    }
+
+                    Console.WriteLine($"Marked done: every objective ({raid.QuestObjectiveSummary})");
+                }
+                else if (StringOption(args, "--mark-objective-done") is { } markObjectiveDone)
                 {
                     var doneRow = raid.QuestObjectives.FirstOrDefault(item => item.Number == markObjectiveDone);
                     if (doneRow is null)

@@ -558,31 +558,31 @@
                     AutomationProperties.AutomationId="v2-raid-modes"
                     AutomationProperties.Name="{x:Static l:RaidText.ModeGroup}">
               <StackPanel Orientation="Horizontal" Spacing="1">
-                <ToggleButton Classes="v2-target v2-raid-mode"
+                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode"
                               IsChecked="{Binding IsNavigateMode, Mode=OneWay}"
                               Command="{Binding NavigateModeCommand}"
                               AutomationProperties.AutomationId="v2-raid-mode-navigate"
                               AutomationProperties.Name="{x:Static l:RaidText.ModeNavigate}"
                               ToolTip.Tip="{x:Static l:RaidText.ModeNavigate}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Move}" />
-                </ToggleButton>
-                <ToggleButton Classes="v2-target v2-raid-mode"
+                </prim:SelectionToggleButton>
+                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode"
                               IsChecked="{Binding IsInspectMode, Mode=OneWay}"
                               Command="{Binding InspectModeCommand}"
                               AutomationProperties.AutomationId="v2-raid-mode-inspect"
                               AutomationProperties.Name="{x:Static l:RaidText.ModeInspect}"
                               ToolTip.Tip="{x:Static l:RaidText.ModeInspect}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Search}" />
-                </ToggleButton>
-                <ToggleButton Classes="v2-target v2-raid-mode"
+                </prim:SelectionToggleButton>
+                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode"
                               IsChecked="{Binding IsRouteMode, Mode=OneWay}"
                               Command="{Binding RouteModeCommand}"
                               AutomationProperties.AutomationId="v2-raid-mode-route"
                               AutomationProperties.Name="{x:Static l:RaidText.ModeRoute}"
                               ToolTip.Tip="{x:Static l:RaidText.ModeRoute}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Route}" />
-                </ToggleButton>
-                <ToggleButton Classes="v2-target v2-raid-mode v2-raid-draw-toggle"
+                </prim:SelectionToggleButton>
+                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode v2-raid-draw-toggle"
                               IsVisible="{Binding IsDrawAvailable}"
                               IsChecked="{Binding IsDrawMode, Mode=OneWay}"
                               Command="{Binding ToggleDrawCommand}"
@@ -590,7 +590,7 @@
                               AutomationProperties.Name="{Binding DrawModeLabel}"
                               ToolTip.Tip="{Binding DrawModeLabel}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pencil}" />
-                </ToggleButton>
+                </prim:SelectionToggleButton>
               </StackPanel>
             </Border>
             <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="{x:Static l:RaidText.Follow}"
@@ -670,35 +670,16 @@
                               </DataTemplate>
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
-                          <!-- [#902] The loot chips under the Loot header, not after the Traffic rows. -->
+                          <!-- [#902 P4] Under the Loot header, a summary of the filters that opens the loot
+                               card, the one place they are chosen, instead of a second copy of its chips. -->
                           <ContentControl Content="{Binding Loot}" IsVisible="{Binding HasLoot}">
                             <ContentControl.ContentTemplate>
                               <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
-                                <StackPanel Spacing="6">
-                                  <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
-                                  <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
-                                    <ItemsControl.ItemsPanel>
-                                      <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                      <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
-                                        <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                      Content="{Binding Label}" Command="{Binding SelectCommand}" />
-                                      </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                  </ItemsControl>
-                                  <ItemsControl ItemsSource="{Binding CompactValueBasisChoices}">
-                                    <ItemsControl.ItemsPanel>
-                                      <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                      <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
-                                        <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                      Content="{Binding Label}" Command="{Binding SelectCommand}" />
-                                      </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                  </ItemsControl>
-                                </StackPanel>
+                                <Button Classes="v2-menu-row"
+                                        Content="{Binding CompactFilterLabel, Converter={x:Static raid:RaidLootFilterEditConverter.Instance}}"
+                                        Command="{Binding #MapCard.((vm:RaidCockpitViewModel)DataContext).OpenLootCardCommand}"
+                                        AutomationProperties.AutomationId="v2-raid-layers-loot-edit"
+                                        ToolTip.Tip="{x:Static l:RaidText.LootFilterEditTip}" />
                               </DataTemplate>
                             </ContentControl.ContentTemplate>
                           </ContentControl>
@@ -727,7 +708,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
-                            <ToggleButton Classes="v2-raid-viewcontrol v2-raid-phase-choice"
+                            <prim:SelectionToggleButton Classes="v2-raid-viewcontrol v2-raid-phase-choice"
                                           IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
                                           Content="{Binding Label}"
                                           AutomationProperties.AutomationId="{Binding AutomationId}" />
@@ -809,32 +790,41 @@
                 <StackPanel Spacing="2" MinWidth="260" MaxWidth="420"
                             AutomationProperties.AccessibilityView="Control"
                             AutomationProperties.Name="{x:Static l:RaidText.MapViewControls}">
-                  <ToggleButton Classes="v2-menu-row"
+                  <prim:SelectionToggleButton Classes="v2-menu-row"
                                 Content="{Binding RotationLabel}"
                                 IsChecked="{Binding IsRotated, Mode=OneWay}"
                                 Command="{Binding RotateCommand}"
                                 AutomationProperties.AutomationId="v2-raid-rotate"
                                 AutomationProperties.Name="{x:Static l:RaidText.TurnQuarter}"
                                 ToolTip.Tip="{x:Static l:RaidText.TurnQuarterTip}" />
-                  <ToggleButton Classes="v2-menu-row"
-                                Content="{Binding VisitedLabel}"
-                                IsChecked="{Binding ShowsVisited, Mode=OneWay}"
-                                Command="{Binding ToggleVisitedCommand}"
-                                AutomationProperties.AutomationId="v2-raid-visited"
-                                AutomationProperties.Name="{x:Static l:RaidText.ShowVisited}"
-                                ToolTip.Tip="{x:Static l:RaidText.ShowVisitedTip}" />
+                  <!-- [#902 P3] Visited is Layers › You › My trail now: one state, one switch. -->
+                  <prim:SelectionToggleButton Classes="v2-menu-row"
+                                Content="{x:Static l:RaidText.FollowFloor}"
+                                IsChecked="{Binding AutoSelectsFloor, Mode=OneWay}"
+                                Command="{Binding ToggleAutoFloorCommand}"
+                                AutomationProperties.AutomationId="v2-raid-follow-floor"
+                                ToolTip.Tip="{x:Static l:RaidText.FollowFloorTip}" />
+                  <!-- [#902 P3] The draw-mode flag, where the pencil it hides is, not in Diagnostics. -->
+                  <prim:SelectionToggleButton Classes="v2-menu-row"
+                                Content="{x:Static l:RaidText.DrawingTools}"
+                                IsChecked="{Binding IsDrawingToolsOn, Mode=OneWay}"
+                                Command="{Binding ToggleDrawingToolsCommand}"
+                                AutomationProperties.AutomationId="v2-raid-drawing-tools"
+                                ToolTip.Tip="{x:Static l:RaidText.DrawingToolsTip}" />
+                  <TextBlock Classes="v2-label" Margin="36,0,0,0" Text="{x:Static l:RaidText.DrawingToolsRestart}"
+                             IsVisible="{Binding DrawingToolsWaitsForRestart}" />
                   <!-- [#902] Loot focus: the same state as the map's gem button. Pressed again, every
                        layer comes back as it was; it is never saved. -->
                   <Panel DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
                          IsVisible="{Binding HasHighValueLoot, FallbackValue=False}">
-                    <ToggleButton Classes="v2-menu-row"
+                    <prim:SelectionToggleButton Classes="v2-menu-row"
                                   Content="{x:Static l:RaidText.LootFocus}"
                                   IsChecked="{Binding IsLootFocused, Mode=OneWay}"
                                   Command="{Binding HighValueLootPresetCommand}"
                                   AutomationProperties.AutomationId="v2-raid-loot-focus"
                                   ToolTip.Tip="{x:Static l:RaidText.LootFocusTip}" />
                   </Panel>
-                  <ToggleButton Classes="v2-menu-row"
+                  <prim:SelectionToggleButton Classes="v2-menu-row"
                                 Content="{x:Static l:RaidText.SquadNames}"
                                 IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"
                                 Command="{Binding ToggleGroupNamesCommand}"
@@ -864,7 +854,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:RaidArtworkVariantViewModel">
-                        <ToggleButton Classes="v2-target v2-raid-viewcontrol"
+                        <prim:SelectionToggleButton Classes="v2-target v2-raid-viewcontrol"
                                       IsChecked="{Binding IsSelected, Mode=OneWay}"
                                       Command="{Binding SelectCommand}"
                                       Content="{Binding Name}"
@@ -1031,27 +1021,27 @@
                 <WrapPanel ItemSpacing="10" LineSpacing="4">
                   <TextBlock Classes="v2-label" Text="{Binding QuestObjectiveSummary}" TextWrapping="Wrap" VerticalAlignment="Center" />
                   <!-- [Issue 571] Brings a done objective back on the map and this list, dimmed with a check. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ShowCompleted}"
+                  <prim:SelectionToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ShowCompleted}"
                                 IsChecked="{Binding ShowCompletedObjectives, Mode=OneWay}"
                                 Command="{Binding ToggleShowCompletedObjectivesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
                                 ToolTip.Tip="{x:Static l:RaidText.ShowCompletedTip}" />
                   <!-- [#307] The objective route opened from Plan follows the plan while shown.
                        [#902] Lit while it is drawn: the Objective route layer itself, saved. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ShowRoute}"
+                  <prim:SelectionToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ShowRoute}"
                                 IsVisible="{Binding HasObjectiveRoute}"
                                 IsChecked="{Binding ObjectiveRouteShown, Mode=OneWay}"
                                 Command="{Binding ToggleObjectiveRouteCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objective-route-show"
                                 ToolTip.Tip="{x:Static l:RaidText.ShowRouteTip}" />
                   <!-- [#780] Squadmates' open objectives on this map, outlined in their colour. -->
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Squad}"
+                  <prim:SelectionToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Squad}"
                                 IsVisible="{Binding HasSquadObjectivesHere}"
                                 IsChecked="{Binding ShowSquadObjectives, Mode=OneWay}"
                                 Command="{Binding ToggleSquadObjectivesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objectives-squad"
                                 ToolTip.Tip="{x:Static l:RaidText.SquadObjectivesTip}" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.RouteSquad}"
+                  <prim:SelectionToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.RouteSquad}"
                                 IsVisible="{Binding CanRouteSquadStops}"
                                 IsChecked="{Binding RouteSquadStops, Mode=OneWay}"
                                 Command="{Binding ToggleRouteSquadStopsCommand}"
@@ -1444,10 +1434,10 @@
                 <!-- #289: the scope a new mark gets. Squad while group sharing is on. -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NewMarks}" VerticalAlignment="Center" />
-                  <ToggleButton Classes="v2-target" Content="{x:Static l:RaidText.JustMe}" IsChecked="{Binding NewMarksAreJustMe, Mode=OneWay}"
+                  <prim:SelectionToggleButton Classes="v2-target" Content="{x:Static l:RaidText.JustMe}" IsChecked="{Binding NewMarksAreJustMe, Mode=OneWay}"
                                 Command="{Binding NewMarksJustMeCommand}"
                                 AutomationProperties.AutomationId="v2-raid-new-marks-just-me" />
-                  <ToggleButton Classes="v2-target" Content="{x:Static l:RaidText.Squad}" IsChecked="{Binding NewMarksAreSquad, Mode=OneWay}"
+                  <prim:SelectionToggleButton Classes="v2-target" Content="{x:Static l:RaidText.Squad}" IsChecked="{Binding NewMarksAreSquad, Mode=OneWay}"
                                 Command="{Binding NewMarksSquadCommand}"
                                 AutomationProperties.AutomationId="v2-raid-new-marks-squad" />
                 </StackPanel>
@@ -1461,7 +1451,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:MarkColourChoiceViewModel">
-                        <ToggleButton Width="26" Height="26" MinWidth="26" MinHeight="26" Padding="0"
+                        <prim:SelectionToggleButton Width="26" Height="26" MinWidth="26" MinHeight="26" Padding="0"
                                       CornerRadius="13" Background="{Binding Brush}"
                                       BorderThickness="2" BorderBrush="{DynamicResource V2.Brush.Border}"
                                       IsChecked="{Binding IsChosen, Mode=OneWay}"
@@ -1470,7 +1460,7 @@
                                       AutomationProperties.Name="{Binding Name}">
                           <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.AutoColourLetter}" IsVisible="{Binding IsAuto}"
                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </ToggleButton>
+                        </prim:SelectionToggleButton>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
@@ -1811,6 +1801,15 @@
                 <Viewbox Width="20" Height="20">
                   <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Gem}" />
                 </Viewbox>
+                <!-- [#902 P4] The High-value loot layer's own switch, bound to its Layers row. -->
+                <ToggleSwitch DataContext="{Binding LootLayer}"
+                              x:DataType="mapVm:MapSceneRendererLayerViewModel"
+                              IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
+                              OnContent="" OffContent="" MinWidth="0" VerticalAlignment="Center"
+                              IsChecked="{Binding IsVisible, Mode=OneWay}"
+                              Command="{Binding ToggleCommand}"
+                              AutomationProperties.AutomationId="v2-raid-loot-layer-switch"
+                              AutomationProperties.Name="{Binding ToggleLabel}" />
                 <StackPanel Spacing="1" VerticalAlignment="Center">
                   <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.HighValueLootFilters}" />
                   <TextBlock Classes="v2-label" Text="{Binding HighValueLoot.StateMessage}" TextTrimming="CharacterEllipsis"
@@ -1846,7 +1845,7 @@
                       </ItemsControl.ItemsPanel>
                       <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
-                          <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                          <prim:SelectionToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
                                         AutomationProperties.Name="{Binding Label}"
                                         Content="{Binding Label}" Command="{Binding SelectCommand}" />
                         </DataTemplate>
@@ -1861,25 +1860,13 @@
                         <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
                           <!-- No AutomationId: shared with the renderer's own (hidden) choice
                                list further down the same visual tree. -->
-                          <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                          <prim:SelectionToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
                                         AutomationProperties.Name="{Binding Label}"
                                         Content="{Binding Label}" Command="{Binding SelectCommand}" />
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
-                    <ItemsControl ItemsSource="{Binding FloorChoices}">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
-                          <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                        AutomationProperties.Name="{Binding Label}"
-                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <!-- [#902 P4] No floor chips: the loot layer follows the map's own floor. -->
                   </StackPanel>
                 </DataTemplate>
               </ContentControl.ContentTemplate>

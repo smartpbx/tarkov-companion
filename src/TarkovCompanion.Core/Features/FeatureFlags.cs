@@ -69,7 +69,9 @@ public static class Flag
         OnInDev: true,
         OnInRough: true,
         OnInStable: false,
-        NeedsRestart: true);
+        // [#902 P3] Switched from Raid › View › Drawing tools, and applied at once: the pencil
+        // is only ever read when the mode strip is drawn and when Draw mode is asked for.
+        NeedsRestart: false);
 
     public static readonly FeatureFlagDefinition TabletReviewCards = new(
         "tablet-review-cards",

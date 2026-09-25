@@ -330,7 +330,7 @@ public sealed class MapPresentationService
         new(MapOverlayKind.QuestObjectives, "Quest objectives", true, false),
         new(MapOverlayKind.Extracts, "Extracts", true, false),
         new(MapOverlayKind.Labels, "Labels", true, false),
-        new(MapOverlayKind.Spawns, "Spawns", false, false),
+        new(MapOverlayKind.Spawns, "All spawns", false, false),
         new(MapOverlayKind.Keys, "Locked doors", false, false),
         new(
             MapOverlayKind.Switches,

@@ -26,6 +26,9 @@ internal sealed class FollowZoomSetting
 
     public double Value { get; private set; }
 
+    /// <summary>[#902] Reads the stored magnification again, after Backup &amp; reset replaced it.</summary>
+    public void Reload() => Value = Parse(_store?.Get(WorkspaceLayoutKeys.RaidFollowZoom));
+
     public double ChangeBy(int steps) => Set(Value + (steps * Step));
 
     public double Set(double value)

@@ -33,13 +33,47 @@ internal sealed class MapLayerVisibilitySetting
         "filters",
     };
 
+    /// <summary>
+    /// [#902] Choices made before schema 2, through controls that could not show or undo them:
+    /// the objective route's two disagreeing switches, the suggested routes' missing one, the View
+    /// menu's "Visited" (now the My trail layer) and the single Spawns switch that is now All
+    /// spawns beside its own Nearby spawns. Dropped once, so each is back at its default.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> ResetAtSchema2 = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "objective-route",
+        "traffic-routes",
+        "visited",
+        "spawns",
+    };
+
+    internal const string CurrentSchema = "2";
+
     private readonly IWorkspaceLayoutStore? _store;
-    private readonly List<(string Id, bool IsVisible)> _choices;
+    private readonly List<(string Id, bool IsVisible)> _choices = [];
 
     public MapLayerVisibilitySetting(IWorkspaceLayoutStore? store)
     {
         _store = store;
-        _choices = Parse(store?.Get(WorkspaceLayoutKeys.RaidLayerVisibility));
+        Reload();
+    }
+
+    /// <summary>Reads the stored choices again: after Backup &amp; reset or an import, and at startup.</summary>
+    public void Reload()
+    {
+        _choices.Clear();
+        var stored = _store?.Get(WorkspaceLayoutKeys.RaidLayerVisibility);
+        _choices.AddRange(Parse(stored));
+        if (_store is null || string.IsNullOrEmpty(stored) ||
+            string.Equals(_store.Get(WorkspaceLayoutKeys.RaidLayerSchema), CurrentSchema, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // Idempotent: a second run finds the schema written and nothing to drop.
+        _choices.RemoveAll(choice => ResetAtSchema2.Contains(choice.Id));
+        _store.Set(WorkspaceLayoutKeys.RaidLayerVisibility, Format(_choices));
+        _store.Set(WorkspaceLayoutKeys.RaidLayerSchema, CurrentSchema);
     }
 
     /// <summary>The remembered choice for one layer, or null when the player never touched it.</summary>
@@ -73,6 +107,11 @@ internal sealed class MapLayerVisibilitySetting
         }
 
         _store?.Set(WorkspaceLayoutKeys.RaidLayerVisibility, value);
+        // Written with the first choice, so the next start does not take it for an old one.
+        if (_store is not null && !string.Equals(_store.Get(WorkspaceLayoutKeys.RaidLayerSchema), CurrentSchema, StringComparison.Ordinal))
+        {
+            _store.Set(WorkspaceLayoutKeys.RaidLayerSchema, CurrentSchema);
+        }
     }
 
     /// <summary>

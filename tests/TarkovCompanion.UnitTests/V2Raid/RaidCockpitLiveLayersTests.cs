@@ -20,11 +20,13 @@ public sealed class RaidCockpitLiveLayersTests
     private static readonly DateTimeOffset NowUtc = new(2026, 9, 18, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Nothing_observed_produces_no_layers_at_all()
+    public void Nothing_observed_produces_only_the_empty_my_trail_row()
     {
         var built = RaidCockpitViewModel.BuildLiveLayers(Inputs(), Model(), NowUtc);
 
-        Assert.Empty(built.Layers);
+        // [#902 P3] Only My trail's row, empty and off, so its switch is there to turn on.
+        Assert.Equal(["my-trail"], built.Layers.Select(layer => layer.Id.Value));
+        Assert.False(Assert.Single(built.Layers).IsVisibleByDefault);
         Assert.Empty(built.Objects);
         Assert.Empty(built.Styles);
     }
@@ -37,7 +39,7 @@ public sealed class RaidCockpitLiveLayersTests
             Model(),
             NowUtc);
 
-        Assert.Equal(["you"], built.Layers.Select(layer => layer.Id.Value));
+        Assert.Equal(["you", "my-trail"], built.Layers.Select(layer => layer.Id.Value));
         var marker = Assert.Single(built.Objects, item => item.Kind == MapSceneObjectKind.LastKnownPosition);
         Assert.Equal(MapSceneTruthKind.LocalLastKnown, marker.Truth);
         Assert.Equal(120, marker.HeadingDegrees);
@@ -132,7 +134,7 @@ public sealed class RaidCockpitLiveLayersTests
             Model(),
             NowUtc);
 
-        Assert.Equal(["squad"], built.Layers.Select(layer => layer.Id.Value));
+        Assert.Equal(["squad", "my-trail"], built.Layers.Select(layer => layer.Id.Value));
         var geo = Assert.Single(built.Objects, item => item.Id.Value == "squad:Geo");
         Assert.Equal(MapSceneObjectKind.TeammateLastKnown, geo.Kind);
         Assert.Equal(MapSceneTruthKind.TeamSharedLastKnown, geo.Truth);
@@ -223,7 +225,7 @@ public sealed class RaidCockpitLiveLayersTests
 
         var off = RaidCockpitViewModel.BuildLiveLayers(Inputs(visited: visited), Model(), NowUtc);
         var layer = Assert.Single(off.Layers);
-        Assert.Equal("visited", layer.Id.Value);
+        Assert.Equal("my-trail", layer.Id.Value);
         Assert.False(layer.IsVisibleByDefault);
 
         var on = RaidCockpitViewModel.BuildLiveLayers(Inputs(visited: visited, showsVisited: true), Model(), NowUtc);

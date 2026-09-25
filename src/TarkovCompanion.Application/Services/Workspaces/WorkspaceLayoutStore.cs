@@ -61,6 +61,24 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 796] The raid map layers the player turned on or off, as "id:1,id:0".</summary>
     public const string RaidLayerVisibility = "raid.layer-visibility";
 
+    /// <summary>[#902] "2" once the stored layer choices have had the schema-2 reset (see MapLayerVisibilitySetting).</summary>
+    public const string RaidLayerSchema = "raid.layer-schema";
+
+    /// <summary>[#902 P4] "on" when the Objectives card keeps done objectives, dimmed with a check.</summary>
+    public const string RaidShowCompleted = "raid.show-completed";
+
+    /// <summary>[#902 P4] "off" when the Objectives card leaves squadmates' objectives off the map.</summary>
+    public const string RaidSquadObjectives = "raid.squad-objectives";
+
+    /// <summary>[#902 P4] "on" when the objective route also visits squadmates' stops.</summary>
+    public const string RaidRouteSquad = "raid.route-squad";
+
+    /// <summary>[#902 P4] Who a new mark is for, "private" or "squad"; missing is Squad while sharing, else Just me.</summary>
+    public const string RaidMarkScope = "raid.mark-scope";
+
+    /// <summary>[#902 P3] "off" when the map stops following the player's floor.</summary>
+    public const string RaidFollowFloor = "raid.follow-floor";
+
     /// <summary>[#902] The maps an objective route from Plan was last opened on, as "customs,woods".</summary>
     public const string RaidObjectiveRouteMaps = "raid.objective-route-maps";
 

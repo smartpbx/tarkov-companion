@@ -412,9 +412,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     // are ordinary scene layers, so each one gets a switch in the bottom strip for free and a
     // paired device would receive them with the rest of the scene.
     private static readonly MapSceneLayerId PlayerLayerId = new("you");
-    private static readonly MapSceneLayerId VisitedLayerId = new("visited");
+    // [#902 P3] "My trail", formerly Visited: the id changed with the name, so a choice made
+    // through the old View row, which could not show or undo it, is not carried over.
+    internal static readonly MapSceneLayerId MyTrailLayerId = new("my-trail");
     private static readonly MapSceneLayerId SquadLayerId = new("squad");
-    private static readonly MapSceneLayerId SpawnsLayerId = new("spawns");
+    // [#902 P3] The opening window's nearby spawns, on a switch of their own beside All spawns.
+    internal static readonly MapSceneLayerId NearbySpawnsLayerId = new("nearby-spawns");
     /// <summary>
     /// The plan rectangle to fall back on when the map cannot say where its artwork is.
     /// </summary>
@@ -617,7 +620,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         DecreaseFollowZoomCommand = new DelegateCommand(() => ChangeFollowZoom(-1));
         IncreaseFollowZoomCommand = new DelegateCommand(() => ChangeFollowZoom(1));
         RotateCommand = new DelegateCommand(() => _ = _map.RotateAsync());
-        ToggleVisitedCommand = new DelegateCommand(() => _ = _map.ToggleVisitedAsync());
         ToggleGroupNamesCommand = new DelegateCommand(() => _ = _map.ToggleGroupNamesAsync());
         ToggleAutoFloorCommand = new DelegateCommand(_map.ToggleAutoFloor);
         ToggleStackCommand = new DelegateCommand(() => _map.IsStacked = !_map.IsStacked);
@@ -646,6 +648,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         AttachGroupMarks();
         // [#286] Lines drawn in Draw mode.
         AttachDrawings();
+        // [#902 P3/P4] Show completed, Squad, Route squad, new-mark scope, My trail; and a reset.
+        AttachStoredChoices(synchronizationContext);
         if (_userMarkers is not null)
         {
             _userMarkers.Changed += UserMarkersChanged;
@@ -739,6 +743,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             double.TryParse(width, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
         {
             _contextPanelWidth = ClampContextPanelWidth(parsed);
+        }
+        else
+        {
+            // [#902] After Backup & reset nothing is stored, and that is the default width.
+            _contextPanelWidth = DefaultContextPanelWidth;
         }
 
         _contextPanelHidden = string.Equals(
@@ -854,9 +863,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// <summary>Turn the plan a quarter, remembered per map.</summary>
     public ICommand RotateCommand { get; }
 
-    /// <summary>Draw where past raids on this map put you.</summary>
-    public ICommand ToggleVisitedCommand { get; }
-
     /// <summary>Write squadmates' names beside their markers.</summary>
     public ICommand ToggleGroupNamesCommand { get; }
 
@@ -883,10 +889,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     public string RotationLabel => _map.RotationLabel;
 
     public bool IsRotated => _map.IsRotated;
-
-    public bool ShowsVisited => _map.ShowsVisited;
-
-    public string VisitedLabel => _map.VisitedLabel;
 
     public bool ShowsGroupNames => _map.ShowsGroupNames;
 
@@ -1011,6 +1013,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             if (SetProperty(ref _showCompletedObjectives, value))
             {
+                // [#902 P4] Remembered, like the card's other switches.
+                _layout?.Set(WorkspaceLayoutKeys.RaidShowCompleted, value ? "on" : "off");
                 _rebuildRequest.Request();
             }
         }
@@ -1021,11 +1025,16 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// <summary>[Issue 573] Cycles Co-op extract visibility: Hidden -> Dim -> Normal -> Hidden.</summary>
     public ICommand ToggleCoOpExtractVisibilityCommand { get; }
 
-    /// <summary>"3 on the plan · 2 with no location".</summary>
+    /// <summary>"3 on the plan · 2 with no location", or "All 4 done" when every one is done and hidden.</summary>
     public string QuestObjectiveSummary
     {
         get
         {
+            if (QuestObjectives.Count == 0 && _objectivesHereBeforeDone > 0)
+            {
+                return RaidText.AllObjectivesDone(_objectivesHereBeforeDone);
+            }
+
             var placed = QuestObjectives.Count(row => row.IsPlaced);
             var unplaced = QuestObjectives.Count - placed;
             return unplaced == 0
@@ -1313,6 +1322,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _marks.Changed -= MarksChanged;
         DetachGroupMarks();
         DetachDrawings();
+        DetachStoredChoices();
         if (_userMarkers is not null)
         {
             _userMarkers.Changed -= UserMarkersChanged;
@@ -1844,7 +1854,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     {
         [nameof(MapViewModel.FollowsPlayer)] = [nameof(FollowsPlayer)],
         [nameof(MapViewModel.RotationDegrees)] = [nameof(RotationLabel), nameof(IsRotated)],
-        [nameof(MapViewModel.VisitedLabel)] = [nameof(VisitedLabel), nameof(ShowsVisited)],
         [nameof(MapViewModel.ShowsGroupNames)] = [nameof(ShowsGroupNames)],
         [nameof(MapViewModel.AutoSelectsFloor)] = [nameof(AutoSelectsFloor)],
         [nameof(MapViewModel.IsStacked)] = [nameof(IsStacked), nameof(HasFloorStack)],
@@ -2677,18 +2686,21 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _spawnWindowExpiresUtc = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
             ? raidSnapshot.StartedUtc + EarlyRaidSpawnPolicy.VisibleFor
             : null;
-        IEnumerable<MapOverlayElement> legacyCandidates = model.OverlayElements;
-        if (spawnSelection.Phase == EarlyRaidSpawnPhase.Active)
-        {
-            legacyCandidates = legacyCandidates.Where(element =>
-                element.Layer != MapOverlayKind.Spawns || IsNearbySpawn(element, model, spawnSelection.Areas));
-        }
-        else if (spawnSelection.Phase == EarlyRaidSpawnPhase.Expired)
-        {
-            legacyCandidates = legacyCandidates.Where(element => element.Layer != MapOverlayKind.Spawns);
-        }
-
-        var legacyElements = legacyCandidates
+        // [#902 P3] All spawns keeps every spawn for the whole raid, off unless asked for, so its
+        // switch never locks when the window closes. The window's nearby ones are copies on the
+        // Nearby spawns layer, whose switch (on unless turned off) applies whenever the raid is
+        // in the window, including on a map that was already open when the raid began.
+        var nearbySpawns = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
+            ? model.OverlayElements
+                .Where(element => element.Layer == MapOverlayKind.Spawns &&
+                    RaidExtractSide.KeepOnMap(element.Layer, element.Faction, raidSide) &&
+                    IsNearbySpawn(element, model, spawnSelection.Areas))
+                .Select(element => new MapSceneLegacyElement(element, new DataProvenance("map-catalog", nowUtc))
+                {
+                    LayerOverride = NearbySpawnsLayerId,
+                })
+            : [];
+        var legacyElements = model.OverlayElements
             .Where(element => element.Layer is MapOverlayKind.Extracts or MapOverlayKind.QuestObjectives
                 or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys or MapOverlayKind.Switches)
             .Where(element => element.Layer != MapOverlayKind.Extracts ||
@@ -2704,6 +2716,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                     MapViewModel.IsOfferedMarker(element.Label, raidSnapshot.ActiveExtracts)
                     ? MapSceneOfferState.Offered
                     : MapSceneOfferState.Unknown))
+            .Concat(nearbySpawns)
             .ToArray();
 
         // The rectangle the artwork covers, in the same Leaflet units every coordinate in this
@@ -2750,6 +2763,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             _userMarkers?.Markers ?? [],
             model.Location.Id,
             model.Floors);
+        _objectivesHereBeforeDone = _questScene.Entries.Count;
         if (_handDone is not null)
         {
             // [Issue 571] Done, by hand or because progress the app trusts already agrees:
@@ -2776,6 +2790,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)
             .Append(objectiveRoute.Layer)
+            .Append(NearbySpawnsLayer(model))
             .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>())
             .Concat(drawings.Layer is { } drawingsLayer ? new[] { drawingsLayer } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
@@ -2814,20 +2829,17 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 FitCamera(planBounds, Bearing()),
                 []);
 
-        // [Issue 664] This is the Layers menu's Spawns switch, defaulted on only for a new PMC
-        // scene during the opening window. Once the scene exists its current switch state wins,
-        // so a player can turn the nearby areas off without the next clock tick turning them on.
-        if (spawnSelection.Phase == EarlyRaidSpawnPhase.Active && !preservesView)
+        // [#902] After Backup & reset or an import, every layer is at its stored choice or its
+        // default again, not at whatever the view had before.
+        if (_layersReplaced)
         {
-            requestedView = requestedView with
-            {
-                Layers = [.. requestedView.Layers.Where(layer => layer.LayerId != SpawnsLayerId), new(SpawnsLayerId, true)],
-            };
+            _layersReplaced = false;
+            requestedView = requestedView with { Layers = [] };
         }
 
         // [Issue 796] The player's own Layers-menu choices, on every build and not only a new
         // map: a layer that arrives later (the heatmap once traffic loads) would otherwise open
-        // at its default. Laid over the Spawns rule above, so a choice beats a default.
+        // at its default.
         // [#902] While Loot focus is on, the layers it hid stay hidden through each rebuild: only
         // a layer the view does not have yet takes its remembered choice.
         var remembered = _layerVisibility.Apply(requestedView.Layers);
@@ -2898,6 +2910,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 ranksLootByValue: true,
                 pictureLease: LeasePicture);
             renderer.ViewChangeRequested += ViewChangeRequested;
+            // [#902 P4] The map's loot chip opens the loot card rather than a copy of its chips.
+            renderer.LootFilterOpener = OpenLootCardCommand;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.CameraZoomedByPlayer += CameraZoomedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
@@ -3155,7 +3169,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             entry.Objective.RecordedCount,
             entry.Objective.IsTaskPinned,
             entry.Objective.IsObjectivePinned,
-            IsDone(entry)))) + "#" + _selectedObjectiveId + "#" + _showCompletedObjectives;
+            IsDone(entry)))) + "#" + _selectedObjectiveId + "#" + _showCompletedObjectives + "#" + _objectivesHereBeforeDone;
         if (signature == _objectiveSignature)
         {
             return;
@@ -3298,8 +3312,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // included), which would otherwise silently drop the highlight on whichever one the
         // player had selected before the last screenshot came in.
         SyncExtractSelection();
-        var spawnAreas = scene.Objects
-            .Where(item => item.Kind == MapSceneObjectKind.SpawnArea)
+        // [#902 P3] In the opening window the card lists the nearby ones, as it did before
+        // All spawns kept every spawn on the map.
+        var spawnObjects = scene.Objects.Where(item => item.Kind == MapSceneObjectKind.SpawnArea).ToArray();
+        if (spawnObjects.Any(item => item.LayerId == NearbySpawnsLayerId))
+        {
+            spawnObjects = spawnObjects.Where(item => item.LayerId == NearbySpawnsLayerId).ToArray();
+        }
+
+        var spawnAreas = spawnObjects
             .Select(item => item.Label)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(label => label, StringComparer.CurrentCultureIgnoreCase)
@@ -3350,6 +3371,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 796] Remembered from here, so a toggle from the Layers menu or the paired tablet
         // (which drives this same renderer) is kept alike. [#902] Loot focus's own steps are not.
         _layerVisibility.Record(change, result.Status, Renderer.IsDispatchingLootFocus);
+        if (change.Kind == MapSceneViewChangeKind.SetLayerVisibility && result.Status == MapSceneViewChangeStatus.Applied &&
+            change.LayerId == MyTrailLayerId && !Renderer.IsDispatchingLootFocus)
+        {
+            SyncMyTrail();
+        }
         if (change.Kind == MapSceneViewChangeKind.SetLayerVisibility && result.Status == MapSceneViewChangeStatus.Applied &&
             change.LayerId is { } changedLayer && RouteLayerSwitch.IsRoute(changedLayer))
         {
@@ -3461,17 +3487,18 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         }
 
         _lootValueFilter.Set(request.State.Filter);
-        _lootFilter = request.State;
+        // [#902 P4] Through the setting, which drops any floor: the layer follows the map's floor.
+        _lootFilter = _lootValueFilter.Apply(request.State);
         var result = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
             request.TransformVersion,
             _planBounds,
             _timeProvider.GetUtcNow(),
-            request.State.Filter,
+            _lootFilter.Filter,
             model.Floors.Select(floor => floor.Id).ToArray(),
             LootSpawnFloorMap.OverviewFloorIds(model.Floors)));
         var scene = ReplaceLootObjects(Renderer.Scene, result);
-        Renderer.Present(scene, result, request.State, availableCategories: null);
+        Renderer.Present(scene, result, _lootFilter, availableCategories: null);
     }
 
     /// <summary>[Issue 563] "High-value loot only" with no data offers Refresh instead of
@@ -3743,7 +3770,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             var id = new MapSceneObjectId($"visited:{visited[index].RaidId}");
             visitedObjects.Add(new(
                 id,
-                VisitedLayerId,
+                MyTrailLayerId,
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.LocalLastKnown,
                 visited[index].StartedUtc is { } started
@@ -3760,11 +3787,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 Opacity: visited.Count <= 1 ? 0.55 : 0.55 - (0.35 * index / (visited.Count - 1.0)));
         }
 
-        if (visitedObjects.Count > 0)
-        {
-            layers.Add(new(VisitedLayerId, RaidText.LayerVisited, 20, inputs.ShowsVisited));
-            objects.AddRange(visitedObjects);
-        }
+        // [#902 P3] Always declared, off by default, so its switch is there to turn on: the trails
+        // are read only while it is on (see SyncMyTrail).
+        layers.Add(new(MyTrailLayerId, RaidText.LayerMyTrail, 20, inputs.ShowsVisited));
+        objects.AddRange(visitedObjects);
 
         return new(layers, objects, styles);
     }

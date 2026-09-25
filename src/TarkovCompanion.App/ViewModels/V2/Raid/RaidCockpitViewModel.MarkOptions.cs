@@ -7,6 +7,7 @@ using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Workspaces;
 
 namespace TarkovCompanion.App.ViewModels.V2.Raid;
 
@@ -55,6 +56,13 @@ public sealed partial class RaidCockpitViewModel
     private void ChooseNewMarkScope(RaidMarkScope scope)
     {
         _chosenNewMarkScope = scope;
+        // [#902 P4] Kept between launches, as the tablet keeps its own copy.
+        _layout?.Set(WorkspaceLayoutKeys.RaidMarkScope, scope == RaidMarkScope.Squad ? "squad" : "private");
+        RaiseNewMarkScope();
+    }
+
+    private void RaiseNewMarkScope()
+    {
         OnPropertyChanged(nameof(NewMarkScope));
         OnPropertyChanged(nameof(NewMarksAreSquad));
         OnPropertyChanged(nameof(NewMarksAreJustMe));
