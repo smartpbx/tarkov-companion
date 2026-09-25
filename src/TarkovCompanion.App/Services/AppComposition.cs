@@ -420,8 +420,11 @@ public static class AppComposition
             provider.GetRequiredService<SqliteConnectionFactory>(),
             timeProvider,
             Path.Combine(paths.Config, "screenshots.json")));
+        // [#902] Wrapped so the window's own copy of the setting hears a Backup & reset write.
+        services.AddSingleton(provider => new ObservableScreenshotRetentionStore(
+            provider.GetRequiredService<SqliteScreenshotRetentionStore>()));
         services.AddSingleton<IScreenshotRetentionStore>(provider =>
-            provider.GetRequiredService<SqliteScreenshotRetentionStore>());
+            provider.GetRequiredService<ObservableScreenshotRetentionStore>());
         // Where the game keeps its screenshots and logs, when the guessing is wrong. The first
         // person to install this who does not use OneDrive had no screenshots detected and no
         // way to say where they were.
@@ -1140,7 +1143,20 @@ public static class AppComposition
         services.AddSingleton(provider => new SetupSettingsAdminViewModel(
             provider.GetRequiredService<WorkspacePreferenceService>(),
             provider.GetRequiredService<IScreenshotRetentionStore>(),
-            provider.GetService<NotificationBridge>()));
+            provider.GetService<NotificationBridge>(),
+            // [#902] Every other registered group (SettingsRegistry), through the services its pages listen to.
+            new SetupSettingsSources
+            {
+                InterfaceScale = (
+                    () => provider.GetRequiredService<MainWindowViewModel>().InterfaceScale,
+                    scale => provider.GetRequiredService<MainWindowViewModel>().SetInterfaceScale(scale)),
+                Network = networkPolicy,
+                FeatureFlags = provider.GetService<FeatureFlagService>(),
+                Horizons = provider.GetRequiredService<RecommendationPolicyService>(),
+                SquadSharing = provider.GetRequiredService<IGroupSettingsStore>(),
+                Layout = provider.GetRequiredService<IWorkspaceLayoutStore>(),
+                MapDefaults = provider.GetRequiredService<IMapVariantPreferenceStore>(),
+            }));
         // [#292 task 3] The database's migration state and verified backup, read from the same
         // SqliteMigrationRunner that already makes and verifies one before a destructive migration.
         services.AddSingleton(provider => new SetupDatabaseStatusViewModel(

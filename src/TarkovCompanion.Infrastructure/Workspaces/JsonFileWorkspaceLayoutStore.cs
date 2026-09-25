@@ -64,6 +64,30 @@ public sealed class JsonFileWorkspaceLayoutStore : IWorkspaceLayoutStore
         }
     }
 
+    public IReadOnlyDictionary<string, string> Entries =>
+        new SortedDictionary<string, string>(_values, StringComparer.Ordinal);
+
+    public event EventHandler? Replaced;
+
+    public void Replace(IReadOnlyDictionary<string, string> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        lock (_writeGate)
+        {
+            _values.Clear();
+            foreach (var (key, value) in entries
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value is { Length: <= MaximumValueLength })
+                .Take(MaximumEntries))
+            {
+                _values[key] = value;
+            }
+
+            Write(_path, _values);
+        }
+
+        Replaced?.Invoke(this, EventArgs.Empty);
+    }
+
     private static Dictionary<string, string> ReadOrEmpty(string path)
     {
         try

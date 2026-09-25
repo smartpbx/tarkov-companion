@@ -4,34 +4,40 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
-  <!-- #292 task 2: "Reset this section", "Reset everything", export and import. Shown on every
-       section (below the section tabs, beside "Show file paths") rather than owning one of its
-       own, since "this section" only means something once a section is already open. Nothing here
-       applies until Confirm is pressed: every action first computes a diff against what is live
-       and holds it until then. -->
-  <Border Classes="v2-card v2-setup-section" AutomationProperties.AutomationId="v2-setup-settings-admin">
+  <!-- #292 task 2 / #902: "Reset this section" at the foot of every section that is the home of a
+       registered setting, and Backup & reset (export, import, Reset everything) once, under About.
+       SettingsRegistry says what each covers. Nothing here applies until Confirm is pressed: every
+       action first computes a diff against what is live and holds it until then. -->
+  <Border Classes="v2-card v2-setup-section" AutomationProperties.AutomationId="v2-setup-settings-admin"
+          IsVisible="{Binding IsVisible}">
     <StackPanel Classes="v2-stack">
-      <WrapPanel Classes="v2-toolbar">
+      <WrapPanel Classes="v2-toolbar" IsVisible="{Binding !ShowsBackup}">
         <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-reset-section"
                 Content="{x:Static l:SetupText.AdminResetSection}" Command="{Binding ResetSectionCommand}" />
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-reset-all"
-                Content="{x:Static l:SetupText.AdminResetAll}" Command="{Binding ResetAllCommand}" />
       </WrapPanel>
-      <StackPanel Classes="v2-field">
-        <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.AdminFileLabel}" />
-        <TextBox Classes="v2-field-input" Text="{Binding ExchangePath}"
-                  PlaceholderText="{x:Static l:SetupText.AdminFilePlaceholder}"
-                  AutomationProperties.AutomationId="v2-setup-settings-path"
-                  AutomationProperties.Name="{x:Static l:SetupText.AdminFileLabel}" />
+      <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsBackup}"
+                  AutomationProperties.AutomationId="v2-setup-backup">
+        <TextBlock Classes="v2-heading-3" Text="{x:Static l:SetupText.AdminBackupHeading}"
+                   AutomationProperties.HeadingLevel="3" />
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{x:Static l:SetupText.AdminBackupScope}" />
+        <StackPanel Classes="v2-field">
+          <TextBlock Classes="v2-label" Text="{x:Static l:SetupText.AdminFileLabel}" />
+          <TextBox Classes="v2-field-input" Text="{Binding ExchangePath}"
+                    PlaceholderText="{x:Static l:SetupText.AdminFilePlaceholder}"
+                    AutomationProperties.AutomationId="v2-setup-settings-path"
+                    AutomationProperties.Name="{x:Static l:SetupText.AdminFileLabel}" />
+        </StackPanel>
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-settings"
+                  Content="{x:Static l:SetupText.AdminExport}" Command="{Binding ExportCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import-settings"
+                  Content="{x:Static l:SetupText.AdminPreviewImport}" Command="{Binding PreviewImportCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-reset-all"
+                  Content="{x:Static l:SetupText.AdminResetAll}" Command="{Binding ResetAllCommand}" />
+        </WrapPanel>
       </StackPanel>
-      <WrapPanel Classes="v2-toolbar">
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-settings"
-                Content="{x:Static l:SetupText.AdminExport}" Command="{Binding ExportCommand}" />
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import-settings"
-                Content="{x:Static l:SetupText.AdminPreviewImport}" Command="{Binding PreviewImportCommand}" />
-      </WrapPanel>
       <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding StatusMessage}"
-                 IsVisible="{Binding !HasPendingChange}"
+                 IsVisible="{Binding ShowsStatus}"
                  AutomationProperties.AutomationId="v2-setup-settings-status"
                  AutomationProperties.LiveSetting="Polite" />
 

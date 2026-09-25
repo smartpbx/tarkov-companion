@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+using TarkovCompanion.App.Services.Settings;
 using TarkovCompanion.Application.Services.Setup;
+using TarkovCompanion.Core.Features;
 
 namespace TarkovCompanion.App.Localization;
 
@@ -11,7 +13,7 @@ public sealed record SetupSettingsDiffRow(string Field, string CurrentValue, str
     {
         ArgumentNullException.ThrowIfNull(entry);
         return new(
-            SetupText.SettingsField(entry.Field),
+            SetupText.SettingsFieldWithDetail(entry.Field, entry.Detail),
             SetupText.SettingsValue(entry.CurrentValue, entry.Kind),
             SetupText.SettingsValue(entry.NewValue, entry.Kind));
     }
@@ -24,9 +26,34 @@ public static partial class SetupText
     public static string SettingsField(SetupSettingsField field) =>
         UiText.Get(string.Concat("Setup.SettingsDiff.Field.", field.ToString()));
 
-    /// <summary>"On", "Off", "High Contrast", "150", "07:00", "48h".</summary>
-    public static string SettingsValue(object value, SetupSettingsValueKind kind) => (value, kind) switch
+    /// <summary>[#902] A row that stands for one of many: the flag's title, the layout key's
+    /// registered name, or the map's own id.</summary>
+    public static string SettingsFieldWithDetail(SetupSettingsField field, string? detail)
     {
+        if (detail is null)
+        {
+            return SettingsField(field);
+        }
+
+        return field switch
+        {
+            SetupSettingsField.FeatureFlag => Flag.All.FirstOrDefault(flag => flag.Key == detail) is { } flag
+                ? FlagTitle(flag)
+                : detail,
+            SetupSettingsField.Layout => SettingsRegistry.FindLayoutKey(detail) is { } registered
+                ? registered.IsPrefix
+                    ? UiText.Format(registered.LabelKey, detail[registered.Key.Length..])
+                    : UiText.Get(registered.LabelKey)
+                : detail,
+            _ => UiText.Format("Setup.SettingsDiff.WithDetail", SettingsField(field), detail),
+        };
+    }
+
+    /// <summary>"On", "Off", "High Contrast", "150", "07:00", "48h".</summary>
+    public static string SettingsValue(object? value, SetupSettingsValueKind kind) => (value, kind) switch
+    {
+        (null, _) => UiText.Get("Setup.SettingsDiff.Default"),
+        (string stored, SetupSettingsValueKind.Stored) => stored.Length <= 24 ? stored : UiText.Get("Setup.SettingsDiff.Custom"),
         (int number, SetupSettingsValueKind.Percent) => number.ToString(CultureInfo.CurrentCulture),
         (int hour, SetupSettingsValueKind.HourOfDay) => UiText.Format("Setup.SettingsDiff.HourOfDay", hour.ToString("00", CultureInfo.CurrentCulture)),
         (int hours, SetupSettingsValueKind.Hours) => UiText.Format("Setup.SettingsDiff.Hours", hours),

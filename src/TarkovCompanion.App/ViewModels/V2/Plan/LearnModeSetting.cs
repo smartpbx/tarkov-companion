@@ -15,11 +15,22 @@ public sealed class LearnModeSetting : BindableViewModel
     public LearnModeSetting(IWorkspaceLayoutStore? store = null)
     {
         _store = store;
-        _isEnabled = string.Equals(
-            store?.Get(WorkspaceLayoutKeys.PlanLearnMode),
-            "on",
-            StringComparison.Ordinal);
+        _isEnabled = Read(store);
+        if (store is not null)
+        {
+            // [#902] Backup & reset replaced the layout: show what it holds now, without a restart.
+            store.Replaced += (_, _) =>
+            {
+                _isEnabled = Read(store);
+                OnPropertyChanged(nameof(IsEnabled));
+            };
+        }
     }
+
+    private static bool Read(IWorkspaceLayoutStore? store) => string.Equals(
+        store?.Get(WorkspaceLayoutKeys.PlanLearnMode),
+        "on",
+        StringComparison.Ordinal);
 
     public bool IsEnabled
     {

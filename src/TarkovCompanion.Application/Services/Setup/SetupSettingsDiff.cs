@@ -21,6 +21,24 @@ public enum SetupSettingsField
     QuietUntil,
     ScreenshotCleanup,
     ScreenshotRetention,
+    InterfaceScale,
+    LocalOnly,
+    SquadSharingTraffic,
+    UpdateChecks,
+    ProblemReports,
+    TarkovTracker,
+    FeatureFlag,
+    QuestHorizon,
+    HideoutHorizon,
+    ShareWithSquad,
+    ShareLoadout,
+    ShareQuests,
+
+    /// <summary>One workspace-layout entry; <see cref="SetupSettingsDiffEntry.Detail"/> is its key.</summary>
+    Layout,
+
+    /// <summary>One map's remembered choice; <see cref="SetupSettingsDiffEntry.Detail"/> is its key.</summary>
+    MapDefault,
 }
 
 /// <summary>How a diff value is written: as itself (a switch, a choice), a percentage, an hour of the day, or a number of hours.</summary>
@@ -30,6 +48,9 @@ public enum SetupSettingsValueKind
     Percent,
     HourOfDay,
     Hours,
+
+    /// <summary>A stored text value, or null when the key is absent (its default).</summary>
+    Stored,
 }
 
 /// <summary>One field that differs between two snapshots.</summary>
@@ -37,11 +58,13 @@ public enum SetupSettingsValueKind
 /// <param name="CurrentValue">What it is now: a bool, an enum value or a number.</param>
 /// <param name="NewValue">What it would become.</param>
 /// <param name="Kind">How the number is written.</param>
+/// <param name="Detail">Which flag, layout key or map, for a field that stands for many.</param>
 public sealed record SetupSettingsDiffEntry(
     SetupSettingsField Field,
-    object CurrentValue,
-    object NewValue,
-    SetupSettingsValueKind Kind = SetupSettingsValueKind.Plain);
+    object? CurrentValue,
+    object? NewValue,
+    SetupSettingsValueKind Kind = SetupSettingsValueKind.Plain,
+    string? Detail = null);
 
 /// <summary>
 /// What would actually change between two <see cref="SetupSettingsSnapshot"/>s, field by field.
@@ -66,11 +89,29 @@ public static class SetupSettingsDiff
         incoming = incoming.Normalized();
 
         var entries = new List<SetupSettingsDiffEntry>();
-        void Add(SetupSettingsField field, object currentValue, object newValue, SetupSettingsValueKind kind = SetupSettingsValueKind.Plain)
+        void Add(SetupSettingsField field, object? currentValue, object? newValue, SetupSettingsValueKind kind = SetupSettingsValueKind.Plain, string? detail = null)
         {
             if (!Equals(currentValue, newValue))
             {
-                entries.Add(new SetupSettingsDiffEntry(field, currentValue, newValue, kind));
+                entries.Add(new SetupSettingsDiffEntry(field, currentValue, newValue, kind, detail));
+            }
+        }
+
+        void AddEach<TValue>(
+            SetupSettingsField field,
+            IReadOnlyDictionary<string, TValue> currentValues,
+            IReadOnlyDictionary<string, TValue> newValues,
+            SetupSettingsValueKind kind,
+            StringComparer comparer)
+        {
+            foreach (var key in currentValues.Keys.Union(newValues.Keys, comparer).Order(comparer))
+            {
+                Add(
+                    field,
+                    currentValues.TryGetValue(key, out var was) ? (object?)was : null,
+                    newValues.TryGetValue(key, out var becomes) ? (object?)becomes : null,
+                    kind,
+                    key);
             }
         }
 
@@ -94,6 +135,26 @@ public static class SetupSettingsDiff
 
         Add(SetupSettingsField.ScreenshotCleanup, current.ScreenshotRetention.IsEnabled, incoming.ScreenshotRetention.IsEnabled);
         Add(SetupSettingsField.ScreenshotRetention, current.ScreenshotRetention.RetentionHours, incoming.ScreenshotRetention.RetentionHours, SetupSettingsValueKind.Hours);
+
+        Add(SetupSettingsField.InterfaceScale, (int)Math.Round(current.InterfaceScale * 100), (int)Math.Round(incoming.InterfaceScale * 100), SetupSettingsValueKind.Percent);
+
+        Add(SetupSettingsField.LocalOnly, current.Network.LocalOnly, incoming.Network.LocalOnly);
+        Add(SetupSettingsField.SquadSharingTraffic, current.Network.SquadSharing, incoming.Network.SquadSharing);
+        Add(SetupSettingsField.UpdateChecks, current.Network.UpdateChecks, incoming.Network.UpdateChecks);
+        Add(SetupSettingsField.ProblemReports, current.Network.ProblemReports, incoming.Network.ProblemReports);
+        Add(SetupSettingsField.TarkovTracker, current.Network.TarkovTracker, incoming.Network.TarkovTracker);
+
+        AddEach(SetupSettingsField.FeatureFlag, current.FeatureFlags, incoming.FeatureFlags, SetupSettingsValueKind.Plain, StringComparer.Ordinal);
+
+        Add(SetupSettingsField.QuestHorizon, current.Horizons.Quest, incoming.Horizons.Quest);
+        Add(SetupSettingsField.HideoutHorizon, current.Horizons.Hideout, incoming.Horizons.Hideout);
+
+        Add(SetupSettingsField.ShareWithSquad, current.SquadSharing.IsEnabled, incoming.SquadSharing.IsEnabled);
+        Add(SetupSettingsField.ShareLoadout, current.SquadSharing.SharesLoadout, incoming.SquadSharing.SharesLoadout);
+        Add(SetupSettingsField.ShareQuests, current.SquadSharing.SharesQuests, incoming.SquadSharing.SharesQuests);
+
+        AddEach(SetupSettingsField.Layout, current.Layout, incoming.Layout, SetupSettingsValueKind.Stored, StringComparer.Ordinal);
+        AddEach(SetupSettingsField.MapDefault, current.MapDefaults, incoming.MapDefaults, SetupSettingsValueKind.Stored, StringComparer.OrdinalIgnoreCase);
 
         return entries;
     }

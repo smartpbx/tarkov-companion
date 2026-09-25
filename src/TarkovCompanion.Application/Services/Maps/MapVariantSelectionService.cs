@@ -7,6 +7,14 @@ public interface IMapVariantPreferenceStore
     Task<string?> GetAsync(string locationId, CancellationToken cancellationToken);
 
     Task SetAsync(string locationId, string variantKey, CancellationToken cancellationToken);
+
+    /// <summary>Every per-map choice, for Setup's Backup &amp; reset (#902).</summary>
+    Task<IReadOnlyDictionary<string, string>> GetAllAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
+
+    /// <summary>Replaces every per-map choice in one write; empty is "Reset everything".</summary>
+    Task ReplaceAllAsync(IReadOnlyDictionary<string, string> choices, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 public sealed class MapVariantSelectionService(IMapVariantPreferenceStore preferenceStore)
