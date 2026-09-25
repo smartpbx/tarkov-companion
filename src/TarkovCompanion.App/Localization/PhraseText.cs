@@ -44,6 +44,8 @@ public static class PhraseText
     {
         Phrase nested => Say(nested),
         Enum code when Prefix(code.GetType()) is not null => Say(code),
+        // A span is a number the layer below measured; how it reads is the table's business.
+        TimeSpan span => UnitText.Duration(span),
         _ => argument,
     };
 }

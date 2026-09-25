@@ -89,7 +89,7 @@ internal sealed class GalleryStateScene(IServiceProvider services, MainWindowVie
         return new GroupSnapshot(true, [Mate("Geo", RaidLifecycleState.InRaid), Mate("Riley", RaidLifecycleState.Menu)], string.Empty, now)
         {
             StaleSince = now - quiet,
-        }.Saying(new Phrase(GroupStatus.LastHeard, unreachable, GroupSessionService.Ago(quiet)));
+        }.Saying(new Phrase(GroupStatus.LastHeard, unreachable, quiet));
     }
 
     public async Task RunAsync(GalleryReadiness readiness, CancellationToken cancellationToken)

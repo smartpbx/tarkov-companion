@@ -78,9 +78,20 @@ public sealed class SelfTestProbeTests
         var result = SelfTestProbes.Logs(Logs(), Now, Took, Culture);
 
         Assert.Equal(SelfTestOutcome.Pass, result.Outcome);
-        Assert.Contains(result.Facts, fact => fact.Text.Contains("2 raid(s) recognised", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("2 raids recognised", StringComparison.Ordinal));
         Assert.Contains(result.Facts, fact => fact.Text.Contains("Queue time 24.7 s", StringComparison.Ordinal));
-        Assert.Contains(result.Facts, fact => fact.Text.Contains("3 quest notification(s)", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("3 quest notifications", StringComparison.Ordinal));
+    }
+
+    /// <summary>"1 raid(s) recognised" and "1 flea sale(s)": each count is its own one/other entry now.</summary>
+    [Fact]
+    public void LogCountsAreSingularOrPluralNeverBracketed()
+    {
+        var result = SelfTestProbes.Logs(Logs() with { RaidsSeen = 1, QuestEvents = 1, FleaSales = 2 }, Now, Took, Culture);
+
+        Assert.Contains(result.Facts, fact => fact.Text.StartsWith("1 raid recognised; it was", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text == "1 quest notification and 2 flea sales across every file read");
+        Assert.DoesNotContain(result.Facts, fact => fact.Text.Contains("(s)", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -192,7 +203,7 @@ public sealed class SelfTestProbeTests
 
         Assert.Equal(SelfTestOutcome.Pass, result.Outcome);
         var items = Assert.Single(result.Facts, fact => fact.Text.StartsWith("items:", StringComparison.Ordinal));
-        Assert.Contains("5,321 row(s)", items.Text, StringComparison.Ordinal);
+        Assert.Contains("5,321 rows", items.Text, StringComparison.Ordinal);
         Assert.Contains("MB", items.Text, StringComparison.Ordinal);
         Assert.Contains("h ago", items.Text, StringComparison.Ordinal);
     }
@@ -234,7 +245,7 @@ public sealed class SelfTestProbeTests
 
         Assert.Equal(SelfTestOutcome.Pass, result.Outcome);
         Assert.Contains(result.Facts, fact => fact.Text.Contains("All 2 migrations applied", StringComparison.Ordinal));
-        Assert.Contains(result.Facts, fact => fact.Text.Contains("items: 5,321 row(s)", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("items: 5,321 rows", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -9,6 +9,21 @@ public static partial class SetupText
     private static string ProbeIn(CultureInfo culture, string key, params object?[] arguments) =>
         string.Format(culture, UiText.Get(key), arguments);
 
+    // "3 row(s)" read like a form letter (#314 follow-up). A count inside a longer probe sentence
+    // is said by its own one/other entry, so a sentence with two counts gets each right.
+    private static string ProbeCount(CultureInfo culture, string key, object? count) =>
+        UiText.Current.Plural(culture, key, CountOf(count));
+
+    private static string ProbeCounted(CultureInfo culture, string key, object? count, params object?[] arguments) =>
+        UiText.Current.Plural(culture, key, CountOf(count), arguments);
+
+    private static long CountOf(object? count) => count switch
+    {
+        null => 0,
+        string text => long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0,
+        _ => Convert.ToInt64(count, CultureInfo.InvariantCulture),
+    };
+
     public static string ProbeTitleGameFolders => UiText.Get("Setup.Probe.TitleGameFolders");
     public static string ProbeTitleLogs => UiText.Get("Setup.Probe.TitleLogs");
     public static string ProbeTitleScreenshots => UiText.Get("Setup.Probe.TitleScreenshots");
@@ -40,28 +55,28 @@ public static partial class SetupText
     public static string ProbeFolderNotFound => UiText.Get("Setup.Probe.FolderNotFound");
     public static string ProbeFolderChosen(CultureInfo culture, object? purpose, object? path, object? why, object? entries, object? changed) => ProbeIn(culture, "Setup.Probe.FolderChosen", purpose, path, why, entries, changed);
     public static string ProbeFolderStaleFact(CultureInfo culture, object? logChanged, object? screenshotChanged) => ProbeIn(culture, "Setup.Probe.FolderStaleFact", logChanged, screenshotChanged);
-    public static string ProbeFoldersPass(CultureInfo culture, object? folders) => ProbeIn(culture, "Setup.Probe.FoldersPass", folders);
+    public static string ProbeFoldersPass(CultureInfo culture, object? folders) => ProbeCounted(culture, "Setup.Probe.FoldersPass", folders);
     public static string ProbeFoldersBroken(CultureInfo culture, object? folders) => ProbeIn(culture, "Setup.Probe.FoldersBroken", folders);
     public static string ProbeFoldersJoin => UiText.Get("Setup.Probe.FoldersJoin");
     public static string ProbeFoldersStale => UiText.Get("Setup.Probe.FoldersStale");
     public static string ProbeLogsNothingRead(object? problem) => UiText.Format("Setup.Probe.LogsNothingRead", problem);
-    public static string ProbeLogsRead(CultureInfo culture, object? lines, object? size, object? files, object? session) => ProbeIn(culture, "Setup.Probe.LogsRead", lines, size, files, session);
+    public static string ProbeLogsRead(CultureInfo culture, object? lines, object? size, object? files, object? session) => ProbeIn(culture, "Setup.Probe.LogsRead", ProbeCount(culture, "Setup.Probe.CountLines", lines), size, ProbeCount(culture, "Setup.Probe.CountFiles", files), session);
     public static string ProbeLogsFileUnreadable(CultureInfo culture, object? file, object? problem) => ProbeIn(culture, "Setup.Probe.LogsFileUnreadable", file, problem);
-    public static string ProbeLogsFile(CultureInfo culture, object? file, object? lines, object? chatOnly, object? quests, object? flea) => ProbeIn(culture, "Setup.Probe.LogsFile", file, lines, chatOnly, quests, flea);
+    public static string ProbeLogsFile(CultureInfo culture, object? file, object? lines, object? chatOnly, object? quests, object? flea) => ProbeIn(culture, "Setup.Probe.LogsFile", file, ProbeCount(culture, "Setup.Probe.CountLines", lines), chatOnly, quests, flea);
     public static string ProbeLogsChatOnly => UiText.Get("Setup.Probe.LogsChatOnly");
     public static string ProbeLogsNotOpened(CultureInfo culture, object? files) => ProbeIn(culture, "Setup.Probe.LogsNotOpened", files);
     public static string ProbeLogsSessionStarted(CultureInfo culture, object? age, object? at) => ProbeIn(culture, "Setup.Probe.LogsSessionStarted", age, at);
     public static string ProbeLogsNoRaid => UiText.Get("Setup.Probe.LogsNoRaid");
-    public static string ProbeLogsRaids(CultureInfo culture, object? raids, object? map, object? state) => ProbeIn(culture, "Setup.Probe.LogsRaids", raids, map, state);
+    public static string ProbeLogsRaids(CultureInfo culture, object? raids, object? map, object? state) => ProbeCounted(culture, "Setup.Probe.LogsRaids", raids, map, state);
     public static string ProbeLogsUnnamedMap => UiText.Get("Setup.Probe.LogsUnnamedMap");
     public static string ProbeLogsLastRaidLine(CultureInfo culture, object? age, object? at) => ProbeIn(culture, "Setup.Probe.LogsLastRaidLine", age, at);
     public static string ProbeLogsQueueTime(CultureInfo culture, object? seconds) => ProbeIn(culture, "Setup.Probe.LogsQueueTime", seconds);
     public static string ProbeLogsNoQueueTime => UiText.Get("Setup.Probe.LogsNoQueueTime");
-    public static string ProbeLogsEvents(CultureInfo culture, object? quests, object? flea) => ProbeIn(culture, "Setup.Probe.LogsEvents", quests, flea);
+    public static string ProbeLogsEvents(CultureInfo culture, object? quests, object? flea) => ProbeIn(culture, "Setup.Probe.LogsEvents", ProbeCount(culture, "Setup.Probe.CountQuestNotifications", quests), ProbeCount(culture, "Setup.Probe.CountFleaSales", flea));
     public static string ProbeLogsEmpty(CultureInfo culture, object? file, object? size) => ProbeIn(culture, "Setup.Probe.LogsEmpty", file, size);
     public static string ProbeLogsNothingRecognised(CultureInfo culture, object? lines) => ProbeIn(culture, "Setup.Probe.LogsNothingRecognised", lines);
-    public static string ProbeLogsNoQuests(CultureInfo culture, object? raids, object? files) => ProbeIn(culture, "Setup.Probe.LogsNoQuests", raids, files);
-    public static string ProbeLogsPass(CultureInfo culture, object? events) => ProbeIn(culture, "Setup.Probe.LogsPass", events);
+    public static string ProbeLogsNoQuests(CultureInfo culture, object? raids, object? files) => ProbeIn(culture, "Setup.Probe.LogsNoQuests", ProbeCount(culture, "Setup.Probe.CountRaids", raids), ProbeCount(culture, "Setup.Probe.CountFiles", files));
+    public static string ProbeLogsPass(CultureInfo culture, object? events) => ProbeCounted(culture, "Setup.Probe.LogsPass", events);
     public static string ProbeLogsNoFolderChosen => UiText.Get("Setup.Probe.LogsNoFolderChosen");
     public static string ProbeLogsFolderMissing(object? folder) => UiText.Format("Setup.Probe.LogsFolderMissing", folder);
     public static string ProbeLogsNoSession(object? folder) => UiText.Format("Setup.Probe.LogsNoSession", folder);
@@ -94,18 +109,18 @@ public static partial class SetupText
     public static string ProbeDataNeverRefreshed => UiText.Get("Setup.Probe.DataNeverRefreshed");
     public static string ProbeDataDidNotRefresh(CultureInfo culture, object? endpoint, object? error, object? age) => ProbeIn(culture, "Setup.Probe.DataDidNotRefresh", endpoint, error, age);
     public static string ProbeDataNoRowsLanded(CultureInfo culture, object? endpoint, object? size, object? age) => ProbeIn(culture, "Setup.Probe.DataNoRowsLanded", endpoint, size, age);
-    public static string ProbeDataRows(CultureInfo culture, object? endpoint, object? rows, object? size, object? age) => ProbeIn(culture, "Setup.Probe.DataRows", endpoint, rows, size, age);
+    public static string ProbeDataRows(CultureInfo culture, object? endpoint, object? rows, object? size, object? age) => ProbeIn(culture, "Setup.Probe.DataRows", endpoint, ProbeCount(culture, "Setup.Probe.CountRows", rows), size, age);
     public static string ProbeDataFail(CultureInfo culture, object? endpoints) => ProbeIn(culture, "Setup.Probe.DataFail", endpoints);
     public static string ProbeDataPass(CultureInfo culture, object? endpoints) => ProbeIn(culture, "Setup.Probe.DataPass", endpoints);
     public static string ProbeDataLastRefresh(object? status) => UiText.Format("Setup.Probe.DataLastRefresh", status);
     public static string ProbeDbNone => UiText.Get("Setup.Probe.DbNone");
     public static string ProbeDbMigrationsApplied(CultureInfo culture, object? migrations, object? newest) => ProbeIn(culture, "Setup.Probe.DbMigrationsApplied", migrations, newest);
     public static string ProbeDbNoMigration => UiText.Get("Setup.Probe.DbNoMigration");
-    public static string ProbeDbMigrationsMissing(CultureInfo culture, object? missing, object? names) => ProbeIn(culture, "Setup.Probe.DbMigrationsMissing", missing, names);
-    public static string ProbeDbTableRows(CultureInfo culture, object? table, object? rows) => ProbeIn(culture, "Setup.Probe.DbTableRows", table, rows);
-    public static string ProbeDbBehind(CultureInfo culture, object? missing) => ProbeIn(culture, "Setup.Probe.DbBehind", missing);
+    public static string ProbeDbMigrationsMissing(CultureInfo culture, object? missing, object? names) => ProbeCounted(culture, "Setup.Probe.DbMigrationsMissing", missing, names);
+    public static string ProbeDbTableRows(CultureInfo culture, object? table, object? rows) => ProbeIn(culture, "Setup.Probe.DbTableRows", table, ProbeCount(culture, "Setup.Probe.CountRows", rows));
+    public static string ProbeDbBehind(CultureInfo culture, object? missing) => ProbeCounted(culture, "Setup.Probe.DbBehind", missing);
     public static string ProbeDbEmpty => UiText.Get("Setup.Probe.DbEmpty");
-    public static string ProbeDbPass(CultureInfo culture, object? size, object? tables) => ProbeIn(culture, "Setup.Probe.DbPass", size, tables);
+    public static string ProbeDbPass(CultureInfo culture, object? size, object? tables) => ProbeIn(culture, "Setup.Probe.DbPass", size, ProbeCount(culture, "Setup.Probe.CountTables", tables));
     public static string ProbeRelayNotConfigured => UiText.Get("Setup.Probe.RelayNotConfigured");
     public static string ProbeRelaySharingOffNoServer => UiText.Get("Setup.Probe.RelaySharingOffNoServer");
     public static string ProbeRelayNoAnswer(CultureInfo culture, object? origin) => ProbeIn(culture, "Setup.Probe.RelayNoAnswer", origin);
@@ -114,8 +129,8 @@ public static partial class SetupText
     public static string ProbeRelayRunning(CultureInfo culture, object? version, object? commit, object? protocol) => ProbeIn(culture, "Setup.Probe.RelayRunning", version, commit, protocol);
     public static string ProbeRelayUnnamedBuild => UiText.Get("Setup.Probe.RelayUnnamedBuild");
     public static string ProbeRelayProtocolUnknown => UiText.Get("Setup.Probe.RelayProtocolUnknown");
-    public static string ProbeRelayRooms(CultureInfo culture, object? rooms, object? members) => ProbeIn(culture, "Setup.Probe.RelayRooms", rooms, members);
-    public static string ProbeRelaySharingOn(CultureInfo culture, object? name, object? others) => ProbeIn(culture, "Setup.Probe.RelaySharingOn", name, others);
+    public static string ProbeRelayRooms(CultureInfo culture, object? rooms, object? members) => ProbeIn(culture, "Setup.Probe.RelayRooms", ProbeCount(culture, "Setup.Probe.CountRooms", rooms), ProbeCount(culture, "Setup.Probe.CountMembers", members));
+    public static string ProbeRelaySharingOn(CultureInfo culture, object? name, object? others) => ProbeIn(culture, "Setup.Probe.RelaySharingOn", name, ProbeCount(culture, "Setup.Probe.CountOthers", others));
     public static string ProbeRelayUnnamedPlayer => UiText.Get("Setup.Probe.RelayUnnamedPlayer");
     public static string ProbeRelaySharingOff => UiText.Get("Setup.Probe.RelaySharingOff");
     public static string ProbeRelayLatency(CultureInfo culture, object? median, object? slowest, object? samples, object? delivered) => ProbeIn(culture, "Setup.Probe.RelayLatency", median, slowest, samples, delivered);
@@ -132,11 +147,11 @@ public static partial class SetupText
     public static string ProbeTabletNoDevice => UiText.Get("Setup.Probe.TabletNoDevice");
     public static string ProbeTabletNoDevicesAt(object? origin) => UiText.Format("Setup.Probe.TabletNoDevicesAt", origin);
     public static string ProbeTabletThisRelay => UiText.Get("Setup.Probe.TabletThisRelay");
-    public static string ProbeTabletPublished(CultureInfo culture, object? map, object? objects, object? age) => ProbeIn(culture, "Setup.Probe.TabletPublished", map, objects, age);
+    public static string ProbeTabletPublished(CultureInfo culture, object? map, object? objects, object? age) => ProbeIn(culture, "Setup.Probe.TabletPublished", map, ProbeCount(culture, "Setup.Probe.CountObjects", objects), age);
     public static string ProbeTabletAMap => UiText.Get("Setup.Probe.TabletAMap");
     public static string ProbeTabletNoScene => UiText.Get("Setup.Probe.TabletNoScene");
-    public static string ProbeTabletPass(CultureInfo culture, object? devices) => ProbeIn(culture, "Setup.Probe.TabletPass", devices);
-    public static string ProbeTabletFail(CultureInfo culture, object? devices) => ProbeIn(culture, "Setup.Probe.TabletFail", devices);
+    public static string ProbeTabletPass(CultureInfo culture, object? devices) => ProbeCounted(culture, "Setup.Probe.TabletPass", devices);
+    public static string ProbeTabletFail(CultureInfo culture, object? devices) => ProbeCounted(culture, "Setup.Probe.TabletFail", devices);
     public static string ProbeTabletNoAuthority => UiText.Get("Setup.Probe.TabletNoAuthority");
     public static string ProbeBytesUnknown => UiText.Get("Setup.Probe.BytesUnknown");
     public static string ProbeBytesB(CultureInfo culture, object? bytes) => ProbeIn(culture, "Setup.Probe.BytesB", bytes);

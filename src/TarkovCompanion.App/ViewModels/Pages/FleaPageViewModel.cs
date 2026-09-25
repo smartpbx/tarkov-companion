@@ -7,6 +7,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -248,6 +249,11 @@ public sealed class FleaPageViewModel : PageViewModel
 
     public Task SearchAsync() => SearchAsync(CancellationToken.None);
 
+    /// <summary>A search that threw: what happened in words, and Retry. Hidden otherwise.</summary>
+    public LoadFaultNoticeViewModel SearchFault => _searchFault ??= new(() => SearchAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _searchFault;
+
     public async Task SearchAsync(CancellationToken cancellationToken)
     {
         if (_snapshot?.Data.ItemCount is null or 0)
@@ -266,7 +272,9 @@ public sealed class FleaPageViewModel : PageViewModel
 
         try
         {
+            SearchFault.Clear();
             SearchStatus = IntelText.FleaPageSearching;
+            LoadFaultInjection.ThrowIfInjected("flea");
             var hits = await _searchService.SearchAsync(SearchQuery, 20, cancellationToken).ConfigureAwait(true);
             var results = new List<FleaPriceViewModel>(hits.Count);
             foreach (var hit in hits)
@@ -296,8 +304,13 @@ public sealed class FleaPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Same as a failed page load (#871): a short sentence and Retry where the rows were,
+            // the exception in the log. "Item search failed: SQLite Error 1: 'no such table'" told
+            // a player nothing they could act on.
+            WorkspaceFault.Record("flea", "search", exception);
             Results = [];
-            SearchStatus = IntelText.FleaPageSearchFailed(exception.Message);
+            SearchStatus = IntelText.FleaPageSearchFailed;
+            SearchFault.Show(IntelText.FleaPageSearchFailedTitle, IntelText.FleaPageSearchFailedDetail);
         }
     }
 
@@ -329,8 +342,9 @@ public sealed class FleaPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            WorkspaceFault.Record("flea", "read price history", exception);
             History = [];
-            HistoryStatus = IntelText.FleaPageUnreadable(exception.Message);
+            HistoryStatus = IntelText.FleaPageUnreadable;
         }
     }
 

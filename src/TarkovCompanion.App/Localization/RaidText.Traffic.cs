@@ -23,6 +23,7 @@ public static partial class RaidText
     public static string TrafficBannerTitle => UiText.Get("Raid.TrafficBannerTitle");
     public static string PriorModelled => UiText.Get("Raid.PriorModelled");
     public static string PriorNone => UiText.Get("Raid.PriorNone");
+    public static string TrafficWaysOutAllSides(int count) => UiText.Plural("Raid.TrafficWaysOutAllSides", count);
     public static string PhaseRaid(string phase, string basis) => UiText.Format("Raid.PhaseRaid", phase, basis);
     public static string ModelVersion(string version) => UiText.Format("Raid.ModelVersion", version);
     public static string DataThroughGenerated(string through, string time) => UiText.Format("Raid.DataThroughGenerated", through, time);

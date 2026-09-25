@@ -42,6 +42,7 @@ public static partial class RaidText
     public static string DirectHigherContact => UiText.Get("Raid.DirectHigherContact");
     public static string WhyThisRoute => UiText.Get("Raid.WhyThisRoute");
     public static string RouteTo(string extract) => UiText.Format("Raid.RouteTo", extract);
+    public static string RouteToAssumingPmc(string extract) => UiText.Format("Raid.RouteToAssumingPmc", extract);
     public static string RouteCaveat => UiText.Get("Raid.RouteCaveat");
     public static string RouteHint => UiText.Get("Raid.RouteHint");
     public static string DirectLineTo(string extract, string minutes) => UiText.Format("Raid.DirectLineTo", extract, minutes);

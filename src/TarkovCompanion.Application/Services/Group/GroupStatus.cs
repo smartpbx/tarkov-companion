@@ -29,7 +29,7 @@ public enum GroupStatus
     /// <summary>{0}: the exception's message.</summary>
     SharingFailed,
 
-    /// <summary>{0}: the failure phrase; {1}: how long ago, as <see cref="GroupSessionService.Ago"/> says it.</summary>
+    /// <summary>{0}: the failure phrase; {1}: how long ago, a <see cref="TimeSpan"/> the App says as a duration.</summary>
     LastHeard,
 
     /// <summary>{0}: the display name.</summary>

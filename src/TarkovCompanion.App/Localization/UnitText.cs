@@ -52,4 +52,32 @@ public static class UnitText
     /// <summary>"1.25 kg"; <paramref name="digits"/> is the number's format ("N2" writes "1.20 kg").</summary>
     public static string Kilograms(double value, CultureInfo? culture = null, string digits = "0.##") =>
         UiText.Format("Units.Kilograms", value.ToString(digits, culture ?? CultureInfo.CurrentCulture));
+
+    /// <summary>
+    /// "42 s", "3 min 5 s", "2 h 10 min": an elapsed or remaining time, shortest honest form.
+    /// </summary>
+    /// <remarks>
+    /// Replaces <c>GroupSessionService.Ago</c>'s "42s"/"3m 5s", which the Application layer
+    /// built in English and every language then printed as it was. The units come from the table.
+    /// A negative span (a clock that stepped back) reads as zero rather than "-3 s".
+    /// </remarks>
+    public static string Duration(TimeSpan span, CultureInfo? culture = null)
+    {
+        culture ??= CultureInfo.CurrentCulture;
+        var whole = span < TimeSpan.Zero ? TimeSpan.Zero : span;
+        string N(long value) => value.ToString("N0", culture);
+        if (whole < TimeSpan.FromMinutes(1))
+        {
+            return UiText.Format("Units.DurationSeconds", N((long)whole.TotalSeconds));
+        }
+
+        if (whole < TimeSpan.FromHours(1))
+        {
+            return whole.Seconds == 0
+                ? UiText.Format("Units.DurationMinutes", N((long)whole.TotalMinutes))
+                : UiText.Format("Units.DurationMinutesSeconds", N((long)whole.TotalMinutes), N(whole.Seconds));
+        }
+
+        return UiText.Format("Units.DurationHoursMinutes", N((long)whole.TotalHours), N(whole.Minutes));
+    }
 }

@@ -31,7 +31,7 @@ public sealed class SetupReasonTextTests
             Assert.Equal(
                 $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
                 Say(new Phrase(GroupStatus.KeyLength, GroupKeyLimits.Minimum, GroupKeyLimits.Maximum)));
-            Assert.Equal("Server answered 502 · last heard 42s ago", Say(new Phrase(GroupStatus.LastHeard, new Phrase(GroupStatus.ServerAnswered, 502), "42s")));
+            Assert.Equal("Server answered 502 · last heard 42 s ago", Say(new Phrase(GroupStatus.LastHeard, new Phrase(GroupStatus.ServerAnswered, 502), TimeSpan.FromSeconds(42))));
             Assert.Equal("Server unreachable · No route to host", Say(new Phrase(GroupStatus.ServerUnreachable, "No route to host")));
             Assert.Equal("Sharing as Geo · nobody else here", Say(sharing));
             Assert.Equal("Sharing as Geo · 1 other", Say(Phrase.Counted(GroupStatus.SharingWith, 1, "Geo")));

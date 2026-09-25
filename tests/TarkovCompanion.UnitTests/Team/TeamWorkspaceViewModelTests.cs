@@ -192,7 +192,7 @@ public sealed class TeamWorkspaceViewModelTests
 
         Assert.Equal(new[] { "1", "2" }, viewModel.Waypoints.Select(row => row.Number));
         Assert.Equal("Waypoint 1", first.Title);
-        Assert.Equal("Customs · 2m 0s ago", first.Detail);
+        Assert.Equal("Customs · 2 min ago", first.Detail);
         Assert.Equal("Scope · squad · TTL · until removed · By · Geo", first.MetadataLabel);
         Assert.Equal("Extract", second.Title);
 
@@ -204,7 +204,7 @@ public sealed class TeamWorkspaceViewModelTests
         Assert.NotNull(pingRow.RemainingLabel);
         Assert.True(pingRow.HasRemaining);
         Assert.Contains("By · Geo", pingRow.MetadataLabel, StringComparison.Ordinal);
-        Assert.Contains("TTL · 5s left", pingRow.MetadataLabel, StringComparison.Ordinal);
+        Assert.Contains("TTL · 5 s left", pingRow.MetadataLabel, StringComparison.Ordinal);
         Assert.Contains("Scope · squad", pingRow.MetadataLabel, StringComparison.Ordinal);
 
         viewModel.Apply(SnapshotWithGroup(group with { StaleSince = clock.GetUtcNow() }));
