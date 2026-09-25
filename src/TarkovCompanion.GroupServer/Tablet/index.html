@@ -328,6 +328,7 @@
       <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
       <h2>Layers</h2>
       <div class="floors" id="layers"></div>
+      <p class="quiet" id="layersNote" hidden></p>
 
       <!-- #572: the last Loot Scan the desktop sent, to look at again. -->
       <div id="lootAgain" hidden>
@@ -1672,26 +1673,42 @@
 
   // The desktop's own layer switches, on the tablet. FilterWorkspaceAction already existed;
   // nothing sent it.
+  // Follow (and a Control request still waiting) shows the desk's layers as they are: a tap there
+  // used to land in localHiddenLayers, which hiddenLayers() ignores outside Independent, so the
+  // button did nothing and said nothing. It is disabled instead, with the reason under it.
+  function layersLockedReason() {
+    return mode === "Follow"
+      ? "Following the desktop. Switch to Control or Independent to change layers."
+      : mode === "ControlPending"
+        ? "Waiting for the desktop to allow control."
+        : "";
+  }
+
   function renderLayers(surface) {
     const holder = $("layers");
     holder.replaceChildren();
     const hidden = hiddenLayers();
+    const locked = layersLockedReason();
     for (const layer of surface.layers) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = layer.name;
       button.setAttribute("aria-pressed", String(!hidden.has(layer.id)));
+      button.disabled = locked !== "";
+      if (locked) button.title = locked;
       button.addEventListener("click", () => toggleLayer(layer.id));
       holder.appendChild(button);
     }
+    $("layersNote").textContent = locked;
+    $("layersNote").hidden = locked === "" || surface.layers.length === 0;
   }
 
   function toggleLayer(layerId) {
     const surface = live?.surface;
-    if (!surface) return;
+    if (!surface || layersLockedReason()) return;
     const hidden = hiddenLayers();
     if (hidden.has(layerId)) hidden.delete(layerId); else hidden.add(layerId);
-    if (mode !== "Control") {
+    if (mode === "Independent") {
       localHiddenLayers = hidden;
       renderSurface();
       return;

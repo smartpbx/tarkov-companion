@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Core.Abstractions;
@@ -104,6 +105,22 @@ public sealed class EventScheduleTests
         Assert.False(saved.Active);
         Assert.Equal("halloween-2026", saved.Id);
         Assert.Empty(authoring.Deleted);
+    }
+
+    [Fact]
+    public async Task ArchiveWithABadDateLeavesTheLabelAndSaysWhy()
+    {
+        var authoring = new Authoring(Definition());
+        var page = await PageAsync(authoring);
+        var label = page.ArchiveLabel;
+
+        page.ScheduleStart = "the thirty-first";
+        await page.ToggleArchivedCommand.ExecuteAsync();
+
+        Assert.Empty(authoring.Saved);
+        Assert.False(page.IsArchived);
+        Assert.Equal(label, page.ArchiveLabel);
+        Assert.Equal(PlanText.EventsNotSavedBadDate, page.ScheduleStatus);
     }
 
     [Fact]
