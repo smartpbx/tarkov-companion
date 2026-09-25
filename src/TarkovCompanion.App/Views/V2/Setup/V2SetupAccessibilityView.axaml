@@ -2,7 +2,9 @@
              x:DataType="vm:V2SetupAccessibilityViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <!-- #292/#315: theme, colour vision, text size, density, reduced motion and the focus ring in
        one place, with a live preview strip and the keyboard shortcut table (#292 task 1/4).
        Every row is a set of toggles rather than a combo box: the choice and what is in force are
@@ -144,6 +146,18 @@
                 AutomationProperties.AutomationId="v2-setup-accessibility-shortcuts">
       <TextBlock Classes="v2-label" Text="{Binding ShortcutsHeading}" />
       <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ShortcutsHint}" />
+      <!-- [#902 P9] Alt+Shift+C can clash with Windows' input-language switch, and turning it
+           off or back on was a palette command only. Same state as the Capture dialog's switch. -->
+      <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="12"
+            IsVisible="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext), Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
+        <TextBlock Classes="v2-body" VerticalAlignment="Center"
+                   Text="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).CaptureShortcutSwitchLabel}" />
+        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                      IsChecked="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).CaptureShortcutEnabled, Mode=OneWay}"
+                      Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).ToggleCaptureShortcutCommand}"
+                      AutomationProperties.AutomationId="v2-setup-capture-shortcut"
+                      AutomationProperties.Name="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).CaptureShortcutSwitchLabel}" />
+      </Grid>
       <ItemsControl ItemsSource="{Binding Shortcuts}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate><WrapPanel ItemSpacing="16" LineSpacing="4" /></ItemsPanelTemplate>

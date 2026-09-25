@@ -77,6 +77,13 @@ public sealed record DebriefScanRowViewModel(
 
     public string ScanId { get; init; } = string.Empty;
 
+    /// <summary>[#902 P9] The recognised item, for the row's link to its Intel page; empty when none.</summary>
+    public string ItemId { get; init; } = string.Empty;
+
+    public bool HasItem => ItemId.Length > 0;
+
+    public bool HasNoItem => !HasItem;
+
     public bool IsWrong { get; init; }
 
     public string CorrectionLabel => IsWrong ? DebriefText.MarkedWrong : string.Empty;
@@ -1481,6 +1488,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
                 string.Join(" · ", detail))
             {
                 ScanId = scan.Id,
+                ItemId = scan.Recognised ? scan.ItemId ?? string.Empty : string.Empty,
                 IsWrong = isWrong,
                 CorrectionCommand = new AsyncDelegateCommand(() => CorrectScanAsync(scan.Id, !isWrong)),
             }));

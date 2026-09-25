@@ -763,7 +763,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// treats <see cref="RaidCockpit"/> as opaque content so the view carries no Raid-specific
     /// type dependency; the map selector is the one place the header needs to reach into it.</summary>
     public RaidCockpitViewModel? RaidCockpitWorkspace => RaidCockpit as RaidCockpitViewModel;
-    public bool ShowsMapSelector => RaidCockpitWorkspace is { MapPicker.Count: > 0 };
+    public bool ShowsMapSelector => RaidCockpitWorkspace is { MapPicker.Count: > 0 } && PageShowsAMap;
     public string PlanContextLabel => Router.Context.PlanId is { } plan
         ? V2ShellText.Format(
             "V2.Shell.Context.Plan",
@@ -891,11 +891,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
     }
 
-    public IReadOnlyList<V2ShellCommandViewModel> FilteredCommandItems => string.IsNullOrWhiteSpace(PaletteQuery)
-        ? CommandItems
-        : CommandItems.Where(command =>
-            command.Label.Contains(PaletteQuery, StringComparison.CurrentCultureIgnoreCase) ||
-            command.Gesture.Contains(PaletteQuery, StringComparison.OrdinalIgnoreCase)).ToArray();
+    // [#902 P9] Settings and What's new join the commands; developer-only commands need developer mode.
+    public IReadOnlyList<V2ShellCommandViewModel> FilteredCommandItems => FilterPalette(PaletteQuery);
     public bool HasFilteredCommandItems => FilteredCommandItems.Count > 0;
     public bool HasNoFilteredCommandItems => !HasFilteredCommandItems;
 
@@ -3769,6 +3766,17 @@ public sealed class V2ShellCommandViewModel(V2ShellCommand definition, ICommand 
 {
     public string Label => V2ShellText.Get(definition.LabelKey);
     public string Gesture => definition.Gesture ?? string.Empty;
+    /// <summary>[#902 P9] Where a setting lives ("Setup › Data &amp; Privacy"); empty for a command.</summary>
+    public string Where { get; init; } = string.Empty;
+    /// <summary>The right-hand column: a command's gesture, or a setting's home.</summary>
+    public string Hint => Gesture.Length > 0 ? Gesture : Where;
+    /// <summary>Other words the palette finds this by, in lower case.</summary>
+    public IReadOnlyList<string> Keywords { get; init; } = [];
+    public bool MatchesQuery(string query) =>
+        Label.Contains(query.Trim(), StringComparison.CurrentCultureIgnoreCase) ||
+        Gesture.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase) ||
+        Where.Contains(query.Trim(), StringComparison.CurrentCultureIgnoreCase) ||
+        Keywords.Any(keyword => keyword.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase));
     public string AutomationId => V2ShellFocusTargets.Command(definition.Id);
     public ICommand InvokeCommand { get; } = invoke;
 }

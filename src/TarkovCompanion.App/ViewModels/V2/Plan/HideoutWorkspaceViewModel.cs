@@ -109,6 +109,9 @@ public sealed record HideoutRequirementRowViewModel(
     /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure; "? / 5" where no holding is recorded.</summary>
     public string ProgressLabel => $"{Owned} / {Required}";
 
+    /// <summary>[#902 P9] The item, for the row's link to its Intel page.</summary>
+    public string ItemId { get; init; } = string.Empty;
+
     /// <summary>Whether a holding is recorded for the item. False is "to check", not "missing".</summary>
     public bool IsHeldKnown { get; init; } = true;
 
@@ -399,6 +402,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                             remaining == 0)
                         {
                             CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
+                            ItemId = requirement.ItemId,
                             IsHeldKnown = owned is not null,
                             LearnReason = PlanText.HideoutLearnKeep(station.Name, station.NextLevel),
                         });

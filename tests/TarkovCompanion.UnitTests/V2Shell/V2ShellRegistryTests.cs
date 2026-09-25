@@ -161,7 +161,7 @@ public sealed class V2ShellRegistryTests
         Assert.Equal(V2IntelPlacement.Workspace, a.IntelPlacement);
         Assert.Equal(V2Routes.Setup, a.Landing);
         Assert.False(a.Addresses.ContainsKey(V2Routes.Home));
-        Assert.Equal("intel/stash", a.Addresses[V2Routes.Stash]);
+        Assert.Equal("plan/stash", a.Addresses[V2Routes.Stash]);
         Assert.Equal("tablet", a.Addresses[V2Routes.Tablet]);
     }
 
@@ -186,9 +186,24 @@ public sealed class V2ShellRegistryTests
     {
         var registry = V2RouteRegistry.Default;
 
-        Assert.Equal(V2Routes.Items, new V2ShellRouter(V2ShellVariants.A, registry).DestinationOf(V2Routes.Stash));
+        // [#902 P9] Both variants keep the stash scan under Plan, beside the Keep list that reads it.
+        Assert.Equal(V2Routes.Plan, new V2ShellRouter(V2ShellVariants.A, registry).DestinationOf(V2Routes.Stash));
         Assert.Equal(V2Routes.Plan, new V2ShellRouter(V2ShellVariants.B, registry).DestinationOf(V2Routes.Stash));
         Assert.False(new V2ShellRouter(V2ShellVariants.B, registry).DestinationOf(V2Routes.Items).HasValue);
+    }
+
+    [Fact]
+    public void The_stash_scan_s_old_intel_address_still_opens_it_under_plan()
+    {
+        var router = new V2ShellRouter(V2ShellVariants.A, V2RouteRegistry.Default);
+
+        var opened = router.NavigateToAddress("#/intel/stash");
+
+        Assert.True(opened.Succeeded, opened.Failure);
+        Assert.Equal(V2Routes.Stash, router.Current.Location.Route);
+        Assert.Equal("#/plan/stash", router.CurrentAddress);
+        Assert.Equal(V2Routes.Plan, router.CurrentDestination);
+        Assert.Null(router.Addresses.Parse("#/intel/nothing-here").Location);
     }
 
     [Theory]
@@ -234,8 +249,11 @@ public sealed class V2ShellRegistryTests
         var registry = V2RouteRegistry.Default;
 
         Assert.Equal(
-            [V2Routes.Items, V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea, V2Routes.Crafts, V2Routes.Stash],
+            [V2Routes.Items, V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea, V2Routes.Crafts],
             registry.VisibleSections(V2ShellVariants.A, V2Routes.Items).Select(route => route.Id));
+        Assert.Equal(
+            [V2Routes.Plan, V2Routes.Hideout, V2Routes.Keep, V2Routes.Loadout, V2Routes.Events, V2Routes.Stash],
+            registry.VisibleSections(V2ShellVariants.A, V2Routes.Plan).Select(route => route.Id));
         Assert.Equal(
             [V2Routes.Plan, V2Routes.Hideout, V2Routes.Keep, V2Routes.Loadout, V2Routes.Events, V2Routes.Stash],
             registry.VisibleSections(V2ShellVariants.B, V2Routes.Plan).Select(route => route.Id));

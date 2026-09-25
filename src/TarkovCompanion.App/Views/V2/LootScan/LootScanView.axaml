@@ -5,7 +5,8 @@
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan"
              xmlns:local="using:TarkovCompanion.App.Views.V2.LootScan"
-             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell">
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a section row. -->
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
@@ -78,6 +79,24 @@
     </DataTemplate>
   </UserControl.Resources>
   <UserControl.Styles>
+    <!-- [#902 P9] An item's name that opens its Intel: it reads as the name, and says link on hover. -->
+    <Style Selector="Button.v2-item-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.v2-item-link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-item-link:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
     <!-- The status card's leading edge: green when every call is backed, amber when some need review. -->
     <Style Selector="Border.loot-status.complete">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
@@ -425,7 +444,17 @@
                                      Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
                                      Classes.pending="{Binding IsPending}"
                                      Text="{Binding VerdictLabel}" />
+                          <!-- [#902 P9] The name opens the item's Intel: prices, needs and barters. -->
+                          <Button Classes="v2-item-link" IsVisible="{Binding HasIntelItem}"
+                                  ToolTip.Tip="{x:Static l:ShellText.OpenInIntel}"
+                                  Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).OpenItemIntelCommand}"
+                                  CommandParameter="{Binding IntelItemId}"
+                                  AutomationProperties.AutomationId="v2-loot-open-intel">
+                            <TextBlock Classes="v2-heading-3" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                       AutomationProperties.HeadingLevel="3" />
+                          </Button>
                           <TextBlock Classes="v2-heading-3" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                     IsVisible="{Binding HasNoIntelItem}"
                                      AutomationProperties.HeadingLevel="3" />
                         </StackPanel>
                         <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding SizeLabel}" />

@@ -62,6 +62,9 @@ public enum V2FocusReason
 
     /// <summary>Back, Forward or a restart returned to a place: whatever had focus there.</summary>
     Restored,
+
+    /// <summary>[#902 P9] The palette found a setting: its row, scrolled into view even where it cannot take focus.</summary>
+    Setting,
 }
 
 /// <summary>Where focus should go after a player's own navigation. Background changes never make one.</summary>

@@ -1700,7 +1700,19 @@ internal static class Program
             if (shell is not null && args.Contains("--palette"))
             {
                 shell.PaletteCommand.Execute(null);
+                // [#902 P9] --palette-query <text>: what the palette lists for a typed word.
+                if (StringOption(args, "--palette-query") is { } paletteQuery)
+                {
+                    shell.PaletteQuery = paletteQuery;
+                }
+
                 Pump(20);
+            }
+
+            // [#902 P9] --loot-rules-demo: Plan › Keep › Loot rules with a few rules to undo.
+            if (args.Contains("--loot-rules-demo"))
+            {
+                LootRulesDemo.Run(services, DrainUntilComplete, Pump);
             }
 
             // [#283] --seed-owned id=n,id=n records owned counts as a stash or case scan would, and

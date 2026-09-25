@@ -73,6 +73,27 @@ public sealed class ReleaseExperienceViewModelTests
         Assert.False(viewModel.IsBannerVisible);
     }
 
+    [Fact]
+    public async Task A_dismissed_list_opens_again_on_request_and_stays_open_until_closed()
+    {
+        // [#902 P9] Dismissed for this build, and a raid under way: About and the palette still open it.
+        var runtime = new RuntimeStore(Snapshot(RaidLifecycleState.Menu));
+        using var viewModel = Build(new MemoryStore(new ReleaseExperienceState(Version, Version)), runtime);
+        await viewModel.InitializeAsync();
+        viewModel.OpenCommand.Execute(null);
+        Assert.False(viewModel.IsListOpen);
+
+        viewModel.Show();
+        runtime.Set(Snapshot(RaidLifecycleState.InRaid));
+
+        Assert.True(viewModel.IsListOpen);
+        Assert.False(viewModel.IsBannerVisible);
+        Assert.Equal("What's new in 2.0.42", viewModel.ListTitle);
+        Assert.Equal(2, viewModel.Changes.Count);
+        viewModel.CloseCommand.Execute(null);
+        Assert.False(viewModel.IsListOpen);
+    }
+
     private static ReleaseExperienceViewModel Build(MemoryStore store, RuntimeStore? runtime = null) => new(
         PlayerChangelog.Parse("""
             {

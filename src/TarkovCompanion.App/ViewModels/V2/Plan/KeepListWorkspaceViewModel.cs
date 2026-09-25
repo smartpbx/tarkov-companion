@@ -7,6 +7,8 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Profiles;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Planning;
 
@@ -97,15 +99,30 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         IItemFactCatalog factCatalog,
         IQuestReadService questReadService,
         IItemRecommendationAdvisor? recommendations = null,
-        LearnModeSetting? learnMode = null)
+        LearnModeSetting? learnMode = null,
+        IProfileRuntimeContextService? profiles = null,
+        ILootScanWorkspaceControls? lootControls = null)
     {
         LearnMode = learnMode ?? new();
+        // [#902 P9] Null only where no profile or Loot Scan is composed (the older tests).
+        LootRules = profiles is not null && lootControls is not null
+            ? new LootRulesViewModel(
+                profiles,
+                lootControls,
+                async (itemId, cancellationToken) =>
+                    (await itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true))?.Name)
+            : null;
         _service = new KeepListService(requirements, profileService, itemRepository, factCatalog, questReadService);
         _recommendations = recommendations;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
     }
 
     public LearnModeSetting LearnMode { get; }
+
+    /// <summary>Plan › Keep › Loot rules, or null in a shell built without a profile.</summary>
+    public LootRulesViewModel? LootRules { get; }
+
+    public bool HasLootRules => LootRules is not null;
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
@@ -156,6 +173,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         try
         {
             LoadFaultInjection.ThrowIfInjected("keep");
+            LootRules?.RefreshAsync(cancellationToken).Observe("keep", "refresh loot rules");
             // Read, planned and worded off the interface thread: none of it touches anything bound.
             var (plan, groups) = await OffInterfaceThread.Run(
                 async () =>

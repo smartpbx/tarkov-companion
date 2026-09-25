@@ -218,6 +218,12 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     _closesToTray = false;
                     ExitDeadline.Current.Arm("tray Quit");
                     desktop.Shutdown();
+                },
+                OpenNotifications: () =>
+                {
+                    Restore(window, V2Routes.Setup);
+                    _mainViewModel?.PreviewShell?.SetupWorkspace?.OpenSection(
+                        TarkovCompanion.App.ViewModels.V2.Setup.V2SetupSection.Notifications);
                 }));
             services.GetRequiredService<PopupNotificationHost>()
                 .Attach(new WindowNotificationManager(window) { Position = NotificationPosition.BottomRight, MaxItems = 3 });

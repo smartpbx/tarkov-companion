@@ -86,6 +86,9 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
     private int _quietFromHour;
     private int _quietToHour;
 
+    /// <summary>[#902 P9] The last notifications, which the tray's "Notifications" opens.</summary>
+    public RecentNotificationsViewModel Recent { get; }
+
     public SetupNotificationsViewModel(
         NotificationBridge? bridge,
         Func<bool>? trayIsAvailable = null,
@@ -95,6 +98,7 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
         _dispatch = dispatch ?? (static action => action());
         // Read late: this page is composed before Avalonia has a tray to attach.
         _trayIsAvailable = trayIsAvailable ?? (static () => false);
+        Recent = new RecentNotificationsViewModel(bridge, _dispatch);
         var settings = bridge?.Settings ?? NotificationSettings.Default;
         _showsPopup = settings.ShowsDesktopPopup;
         _quietHours = settings.QuietHours;

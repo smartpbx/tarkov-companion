@@ -25,6 +25,7 @@ public sealed class ReleaseExperienceViewModel : BindableViewModel, IDisposable
     private bool _eligible;
     private bool _isBannerVisible;
     private bool _isListOpen;
+    private bool _openedOnRequest;
     private bool _disposed;
 
     public ReleaseExperienceViewModel(
@@ -133,10 +134,31 @@ public sealed class ReleaseExperienceViewModel : BindableViewModel, IDisposable
     private void RefreshVisibility()
     {
         IsBannerVisible = _eligible && !RaidIsActive;
-        if (!IsBannerVisible)
+        // [#902 P9] Only a raid closes the list. It used to close whenever the banner was not
+        // showing, which is always once it has been dismissed, so a list opened again from About
+        // or the palette shut on the next runtime change. One the player asked for stays open.
+        if (RaidIsActive && !_openedOnRequest)
         {
             IsListOpen = false;
         }
+    }
+
+    /// <summary>
+    /// Opens this build's change list whether or not the banner is up, for About and the palette.
+    /// </summary>
+    /// <remarks>
+    /// [#902 P9] Once dismissed, or once a raid had started, the list for a build could never be
+    /// read again. A build with no entry of its own shows the newest entry, titled with that
+    /// entry's version, rather than an empty list.
+    /// </remarks>
+    public void Show()
+    {
+        _release ??= _changelog.Find(_currentVersion) ?? _changelog.Releases.FirstOrDefault();
+        OnPropertyChanged(nameof(Version));
+        OnPropertyChanged(nameof(ListTitle));
+        OnPropertyChanged(nameof(Changes));
+        _openedOnRequest = true;
+        IsListOpen = true;
     }
 
     private void Open()
@@ -147,11 +169,16 @@ public sealed class ReleaseExperienceViewModel : BindableViewModel, IDisposable
         }
     }
 
-    private void Close() => IsListOpen = false;
+    private void Close()
+    {
+        _openedOnRequest = false;
+        IsListOpen = false;
+    }
 
     private async Task DismissAsync()
     {
         _eligible = false;
+        _openedOnRequest = false;
         IsListOpen = false;
         IsBannerVisible = false;
         await _store.SaveAsync(
