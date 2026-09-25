@@ -1851,7 +1851,7 @@ foreach ($RailSize in @(
 $Shots.Add([pscustomobject]@{
     name = "v2-a-rail-gear-restored"
     args = @("--ui-shell", "v2-a", "--page", "plan"); shellMode = "v2-a"
-    width = 0; height = 0; advisory = $true
+    width = 0; height = 0
     seedPreview = [pscustomobject]@{
         variant = "v2-a"; address = "#/plan"
         window = [ordered]@{ width = 1920; height = 1080; left = 0; top = 0; isMaximized = $false } }
