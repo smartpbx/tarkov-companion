@@ -103,8 +103,9 @@ public sealed class SetupAdminTests
 
         var detail = SetupDataDetail.Describe(snapshot, "PvP · en", TimeSpan.FromHours(9), Now, CultureInfo.InvariantCulture);
 
-        Assert.Equal("Offline, so none was tried", Fact(detail, "Last attempt"));
-        Assert.Equal("When you are back online", Fact(detail, "Next refresh"));
+        // [#902 P6] Said as Local only, the name of the switch that does it.
+        Assert.Equal("Local only, so none was tried", Fact(detail, "Last attempt"));
+        Assert.Equal("When Local only is off", Fact(detail, "Next refresh"));
         Assert.Equal("Offline mode is enabled; using the local game-data cache.", detail.Reason);
         Assert.False(detail.NeedsRetry);
     }
@@ -224,11 +225,11 @@ public sealed class SetupAdminTests
             Assert.True(setup.HasAdmin);
             Assert.True(setup.Paths.IsRevealed);
             Assert.Contains(setup.Sections, tab => tab.Section == V2SetupSection.About);
-            Assert.Contains(setup.Sections, tab => tab.Section == V2SetupSection.DataPrivacy);
-            Assert.True(setup.OpenSection(V2SetupSection.DataPrivacy, SetupAnchors.SharingScope));
-            Assert.True(setup.IsDataPrivacySelected);
+            Assert.Contains(setup.Sections, tab => tab.Section == V2SetupSection.DataNetwork);
+            Assert.True(setup.OpenSection(V2SetupSection.DataNetwork, SetupAnchors.SharingScope));
+            Assert.True(setup.IsDataNetworkSelected);
             Assert.True(setup.Admin!.DataPrivacy.Items.Single(item => item.Id == SetupAnchors.SharingScope).IsExpanded);
-            setup.Select(V2SetupSection.Data);
+            setup.Select(V2SetupSection.DataNetwork);
             Assert.Equal("Source", setup.Admin.Data.Facts[0].Label);
             // The fixture composition is the demo one, which says so instead of promising a refresh.
             Assert.Equal("Demo data, so none", setup.Admin.Data.Facts.Single(fact => fact.Label == "Next refresh").Value);

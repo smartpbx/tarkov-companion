@@ -174,10 +174,11 @@ public sealed class TrayPresence : INotificationChannel, IDisposable
         var menu = new NativeMenu();
         foreach (var (header, action) in new (string, Action)[]
                  {
-                     ("Show Tarkov Companion", _actions.Show),
-                     ("Raid", _actions.OpenRaid),
-                     ("Team", _actions.OpenTeam),
-                     ("Setup", _actions.OpenSetup),
+                     // [#902 P6] The rail's own words, from the string table like the rest of the app.
+                     (TarkovCompanion.App.Localization.UiText.Get("Shell.Tray.Show"), _actions.Show),
+                     (TarkovCompanion.App.Localization.UiText.Get("Shell.Label.Raid"), _actions.OpenRaid),
+                     (TarkovCompanion.App.Localization.UiText.Get("Shell.Label.Team"), _actions.OpenTeam),
+                     (TarkovCompanion.App.Localization.UiText.Get("Shell.Label.Setup"), _actions.OpenSetup),
                  })
         {
             var item = new NativeMenuItem(header);
@@ -194,7 +195,7 @@ public sealed class TrayPresence : INotificationChannel, IDisposable
         }
 
         menu.Items.Add(new NativeMenuItemSeparator());
-        var quit = new NativeMenuItem("Quit");
+        var quit = new NativeMenuItem(TarkovCompanion.App.Localization.UiText.Get("Shell.Tray.Quit"));
         quit.Click += (_, _) => _actions.Quit();
         menu.Items.Add(quit);
         return menu;

@@ -1118,7 +1118,7 @@ public static class AppComposition
             provider.GetRequiredService<SetupDataDetailViewModel>(),
             new SetupInfoPageViewModel("About", SetupPageContent.About, SetupPageFacts.ForAbout),
             new SetupInfoPageViewModel(
-                "Data & Privacy",
+                TarkovCompanion.App.Localization.SetupText.DataNetworkKeptHeading,
                 SetupPageContent.DataPrivacy,
                 anchor => SetupPageFacts.ForDataPrivacy(
                     anchor,
@@ -1137,7 +1137,10 @@ public static class AppComposition
                 provider.GetService<ICaptureStageTimeline>(),
                 action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
                 provider.GetRequiredService<TimeProvider>()),
-            new SetupNetworkControlsViewModel(networkPolicy, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))));
+            new SetupNetworkControlsViewModel(
+                networkPolicy,
+                action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+                () => provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline)));
         // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
         // three stores the sections themselves already read/write, never a fourth of its own.
         services.AddSingleton(provider => new SetupSettingsAdminViewModel(

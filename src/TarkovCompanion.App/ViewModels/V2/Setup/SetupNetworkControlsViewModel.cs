@@ -6,7 +6,7 @@ using TarkovCompanion.Core.Network;
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
 
 /// <summary>
-/// [#292] Setup › Data &amp; Privacy: Local only, and under it one row per thing that leaves the PC,
+/// [#292] Setup › Data &amp; Network: Local only, and under it one row per thing that leaves the PC,
 /// each with what it sends and whether it is on right now.
 /// </summary>
 /// <remarks>
@@ -18,14 +18,22 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
 {
     private readonly NetworkPolicyService _policy;
     private readonly Action<Action> _dispatch;
+    private readonly Func<bool> _startedOffline;
     private bool _isLocalOnly;
+    private string _localOnlyState = string.Empty;
+    private bool _localOnlyInForce;
     private bool _isForced;
     private bool _wasReset;
 
-    public SetupNetworkControlsViewModel(NetworkPolicyService policy, Action<Action>? dispatch = null)
+    /// <param name="startedOffline">
+    /// [#902 P6] Whether this run started without the network. The switch showed "Off" while the Data
+    /// page said "Offline mode is on"; the state beside the switch now says "On · started offline".
+    /// </param>
+    public SetupNetworkControlsViewModel(NetworkPolicyService policy, Action<Action>? dispatch = null, Func<bool>? startedOffline = null)
     {
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
         _dispatch = dispatch ?? (static action => action());
+        _startedOffline = startedOffline ?? (static () => false);
         ToggleLocalOnlyCommand = new DelegateCommand(
             () => _policy.Set(_policy.Controls with { LocalOnly = !_policy.Controls.LocalOnly }));
         Rows =
@@ -60,10 +68,6 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
         private set => SetProperty(ref _wasReset, value);
     }
 
-    public string OnLabel => SetupText.NetworkOn;
-
-    public string OffLabel => SetupText.NetworkOff;
-
     /// <summary>What is in force: the switch, or the environment variable holding it on.</summary>
     public bool IsLocalOnly
     {
@@ -86,6 +90,20 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
 
     public bool CanToggleLocalOnly => !IsForced;
 
+    /// <summary>Local only is in force, by the switch, the variable, or a run that started offline.</summary>
+    public bool LocalOnlyInForce
+    {
+        get => _localOnlyInForce;
+        private set => SetProperty(ref _localOnlyInForce, value);
+    }
+
+    /// <summary>"On", "Off", or "On · started offline" when the switch is off but this run began without the network.</summary>
+    public string LocalOnlyState
+    {
+        get => _localOnlyState;
+        private set => SetProperty(ref _localOnlyState, value);
+    }
+
     public ICommand ToggleLocalOnlyCommand { get; }
 
     public IReadOnlyList<SetupNetworkServiceRowViewModel> Rows { get; }
@@ -95,6 +113,9 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
         IsForced = _policy.LocalOnlyForced;
         IsLocalOnly = IsForced || _policy.Controls.LocalOnly;
         WasReset = _policy.RecoveredFromUnreadableFile;
+        var startedOffline = _startedOffline();
+        LocalOnlyInForce = IsLocalOnly || startedOffline;
+        LocalOnlyState = SetupText.NetworkLocalOnlyState(_policy.Controls.LocalOnly, IsForced, startedOffline);
         foreach (var row in Rows)
         {
             row.Refresh();

@@ -7,34 +7,40 @@ using TarkovCompanion.App.ViewModels.V2.Tablet;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
 
-/// <summary>The sections #292 asks for, in the order they are offered.</summary>
+/// <summary>
+/// The eight Setup sections, in the order the tab row offers them.
+/// </summary>
+/// <remarks>
+/// [#902 P6] Fourteen sections became eight. Data, Privacy and Data &amp; Privacy were three tabs for one
+/// question ("what leaves this PC"), and Local only sat thirteenth of fourteen; recognition, the
+/// screenshot folder and screenshot cleanup were in three different tabs although they are one
+/// pipeline. Each setting now has one section that is its home, and <c>SettingsRegistry</c>,
+/// <c>V2SettingsIndex</c> and the palette all name the same one.
+/// </remarks>
 public enum V2SetupSection
 {
-    /// <summary>V2 rough package 17 (home): the dashboard the Setup page opens on.</summary>
+    /// <summary>The home dashboard and the one readiness checklist.</summary>
     Overview = 1,
-    GameProfile,
-    Recognition,
-    Data,
-    TeamDevices,
-    Updates,
-    Privacy,
 
-    /// <summary>Renamed from Appearance by #292/#315: theme, colour vision, text size, density,
-    /// reduced motion, the focus ring and interface scale, gathered under the heading #292's
-    /// acceptance criteria actually ask for.</summary>
-    Accessibility,
-    Displays,
-    Diagnostics,
+    /// <summary>Game folders, recognition, the Capture shortcut, screenshot cleanup and Loot scan.</summary>
+    GameCapture,
 
-    /// <summary>Package 29 (parity): the quest-progress exchange and TarkovTracker import V1 kept in Settings.</summary>
-    Progress,
+    /// <summary>Profiles, how far ahead advice looks, quest screenshot sync, TarkovTracker, moving progress.</summary>
+    ProfileProgress,
 
-    /// <summary>V2 rough package 43 (#314): the six notifications, each with a switch and a test.</summary>
+    /// <summary>The six notification switches, the pop-up, quiet hours and the recent list.</summary>
     Notifications,
-    /// <summary>#292: what the data is and what leaves the machine, layered; the deep-link target for "why" beside a control.</summary>
-    DataPrivacy,
 
-    /// <summary>#292: what the app is, what it never does, and its notices.</summary>
+    /// <summary>Theme, colour vision, text size, density, motion, focus ring, scale, language, displays.</summary>
+    AppearanceWindow,
+
+    /// <summary>Local only, every service that goes online, the game data and what is kept.</summary>
+    DataNetwork,
+
+    /// <summary>Updates, What's new, the self-test, feature flags and problem reports.</summary>
+    UpdatesDiagnostics,
+
+    /// <summary>What the app is, its notices, and Backup &amp; reset.</summary>
     About,
 }
 
@@ -94,10 +100,10 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
 {
     private static readonly IReadOnlyDictionary<string, V2SetupSection> ReadinessSectionMap = new Dictionary<string, V2SetupSection>(StringComparer.Ordinal)
     {
-        ["game-log"] = V2SetupSection.GameProfile,
-        ["screenshots"] = V2SetupSection.GameProfile,
-        ["text-recognition"] = V2SetupSection.Recognition,
-        ["game-data"] = V2SetupSection.Data,
+        ["game-log"] = V2SetupSection.GameCapture,
+        ["screenshots"] = V2SetupSection.GameCapture,
+        ["text-recognition"] = V2SetupSection.GameCapture,
+        ["game-data"] = V2SetupSection.DataNetwork,
     };
 
     private readonly Action<V2RouteId> _navigate;
@@ -125,26 +131,21 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
         SelfTest = selfTest;
         Notifications = notifications;
         OpenTeamCommand = new DelegateCommand(() => _navigate(V2Routes.Group));
-        OpenQuestSyncCommand = new DelegateCommand(() => Select(V2SetupSection.Progress));
+        OpenQuestSyncCommand = new DelegateCommand(() => Select(V2SetupSection.ProfileProgress));
         DecreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(-1));
         IncreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(1));
         ResetScaleCommand = new DelegateCommand(() => Legacy?.ResetInterfaceScale());
         Overview = new(navigate, Select);
+        Overview.AttachNetwork(TarkovCompanion.App.Services.Network.AppNetworkPolicy.Current);
         Sections =
         [
             new(V2SetupSection.Overview, "V2.Setup.Section.Overview", Select),
-            new(V2SetupSection.GameProfile, "V2.Setup.Section.GameProfile", Select),
-            new(V2SetupSection.Recognition, "V2.Setup.Section.Recognition", Select),
-            new(V2SetupSection.Data, "V2.Setup.Section.Data", Select),
-            new(V2SetupSection.Progress, "V2.Setup.Section.Progress", Select),
-            new(V2SetupSection.TeamDevices, "V2.Setup.Section.TeamDevices", Select),
-            new(V2SetupSection.Updates, "V2.Setup.Section.Updates", Select),
-            new(V2SetupSection.Privacy, "V2.Setup.Section.Privacy", Select),
+            new(V2SetupSection.GameCapture, "V2.Setup.Section.GameCapture", Select),
+            new(V2SetupSection.ProfileProgress, "V2.Setup.Section.ProfileProgress", Select),
             new(V2SetupSection.Notifications, "V2.Setup.Section.Notifications", Select),
-            new(V2SetupSection.Accessibility, "V2.Setup.Section.Accessibility", Select),
-            new(V2SetupSection.Displays, "V2.Setup.Section.Displays", Select),
-            new(V2SetupSection.Diagnostics, "V2.Setup.Section.Diagnostics", Select),
-            new(V2SetupSection.DataPrivacy, "V2.Setup.Section.DataPrivacy", Select),
+            new(V2SetupSection.AppearanceWindow, "V2.Setup.Section.AppearanceWindow", Select),
+            new(V2SetupSection.DataNetwork, "V2.Setup.Section.DataNetwork", Select),
+            new(V2SetupSection.UpdatesDiagnostics, "V2.Setup.Section.UpdatesDiagnostics", Select),
             new(V2SetupSection.About, "V2.Setup.Section.About", Select),
         ];
         Sections[0].IsCurrent = true;
@@ -165,8 +166,9 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
             };
         }
 
-        OpenPrivacyDetailCommand = new DelegateCommand(() => OpenSection(V2SetupSection.DataPrivacy, SetupAnchors.CaptureRetention));
-        OpenSharingDetailCommand = new DelegateCommand(() => OpenSection(V2SetupSection.DataPrivacy, SetupAnchors.SharingScope));
+        OpenPrivacyDetailCommand = new DelegateCommand(() => OpenSection(V2SetupSection.DataNetwork, SetupAnchors.CaptureRetention));
+        OpenSharingDetailCommand = new DelegateCommand(() => OpenSection(V2SetupSection.DataNetwork, SetupAnchors.SharingScope));
+        OpenCaptureShortcutCommand = new DelegateCommand(() => Select(V2SetupSection.GameCapture));
     }
 
     public SettingsPageViewModel? Settings { get; }
@@ -218,7 +220,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
         QuestSync.OpenPassiveReview = () =>
         {
             _navigate(V2Routes.Setup);
-            Select(V2SetupSection.Progress);
+            Select(V2SetupSection.ProfileProgress);
         };
         OnPropertyChanged(nameof(QuestSync));
         OnPropertyChanged(nameof(HasQuestSync));
@@ -353,6 +355,9 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
 
     public ICommand OpenSharingDetailCommand { get; }
 
+    /// <summary>The shortcut table's Capture row: its switch is in Game &amp; Capture.</summary>
+    public ICommand OpenCaptureShortcutCommand { get; }
+
     /// <summary>Hands this page #292's pages after construction, for the reason <see cref="AttachSelfTest"/> gives.</summary>
     public void AttachAdmin(SetupAdminViewModel admin)
     {
@@ -362,7 +367,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
     }
 
     /// <summary>
-    /// Opens a Setup section, and on About or Data &amp; Privacy the item named by <paramref name="anchor"/>,
+    /// Opens a Setup section, and on About or Data &amp; Network the item named by <paramref name="anchor"/>,
     /// expanded. This is the deep link: a control elsewhere that wants to say "why" lands on the answer.
     /// </summary>
     /// <returns>False when the section is not there or has no such item; the section still opens.</returns>
@@ -377,7 +382,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
         return section switch
         {
             V2SetupSection.About => Admin.About.Open(anchor),
-            V2SetupSection.DataPrivacy => Admin.DataPrivacy.Open(anchor),
+            V2SetupSection.DataNetwork => Admin.DataPrivacy.Open(anchor),
             _ => false,
         };
     }
@@ -501,45 +506,36 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
             }
 
             OnPropertyChanged(nameof(IsOverviewSelected));
-            OnPropertyChanged(nameof(IsGameProfileSelected));
-            OnPropertyChanged(nameof(IsRecognitionSelected));
-            OnPropertyChanged(nameof(IsDataSelected));
-            OnPropertyChanged(nameof(IsTeamDevicesSelected));
-            OnPropertyChanged(nameof(IsUpdatesSelected));
-            OnPropertyChanged(nameof(IsPrivacySelected));
-            OnPropertyChanged(nameof(IsAccessibilitySelected));
-            OnPropertyChanged(nameof(IsDisplaysSelected));
-            OnPropertyChanged(nameof(IsDiagnosticsSelected));
-            OnPropertyChanged(nameof(IsProgressSelected));
+            OnPropertyChanged(nameof(IsGameCaptureSelected));
+            OnPropertyChanged(nameof(IsProfileProgressSelected));
             OnPropertyChanged(nameof(IsNotificationsSelected));
-            OnPropertyChanged(nameof(IsDataPrivacySelected));
+            OnPropertyChanged(nameof(IsAppearanceWindowSelected));
+            OnPropertyChanged(nameof(IsDataNetworkSelected));
+            OnPropertyChanged(nameof(IsUpdatesDiagnosticsSelected));
             OnPropertyChanged(nameof(IsAboutSelected));
             // Ages and monitors are read when the page is opened, not carried from the last visit.
-            if (value == V2SetupSection.Data)
+            switch (value)
             {
-                Admin?.Data.Refresh();
-                // #292 task 3: the database's migration state and backup, read fresh each visit.
-                if (DatabaseStatus is { } databaseStatus)
-                {
-                    databaseStatus.RefreshAsync().ContinueWith(_ => { }, TaskScheduler.Default);
-                }
-            }
-            else if (value == V2SetupSection.Displays)
-            {
-                Admin?.Displays.RefreshCommand.Execute(null);
-            }
-            else if (value == V2SetupSection.About)
-            {
-                Admin?.About.Refresh();
-            }
-            else if (value == V2SetupSection.DataPrivacy)
-            {
-                Admin?.DataPrivacy.Refresh();
-            }
-            if (value == V2SetupSection.Privacy && Cleanup is { } cleanup)
-            {
-                cleanup.RefreshLedger();
-                cleanup.LoadAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+                case V2SetupSection.DataNetwork:
+                    Admin?.Data.Refresh();
+                    Admin?.DataPrivacy.Refresh();
+                    // #292 task 3: the database's migration state and backup, read fresh each visit.
+                    if (DatabaseStatus is { } databaseStatus)
+                    {
+                        databaseStatus.RefreshAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+                    }
+
+                    break;
+                case V2SetupSection.AppearanceWindow:
+                    Admin?.Displays.RefreshCommand.Execute(null);
+                    break;
+                case V2SetupSection.About:
+                    Admin?.About.Refresh();
+                    break;
+                case V2SetupSection.GameCapture when Cleanup is { } cleanup:
+                    cleanup.RefreshLedger();
+                    cleanup.LoadAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+                    break;
             }
 
             // #292 task 2: "Reset this section" acts on whichever section is open now.
@@ -548,24 +544,18 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
     }
 
     public bool IsOverviewSelected => Selected == V2SetupSection.Overview;
-    public bool IsGameProfileSelected => Selected == V2SetupSection.GameProfile;
-    public bool IsRecognitionSelected => Selected == V2SetupSection.Recognition;
-    public bool IsDataSelected => Selected == V2SetupSection.Data;
-    public bool IsTeamDevicesSelected => Selected == V2SetupSection.TeamDevices;
-    public bool IsUpdatesSelected => Selected == V2SetupSection.Updates;
-    public bool IsPrivacySelected => Selected == V2SetupSection.Privacy;
-    public bool IsAccessibilitySelected => Selected == V2SetupSection.Accessibility;
-    public bool IsDisplaysSelected => Selected == V2SetupSection.Displays;
-    public bool IsDiagnosticsSelected => Selected == V2SetupSection.Diagnostics;
-    public bool IsProgressSelected => Selected == V2SetupSection.Progress;
+    public bool IsGameCaptureSelected => Selected == V2SetupSection.GameCapture;
+    public bool IsProfileProgressSelected => Selected == V2SetupSection.ProfileProgress;
     public bool IsNotificationsSelected => Selected == V2SetupSection.Notifications;
-    public bool IsDataPrivacySelected => Selected == V2SetupSection.DataPrivacy;
+    public bool IsAppearanceWindowSelected => Selected == V2SetupSection.AppearanceWindow;
+    public bool IsDataNetworkSelected => Selected == V2SetupSection.DataNetwork;
+    public bool IsUpdatesDiagnosticsSelected => Selected == V2SetupSection.UpdatesDiagnostics;
     public bool IsAboutSelected => Selected == V2SetupSection.About;
 
     public void Select(V2SetupSection section)
     {
         Selected = section;
-        if (section == V2SetupSection.Data)
+        if (section == V2SetupSection.DataNetwork)
         {
             if (QuestCoverage is { } coverage)
             {

@@ -28,7 +28,5 @@ public static partial class SetupText
     public static string HomePrivacyHeading => UiText.Get("Setup.Home.Privacy.Heading");
     public static string HomePrivacyCleanupOnDetail(object? arg0) => UiText.Format("Setup.Home.Privacy.CleanupOnDetail", arg0);
     public static string HomePrivacyCleanupOffDetail => UiText.Get("Setup.Home.Privacy.CleanupOffDetail");
-    public static string HomePrivacyTelemetry => UiText.Get("Setup.Home.Privacy.Telemetry");
-    public static string HomePrivacyTelemetryDetail => UiText.Get("Setup.Home.Privacy.TelemetryDetail");
     public static string HomePrivacyReview => UiText.Get("Setup.Home.Privacy.Review");
 }

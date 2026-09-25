@@ -274,7 +274,7 @@
       </Grid>
     </Border>
 
-    <!-- System health: the required checks at a glance. -->
+    <!-- System health: how many of the required checks are ready. -->
     <Border Grid.Row="1" Grid.Column="2" Classes="v2-home-card">
       <StackPanel Spacing="12">
         <TextBlock Classes="v2-heading-2" Text="{Binding HealthHeading}" AutomationProperties.HeadingLevel="2" />
@@ -287,28 +287,8 @@
                        Text="{Binding HealthAttentionLabel}" />
           </StackPanel>
         </Grid>
-        <Border Classes="v2-home-rule" />
-        <ItemsControl ItemsSource="{Binding HealthRows}">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:V2HomeHealthRowViewModel">
-              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14" Margin="0,5">
-                <Border Classes="v2-home-marker" Width="22" Height="22" CornerRadius="11" VerticalAlignment="Center"
-                        Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}">
-                  <Panel>
-                    <Path IsVisible="{Binding IsDone}" Data="M6,13 L10.5,17.5 L18.5,8.5" Width="11" Height="9" Stretch="Uniform" />
-                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" />
-                  </Panel>
-                </Border>
-                <!-- #833: wraps rather than trims; at 200% text "Game log fo…" said nothing. -->
-                <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextWrapping="Wrap"
-                           Foreground="{DynamicResource V2.Brush.TextPrimary}" />
-                <TextBlock Grid.Column="2" Classes="v2-home-muted" VerticalAlignment="Center"
-                           Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}"
-                           Text="{Binding Status}" />
-              </Grid>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <!-- [#902 P6] Counts only. The same checks were listed here and again in Get ready beside
+             it; the list with the Open buttons is the one that stayed. -->
       </StackPanel>
     </Border>
 

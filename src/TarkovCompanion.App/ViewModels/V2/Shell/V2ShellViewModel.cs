@@ -246,6 +246,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         ReleaseExperience = releaseExperience;
         SetupWorkspace?.AttachPairing(_companionPairing);
+        SetupWorkspace?.AttachShell(this); if (learnMode is not null) { SetupWorkspace?.AttachLearnMode(learnMode); } // [#902 P6]
         // [#314] The language picker writes where composition read the language from.
         if (TarkovCompanion.App.Localization.UiCulturePreference.ConfigDirectory is { } configDirectory) { SetupWorkspace?.AttachLanguage(new SetupLanguageViewModel(configDirectory, IsDeveloperMode)); }
         if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
@@ -1675,7 +1676,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         Act(opened);
         if (opened.Succeeded)
         {
-            SetupWorkspace?.Select(V2SetupSection.DataPrivacy);
+            SetupWorkspace?.Select(V2SetupSection.DataNetwork);
         }
     }
 
@@ -1685,7 +1686,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         Act(opened);
         if (opened.Succeeded)
         {
-            SetupWorkspace?.Select(V2SetupSection.DataPrivacy);
+            SetupWorkspace?.Select(V2SetupSection.DataNetwork);
         }
     }
 
@@ -3225,7 +3226,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 Act(opened);
                 if (opened.Succeeded)
                 {
-                    SetupWorkspace?.Select(V2SetupSection.Accessibility);
+                    SetupWorkspace?.Select(V2SetupSection.AppearanceWindow);
                 }
 
                 break;
