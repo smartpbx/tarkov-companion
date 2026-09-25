@@ -295,7 +295,10 @@ public sealed partial class VelopackUpdateGateway
             _verified = null;
             _applyManager = null;
             _pendingPin = null;
-            KeepInstalledPackage(manager);
+            // Off the calling thread (#888): this copies and hashes a ~100 MB package, and the caller
+            // is the Setup button on the UI thread, which froze for seconds on a busy disk. Awaited,
+            // so the kept copy still exists before the download can delete the package it copies.
+            await Task.Run(() => KeepInstalledPackage(manager), cancellationToken).ConfigureAwait(true);
             await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             _verified = update.TargetFullRelease;

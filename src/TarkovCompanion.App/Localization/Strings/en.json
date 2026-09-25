@@ -3238,6 +3238,7 @@
   "Setup.Network.LocalOnly.Title": "Local only",
   "Setup.Network.LocalOnly.Line": "Nothing leaves this PC. The app runs on the data it already has.",
   "Setup.Network.LocalOnly.Forced": "Held on by TARKOV_COMPANION_OFFLINE",
+  "Setup.Network.LocalOnly.Reset": "Settings file unreadable, so Local only is on",
   "Setup.Network.GameData.Title": "Game data",
   "Setup.Network.GameData.Line": "Downloads items, prices, maps and loot spawns from tarkov.dev. Sends the game mode and language.",
   "Setup.Network.SquadSharing.Title": "Squad sharing",

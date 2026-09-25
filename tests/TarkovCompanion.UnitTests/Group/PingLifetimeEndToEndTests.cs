@@ -105,6 +105,11 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
 
         Assert.DoesNotContain(run.Events.Lines, line => line.Contains("publish failed", StringComparison.OrdinalIgnoreCase));
         Assert.Null(run.AlphaState.Current.Group.StaleSince);
+
+        // #886: the forwarder's own removal is scoped to its sender, so an id the relay reissued
+        // after a restart cannot take a squadmate's mark with it, and scoped to Alpha it still
+        // removed Alpha's ping.
+        Assert.Contains(run.Events.Lines, line => line.Contains("deleted, scoped to Alpha", StringComparison.Ordinal));
     }
 
     /// <summary>Everything one ping passes through, started and wired together.</summary>
@@ -298,7 +303,7 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                 }
 
                 var room = GroupKey.RoomFor(key);
-                var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label);
+                var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label)!;
                 if (marksEndHolds)
                 {
                     changes.Record(room, null);
@@ -307,7 +312,7 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                 events.Add($"relay: ping {added.Id} added");
                 return Results.Ok(added);
             });
-            app.MapDelete("/waypoints/{id:long}", (long id, HttpRequest http) =>
+            app.MapDelete("/waypoints/{id:long}", (long id, string? by, HttpRequest http) =>
             {
                 if (!GroupKey.TryRead(http, out var key))
                 {
@@ -315,7 +320,7 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                 }
 
                 var room = GroupKey.RoomFor(key);
-                if (!marks.Remove(room, id))
+                if (!marks.Remove(room, id, by))
                 {
                     return Results.NotFound();
                 }
@@ -325,7 +330,7 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                     changes.Record(room, null);
                 }
 
-                events.Add($"relay: mark {id} deleted");
+                events.Add($"relay: mark {id} deleted, scoped to {by ?? "nobody"}");
                 return Results.Ok();
             });
             await app.StartAsync();

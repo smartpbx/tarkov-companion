@@ -2,6 +2,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.Services.V2.Notifications;
@@ -73,6 +74,18 @@ public sealed class NotificationBridge : IDisposable
     /// <summary>Raised after a notification has been handed to every channel, for the tray count.</summary>
     public event EventHandler<NotificationRequest>? Raised;
 
+    /// <summary>
+    /// Raised after <see cref="Settings"/> changes: once the stored file is loaded, and after every
+    /// save. May be raised off the UI thread.
+    /// </summary>
+    /// <remarks>
+    /// #888: Setup › Notifications is composed before <see cref="InitializeAsync"/> runs, so a copy
+    /// taken in its constructor was always the defaults. The page showed the pop-up off for a
+    /// player who had turned it on, and its quiet-hours toggle wrote the stale 23-8 over a saved
+    /// 22-7. The page re-reads on this event instead.
+    /// </remarks>
+    public event EventHandler? SettingsChanged;
+
     /// <summary>Which notifications are currently on.</summary>
     public NotificationSettings Settings => _settings;
 
@@ -80,6 +93,7 @@ public sealed class NotificationBridge : IDisposable
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         _settings = await _settingsStore.GetAsync(cancellationToken).ConfigureAwait(false);
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
         await RefreshPlayerNameAsync(cancellationToken).ConfigureAwait(false);
         Observe();
     }
@@ -87,15 +101,27 @@ public sealed class NotificationBridge : IDisposable
     /// <summary>Turns one notification on or off, and remembers the answer.</summary>
     public async Task SetEnabledAsync(NotificationKind kind, bool enabled, CancellationToken cancellationToken)
     {
-        _settings = _settings.With(kind, enabled);
-        await _settingsStore.SaveAsync(_settings, cancellationToken).ConfigureAwait(false);
+        await ApplyAsync(_settings.With(kind, enabled), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Turns the desktop pop-up on or off, and remembers the answer.</summary>
     public async Task SetPopupAsync(bool enabled, CancellationToken cancellationToken)
     {
-        _settings = _settings with { ShowsDesktopPopup = enabled };
-        await _settingsStore.SaveAsync(_settings, cancellationToken).ConfigureAwait(false);
+        await ApplyAsync(_settings with { ShowsDesktopPopup = enabled }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Replaces every notification setting at once and saves them in one write, for a settings
+    /// import or reset.
+    /// </summary>
+    public async Task ReplaceAsync(NotificationSettings settings, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        await ApplyAsync(settings with
+        {
+            QuietFromHour = Math.Clamp(settings.QuietFromHour, 0, 23),
+            QuietToHour = Math.Clamp(settings.QuietToHour, 0, 23),
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -112,18 +138,22 @@ public sealed class NotificationBridge : IDisposable
     /// <summary>Sets quiet hours for the pop-up, and remembers the answer.</summary>
     public async Task SetQuietHoursAsync(bool enabled, int fromHour, int toHour, CancellationToken cancellationToken)
     {
-        _settings = _settings with
+        await ApplyAsync(_settings with
         {
             QuietHours = enabled,
             QuietFromHour = Math.Clamp(fromHour, 0, 23),
             QuietToHour = Math.Clamp(toHour, 0, 23),
-        };
-        await _settingsStore.SaveAsync(_settings, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Whether the pop-up is being held back by quiet hours right now.</summary>
+    /// <remarks>
+    /// Read in <see cref="LocalTime.Zone"/>, the zone every time on screen is shown in (#888). The
+    /// player picks the hours against those times; the machine's zone differs from it whenever the
+    /// profile names another zone, and quiet hours then ran hours off what the player chose.
+    /// </remarks>
     public bool IsQuietNow() => _settings.IsQuietAt(
-        TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(_timeProvider.GetUtcNow(), _timeProvider.LocalTimeZone).DateTime));
+        TimeOnly.FromDateTime(LocalTime.ToLocal(_timeProvider.GetUtcNow()).DateTime));
 
     /// <summary>Re-reads the player's own relay name, so their own marks stay silent.</summary>
     public async Task RefreshPlayerNameAsync(CancellationToken cancellationToken)
@@ -139,6 +169,13 @@ public sealed class NotificationBridge : IDisposable
             // should be but never silences a real one. Failing the other way would hide them all.
             _playerName = null;
         }
+    }
+
+    private async Task ApplyAsync(NotificationSettings settings, CancellationToken cancellationToken)
+    {
+        _settings = settings;
+        await _settingsStore.SaveAsync(_settings, cancellationToken).ConfigureAwait(false);
+        SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()

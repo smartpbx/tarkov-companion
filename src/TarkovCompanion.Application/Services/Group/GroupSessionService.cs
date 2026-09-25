@@ -642,9 +642,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         var because = string.IsNullOrWhiteSpace(why) ? string.Empty : $" ({why})";
+        // #886: a removal with a cause is the map forwarder taking back a mark this client sent
+        // (a ping that expired here, a mark removed or moved locally), so it is scoped to marks
+        // under our own name. After a relay restart an old id could name a squadmate's new mark,
+        // and an unscoped delete removed it. A relay older than this ignores the parameter.
+        var scope = string.IsNullOrWhiteSpace(why) || string.IsNullOrWhiteSpace(settings.DisplayName)
+            ? string.Empty
+            : $"?by={Uri.EscapeDataString(settings.DisplayName.Trim())}";
         return await SendAsync(
             settings,
-            new Uri(new Uri(settings.ServerUri!), $"waypoints/{id}"),
+            new Uri(new Uri(settings.ServerUri!), $"waypoints/{id}{scope}"),
             $"Removed mark {id} for the group{because}.",
             $"Could not remove mark {id} for the group{because}.",
             cancellationToken,
@@ -1134,8 +1141,11 @@ public sealed class GroupSessionService : IAsyncDisposable
             // publishes none and nobody is handed a list that was never theirs.
             Extracts = IsScav(raid) ? [] : [.. raid.ActiveExtracts.Select(extract => extract.Name)],
             Transits = IsScav(raid) ? [] : raid.Transits,
-            RaidClockSeconds = raid.RaidClock?.TotalSeconds,
-            RaidClockAgeSeconds = raid.RaidClockReadUtc is { } read
+            // #886: left out once the player has left the raid, like the trail. The raid state
+            // keeps the last reading through PostRaid, and a clock for a raid that is over is
+            // both wrong to show and, with its age growing, a new state on every publish.
+            RaidClockSeconds = hasLeft ? null : raid.RaidClock?.TotalSeconds,
+            RaidClockAgeSeconds = !hasLeft && raid.RaidClockReadUtc is { } read
                 ? Math.Max(0, (now - read.ToUniversalTime()).TotalSeconds)
                 : null,
         };

@@ -86,8 +86,37 @@ public sealed partial class WindowsEftLogWatcher(
                     continue;
                 }
 
-                foreach (var line in await ReadAppendedLinesAsync(path, lines, cancellationToken)
-                             .ConfigureAwait(false))
+                if (!_unreadable.MayRead(path, _timeProvider.GetUtcNow()))
+                {
+                    continue;
+                }
+
+                // #887: one file that cannot be opened or read used to throw out of this loop,
+                // and the observation service then tore down the logs and the screenshot watcher
+                // together and restarted them ten seconds later. Only that file waits now; its
+                // offset did not move, so nothing it wrote is lost when it is retried.
+                IReadOnlyList<string> appended;
+                try
+                {
+                    appended = await ReadAppendedLinesAsync(path, lines, cancellationToken).ConfigureAwait(false);
+                    _unreadable.Readable(path);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    var retryIn = _unreadable.Failed(path, _timeProvider.GetUtcNow());
+                    if (retryIn is { } delay)
+                    {
+                        logger?.LogWarning(
+                            exception,
+                            "Could not read {File}; the other logs carry on and it is tried again in {Delay}.",
+                            Path.GetFileName(path),
+                            delay);
+                    }
+
+                    continue;
+                }
+
+                foreach (var line in appended)
                 {
                     var observedUtc = _timeProvider.GetUtcNow();
                     if (mode == LogReadMode.Full && parser.ParseLine(line, observedUtc) is { } evidence)
@@ -334,9 +363,24 @@ public sealed partial class WindowsEftLogWatcher(
             // A seek into the middle of the file lands mid-line, and half a line is worse than
             // no line: it would be offered to the JSON parsers as though it were whole.
             var first = truncated ? 1 : 0;
+            // Counted over every line, because the replayed ones alone can straddle a clock step
+            // without showing it (#892).
+            DateTimeOffset? lastStamp = null;
+            var stretch = 0;
             for (var index = first; index < read.Count; index++)
             {
                 var line = read[index];
+                var written = RaidReplayDecision.WrittenUtc(line, _timeProvider.LocalTimeZone);
+                if (written is { } stamp)
+                {
+                    if (lastStamp is { } before && RaidReplayDecision.IsClockStep(before, stamp))
+                    {
+                        stretch++;
+                    }
+
+                    lastStamp = stamp;
+                }
+
                 var observedUtc = _timeProvider.GetUtcNow();
                 // Parsed for two side effects: the parser learns the profile id, and the
                 // private state machine works out what the player is in the middle of.
@@ -344,10 +388,11 @@ public sealed partial class WindowsEftLogWatcher(
                 {
                     // Kept with the time the game wrote it, because the files are replayed one
                     // after another and are not in time order with each other.
-                    replayed.Add(new(
-                        evidence,
-                        RaidReplayDecision.WrittenUtc(line, _timeProvider.LocalTimeZone),
-                        replayed.Count));
+                    replayed.Add(new(evidence, written, replayed.Count)
+                    {
+                        Source = path,
+                        Stretch = stretch,
+                    });
                 }
 
                 Notify(line, observedUtc, mode);
@@ -535,26 +580,50 @@ public sealed partial class WindowsEftLogWatcher(
     /// suite can pin it. This is only the file handling: opening the log without disturbing
     /// the game's own writes, and treating a momentary lock as a skip.
     /// </remarks>
-    private static async Task<IReadOnlyList<string>> ReadAppendedLinesAsync(
+    private async Task<IReadOnlyList<string>> ReadAppendedLinesAsync(
         string path,
         AppendedLineReader lines,
         CancellationToken cancellationToken)
     {
-        FileStream stream;
-        try
-        {
-            stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous);
-        }
-        catch (IOException)
-        {
-            // The game may hold the file exclusively for an instant while it rolls. The next
-            // poll picks it up, so this is a skip rather than a failure.
-            return [];
-        }
-
+        // The game may hold the file exclusively for an instant while it rolls; that, a
+        // delete-pending file and an I/O error mid-read all throw from here and are handled by
+        // the caller, which skips this one file and retries it with a back-off.
+        var stream = OpenLog(path);
         await using (stream.ConfigureAwait(false))
         {
             return await lines.ReadAsync(path, stream, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Opens a log for tailing; replaced in tests to stand in for a failing file.</summary>
+    internal Func<string, Stream> OpenLog { get; init; } = static path =>
+        new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous);
+
+    private readonly UnreadableLogFiles _unreadable = new();
+
+    /// <summary>Log files that failed to open or read, and when each may be tried again.</summary>
+    private sealed class UnreadableLogFiles
+    {
+        private static readonly TimeSpan FirstRetry = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan LongestRetry = TimeSpan.FromSeconds(30);
+
+        private readonly Dictionary<string, (int Failures, DateTimeOffset RetryAtUtc)> _files =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public bool MayRead(string path, DateTimeOffset nowUtc) =>
+            !_files.TryGetValue(path, out var entry) || entry.RetryAtUtc <= nowUtc;
+
+        public void Readable(string path) => _files.Remove(path);
+
+        /// <returns>The back-off, when this failure starts a streak and is worth saying once.</returns>
+        public TimeSpan? Failed(string path, DateTimeOffset nowUtc)
+        {
+            var failures = _files.TryGetValue(path, out var entry) ? entry.Failures + 1 : 1;
+            var delay = TimeSpan.FromTicks(Math.Min(
+                LongestRetry.Ticks,
+                FirstRetry.Ticks << Math.Min(failures - 1, 5)));
+            _files[path] = (failures, nowUtc + delay);
+            return failures == 1 ? delay : null;
         }
     }
 }

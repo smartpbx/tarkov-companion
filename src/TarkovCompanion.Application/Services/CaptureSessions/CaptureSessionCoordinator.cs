@@ -2435,7 +2435,8 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             _pixelsInUse,
             sessions,
             [.. _timings],
-            [.. _notices]);
+            [.. _notices],
+            _options.MaximumRetainedPixelBytes);
     }
 
     private void AddTimingUnsafe(CaptureTimingSnapshot timing)

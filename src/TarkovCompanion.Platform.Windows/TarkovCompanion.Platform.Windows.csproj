@@ -25,5 +25,6 @@
          kills the process rather than throwing, so the layout is worth asserting directly
          instead of through whatever the call happens to do. -->
     <InternalsVisibleTo Include="TarkovCompanion.WindowsSmokeTests" />
+    <InternalsVisibleTo Include="TarkovCompanion.UnitTests" />
   </ItemGroup>
 </Project>

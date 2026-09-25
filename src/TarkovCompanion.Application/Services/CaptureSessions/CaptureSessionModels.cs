@@ -467,7 +467,10 @@ public sealed record CaptureSessionServiceSnapshot(
     long PixelsInUse,
     ImmutableArray<CaptureSessionState> Sessions,
     ImmutableArray<CaptureTimingSnapshot> Timings,
-    ImmutableArray<CaptureSessionNotice> Notices)
+    ImmutableArray<CaptureSessionNotice> Notices,
+    // #887: a manual batch waits for room under this rather than being refused by it; 0 means
+    // the service does not say, and the batch then submits without waiting.
+    long PixelBudget = 0)
 {
     public static CaptureSessionServiceSnapshot Empty { get; } = new(
         false,

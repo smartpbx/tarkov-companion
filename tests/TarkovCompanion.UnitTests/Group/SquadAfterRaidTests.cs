@@ -38,6 +38,8 @@ public sealed class SquadAfterRaidTests
                 MapId = "customs",
                 LastKnownPosition = Somewhere(),
                 PositionTrail = [Somewhere(-2), Somewhere(-1), Somewhere()],
+                RaidClock = TimeSpan.FromSeconds(1777),
+                RaidClockReadUtc = DateTimeOffset.UtcNow.AddMinutes(-3),
             },
         });
 
@@ -45,6 +47,10 @@ public sealed class SquadAfterRaidTests
         await WaitUntilAsync(() => !bodies.IsEmpty);
 
         var body = Assert.Single(bodies.Take(1));
+        // #886: nor the raid clock, which PostRaid keeps and whose growing age made every
+        // publish after the raid a room change.
+        Assert.DoesNotContain("1777", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"raidClockAge\":1", body, StringComparison.Ordinal);
         Assert.Contains($"\"raidState\":\"{left}\"", body, StringComparison.Ordinal);
         Assert.Contains("\"x\":null", body, StringComparison.Ordinal);
         Assert.DoesNotContain("12.5", body, StringComparison.Ordinal);

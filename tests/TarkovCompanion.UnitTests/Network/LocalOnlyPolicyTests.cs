@@ -86,16 +86,49 @@ public sealed class LocalOnlyPolicyTests : IDisposable
         Assert.True(controls.ProblemReports);
     }
 
-    [Fact]
-    public void AnUnreadableFileKeepsTheDefaultsAndTheAppStarts()
+    /// <summary>
+    /// #888: a network.json of zeros (a power cut after the rename) used to start with the
+    /// defaults, which have Local only off: the privacy switch failed open without a word.
+    /// </summary>
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("\0\0\0\0")]
+    [InlineData("")]
+    [InlineData("null")]
+    public void AnUnreadableFileTurnsLocalOnlyOnKeepsTheFileAndSaysSo(string contents)
     {
         Directory.CreateDirectory(_root);
         var path = Path.Combine(_root, JsonFileNetworkControlsStore.FileName);
-        File.WriteAllText(path, "not json");
+        File.WriteAllText(path, contents);
 
         var policy = new NetworkPolicyService(new JsonFileNetworkControlsStore(path));
+        var page = new SetupNetworkControlsViewModel(policy);
 
-        Assert.Equal(NetworkControls.Default, policy.Controls);
+        Assert.True(policy.Controls.LocalOnly);
+        Assert.Equal(NetworkVerdict.LocalOnly, policy.Check(NetworkService.GameData));
+        Assert.True(policy.RecoveredFromUnreadableFile);
+        Assert.True(page.WasReset);
+        Assert.True(page.IsLocalOnly);
+        // The bad file is set aside, not lost, and the next launch reads Local only on.
+        Assert.Single(Directory.GetFiles(_root, JsonFileNetworkControlsStore.FileName + ".corrupt-*"));
+        Assert.True(new NetworkPolicyService(new JsonFileNetworkControlsStore(path)).Controls.LocalOnly);
+
+        // Choosing again clears the notice.
+        page.ToggleLocalOnlyCommand.Execute(null);
+        Assert.False(policy.Controls.LocalOnly);
+        Assert.False(page.WasReset);
+    }
+
+    [Fact]
+    public void AFileThatCannotBeOpenedFailsClosedButIsNotOverwritten()
+    {
+        var store = new ThrowingStore();
+
+        var policy = new NetworkPolicyService(store);
+
+        Assert.True(policy.Controls.LocalOnly);
+        Assert.True(policy.RecoveredFromUnreadableFile);
+        Assert.Equal(0, store.Saves);
     }
 
     [Fact]
@@ -290,6 +323,15 @@ public sealed class LocalOnlyPolicyTests : IDisposable
         }
 
         return condition();
+    }
+
+    private sealed class ThrowingStore : INetworkControlsStore
+    {
+        public int Saves { get; private set; }
+
+        public NetworkControls Read() => throw new IOException("locked");
+
+        public void Save(NetworkControls controls) => Saves++;
     }
 
     private sealed class MemoryStore(NetworkControls? initial = null) : INetworkControlsStore

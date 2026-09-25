@@ -40,6 +40,9 @@ public sealed class ScanFrameMemory(
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly Lock _gate = new();
     private Held? _held;
+    // #887: expiry used to run only when someone asked for the frame, so an 8-33 MB copy sat in
+    // the heap for hours after the player left the review. The timer wipes it on time.
+    private ITimer? _expiry;
 
     public async Task<CaptureAnalysis> AnalyzeAsync(CaptureAnalysisRequest request, CancellationToken cancellationToken)
     {
@@ -80,18 +83,48 @@ public sealed class ScanFrameMemory(
         }
     }
 
+    /// <summary>Whether a frame is resident, without the expiry check a read would run.</summary>
+    internal bool HoldsFrame
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _held is not null;
+            }
+        }
+    }
+
     public void Dispose() => Replace(null);
 
     private void Replace(Held? next)
     {
         Held? previous;
+        ITimer? previousExpiry;
         lock (_gate)
         {
             previous = _held;
+            previousExpiry = _expiry;
             _held = next;
+            _expiry = next is null
+                ? null
+                : _timeProvider.CreateTimer(
+                    static state => ((ScanFrameMemory)state!).Expire(),
+                    this,
+                    HoldFor,
+                    Timeout.InfiniteTimeSpan);
         }
 
+        previousExpiry?.Dispose();
         previous?.Wipe();
+    }
+
+    private void Expire()
+    {
+        lock (_gate)
+        {
+            ExpireUnsafe();
+        }
     }
 
     private void ExpireUnsafe()
@@ -99,6 +132,8 @@ public sealed class ScanFrameMemory(
         if (_held is { } held && held.Hold.HeldUntilUtc <= _timeProvider.GetUtcNow())
         {
             _held = null;
+            _expiry?.Dispose();
+            _expiry = null;
             held.Wipe();
         }
     }

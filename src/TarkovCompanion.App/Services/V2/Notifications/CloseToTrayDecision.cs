@@ -107,4 +107,16 @@ public static class CloseToTrayDecision
         && (value == "1"
             || value.Equals("true", StringComparison.OrdinalIgnoreCase)
             || value.Equals("yes", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The window state a tray restore should leave: out of minimized, otherwise as it was.
+    /// </summary>
+    /// <remarks>
+    /// #888: the restore used to set Normal unconditionally, so a player who keeps the window
+    /// maximized got it back at its restored size, and the placement store then saved that as the
+    /// next launch's size too. Hiding to the tray does not change the state, so a maximized window
+    /// comes back maximized by leaving it alone.
+    /// </remarks>
+    public static WindowState StateAfterRestore(WindowState current) =>
+        current == WindowState.Minimized ? WindowState.Normal : current;
 }

@@ -96,10 +96,29 @@ public sealed class GroupRooms(TimeProvider timeProvider)
     /// Whether two states from one member say the same thing, leaving out how old the position is:
     /// that grows on every publish while the member stands still, and readers are told it anyway.
     /// </summary>
-    /// <remarks>Compared as JSON because the record's lists compare by reference.</remarks>
+    /// <remarks>
+    /// Compared as JSON because the record's lists compare by reference.
+    ///
+    /// #886: every age is left out, not only the position's. The trail's points and the raid
+    /// clock carry their own, both grow between two publishes of the same thing, and blanking
+    /// only the position's made every in-raid publish a change once a member had two
+    /// screenshots — the #453 wake storm again, for the rest of the raid. What is compared is
+    /// the readings themselves: a new trail point or a new clock reading is still a change and
+    /// still wakes the room at once. The stored state keeps the fresh ages, so readers are told.
+    /// </remarks>
     internal static bool SaysTheSame(GroupMemberState before, GroupMemberState after) =>
-        System.Text.Json.JsonSerializer.Serialize(before with { PositionAgeSeconds = null }) ==
-        System.Text.Json.JsonSerializer.Serialize(after with { PositionAgeSeconds = null });
+        System.Text.Json.JsonSerializer.Serialize(WithoutAges(before)) ==
+        System.Text.Json.JsonSerializer.Serialize(WithoutAges(after));
+
+    private static GroupMemberState WithoutAges(GroupMemberState state) => state with
+    {
+        PositionAgeSeconds = null,
+        RaidClockAgeSeconds = null,
+        SinceSeconds = null,
+        Trail = state.Trail is { Count: > 0 } trail
+            ? [.. trail.Select(point => point with { AgeSeconds = 0 })]
+            : state.Trail,
+    };
 
     /// <summary>
     /// Keeps only the observations that describe somebody in this room.

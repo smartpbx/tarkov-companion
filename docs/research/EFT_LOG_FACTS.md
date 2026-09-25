@@ -221,13 +221,39 @@ scav raids ended `Free`, so `Free` proves nothing about either side. The compani
 implication in the one direction it holds, and reports a disagreement rather than resolving it
 when the status says scav and the profile says PMC.
 
-What `Transfer` means in the game is still unknown. It appears on a bit over half of scav runs
-and on no PMC run at all, which is the shape of a particular kind of scav exit rather than of
-scav runs in general. That is a guess and nothing depends on it.
+What `Transfer` means in the game is only partly known. It appears on a bit over half of scav
+runs and on no PMC run at all. At least some are transits to another map (below); whether all
+are is not established.
 
 **`Transfer` ends the raid.** It was read here as transit to another map with the raid
 continuing, and a Streets raid was then watched ending with it and nothing following for the
 rest of the session. Roughly one raid end in four carries it.
+
+**Some `Transfer` ends are transits, and the raid after one can carry no short id (#892).** On 2026-09-23 a
+scav Lighthouse raid ended `Transfer` and six minutes later the player was in The Lab. That raid,
+and a second one straight after it, wrote no `userConfirmed`, no `userMatchOver` and no
+`profileStatus` line. All each of them left in `application` was, in order:
+
+```
+MatchingCompleted:0 real:0 diff:0
+scene preset path:maps/laboratory_preset.bundle rcid:laboratory.ScenesPreset.asset
+LocationLoaded:10.97 real:18.09 diff:7.12
+[Transit] Flag:None, RaidId:<id>, Count:0, Locations:laboratory ->
+GameStarted:31.37(0) real:53.4(0) diff:22.03
+```
+
+and the end of the first was only `PrepareSelectedProfileLocally` / `CompleteSelectedProfile`, the
+profile reload the game does on coming back to the menu. These were the only two `[Transit] Flag`
+lines in six sessions (09-22 to 09-25); an online raid writes `[Transit] `<id>` Count:0` instead,
+with no location. So the map comes from the scene preset, which is written before every raid
+(55 of them in those sessions, tokens `city`, `customs`, `factory_day`, `laboratory`,
+`lighthouse`, `rezerv_base`, `shoreline`), and a profile reload ends a raid that has no id.
+
+**The stamp is the PC's clock, and it can step mid-session.** In two of those six sessions
+every file stepped back about four hours at the same moment (Windows resynchronising a clock
+that had shown UTC as local time). A file's own order stays right across the step; sorting
+lines by stamp does not, so the startup replay keeps each file in written order and uses stamps
+only to interleave files between steps.
 
 ## One claim tested and refuted
 

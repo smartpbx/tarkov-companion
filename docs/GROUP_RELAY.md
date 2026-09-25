@@ -125,7 +125,7 @@ immediate reply you always got. Nothing else about the request or the reply chan
 
 The reply carries `revision`, which counts changes made by everybody but you — your own publish
 cannot be what ends your own hold, or every wait would finish on the request that started it.
-A publish that says nothing new (the same state, only an older position) is not a change and
+A publish that says nothing new (the same state, only older position, trail or raid-clock ages) is not a change and
 wakes nobody; counting it kept every member of a four-person room exchanging three times a second (#453).
 Send the last one you saw back as `since`. A reply with no `revision` is a relay that does not
 hold; keep to your own tick against it.
@@ -198,16 +198,20 @@ A member in `PostRaid` or `Menu` publishes no position or trail, and is not draw
 ### Reaching, removing, clearing
 
     POST   /waypoints/{id}/reached      { "by": "MaxGooner" }
-    DELETE /waypoints/{id}
+    DELETE /waypoints/{id}[?by=MaxGooner]
     DELETE /waypoints?mapId=customs&reachedOnly=true
 
 Reaching one records who got there and will not overwrite whoever arrived first. Clearing
-returns how many went. Omit `mapId` to clear every map.
+returns how many went. Omit `mapId` to clear every map. With `by`, a removal only takes a mark
+that name dropped; the desktop sends it when it takes back its own mark (#886). Mark ids start
+at the relay's clock in milliseconds, so a restart never hands out an id again.
 
 ### Limits
 
 Sixty waypoints and thirty pings per group. Past that the oldest goes, so somebody leaning on a
-mouse button loses their stalest plan rather than being refused or filling the server.
+mouse button loses their stalest plan rather than being refused or filling the server. Marks are
+held for at most as many groups as the room cap (a new group past it gets a 503); waypoints older
+than seven days and emptied groups are swept every minute (#886).
 
 ## Leaving
 

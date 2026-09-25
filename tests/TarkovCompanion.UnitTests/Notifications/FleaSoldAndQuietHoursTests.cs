@@ -118,6 +118,7 @@ public sealed class FleaSoldAndQuietHoursTests
         var quiet = new RecordingChannel();
         var popup = new RecordingChannel();
         // 02:00 UTC, read in UTC: inside 23-8.
+        using var zone = LocalTime.UseZone(TimeZoneInfo.Utc);
         var store = new FakeRuntimeStore(V2ShellTestData.Snapshot());
         using var bridge = Build(quiet, popup, new FixedTime(new DateTimeOffset(2026, 9, 22, 2, 0, 0, TimeSpan.Zero)), store);
         await bridge.SetPopupAsync(true, CancellationToken.None);
