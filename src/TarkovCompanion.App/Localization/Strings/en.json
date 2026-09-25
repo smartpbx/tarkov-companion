@@ -1417,7 +1417,10 @@
   "Intel.Flea.Page.NotOnFlea": "Not sold on the flea",
   "Intel.Flea.Page.Source": "json.tarkov.dev · {0}",
   "Intel.Flea.Page.NoMatch": "No local item matched that query.",
-  "Intel.Flea.Page.Results": "{0} results from the local cache",
+  "Intel.Flea.Page.Results": {
+    "one": "{0} result from the local cache",
+    "other": "{0} results from the local cache"
+  },
   "Intel.Flea.Page.SearchFailed": "Item search failed: {0}",
   "Intel.Flea.Page.ReadingHistory": "Reading locally stored observations…",
   "Intel.Flea.Page.NoObservations": "No stored observations for {0} yet.",
@@ -1435,7 +1438,8 @@
   "Intel.Flea.Page.NoPriceCached": "No price is cached for this item.",
   "Intel.Flea.Page.NoSaleValue": "No sale value is cached for this item.",
   "Intel.Flea.Page.BestOnFlea": "Best {0} on the flea",
-  "Intel.Flea.Page.BestVia": "Best {0} · {1} ({2})",
+  "Intel.Flea.Page.BestAtTrader": "Best {0} at {1}",
+  "Intel.Flea.Page.ATrader": "a trader",
   "Intel.Flea.Page.NoTimestamp": "no timestamp",
   "Intel.Crafts.SearchPlaceholder": "Search by input or output item…",
   "Intel.Crafts.ReadyNow": "I can do this now",
