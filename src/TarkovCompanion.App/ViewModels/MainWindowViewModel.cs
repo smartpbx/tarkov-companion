@@ -2397,26 +2397,11 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             return;
         }
 
-        var delay = TimeSpan.FromMinutes(2);
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(delay, cancellationToken).ConfigureAwait(true);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-
-            delay = TimeSpan.FromHours(4);
-            if (IsBusyWithUpdate || CanRestartForUpdate)
-            {
-                continue;
-            }
-
-            Apply(await _updates.CheckAsync(cancellationToken).ConfigureAwait(true));
-        }
+        var updates = _updates;
+        await UpdateWatchLoop.RunAsync(
+            () => IsBusyWithUpdate || CanRestartForUpdate,
+            async token => Apply(await updates.CheckAsync(token).ConfigureAwait(true)),
+            cancellationToken).ConfigureAwait(true);
     }
 
     public bool IsBusyWithUpdate

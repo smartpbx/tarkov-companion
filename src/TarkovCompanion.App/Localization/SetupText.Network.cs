@@ -11,6 +11,7 @@ public static partial class SetupText
     public static string NetworkLocalOnlyTitle => UiText.Get("Setup.Network.LocalOnly.Title");
     public static string NetworkLocalOnlyLine => UiText.Get("Setup.Network.LocalOnly.Line");
     public static string NetworkLocalOnlyForced => UiText.Get("Setup.Network.LocalOnly.Forced");
+    public static string NetworkLocalOnlyReset => UiText.Get("Setup.Network.LocalOnly.Reset");
     public static string NetworkUpdateOff => UiText.Get("Setup.Network.UpdateOff");
     public static string NetworkTrackerOff => UiText.Get("Setup.Network.TrackerOff");
 

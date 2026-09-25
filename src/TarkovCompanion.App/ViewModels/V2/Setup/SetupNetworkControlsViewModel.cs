@@ -20,6 +20,7 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
     private readonly Action<Action> _dispatch;
     private bool _isLocalOnly;
     private bool _isForced;
+    private bool _wasReset;
 
     public SetupNetworkControlsViewModel(NetworkPolicyService policy, Action<Action>? dispatch = null)
     {
@@ -46,6 +47,18 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
     public string LocalOnlyLine => SetupText.NetworkLocalOnlyLine;
 
     public string ForcedNote => SetupText.NetworkLocalOnlyForced;
+
+    public string ResetNote => SetupText.NetworkLocalOnlyReset;
+
+    /// <summary>
+    /// network.json could not be read at startup, so Local only was turned on in its place (#888).
+    /// Gone once the player sets anything here.
+    /// </summary>
+    public bool WasReset
+    {
+        get => _wasReset;
+        private set => SetProperty(ref _wasReset, value);
+    }
 
     public string OnLabel => SetupText.NetworkOn;
 
@@ -81,6 +94,7 @@ public sealed class SetupNetworkControlsViewModel : BindableViewModel
     {
         IsForced = _policy.LocalOnlyForced;
         IsLocalOnly = IsForced || _policy.Controls.LocalOnly;
+        WasReset = _policy.RecoveredFromUnreadableFile;
         foreach (var row in Rows)
         {
             row.Refresh();

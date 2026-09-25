@@ -1064,7 +1064,8 @@ public static class AppComposition
             nativePopupChannel: provider.GetRequiredService<INativeNotificationChannel>()));
         services.AddSingleton(provider => new SetupNotificationsViewModel(
             provider.GetRequiredService<NotificationBridge>(),
-            () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));
+            () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable,
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<IReleaseExperienceStateStore>(_ =>
             new JsonFileReleaseExperienceStateStore(Path.Combine(paths.Config, "release-experience.json")));
         services.AddSingleton(_ => LoadPlayerChangelog());

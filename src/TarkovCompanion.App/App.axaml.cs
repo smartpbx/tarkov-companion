@@ -306,7 +306,12 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private void Restore(MainWindow window, V2RouteId? route = null)
     {
         window.Show();
-        window.WindowState = WindowState.Normal;
+        var state = CloseToTrayDecision.StateAfterRestore(window.WindowState);
+        if (state != window.WindowState)
+        {
+            window.WindowState = state;
+        }
+
         window.Activate();
         _tray?.ClearUnread();
         if (route is { } destination && _mainViewModel?.PreviewShell is { } shell)

@@ -59,14 +59,9 @@ public sealed class JsonFileFeatureFlagOverrideStore(string path) : IFeatureFlag
     public void Save(IReadOnlyDictionary<string, bool> overrides)
     {
         ArgumentNullException.ThrowIfNull(overrides);
-        var full = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         var json = JsonSerializer.Serialize(
             overrides.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToDictionary(pair => pair.Key, pair => pair.Value),
             new JsonSerializerOptions { WriteIndented = true });
-        // Temp then move, for the reason AtomicJsonFile gives.
-        var temporary = full + ".writing";
-        File.WriteAllText(temporary, json);
-        File.Move(temporary, full, overwrite: true);
+        AtomicJsonFile.Write(path, json);
     }
 }

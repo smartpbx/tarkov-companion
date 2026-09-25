@@ -38,9 +38,7 @@ public static class AtomicJsonFile
                 FileOptions.Asynchronous))
             {
                 await stream.WriteAsync(Encoding.UTF8.GetBytes(contents), cancellationToken).ConfigureAwait(false);
-                // The move is only atomic with respect to the directory entry; without this the
-                // bytes may still be in the operating system's cache when the power goes.
-                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                FlushToDisk(stream);
             }
 
             File.Move(temporary, full, overwrite: true);
@@ -53,6 +51,43 @@ public static class AtomicJsonFile
             throw;
         }
     }
+
+    /// <summary>The synchronous <see cref="WriteAsync"/>, for stores with a synchronous contract.</summary>
+    public static void Write(string path, string contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var full = Path.GetFullPath(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)
+            ?? throw new InvalidOperationException($"The settings path has no parent directory: {path}"));
+
+        var temporary = full + ".writing";
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(Encoding.UTF8.GetBytes(contents));
+                FlushToDisk(stream);
+            }
+
+            File.Move(temporary, full, overwrite: true);
+        }
+        catch
+        {
+            TryDelete(temporary);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Pushes the bytes through to the disk before the rename makes them the settings file.
+    /// </summary>
+    /// <remarks>
+    /// #888: this was <c>FlushAsync</c>, which in .NET 6 and later only empties the managed buffer
+    /// into the operating system's cache. A power cut in the next few seconds then kept the rename
+    /// and lost the data, leaving a settings file of zeros. Only <c>Flush(true)</c> reaches
+    /// FlushFileBuffers / fsync. It blocks for the few milliseconds a small file takes.
+    /// </remarks>
+    private static void FlushToDisk(FileStream stream) => stream.Flush(flushToDisk: true);
 
     /// <summary>
     /// Moves a file that could not be parsed aside, so the next write starts clean.

@@ -72,4 +72,16 @@ public sealed class CloseToTrayDecisionTests
             warningLogPath: null,
             quitOnClose: value));
     }
+
+    [Theory]
+    [InlineData(Avalonia.Controls.WindowState.Maximized, Avalonia.Controls.WindowState.Maximized)]
+    [InlineData(Avalonia.Controls.WindowState.FullScreen, Avalonia.Controls.WindowState.FullScreen)]
+    [InlineData(Avalonia.Controls.WindowState.Normal, Avalonia.Controls.WindowState.Normal)]
+    [InlineData(Avalonia.Controls.WindowState.Minimized, Avalonia.Controls.WindowState.Normal)]
+    public void A_tray_restore_keeps_a_maximized_window_maximized(
+        Avalonia.Controls.WindowState hidden,
+        Avalonia.Controls.WindowState restored)
+    {
+        Assert.Equal(restored, CloseToTrayDecision.StateAfterRestore(hidden));
+    }
 }

@@ -13,7 +13,10 @@ namespace TarkovCompanion.Application.Services.Network;
 /// at composition: TarkovTracker decided at startup, the relay never asked at all. Every client now
 /// asks here before it connects, so turning Local only off resumes them without a restart.
 ///
-/// A file that cannot be read keeps the defaults rather than stopping the app, and says so in the log.
+/// A file that cannot be read fails closed (#888): Local only goes on, the unreadable file is replaced
+/// by that answer, and <see cref="RecoveredFromUnreadableFile"/> tells Setup to say so. It used to keep
+/// the defaults, which have Local only off, so a network.json zeroed by a power cut switched the
+/// privacy setting off without a word on screen.
 /// A save that fails keeps the new choice for this run: the player asked for less traffic, and a disk
 /// error is no reason to send more.
 /// </remarks>
@@ -35,10 +38,23 @@ public sealed class NetworkPolicyService : INetworkPolicy
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            _logger.LogWarning(exception, "Network controls unreadable; using the defaults");
-            _controls = NetworkControls.Default;
+            _logger.LogWarning(exception, "Network controls unreadable; Local only is on until the player confirms");
+            _controls = NetworkControls.Default with { LocalOnly = true };
+            RecoveredFromUnreadableFile = true;
+            if (exception is InvalidDataException)
+            {
+                // Only a file that was read and found bad is replaced. One that could not be opened
+                // (locked, no access) may still hold the player's switches, and is left alone.
+                TrySave(_controls);
+            }
         }
     }
+
+    /// <summary>
+    /// The stored controls could not be read at startup, so Local only was turned on. Cleared once
+    /// the player sets anything.
+    /// </summary>
+    public bool RecoveredFromUnreadableFile { get; private set; }
 
     public NetworkControls Controls => Volatile.Read(ref _controls);
 
@@ -57,14 +73,8 @@ public sealed class NetworkPolicyService : INetworkPolicy
             return;
         }
 
-        try
-        {
-            _store.Save(controls);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(exception, "Could not save the network controls; they hold until the app closes");
-        }
+        RecoveredFromUnreadableFile = false;
+        TrySave(controls);
 
         _logger.LogInformation(
             "Network controls: local only {LocalOnly}, squad {Squad}, updates {Updates}, reports {Reports}, TarkovTracker {Tracker}",
@@ -74,6 +84,18 @@ public sealed class NetworkPolicyService : INetworkPolicy
             controls.ProblemReports,
             controls.TarkovTracker);
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void TrySave(NetworkControls controls)
+    {
+        try
+        {
+            _store.Save(controls);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(exception, "Could not save the network controls; they hold until the app closes");
+        }
     }
 }
 

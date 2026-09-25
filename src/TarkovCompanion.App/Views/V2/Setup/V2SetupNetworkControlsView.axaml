@@ -27,6 +27,9 @@
           <TextBlock Classes="v2-label" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
                      IsVisible="{Binding IsForced}" Text="{Binding ForcedNote}"
                      AutomationProperties.AutomationId="v2-setup-network-forced" />
+          <TextBlock Classes="v2-label" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
+                     IsVisible="{Binding WasReset}" Text="{Binding ResetNote}" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="v2-setup-network-reset" />
         </StackPanel>
         <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
                       IsChecked="{Binding IsLocalOnly, Mode=OneWay}"

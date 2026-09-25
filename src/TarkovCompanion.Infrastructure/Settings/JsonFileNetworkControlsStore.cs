@@ -27,28 +27,35 @@ public sealed class JsonFileNetworkControlsStore(string path) : INetworkControls
 
         if (info.Length > MaximumBytes)
         {
-            throw new InvalidDataException($"{FileName} is larger than {MaximumBytes} bytes.");
+            throw Unreadable($"{FileName} is larger than {MaximumBytes} bytes.");
         }
 
+        NetworkControls? controls;
         try
         {
-            return JsonSerializer.Deserialize<NetworkControls>(File.ReadAllBytes(path), Json)
-                ?? throw new InvalidDataException($"{FileName} is empty.");
+            controls = JsonSerializer.Deserialize<NetworkControls>(File.ReadAllBytes(path), Json);
         }
         catch (JsonException exception)
         {
-            throw new InvalidDataException($"{FileName} is not valid JSON.", exception);
+            throw Unreadable($"{FileName} is not valid JSON.", exception);
         }
+
+        return controls ?? throw Unreadable($"{FileName} is empty.");
+    }
+
+    /// <summary>
+    /// Sets the bad file aside before saying so, so the record of what the player had survives
+    /// the fail-closed answer the policy writes in its place (#888).
+    /// </summary>
+    private InvalidDataException Unreadable(string message, Exception? inner = null)
+    {
+        AtomicJsonFile.SetAside(path, DateTimeOffset.UtcNow);
+        return new InvalidDataException(message, inner);
     }
 
     public void Save(NetworkControls controls)
     {
         ArgumentNullException.ThrowIfNull(controls);
-        var full = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        // Temp then move, for the reason AtomicJsonFile gives.
-        var temporary = full + ".writing";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(controls, Json));
-        File.Move(temporary, full, overwrite: true);
+        AtomicJsonFile.Write(path, JsonSerializer.Serialize(controls, Json));
     }
 }

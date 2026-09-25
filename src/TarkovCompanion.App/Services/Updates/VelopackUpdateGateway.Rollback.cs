@@ -180,7 +180,7 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
     {
         if (State is { } store)
         {
-            store.Write(store.Read() with { Pin = null });
+            TryWrite(store, store.Read() with { Pin = null }, "end the pin");
         }
     }
 
@@ -208,8 +208,28 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
         }
 
         _logger?.LogInformation("{Available} is newer than {HoldThrough}; no longer staying on {Pinned}", available, pin.HoldThrough, pin.Version);
-        store.Write(state with { Pin = null });
+        TryWrite(store, state with { Pin = null }, "end the pin");
         return null;
+    }
+
+    /// <summary>
+    /// Writes the update state, or logs why not and carries on with the answer already reached.
+    /// </summary>
+    /// <remarks>
+    /// #888: an antivirus scanner holding update-state.json made the pin's end throw out of
+    /// <see cref="CheckAsync"/>, and the four-hourly check loop that awaited it stopped for the
+    /// rest of the run. A pin that could not be cleared is cleared by the next check instead.
+    /// </remarks>
+    private void TryWrite(IUpdateStateStore store, UpdateState state, string purpose)
+    {
+        try
+        {
+            store.Write(state);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogWarning(exception, "Could not write the update state to {Purpose}; carrying on", purpose);
+        }
     }
 
     private RollbackCandidate? KeptCandidate()
