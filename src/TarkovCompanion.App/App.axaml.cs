@@ -303,6 +303,51 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     }
 
     /// <summary>Brings the window back from the tray, optionally on a named workspace.</summary>
+    /// <summary>
+    /// [#893] A second launch handed itself to this copy: come to the front, un-minimised, on a
+    /// monitor that exists, and open the page it named. On the UI thread.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="Restore"/>, which sets the state to Normal and would un-maximise a window the
+    /// player keeps maximised. The Topmost toggle is the usual way to get past Windows' rule that
+    /// a background process may not take the foreground; the running copy is that process here.
+    /// </remarks>
+    internal void BringForward(string? page)
+    {
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime { MainWindow: MainWindow window })
+        {
+            return;
+        }
+
+        window.Show();
+        if (window.WindowState == WindowState.Minimized)
+        {
+            window.WindowState = WindowState.Normal;
+        }
+
+        if (window.WindowState == WindowState.Normal && window.Screens.ScreenFromWindow(window) is null
+            && window.Screens.Primary is { } primary)
+        {
+            var area = primary.WorkingArea;
+            window.Position = new Avalonia.PixelPoint(area.X + 40, area.Y + 40);
+        }
+
+        window.Topmost = true;
+        window.Topmost = false;
+        window.Activate();
+        _tray?.ClearUnread();
+        if (string.IsNullOrWhiteSpace(page) || _mainViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        var opened = viewModel.PreviewShell is { } shell ? shell.OpenRequestedPage(page) : viewModel.Navigate(page);
+        if (!opened)
+        {
+            CrashLog.Write("lifecycle", $"A second launch asked for a page this build does not have: {page}");
+        }
+    }
+
     private void Restore(MainWindow window, V2RouteId? route = null)
     {
         window.Show();
