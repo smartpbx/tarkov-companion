@@ -49,6 +49,17 @@
     <Style Selector="Border.v2-raid-row.v2-raid-not-offered">
       <Setter Property="Opacity" Value="0.7" />
     </Style>
+    <!-- [#873] A one-side exit listed while the raid's side is unknown: dimmed, and its Detail
+         says whose ("PMC only"), so it never reads as one of the player's own. -->
+    <Style Selector="TextBlock.v2-raid-side-unknown">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-raid-row.v2-raid-side-unsure">
+      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
     <!-- A row that selects something: the button is only the hit target, the row inside is what shows. -->
     <Style Selector="Button.v2-raid-rowbutton">
       <Setter Property="Background" Value="Transparent" />
@@ -1160,6 +1171,11 @@
               <StackPanel Spacing="8">
                 <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.NoExtractData}"
                            IsVisible="{Binding !HasMapExtracts}" />
+                <!-- [#873] Whose exits these are: the raid's side, or that it is unknown and both are listed. -->
+                <TextBlock Classes="v2-label" Text="{Binding ExtractSideNote}"
+                           Classes.v2-raid-side-unknown="{Binding IsExtractSideUnknown}"
+                           AutomationProperties.AutomationId="v2-raid-extract-side"
+                           IsVisible="{Binding HasMapExtracts}" TextWrapping="Wrap" />
                 <!-- While a raid is running, the legacy extract matcher's own offered list (with its
                      confidence) comes first. -->
                 <ItemsControl ItemsSource="{Binding Extracts}" IsVisible="{Binding HasExtracts}">
@@ -1201,7 +1217,8 @@
                       <Border Classes="v2-raid-row"
                               Classes.v2-raid-offered="{Binding IsOffered}"
                               Classes.v2-raid-routed="{Binding IsHighlighted}"
-                              Classes.v2-raid-not-offered="{Binding IsNotOffered}">
+                              Classes.v2-raid-not-offered="{Binding IsNotOffered}"
+                              Classes.v2-raid-side-unsure="{Binding IsSideUnsure}">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
                           <Viewbox Width="20" Height="20">
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Exit}" />

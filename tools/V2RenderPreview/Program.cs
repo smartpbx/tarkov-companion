@@ -1944,6 +1944,12 @@ internal static class Program
                     demo = SquadAfterRaidDemo.Apply(demo);
                 }
 
+                // [#873] --raid-side pmc|scav|unknown: the raid's side, so each side's extracts can be rendered.
+                if (StringOption(args, "--raid-side") is { } raidSide)
+                {
+                    demo = (demo.Raid with { Side = raidSide.Equals("unknown", StringComparison.OrdinalIgnoreCase) ? null : raidSide }, demo.Group);
+                }
+
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
