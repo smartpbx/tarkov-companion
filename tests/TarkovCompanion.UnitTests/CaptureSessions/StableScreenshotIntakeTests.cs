@@ -203,7 +203,60 @@ public sealed class StableScreenshotIntakeTests
         }
     }
 
+    /// <summary>
+    /// [#893] One information line for the whole folder; each file only at Debug. Fails on main,
+    /// which wrote one information line per old screenshot (70% of the owner's startup log).
+    /// </summary>
     [Fact]
+    public async Task StartupSummarisesSkippedScreenshotsInOneInformationLine()
+    {
+        var root = NewDirectory();
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            for (var index = 0; index < 5; index++)
+            {
+                await File.WriteAllBytesAsync(Path.Combine(root, ScreenshotName(now.AddDays(-1).AddMinutes(index), index)), Png);
+            }
+
+            var logger = new LevelLogger<WindowsScreenshotWatcher>();
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10),
+                    logger: logger)
+                .WatchSettledAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var next = enumerator.MoveNextAsync().AsTask();
+
+            await UntilAsync(() => logger.Entries.Any(entry => entry.Message.StartsWith("Skipped 5 ", StringComparison.Ordinal)));
+            await Task.Delay(80, stopping.Token);
+
+            var information = logger.Entries.Where(entry => entry.Level >= LogLevel.Information).Select(entry => entry.Message).ToArray();
+            Assert.Single(information, message => message.Contains("startup screenshot", StringComparison.Ordinal));
+            Assert.Equal(5, logger.Entries.Count(entry =>
+                entry.Level == LogLevel.Debug && entry.Message.StartsWith("Skipped startup screenshot", StringComparison.Ordinal)));
+            stopping.Cancel();
+            Assert.False(await next);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private sealed class LevelLogger<T> : ILogger<T>
+    {
+        public ConcurrentQueue<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Enqueue((logLevel, formatter(state, exception)));
+    }
+
+        [Fact]
     public async Task EitherOccurrenceOfARepeatedDstMinuteIsRecentAtStartup()
     {
         using var zone = LocalTime.UseZone(EasternLike());

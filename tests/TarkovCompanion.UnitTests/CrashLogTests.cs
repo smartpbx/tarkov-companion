@@ -80,7 +80,20 @@ public sealed class CrashLogTests : IDisposable
         Assert.Contains("[repeat] [group] still failing (120x) since", text, StringComparison.Ordinal);
     }
 
-    /// <summary>The log says which build wrote it.</summary>
+    /// <summary>
+    /// [#893] An information line repeated is not a failure. Fails on main, where every collapsed
+    /// run read "still failing", so a healthy startup looked like an error storm.
+    /// </summary>
+    [Theory]
+    [InlineData("information/WindowsScreenshotWatcher", "repeated")]
+    [InlineData("debug/Anything", "repeated")]
+    [InlineData("warning/GroupSessionService", "still failing")]
+    [InlineData("error/RelayLink", "still failing")]
+    [InlineData("group", "still failing")]
+    public void TheRepeatMarkerIsWordedByLevel(string category, string expected) =>
+        Assert.Equal(expected, CrashLog.RepeatWording(category));
+
+        /// <summary>The log says which build wrote it.</summary>
     /// <remarks>
     /// Every assembly reported 1.0.0.0 until the packaging script started stamping a version,
     /// so "which build produced this" had no answer. A log that cannot name its own build is a

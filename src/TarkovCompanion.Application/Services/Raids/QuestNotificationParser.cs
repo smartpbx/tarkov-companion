@@ -140,8 +140,14 @@ public static class QuestNotificationParser
                 return null;
             }
 
-            var taskId = templateId.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            var words = templateId.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var taskId = words.FirstOrDefault();
             if (taskId is null || taskId.Length < MinimumTaskIdLength)
+            {
+                return null;
+            }
+
+            if (IsRepeatableTask(words))
             {
                 return null;
             }
@@ -159,6 +165,23 @@ public static class QuestNotificationParser
             return null;
         }
     }
+
+    /// <summary>
+    /// [#893] Whether a template id names a daily or weekly task rather than a quest.
+    /// </summary>
+    /// <remarks>
+    /// A story quest's hand-in reads <c>&lt;quest id&gt; successMessageText</c>. A daily or weekly
+    /// reads <c>&lt;template id&gt; successMessageText &lt;trader id&gt; 0</c>: the first word is a
+    /// message template shared by every task of that kind, not a quest, and the third is the trader
+    /// who gave it. Counted in the owner's logs (1.1.5.1.47510): 14 of the first shape and 6 of the
+    /// second. Read as quests, three such template ids were 16 of the 31 "the loaded catalog does
+    /// not have" warnings, and the Quests page blamed the catalog for being behind.
+    /// </remarks>
+    private static bool IsRepeatableTask(IReadOnlyList<string> words) =>
+        words.Count >= 3 && IsObjectId(words[2]);
+
+    private static bool IsObjectId(string word) =>
+        word.Length == 24 && word.All(character => char.IsAsciiHexDigit(character));
 
     /// <summary>
     /// The three message types that are about a quest, and nothing else.

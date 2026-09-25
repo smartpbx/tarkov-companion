@@ -219,7 +219,33 @@ public sealed class QuestNotificationParserTests
     /// ends in two closing braces of its own and a raw string reads those as the end of an
     /// interpolation.
     /// </remarks>
-    private static string Line(int messageType, string templateId = "5936d90786f7742b1420ba5b description") =>
+    /// <summary>
+    /// [#893] A daily or weekly hand-in names a message template and the trader, not a quest.
+    /// Fails on main, where the template's id was read as a quest the catalog did not have.
+    /// </summary>
+    [Theory]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaa1 successMessageText bbbbbbbbbbbbbbbbbbbbbbb2 0")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaa1 successMessageText bbbbbbbbbbbbbbbbbbbbbbb2 1")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaa1 failMessageText bbbbbbbbbbbbbbbbbbbbbbb2 0")]
+    public void ADailyOrWeeklyTaskIsNotReadAsAQuest(string templateId)
+    {
+        Assert.Null(QuestNotificationParser.ParseLine(Line(12, templateId), Observed));
+        Assert.Null(QuestNotificationParser.ParseLine(Line(11, templateId), Observed));
+    }
+
+    [Fact]
+    public void AStoryQuestHandInIsStillRead()
+    {
+        var observation = QuestNotificationParser.ParseLine(
+            Line(12, "aaaaaaaaaaaaaaaaaaaaaaa1 successMessageText"),
+            Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaa1", observation.TaskId);
+        Assert.Equal(RecordedTaskState.Completed, observation.State);
+    }
+
+        private static string Line(int messageType, string templateId = "5936d90786f7742b1420ba5b description") =>
         "2026-09-13 02:30:00.000 +00:00|NOTIFICATION|6aa4bd43d4a840ddb8130198|ChatMessageReceived|" +
         "[{\"type\":\"new_message\",\"eventId\":\"e1\",\"dialogId\":\"5935c25fb3acc3127c3d8cd9\"," +
         "\"message\":{\"_id\":\"msg-1\",\"uid\":\"5935c25fb3acc3127c3d8cd9\",\"type\":" +
