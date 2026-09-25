@@ -67,9 +67,9 @@ public sealed class MarkColourTests
     {
         var marks = new GroupMarks(new MovableClock(Now));
 
-        var coloured = marks.AddWaypoint("room", "Geo", "customs", 1, 2, 3, null, "#e69f00");
-        var painted = marks.AddPing("room", "Geo", "customs", 1, 2, 3, null, "#FF00FF");
-        var plain = marks.AddWaypoint("room", "Geo", "customs", 1, 2, 3, null);
+        var coloured = marks.AddWaypoint("room", "Geo", "customs", 1, 2, 3, null, "#e69f00")!;
+        var painted = marks.AddPing("room", "Geo", "customs", 1, 2, 3, null, "#FF00FF")!;
+        var plain = marks.AddWaypoint("room", "Geo", "customs", 1, 2, 3, null)!;
 
         Assert.Equal("#E69F00", coloured.Color);
         Assert.Null(painted.Color);

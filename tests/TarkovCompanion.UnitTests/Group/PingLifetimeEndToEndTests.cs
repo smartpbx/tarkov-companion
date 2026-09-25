@@ -298,7 +298,7 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                 }
 
                 var room = GroupKey.RoomFor(key);
-                var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label);
+                var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label)!;
                 if (marksEndHolds)
                 {
                     changes.Record(room, null);

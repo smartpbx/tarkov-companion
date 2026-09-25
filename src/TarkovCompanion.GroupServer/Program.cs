@@ -335,6 +335,8 @@ _ = Task.Run(async () =>
         try
         {
             rooms.Sweep();
+            // #886: marks too, which nothing ever aged or removed while the relay ran.
+            marks.Sweep();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -529,7 +531,7 @@ app.MapGet("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult> (HttpRe
 // Marks. A waypoint is a plan and stays; a ping is "look here" and fades. Both belong to the
 // group rather than to whoever dropped them, which is the first thing on this server that one
 // member says TO the others rather than about themselves.
-app.MapPost("/waypoints", Results<Ok<GroupWaypoint>, UnauthorizedHttpResult, BadRequest<string>> (
+app.MapPost("/waypoints", Results<Ok<GroupWaypoint>, UnauthorizedHttpResult, BadRequest<string>, StatusCodeHttpResult> (
     MarkRequest request,
     HttpRequest http) =>
 {
@@ -545,12 +547,18 @@ app.MapPost("/waypoints", Results<Ok<GroupWaypoint>, UnauthorizedHttpResult, Bad
 
     var room = GroupKey.RoomFor(key);
     var added = marks.AddWaypoint(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label, request.PaletteColor);
+    if (added is null)
+    {
+        // #886: the relay already holds marks for as many rooms as it will.
+        return TypedResults.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+
     // v2r-fast-positions (package 31): a mark is a change to the room, so a held exchange ends.
     roomChanges.Record(room, null);
     return TypedResults.Ok(added);
 });
 
-app.MapPost("/pings", Results<Ok<GroupPing>, UnauthorizedHttpResult, BadRequest<string>> (
+app.MapPost("/pings", Results<Ok<GroupPing>, UnauthorizedHttpResult, BadRequest<string>, StatusCodeHttpResult> (
     MarkRequest request,
     HttpRequest http) =>
 {
@@ -566,6 +574,11 @@ app.MapPost("/pings", Results<Ok<GroupPing>, UnauthorizedHttpResult, BadRequest<
 
     var room = GroupKey.RoomFor(key);
     var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label, request.PaletteColor);
+    if (added is null)
+    {
+        return TypedResults.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+
     // v2r-fast-positions (package 31).
     roomChanges.Record(room, null);
     return TypedResults.Ok(added);
@@ -597,8 +610,12 @@ app.MapPost("/waypoints/{id:long}/reached", Results<Ok, NotFound, UnauthorizedHt
     return TypedResults.Ok();
 });
 
+// #886: `by`, when a client sends it, removes the mark only if that name dropped it. A client
+// taking back its own mark sends it, so an id that now names a squadmate's mark is a 404 rather
+// than their plan gone. Optional, so every older client keeps removing as it always did.
 app.MapDelete("/waypoints/{id:long}", Results<Ok, NotFound, UnauthorizedHttpResult> (
     long id,
+    string? by,
     HttpRequest http) =>
 {
     if (!TryReadKey(http, out var key))
@@ -607,7 +624,7 @@ app.MapDelete("/waypoints/{id:long}", Results<Ok, NotFound, UnauthorizedHttpResu
     }
 
     var room = GroupKey.RoomFor(key);
-    if (!marks.Remove(room, id))
+    if (!marks.Remove(room, id, by))
     {
         return TypedResults.NotFound();
     }
@@ -859,6 +876,8 @@ app.MapDelete("/admin/rooms/{room}", Results<Ok, NotFound, UnauthorizedHttpResul
     }
 
     rooms.Clear(room);
+    // #886: and its marks, which otherwise stayed in memory and in marks.json for a week.
+    marks.ClearRoom(room);
     return TypedResults.Ok();
 });
 

@@ -43,8 +43,8 @@ public sealed class GroupMarksTests
     public void RemoveTakesOffAWaypointOrAPingById()
     {
         var marks = new GroupMarks(new MovableClock(Now));
-        var waypoint = marks.AddWaypoint("room", "MaxGooner", "customs", 1, 2, 3, null);
-        var ping = marks.AddPing("room", "MaxGooner", "customs", 4, 5, 6, null);
+        var waypoint = marks.AddWaypoint("room", "MaxGooner", "customs", 1, 2, 3, null)!;
+        var ping = marks.AddPing("room", "MaxGooner", "customs", 4, 5, 6, null)!;
 
         Assert.True(marks.Remove("room", ping.Id));
         Assert.Empty(marks.Read("room").Pings);
@@ -67,7 +67,7 @@ public sealed class GroupMarksTests
     public void ReachingOneRecordsWhoGotThere()
     {
         var marks = new GroupMarks(new MovableClock(Now));
-        var waypoint = marks.AddWaypoint("room", "MaxGooner", "customs", 1, 2, 3, null);
+        var waypoint = marks.AddWaypoint("room", "MaxGooner", "customs", 1, 2, 3, null)!;
 
         Assert.True(marks.Complete("room", waypoint.Id, "Geo"));
 
@@ -91,7 +91,7 @@ public sealed class GroupMarksTests
     public void ClearingOnlyTheReachedOnesLeavesThePlan()
     {
         var marks = new GroupMarks(new MovableClock(Now));
-        var done = marks.AddWaypoint("room", "A", "customs", 1, 2, 3, null);
+        var done = marks.AddWaypoint("room", "A", "customs", 1, 2, 3, null)!;
         marks.AddWaypoint("room", "A", "customs", 4, 5, 6, null);
         marks.Complete("room", done.Id, "A");
 
@@ -180,10 +180,10 @@ public sealed class GroupMarkPersistenceTests : IDisposable
         var path = Path.Combine(_directory, "marks.json");
         var first = new GroupMarks(TimeProvider.System, path);
         first.AddWaypoint("room", "Clay", "bigmap", 1, 2, 3, "one");
-        var second = first.AddWaypoint("room", "Clay", "bigmap", 1, 2, 3, "two");
+        var second = first.AddWaypoint("room", "Clay", "bigmap", 1, 2, 3, "two")!;
 
         var restarted = new GroupMarks(TimeProvider.System, path);
-        var fresh = restarted.AddWaypoint("room", "Clay", "bigmap", 9, 9, 9, "three");
+        var fresh = restarted.AddWaypoint("room", "Clay", "bigmap", 9, 9, 9, "three")!;
 
         Assert.True(fresh.Id > second.Id, $"a new id {fresh.Id} must not collide with the restored {second.Id}");
         Assert.Equal(3, restarted.Read("room").Waypoints.Count);
@@ -228,7 +228,7 @@ public sealed class GroupMarkPersistenceTests : IDisposable
         var marks = new GroupMarks(TimeProvider.System, path);
 
         Assert.Empty(marks.Read("room").Waypoints);
-        Assert.Equal("Dorms", marks.AddWaypoint("room", "Clay", "bigmap", 1, 2, 3, "Dorms").Label);
+        Assert.Equal("Dorms", marks.AddWaypoint("room", "Clay", "bigmap", 1, 2, 3, "Dorms")!.Label);
     }
 
     /// <summary>With nowhere to write, it behaves exactly as it did before.</summary>
