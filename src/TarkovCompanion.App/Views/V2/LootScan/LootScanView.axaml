@@ -539,6 +539,13 @@
         </Grid>
 
         <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+          <!-- [#902 P8] The verdict chip is remembered, so a scan it empties says so and offers All. -->
+          <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8" IsVisible="{Binding ShowsFilterEmpty}">
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding FilterEmptyLabel}" />
+            <Button Classes="v2-outline" Command="{Binding ClearFilterCommand}"
+                    Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-loot-scan-show-all" />
+          </StackPanel>
           <ItemsControl ItemsSource="{Binding VisibleDecisions}" IsVisible="{Binding HasDecisions}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
@@ -584,6 +591,7 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+          </StackPanel>
         </ScrollViewer>
 
         <!-- #274: this raid's saved scans; one reopens over the page as a saved result. -->

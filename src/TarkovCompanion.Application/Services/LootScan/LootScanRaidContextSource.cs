@@ -1,4 +1,5 @@
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -13,12 +14,23 @@ namespace TarkovCompanion.Application.Services.LootScan;
 /// </summary>
 /// <remarks>
 /// Risk is a preference and nothing on a screen can supply it, so it is the player's and starts
-/// at the ordinary setting. It lasts for the session; keeping it between runs is not done yet.
+/// at the ordinary setting. [#902 P8] It is kept between runs under <c>page.loot</c>. The phase is
+/// not: it belongs to one raid, and a choice made in the last raid ("Extracting") carried into
+/// every later one. <see cref="ObserveRaid"/> clears it once a different raid is seen.
 /// </remarks>
 public sealed class LootScanRaidPreference
 {
+    private readonly PageState _state;
     private RecommendationRaidRisk _risk = RecommendationRaidRisk.Low;
     private RecommendationRaidPhase? _phase;
+    private bool _phaseRaidKnown;
+    private Guid? _phaseRaid;
+
+    public LootScanRaidPreference(IWorkspaceLayoutStore? store = null)
+    {
+        _state = new(store, WorkspaceLayoutKeys.PageLoot);
+        _risk = _state.Enum("risk", RecommendationRaidRisk.Low);
+    }
 
     public event EventHandler? Changed;
 
@@ -35,6 +47,7 @@ public sealed class LootScanRaidPreference
             if (_risk != value)
             {
                 _risk = value;
+                _state.SetEnum("risk", value, RecommendationRaidRisk.Low);
                 Changed?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -54,9 +67,41 @@ public sealed class LootScanRaidPreference
             if (_phase != value)
             {
                 _phase = value;
+                _phaseRaidKnown = false;
                 Changed?.Invoke(this, EventArgs.Empty);
             }
         }
+    }
+
+    /// <summary>
+    /// Ties a chosen phase to the raid it was chosen in, and returns it to the counted phase when
+    /// a different raid is seen. True when that happened.
+    /// </summary>
+    /// <remarks>
+    /// The first raid seen after the choice is the one it belongs to, so a phase picked on a result
+    /// from the raid in progress stays for that raid, and the next raid starts counted again.
+    /// </remarks>
+    public bool ObserveRaid(Guid? raidId)
+    {
+        if (_phase is null)
+        {
+            return false;
+        }
+
+        if (!_phaseRaidKnown)
+        {
+            _phaseRaidKnown = true;
+            _phaseRaid = raidId;
+            return false;
+        }
+
+        if (_phaseRaid == raidId)
+        {
+            return false;
+        }
+
+        Phase = null;
+        return true;
     }
 }
 
@@ -96,6 +141,7 @@ public sealed class LootScanRaidContextSource(
             evaluatedUtc,
             EvidenceConfidence.Certain,
             Producer);
+        _preference.ObserveRaid(_raidState.Current.RaidId);
         var risk = new EvidencedValue<RecommendationRaidRisk?>(
             "raid.risk",
             _preference.Risk,

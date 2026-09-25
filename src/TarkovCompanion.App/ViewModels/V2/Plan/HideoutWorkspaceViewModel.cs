@@ -148,6 +148,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     private IReadOnlyList<HideoutStationRowViewModel> _stations = [];
     private IReadOnlyList<HideoutRequirementRowViewModel> _items = [];
     private HideoutStationRowViewModel? _selected;
+    private readonly TarkovCompanion.Application.Services.Workspaces.PageState _state;
     private string _status = PlanText.HideoutLoading;
     private string _detail = PlanText.HideoutPickAStation;
 
@@ -163,7 +164,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         LearnModeSetting? learnMode = null)
     {
         LearnMode = learnMode ?? new();
-        Upgrades = new(itemRepository, prerequisites);
+        _state = LearnMode.Page(TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutKeys.PageHideout);
+        Upgrades = new(itemRepository, prerequisites, _state);
         _barters = barters;
         _traders = traders;
         _requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
@@ -312,7 +314,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             // moment later. Off the interface thread: it looks up a name per short item (#453).
             var rollup = await OffInterfaceThread.Run(() => BuildRollupAsync(plans, cancellationToken), cancellationToken).ConfigureAwait(true);
 
-            var selectedStationId = _selected?.StationId;
+            // [#902 P8] The first read after a restart opens the station the player last had open.
+            var selectedStationId = _selected?.StationId ?? _state.Get("station");
             Stations = plans
                 .Select(Describe)
                 .OrderByDescending(station => station.HasNextLevel && !station.CanBuildNow)

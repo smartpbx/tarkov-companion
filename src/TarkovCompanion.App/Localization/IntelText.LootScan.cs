@@ -77,6 +77,7 @@ public static partial class IntelText
     public static string LootScanDaysOldTemplate => UiText.Get("Intel.LootScan.DaysOldTemplate");
     public static string LootScanItemAtTemplate => UiText.Get("Intel.LootScan.ItemAtTemplate");
     public static string LootScanFilterAll => UiText.Get("Intel.LootScan.FilterAll");
+    public static string LootScanFilterEmpty(string verdict) => UiText.Format("Intel.LootScan.FilterEmpty", verdict);
     public static string LootScanFilterTake => UiText.Get("Intel.LootScan.FilterTake");
     public static string LootScanFilterSwap => UiText.Get("Intel.LootScan.FilterSwap");
     public static string LootScanFilterLeave => UiText.Get("Intel.LootScan.FilterLeave");

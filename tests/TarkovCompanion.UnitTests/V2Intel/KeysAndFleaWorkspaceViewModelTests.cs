@@ -10,7 +10,7 @@ using static TarkovCompanion.UnitTests.V2Intel.IntelWorkspaceFakes;
 
 namespace TarkovCompanion.UnitTests.V2Intel;
 
-public sealed class KeysWorkspaceViewModelTests
+public sealed partial class KeysWorkspaceViewModelTests
 {
     [Fact]
     public void AVerdictChipKeepsOnlyThatVerdictAndAllKeepsEveryKey()

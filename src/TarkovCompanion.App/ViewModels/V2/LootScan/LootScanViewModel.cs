@@ -45,7 +45,9 @@ public sealed class LootScanViewModel : BindableViewModel
         ILootScanWorkspaceControls? controls = null,
         GridCellAddress? select = null,
         bool isProgressive = false,
-        Func<string, Task>? openWiki = null)
+        Func<string, Task>? openWiki = null,
+        // [#902 P8] The verdict chip the player last chose; a re-decided or new scan keeps it.
+        LootScanVerdict? filter = null)
     {
         _result = result ?? throw new ArgumentNullException(nameof(result));
         _isProgressive = isProgressive;
@@ -97,6 +99,11 @@ public sealed class LootScanViewModel : BindableViewModel
             new LootScanFilterViewModel(LootScanVerdict.Leave, _text.FilterLeave, LeaveCount, SetFilter),
             new LootScanFilterViewModel(LootScanVerdict.Review, _text.FilterReview, ReviewCount, SetFilter),
         ];
+        if (filter is not null)
+        {
+            SetFilter(filter);
+        }
+
         LootGrid = BuildLootGrid();
         CarriedGrid = BuildCarriedGrid();
 
@@ -695,6 +702,17 @@ public sealed class LootScanViewModel : BindableViewModel
         }
     }
 
+    /// <summary>[#902 P8] The remembered chip matches nothing on this scan: say so, and offer All.</summary>
+    public bool ShowsFilterEmpty => HasDecisions && _filter is not null && FilteredDecisions.Count == 0;
+
+    public string FilterEmptyLabel => _filter is { } verdict
+        ? IntelText.LootScanFilterEmpty(Filters.FirstOrDefault(chip => chip.Verdict == verdict)?.Label ?? verdict.ToString())
+        : string.Empty;
+
+    public ICommand ClearFilterCommand => _clearFilter ??= new DelegateCommand(() => SetFilter(null));
+
+    private ICommand? _clearFilter;
+
     private IReadOnlyList<LootScanDecisionViewModel> FilteredDecisions => _filter is { } verdict
         ? Decisions.Where(item => item.Verdict == verdict).ToArray()
         : Decisions;
@@ -734,6 +752,8 @@ public sealed class LootScanViewModel : BindableViewModel
 
         _pageIndex = 0;
         OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(ShowsFilterEmpty));
+        OnPropertyChanged(nameof(FilterEmptyLabel));
         OnPropertyChanged(nameof(VisibleDecisions));
         OnPropertyChanged(nameof(PageCount));
         OnPropertyChanged(nameof(HasMultiplePages));

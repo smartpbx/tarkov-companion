@@ -12,6 +12,7 @@ using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Wiki;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Ammo;
@@ -371,6 +372,14 @@ public enum StashTileKind
 /// <summary>A Keep / Sell / Use soon / Organize / Review tile over the sort plan.</summary>
 public sealed record StashPlanTileViewModel(StashPlanGroup Group, string Label, int Count, bool IsWired)
 {
+    /// <summary>[#902 P8] The tile whose group the item list is narrowed to.</summary>
+    public bool IsSelected { get; init; }
+
+    /// <summary>[#902 P8] Narrows the item list to this group; the selected tile shows all again.</summary>
+    public ICommand? SelectCommand { get; init; }
+
+    public string AutomationId => $"v2-stash-plan-{Group.ToString().ToLowerInvariant()}";
+
     public string CountLabel => IsWired ? Count.ToString(CultureInfo.CurrentCulture) : "—";
 
     public bool IsKeep => Group == StashPlanGroup.Keep;
@@ -448,6 +457,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private StashItemRowViewModel? _selectedItem;
     private ScanIntent _scanTarget = ScanIntent.Stash;
     private bool _isGridView = true;
+    private IReadOnlyList<StashItemRowViewModel> _allItems = [];
+    private StashPlanGroup? _groupFilter;
+    private readonly PageState _pageState;
     private Func<IReadOnlyCollection<string>, Task>? _openLoadout;
     private int _savingHere;
 
@@ -465,8 +477,15 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         IProfileRuntimeContextService? profileContext = null,
         StashPlanSource? planSource = null,
         AppDataPaths? paths = null,
-        StashScanCaptureStatus? captureStatus = null)
+        StashScanCaptureStatus? captureStatus = null,
+        IWorkspaceLayoutStore? layout = null)
     {
+        // [#902 P8] Grid or list, and the sort-plan group, come back after a visit and a restart.
+        _pageState = new(layout, WorkspaceLayoutKeys.PageStash);
+        _isGridView = _pageState.Get("view") != "list";
+        _groupFilter = _pageState.Get("group") is { } group && Enum.TryParse<StashPlanGroup>(group, out var parsed) && Enum.IsDefined(parsed)
+            ? parsed
+            : null;
         _planSource = planSource;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow));
@@ -594,6 +613,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _isGridView, value))
             {
+                _pageState.Set("view", value ? null : "list");
                 OnPropertyChanged(nameof(IsListView));
             }
         }
@@ -657,7 +677,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public string KeyCountLabel => IntelText.StashKeyCount(KeySummary.Count);
 
-    public string ItemCountLabel => IntelText.StashItemCount(Items.Count);
+    public string ItemCountLabel => IntelText.StashItemCount(_allItems.Count);
 
     private void SelectScanTarget(ScanIntent intent)
     {
@@ -680,7 +700,44 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public IReadOnlyList<StashSnapshotRowViewModel> Snapshots { get; private set; } = [];
 
-    public IReadOnlyList<StashItemRowViewModel> Items { get; private set; } = [];
+    /// <summary>The items, narrowed to one sort-plan group when a tile is chosen.</summary>
+    public IReadOnlyList<StashItemRowViewModel> Items => _groupFilter is { } group
+        ? [.. _allItems.Where(row => !row.IsIgnored && row.Group == group)]
+        : _allItems;
+
+    /// <summary>[#902 P8] Which group a tile narrowed the list to, with the way back beside it.</summary>
+    public bool HasGroupFilter => _groupFilter is not null && _selected is not null;
+
+    public string GroupFilterLabel => _groupFilter is { } group
+        ? IntelText.StashShowingGroup(PlanTiles.FirstOrDefault(tile => tile.Group == group)?.Label ?? group.ToString(), Items.Count)
+        : string.Empty;
+
+    public ICommand ShowAllGroupsCommand => _showAllGroups ??= new DelegateCommand(() => SelectGroup(null));
+
+    private ICommand? _showAllGroups;
+
+    /// <summary>A tile narrows the list to its group and shows the list; the chosen tile again shows every item.</summary>
+    private void SelectGroup(StashPlanGroup? group)
+    {
+        _groupFilter = _groupFilter == group ? null : group;
+        _pageState.Set("group", _groupFilter?.ToString());
+        if (_groupFilter is not null)
+        {
+            IsGridView = false;
+        }
+
+        PlanTiles = [.. PlanTiles.Select(tile => tile with { IsSelected = tile.Group == _groupFilter })];
+        OnPropertyChanged(nameof(PlanTiles));
+        RaiseGroupFilter();
+    }
+
+    private void RaiseGroupFilter()
+    {
+        OnPropertyChanged(nameof(Items));
+        OnPropertyChanged(nameof(HasGroupFilter));
+        OnPropertyChanged(nameof(GroupFilterLabel));
+        OnPropertyChanged(nameof(ItemCountLabel));
+    }
 
     public IReadOnlyList<StashAmmoSummaryRowViewModel> AmmoSummary { get; private set; } = [];
 
@@ -1120,7 +1177,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             _selected = null;
             _reviewHistory = [];
             _reviewState = StashReviewCommandState.Empty;
-            Items = [];
+            _allItems = [];
             Regions = [];
             AmmoSummary = [];
             KeySummary = [];
@@ -1604,7 +1661,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         // Keep first, then what can go, then what nobody could sort; the scan's own order within
         // each. A list in grid order buried the four things worth selling among two hundred rows.
-        Items = items
+        _allItems = items
             .Select((row, index) => (Row: row, Index: index))
             .OrderBy(entry => StashSortWording.Order(entry.Row.Group))
             .ThenBy(entry => entry.Index)
@@ -1620,11 +1677,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
         PlanTiles =
         [
-            new(StashPlanGroup.Keep, IntelText.StashGroupKeep, Count(items, StashPlanGroup.Keep), IsWired: _isSorted),
-            new(StashPlanGroup.Sell, IntelText.StashGroupSell, Count(items, StashPlanGroup.Sell), IsWired: _isSorted),
-            new(StashPlanGroup.UseSoon, IntelText.StashGroupUseSoon, Count(items, StashPlanGroup.UseSoon), IsWired: _isSorted),
-            new(StashPlanGroup.Organize, IntelText.StashGroupOrganize, Count(items, StashPlanGroup.Organize), IsWired: _isSorted),
-            new(StashPlanGroup.Review, IntelText.StashGroupReview, Count(items, StashPlanGroup.Review), IsWired: true),
+            Tile(StashPlanGroup.Keep, IntelText.StashGroupKeep, items, _isSorted),
+            Tile(StashPlanGroup.Sell, IntelText.StashGroupSell, items, _isSorted),
+            Tile(StashPlanGroup.UseSoon, IntelText.StashGroupUseSoon, items, _isSorted),
+            Tile(StashPlanGroup.Organize, IntelText.StashGroupOrganize, items, _isSorted),
+            Tile(StashPlanGroup.Review, IntelText.StashGroupReview, items, true),
         ];
         AmmoSummary = ammoRounds
             .Select(entry => new StashAmmoSummaryRowViewModel(
@@ -1753,6 +1810,17 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             : displayName;
     }
 
+    /// <summary>
+    /// [#902 P8] A tile that looks like a filter is one: it narrows the item list to its group.
+    /// A group the plan has not sorted yet has no rows to show, so its tile does nothing.
+    /// </summary>
+    private StashPlanTileViewModel Tile(StashPlanGroup group, string label, IReadOnlyList<StashItemRowViewModel> items, bool isWired) =>
+        new(group, label, Count(items, group), isWired)
+        {
+            IsSelected = isWired && _groupFilter == group,
+            SelectCommand = isWired ? new DelegateCommand(() => SelectGroup(group)) : null,
+        };
+
     private static int Count(IReadOnlyList<StashItemRowViewModel> rows, StashPlanGroup group) =>
         rows.Count(row => !row.IsIgnored && row.Group == group);
 
@@ -1807,7 +1875,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(ShowsNoSnapshots));
         OnPropertyChanged(nameof(ShowsNothingScanned));
         OnPropertyChanged(nameof(HasSelection));
-        OnPropertyChanged(nameof(Items));
+        RaiseGroupFilter();
         OnPropertyChanged(nameof(AmmoSummary));
         OnPropertyChanged(nameof(HasAmmoSummary));
         OnPropertyChanged(nameof(HasNoAmmoSummary));

@@ -1,6 +1,7 @@
 using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Windows.Input;
+using TarkovCompanion.Application.Services.Workspaces;
 
 namespace TarkovCompanion.App.ViewModels.V2.Intel;
 
@@ -103,6 +104,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
     private readonly Action<string>? _openItem;
     private int _armorClass;
     private AmmoSort _sort = AmmoSort.Rank;
+    private readonly PageState _state;
 
     public AmmoWorkspaceViewModel(
         AmmoPageViewModel page,
@@ -112,6 +114,10 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         LearnMode = learnMode ?? new();
         _page = page ?? throw new ArgumentNullException(nameof(page));
         _openItem = openItem;
+        // [#902 P8] The armor class and sort come back after a visit elsewhere and a restart.
+        _state = LearnMode.Page(WorkspaceLayoutKeys.PageAmmo);
+        _armorClass = _state.Int("class", 0, 0, 6);
+        _sort = _state.Enum("sort", AmmoSort.Rank);
         ArmorFilters =
         [
             .. Enumerable.Range(0, 7).Select(armorClass => new AmmoChipViewModel(
@@ -176,6 +182,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _armorClass, value))
             {
+                _state.SetInt("class", value, 0);
                 MarkChips();
                 KeepSelectionVisible();
                 EnsureRound();
@@ -191,6 +198,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _sort, value))
             {
+                _state.SetEnum("sort", value, AmmoSort.Rank);
                 MarkChips();
                 RaiseRounds();
             }
@@ -238,6 +246,13 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
     public bool HasRounds => Rounds.Count > 0;
 
     public bool ShowsNoRounds => !HasRounds;
+
+    /// <summary>[#902 P8] The remembered armor class emptied the table: one click shows every round again.</summary>
+    public bool ShowsFilterReset => ShowsNoRounds && _page.Rounds.Count > 0 && ArmorClass > 0;
+
+    public ICommand ClearFilterCommand => _clearFilter ??= new DelegateCommand(() => ArmorClass = 0);
+
+    private ICommand? _clearFilter;
 
     /// <summary>Why the table is empty: no caliber yet, none cached, or nothing gets through the chosen class.</summary>
     public string NoRoundsLabel => _page.Rounds.Count > 0 && ArmorClass > 0
@@ -376,6 +391,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasRounds));
         OnPropertyChanged(nameof(ShowsNoRounds));
         OnPropertyChanged(nameof(NoRoundsLabel));
+        OnPropertyChanged(nameof(ShowsFilterReset));
         OnPropertyChanged(nameof(RoundCountLabel));
     }
 

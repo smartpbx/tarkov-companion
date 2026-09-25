@@ -149,7 +149,12 @@
               <StackPanel Spacing="4" Margin="0,0,14,0">
                 <ItemsControl ItemsSource="{Binding IntelResults}" IsVisible="{Binding HasIntelResults}"
                               ItemTemplate="{StaticResource IntelResultRowTemplate}" />
-                <TextBlock Classes="v2-label" IsVisible="{Binding ShowsIntelNoKindMatch}" Text="{Binding IntelNoKindMatchLabel}" />
+                <StackPanel Spacing="6" IsVisible="{Binding ShowsIntelNoKindMatch}">
+                  <TextBlock Classes="v2-label" Text="{Binding IntelNoKindMatchLabel}" />
+                  <!-- [#902 P8] The kind chip is remembered, so the empty list offers the way back. -->
+                  <Button Classes="v2-outline" HorizontalAlignment="Left" Command="{Binding IntelShowAllKindsCommand}"
+                          Content="{x:Static l:FilterText.ShowAll}" AutomationProperties.AutomationId="v2-intel-show-all" />
+                </StackPanel>
 
                 <!-- Package 33 (#287): the Intel landing page. Four real sections, each hidden
                      when it has nothing — never a placeholder row standing in for one that is
