@@ -53,6 +53,12 @@ public enum GroupStatus
 
     /// <summary>{0}: the set-aside file's name.</summary>
     SettingsResetAside,
+
+    /// <summary>[#292] Local only is on in Setup › Data &amp; Privacy (or TARKOV_COMPANION_OFFLINE).</summary>
+    LocalOnly,
+
+    /// <summary>[#292] Squad sharing is switched off in Setup › Data &amp; Privacy.</summary>
+    SwitchedOff,
 }
 
 /// <summary>[#314] What group settings still need before sharing can start.</summary>

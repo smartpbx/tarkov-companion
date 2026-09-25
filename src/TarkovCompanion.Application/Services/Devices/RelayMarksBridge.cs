@@ -165,6 +165,9 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         Log = logger is null ? null : new RelayLinkLog(logger, _clock);
     }
 
+    /// <summary>[#292] Asked before every relay request; null allows everything (tests).</summary>
+    public TarkovCompanion.Core.Network.INetworkPolicy? Network { get; init; }
+
     /// <summary>[#693] Where the relay link says what it did; null writes nothing.</summary>
     internal RelayLinkLog? Log { get; }
 
@@ -186,9 +189,11 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
             replaced = _relay;
             _origin = relayOrigin;
-            _relay = _clockOffset is null
-                ? new HttpClient()
-                : new HttpClient(new RelayClockTrackingHandler(_clockOffset, _clock));
+            // [#292] Local only and the squad sharing switch refuse every relay request here.
+            _relay = new HttpClient(TarkovCompanion.Application.Services.Network.NetworkPolicyHandler.Wrap(
+                Network,
+                TarkovCompanion.Core.Network.NetworkService.SquadSharing,
+                _clockOffset is null ? null : new RelayClockTrackingHandler(_clockOffset, _clock)));
             _relay.BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/");
             _owner = null;
             _afterDeliveryId = 0;

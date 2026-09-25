@@ -55,12 +55,28 @@ public sealed partial class VelopackUpdateGateway
     private static readonly TimeSpan FeedTimeout = TimeSpan.FromMinutes(30);
 
     private readonly ILogger? _logger;
+    private readonly TarkovCompanion.Core.Network.INetworkPolicy? _network;
+
+    /// <summary>
+    /// [#292] "Local only · off" or "Update checks · off" when the policy says no, before the feed is asked.
+    /// </summary>
+    private UpdateProgress? Blocked() => _network?.Check(TarkovCompanion.Core.Network.NetworkService.UpdateChecks) switch
+    {
+        TarkovCompanion.Core.Network.NetworkVerdict.LocalOnly =>
+            new(SetupText.NetworkState(TarkovCompanion.Core.Network.NetworkVerdict.LocalOnly)),
+        TarkovCompanion.Core.Network.NetworkVerdict.SwitchedOff => new(SetupText.NetworkUpdateOff),
+        _ => null,
+    };
     private readonly Lazy<UpdateManager?> _manager;
     private UpdateInfo? _pending;
     private VelopackAsset? _verified;
 
-    public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null, AppDataPaths? paths = null)
-        : this(UpdateChannel.FromEnvironment(), source: null, locator: null, logger)
+    public VelopackUpdateGateway(
+        ILogger<VelopackUpdateGateway>? logger = null,
+        AppDataPaths? paths = null,
+        // [#292] Local only and the update-check switch; null allows everything (tests, tools).
+        TarkovCompanion.Core.Network.INetworkPolicy? network = null)
+        : this(UpdateChannel.FromEnvironment(), source: null, locator: null, logger, network: network)
     {
         State = paths is null ? null : UpdateStateFile.For(paths, logger);
     }
@@ -70,9 +86,11 @@ public sealed partial class VelopackUpdateGateway
         IUpdateSource? source,
         IVelopackLocator? locator,
         ILogger? logger,
-        IUpdateFeedTransport? transport = null)
+        IUpdateFeedTransport? transport = null,
+        TarkovCompanion.Core.Network.INetworkPolicy? network = null)
     {
         Channel = channel;
+        _network = network;
         _logger = logger;
         _locator = locator;
         _transport = new Lazy<IUpdateFeedTransport>(() => transport ?? Channel.OpenTransport(CreateClient()));
@@ -92,12 +110,13 @@ public sealed partial class VelopackUpdateGateway
         IVelopackLocator locator,
         ILogger? logger = null,
         IUpdateFeedTransport? transport = null,
-        IUpdateStateStore? state = null)
+        IUpdateStateStore? state = null,
+        TarkovCompanion.Core.Network.INetworkPolicy? network = null)
     {
         ArgumentNullException.ThrowIfNull(channel);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(locator);
-        return new VelopackUpdateGateway(channel, source, locator, logger, transport) { State = state };
+        return new VelopackUpdateGateway(channel, source, locator, logger, transport, network) { State = state };
     }
 
     /// <summary>
@@ -135,9 +154,14 @@ public sealed partial class VelopackUpdateGateway
     /// <summary>
     /// Named, because the relay sits behind a proxy that may challenge a request with no agent.
     /// </summary>
-    private static HttpClient CreateClient()
+    private HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = FeedTimeout };
+        var client = new HttpClient(TarkovCompanion.Application.Services.Network.NetworkPolicyHandler.Wrap(
+            _network,
+            TarkovCompanion.Core.Network.NetworkService.UpdateChecks))
+        {
+            Timeout = FeedTimeout,
+        };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-Updater/1.0");
         return client;
     }
@@ -211,6 +235,11 @@ public sealed partial class VelopackUpdateGateway
             return new UpdateProgress(SetupText.UpdateCannotUpdateFolder);
         }
 
+        if (Blocked() is { } blocked)
+        {
+            return blocked;
+        }
+
         _verified = null;
         try
         {
@@ -253,6 +282,11 @@ public sealed partial class VelopackUpdateGateway
         if (_pending is not { } update || _manager.Value is not { } manager)
         {
             return new(SetupText.UpdateCheckFirst);
+        }
+
+        if (Blocked() is { } blocked)
+        {
+            return blocked with { CanDownload = true, Available = update.TargetFullRelease.Version.ToString() };
         }
 
         var available = update.TargetFullRelease.Version.ToString();

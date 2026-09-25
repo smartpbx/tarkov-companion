@@ -9,6 +9,12 @@ public sealed record TarkovTrackerOptions
 
     public bool NetworkAccessEnabled { get; init; } = true;
 
+    /// <summary>[#292] Asked before every connect: false under Local only or with TarkovTracker switched off.</summary>
+    public Func<bool>? NetworkProbe { get; init; }
+
+    /// <summary>Whether TarkovTracker may be reached right now.</summary>
+    public bool NetworkAllowedNow => NetworkAccessEnabled && (NetworkProbe?.Invoke() ?? true);
+
     public string UserAgent { get; init; } = "TarkovCompanion/1.0 (read-only progress import)";
 
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(12);

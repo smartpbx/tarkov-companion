@@ -124,6 +124,26 @@ internal static class Program
         // next, so a second run is the app after a restart with the first run's choices.
         var keptLayout = StringOption(args, "--keep-layout");
         var layoutPath = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config, "workspace-layout.json");
+        // [#292] --local-only: Setup › Data & Privacy's switch on, as a player who turned it on left it.
+        if (args.Contains("--local-only"))
+        {
+            var network = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config, "network.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(network)!);
+            File.WriteAllText(network, "{ \"localOnly\": true }");
+        }
+
+        // [#292] --group-sharing: sharing switched on with a relay, so Team and Raid show what the
+        // group session says about it (under --local-only: "Local only · off", with nothing sent).
+        if (args.Contains("--group-sharing"))
+        {
+            var group = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Config, "group.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(group)!);
+            File.WriteAllText(group, """
+                { "enabled": true, "serverUri": "https://relay.example.test/", "displayName": "Clay",
+                  "key": "a-key-long-enough", "sharesLoadout": false, "sharesQuests": true }
+                """);
+        }
+
         if (keptLayout is not null && File.Exists(keptLayout))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(layoutPath)!);

@@ -203,7 +203,9 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         CompanionPairingAvailability availability,
         TimeProvider timeProvider,
         RelayMarksBridge? relayMarksBridge = null,
-        RelayClockOffsetTracker? clockOffset = null)
+        RelayClockOffsetTracker? clockOffset = null,
+        // [#292] Local only and the squad sharing switch; null allows everything (tests).
+        TarkovCompanion.Core.Network.INetworkPolicy? network = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(availability);
@@ -217,9 +219,10 @@ public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisp
         _groupKey = availability.GroupKey;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
-            _relay = _clockOffset is null
-                ? new HttpClient()
-                : new HttpClient(new RelayClockTrackingHandler(_clockOffset, _timeProvider));
+            _relay = new HttpClient(TarkovCompanion.Application.Services.Network.NetworkPolicyHandler.Wrap(
+                network,
+                TarkovCompanion.Core.Network.NetworkService.SquadSharing,
+                _clockOffset is null ? null : new RelayClockTrackingHandler(_clockOffset, _timeProvider)));
             _relay.BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/");
             _relayMarksBridge?.Configure(origin);
             if (availability.IdentitySigner is { } signer)

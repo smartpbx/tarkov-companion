@@ -2,6 +2,8 @@
 
 Verified 2026-09-16.
 
+Local only (#292): Setup › Data & Privacy's switch, saved in `Config/network.json` with per-service switches for squad sharing, update checks, problem reports and TarkovTracker, is asked by every outbound client before it connects (`INetworkPolicy`); `TARKOV_COMPANION_OFFLINE=1` holds it on.
+
 ## Primary structured data
 
 Runtime source: `https://json.tarkov.dev`.

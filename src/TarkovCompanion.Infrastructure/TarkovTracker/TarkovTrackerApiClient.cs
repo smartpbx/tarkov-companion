@@ -140,7 +140,7 @@ public sealed class TarkovTrackerApiClient : ITarkovTrackerApiClient, IDisposabl
 
     private void EnsureNetworkEnabled()
     {
-        if (!_options.Enabled || !_options.NetworkAccessEnabled)
+        if (!_options.Enabled || !_options.NetworkAllowedNow)
         {
             throw new InvalidOperationException("The optional TarkovTracker network adapter is disabled.");
         }

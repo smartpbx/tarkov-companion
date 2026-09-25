@@ -119,11 +119,20 @@ public static class AppComposition
         ArgumentNullException.ThrowIfNull(commandLine);
         settings ??= new();
         var timeProvider = settings.TimeProvider ?? TimeProvider.System;
-        Func<bool> offlineProbe = settings.Offline is { } configuredOffline
+        Func<bool> forcedLocalOnly = settings.Offline is { } configuredOffline
             ? () => configuredOffline
             : () => IsEnabled(Environment.GetEnvironmentVariable(OfflineEnvironmentVariable));
-        var offline = offlineProbe();
         var paths = AppDataPaths.Resolve(settings.DataRoot, commandLine.Demo);
+        // [#292] Setup › Data & Privacy's Local only and per-service switches; the variable holds Local
+        // only on. A composition's own Offline setting (tests, the render tool) keeps its old meaning,
+        // no catalog sync, and does not hold the policy: those runs still draw maps from the network.
+        var networkPolicy = TarkovCompanion.App.Services.Network.NetworkPolicyComposition.Create(
+            paths,
+            settings.Offline is null ? forcedLocalOnly : static () => false);
+        Func<bool> offlineProbe = () => forcedLocalOnly()
+            || networkPolicy.Check(TarkovCompanion.Core.Network.NetworkService.GameData)
+                != TarkovCompanion.Core.Network.NetworkVerdict.Allowed;
+        var offline = offlineProbe();
         // [#314] Before any view exists: views read their labels once, when they load.
         TarkovCompanion.App.Localization.UiText.Use(TarkovCompanion.App.Localization.UiCulturePreference.Read(paths.Config));
         var runtimeOptions = new RuntimeOptions(
@@ -158,7 +167,9 @@ public static class AppComposition
         };
         var tarkovTrackerOptions = requestedTarkovTrackerOptions with
         {
-            NetworkAccessEnabled = requestedTarkovTrackerOptions.NetworkAccessEnabled && !offline,
+            NetworkAccessEnabled = requestedTarkovTrackerOptions.NetworkAccessEnabled && !forcedLocalOnly(),
+            NetworkProbe = () => networkPolicy.Check(TarkovCompanion.Core.Network.NetworkService.TarkovTracker)
+                == TarkovCompanion.Core.Network.NetworkVerdict.Allowed,
         };
         tarkovTrackerOptions.Validate();
 
@@ -171,6 +182,8 @@ public static class AppComposition
         services.AddSingleton(questExchangeOptions);
         services.AddSingleton(questTrackingOptions);
         services.AddSingleton(tarkovTrackerOptions);
+        services.AddSingleton(networkPolicy);
+        services.AddSingleton<TarkovCompanion.Core.Network.INetworkPolicy>(networkPolicy);
         services.AddSingleton(timeProvider);
         services.AddLogging(builder =>
         {
@@ -248,7 +261,11 @@ public static class AppComposition
 
         services.AddSingleton<DataTranslationService>();
         services.AddSingleton(_ => new HttpClient(
-            settings.HttpMessageHandler ?? CreateDataHandler(),
+            // [#292] Under Local only nothing on the shared client leaves the PC, whoever asks.
+            new TarkovCompanion.Application.Services.Network.NetworkPolicyHandler(
+                networkPolicy,
+                service: null,
+                settings.HttpMessageHandler ?? CreateDataHandler()),
             disposeHandler: true)
         {
             Timeout = Timeout.InfiniteTimeSpan,
@@ -488,10 +505,13 @@ public static class AppComposition
         services.AddSingleton<IIntegrationSecretStore>(integrationSecretStore);
 
         services.AddSingleton<TarkovTrackerApiClient>(_ => new(
-            settings.TarkovTrackerHttpMessageHandler ??
-                (offline
-                    ? new OfflineHttpMessageHandler()
-                    : new HttpClientHandler { AllowAutoRedirect = false }),
+            new TarkovCompanion.Application.Services.Network.NetworkPolicyHandler(
+                networkPolicy,
+                TarkovCompanion.Core.Network.NetworkService.TarkovTracker,
+                settings.TarkovTrackerHttpMessageHandler ??
+                    (forcedLocalOnly()
+                        ? new OfflineHttpMessageHandler()
+                        : new HttpClientHandler { AllowAutoRedirect = false })),
             tarkovTrackerOptions,
             timeProvider));
         services.AddSingleton<ITarkovTrackerApiClient>(provider =>
@@ -824,7 +844,10 @@ public static class AppComposition
             new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>()),
             // [#693] The relay link's own lines in the desktop log (owner session, tickets, answers).
             provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink"),
-            provider.GetRequiredService<RelayClockOffsetTracker>()));
+            provider.GetRequiredService<RelayClockOffsetTracker>())
+        {
+            Network = networkPolicy,
+        });
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);
@@ -1107,7 +1130,8 @@ public static class AppComposition
                 provider.GetService<IWorkspaceLayoutStore>(),
                 provider.GetService<ICaptureStageTimeline>(),
                 action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
-                provider.GetRequiredService<TimeProvider>())));
+                provider.GetRequiredService<TimeProvider>()),
+            new SetupNetworkControlsViewModel(networkPolicy, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))));
         // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
         // three stores the sections themselves already read/write, never a fourth of its own.
         services.AddSingleton(provider => new SetupSettingsAdminViewModel(
