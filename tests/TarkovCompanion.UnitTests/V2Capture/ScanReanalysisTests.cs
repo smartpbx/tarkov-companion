@@ -147,6 +147,41 @@ public sealed class ScanReanalysisTests
         Assert.Null(memory.TakeCopy(request.ArtifactId));
     }
 
+    /// <summary>#887: the frame is released on time even when nobody asks for it again.</summary>
+    [Fact]
+    public async Task AnUnreadFrameIsReleasedWhenItsHoldRunsOut()
+    {
+        var clock = new ManualTimeProvider(Now);
+        using var memory = new ScanFrameMemory(new Recording(), clock);
+
+        await memory.AnalyzeAsync(Request(ScanIntent.Loot), CancellationToken.None);
+        Assert.True(memory.HoldsFrame);
+
+        clock.Advance(ScanFrameMemory.HoldFor - TimeSpan.FromSeconds(1));
+        Assert.True(memory.HoldsFrame);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.False(memory.HoldsFrame);
+        Assert.Equal(0, clock.ScheduledTimerCount);
+    }
+
+    /// <summary>A newer frame restarts the hold; the replaced frame's timer must not cut it short.</summary>
+    [Fact]
+    public async Task ANewerFrameIsHeldForItsOwnFullTerm()
+    {
+        var clock = new ManualTimeProvider(Now);
+        using var memory = new ScanFrameMemory(new Recording(), clock);
+
+        await memory.AnalyzeAsync(Request(ScanIntent.Loot), CancellationToken.None);
+        clock.Advance(TimeSpan.FromMinutes(5));
+        await memory.AnalyzeAsync(Request(ScanIntent.Stash), CancellationToken.None);
+        clock.Advance(TimeSpan.FromMinutes(6));
+
+        Assert.True(memory.HoldsFrame);
+        Assert.Equal(1, clock.ScheduledTimerCount);
+        clock.Advance(TimeSpan.FromMinutes(4));
+        Assert.False(memory.HoldsFrame);
+    }
+
     [Fact]
     public void AReleasedFrameOffersNoReadAsButSaysWhy()
     {
