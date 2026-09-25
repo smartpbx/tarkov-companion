@@ -209,6 +209,61 @@ public sealed class RaidTogglesSavedTests : IDisposable
             CancellationToken.None);
     }
 
+    [Fact]
+    public async Task A_map_with_no_loot_layer_logs_no_binding_fault_for_the_loot_chip()
+    {
+        // The Windows gallery counts every [Binding] trace line as an interface fault; the Team
+        // map has no loot layer, so a HighValueLoot.X path logged one on every frame.
+        using var session = HeadlessSessions.StartNew(typeof(TarkovCompanion.UnitTests.V2MapRenderer.MapMarkClipTests.MarkClipApp));
+        await session.Dispatch(
+            () =>
+            {
+                var faults = new List<string>();
+                var previous = Avalonia.Logging.Logger.Sink;
+                Avalonia.Logging.Logger.Sink = new BindingFaults(faults);
+                try
+                {
+                    var scene = new TarkovCompanion.Core.Domain.Maps.Scene.MapSceneSnapshot(
+                        1, "customs", "customs", "customs", new(0, 0, 400, 300), [],
+                        new(TarkovCompanion.Core.Domain.Maps.Scene.MapSceneCapability.Available,
+                            TarkovCompanion.Core.Domain.Maps.Scene.MapSceneCapability.Unavailable("no stack"),
+                            TarkovCompanion.Core.Domain.Maps.Scene.MapSceneCapability.Unavailable("no interior")),
+                        new(TarkovCompanion.Core.Domain.Maps.Scene.MapSceneMode.Flat2D, null, new(200, 150, 1, 0, 0), []),
+                        [], [], []);
+                    var renderer = new TarkovCompanion.App.ViewModels.V2.MapRenderer.MapSceneRendererViewModel(
+                        scene,
+                        TarkovCompanion.App.ViewModels.V2.MapRenderer.MapSceneRendererPresentation.English(System.Globalization.CultureInfo.InvariantCulture, TimeZoneInfo.Utc),
+                        showsDetailsPanel: false)
+                    {
+                        LootFilterOpener = new DelegateCommand(() => { }),
+                    };
+                    var window = new Window { Width = 1200, Height = 800, Content = new TarkovCompanion.App.Views.V2.MapRenderer.MapSceneRendererView { DataContext = renderer } };
+                    window.Show();
+                    Dispatcher.UIThread.RunJobs();
+                    window.Close();
+                }
+                finally
+                {
+                    Avalonia.Logging.Logger.Sink = previous;
+                }
+
+                Assert.DoesNotContain(faults, fault => fault.Contains("Loot", StringComparison.Ordinal));
+            },
+            CancellationToken.None);
+    }
+
+    private sealed class BindingFaults(List<string> faults) : Avalonia.Logging.ILogSink
+    {
+        public bool IsEnabled(Avalonia.Logging.LogEventLevel level, string area) =>
+            level >= Avalonia.Logging.LogEventLevel.Warning && area == Avalonia.Logging.LogArea.Binding;
+
+        public void Log(Avalonia.Logging.LogEventLevel level, string area, object? source, string messageTemplate) =>
+            faults.Add(messageTemplate);
+
+        public void Log(Avalonia.Logging.LogEventLevel level, string area, object? source, string messageTemplate, params object?[] propertyValues) =>
+            faults.Add(messageTemplate + " " + string.Join(' ', propertyValues));
+    }
+
     public void Dispose()
     {
         try

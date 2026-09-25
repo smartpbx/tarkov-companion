@@ -829,11 +829,18 @@
           <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gem}" />
         </Button>
         <!-- [#902 P4] Where the host has a loot card (Raid), the chip opens it: one place for the filters. -->
-        <Button Classes="v2-target" Padding="8,5" Content="{Binding HighValueLoot.CompactFilterLabel, FallbackValue={x:Null}}"
-                IsVisible="{Binding HasLootFilterOpener}"
-                Command="{Binding LootFilterOpener}"
-                AutomationProperties.AutomationId="v2-map-loot-open-filters"
-                AutomationProperties.Name="Potential loot value filter" />
+        <!-- Through Content, not a HighValueLoot.X path: a map with no loot layer (Team) would
+             log a binding fault for the null step on every frame it is shown. -->
+        <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasLootFilterOpener}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
+              <Button Classes="v2-target" Padding="8,5" Content="{Binding CompactFilterLabel}"
+                      Command="{Binding $parent[ContentControl].((vm:MapSceneRendererViewModel)DataContext).LootFilterOpener}"
+                      AutomationProperties.AutomationId="v2-map-loot-open-filters"
+                      AutomationProperties.Name="Potential loot value filter" />
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
         <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding ShowsLootFilterFlyout}">
           <ContentControl.ContentTemplate>
             <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
