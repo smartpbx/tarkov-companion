@@ -123,6 +123,18 @@ public sealed record RaidEvidence(
     /// </summary>
     /// <remarks>Set only on the evidence that begins a raid, from the game's <c>MatchingCompleted</c> line.</remarks>
     public double? LoadSeconds { get; init; }
+
+    /// <summary>
+    /// An end that holds only for a raid the game never gave an id.
+    /// </summary>
+    /// <remarks>
+    /// The game reloads the profile (<c>CompleteSelectedProfile</c>) when a player comes back to
+    /// the menu. An offline or transit raid writes no <c>userMatchOver</c>, so that reload is the
+    /// only end it has; on 2026-09-23 two offline Labs raids ran together into one without it
+    /// (#892). An online raid carries its short id and ends on its own notification, and a game
+    /// relaunched mid-raid reloads the profile before it reconnects, so it must not end that.
+    /// </remarks>
+    public bool EndsOnlyARaidWithoutId { get; init; }
 }
 
 /// <summary>One bar of the game's own display, and how long it has ever been.</summary>

@@ -202,8 +202,10 @@ public sealed partial class RuntimeArchitectureRatchetTests
         // began and was last seen. What they decide does cross, on the commands that carry it (a
         // new raid's start, an end with its outcome and notes). A stored state event therefore has
         // no short id; if something comes to need it there, it goes into the codec first.
+        // EndsOnlyARaidWithoutId (#892) is the same kind: it only decides, in memory, whether a
+        // profile reload ends the raid.
         AssertShape<RaidEvidence>(
-            "Confidence", "EndsUnreported", "EventId", "Kind", "LoadSeconds", "LogSession", "MapId", "ObservedUtc",
+            "Confidence", "EndsOnlyARaidWithoutId", "EndsUnreported", "EventId", "Kind", "LoadSeconds", "LogSession", "MapId", "ObservedUtc",
             "RaidKey", "RaidLastSeenUtc", "RaidStartedUtc", "ResumesSession", "Side", "SideBasis",
             "StartsNewRaid", "SuggestedState", "Summary");
         AssertShape<ActiveExtract>("Confidence", "ExtractId", "Name", "Source");

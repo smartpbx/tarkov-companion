@@ -87,7 +87,11 @@ public sealed class RaidFollowsTheRealRaidTests
             .. lines
                 .Select((line, index) => (Evidence: parser.ParseLine(line, DateTimeOffset.UnixEpoch), Line: line, Index: index))
                 .Where(read => read.Evidence is not null)
-                .Select(read => new ReplayedRaidLine(read.Evidence!, RaidReplayDecision.WrittenUtc(read.Line, Zone), read.Index)),
+                // Each line says which file wrote it, in the field after the level.
+                .Select(read => new ReplayedRaidLine(read.Evidence!, RaidReplayDecision.WrittenUtc(read.Line, Zone), read.Index)
+                {
+                    Source = read.Line.Split('|')[3],
+                }),
         ];
     }
 

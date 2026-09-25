@@ -100,6 +100,13 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             return Current;
         }
 
+        // A profile reload ends only a raid the game gave no id (see EndsOnlyARaidWithoutId).
+        if (evidence.EndsOnlyARaidWithoutId
+            && !(Current.State == RaidLifecycleState.InRaid && Current.RaidKey is null))
+        {
+            return Current;
+        }
+
         // A raid does not go back to loading. The game interleaves loading-ish and in-raid-ish
         // lines throughout a raid, and reading them one at a time flipped the state between
         // the two on every line: nine transitions in two seconds was measured on a live
@@ -111,8 +118,16 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         // anything. A genuinely new raid that begins while this still believes the last one is
         // running is corrected by its own confirmation line, which carries the map and is
         // authoritative in a way that a loading marker is not.
+        //
+        // Except onto another map. The game loads a map's scene only for a raid on it, so a
+        // loading line naming a different map is the next raid, which is what a transit is: on
+        // 2026-09-23 renaming the raid instead carried a Lighthouse trail into The Lab (#892).
+        var loadsAnotherMap = suggested == RaidLifecycleState.LoadingRaid
+            && evidence.MapId is not null && Current.MapId is not null
+            && !string.Equals(evidence.MapId, Current.MapId, StringComparison.OrdinalIgnoreCase);
         var targetState = suggested == RaidLifecycleState.LoadingRaid
             && Current.State == RaidLifecycleState.InRaid
+            && !loadsAnotherMap
                 ? RaidLifecycleState.InRaid
                 : suggested;
         var enteringNewRaid = targetState == RaidLifecycleState.LoadingRaid
@@ -150,11 +165,15 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
                 : Current.IsManualMapOverride;
         // A screenshot gap wide enough to start a new raid (see MaximumPositionGap) carries no
         // map of its own, and letting the fallback keep the old raid's map would show a raid on
-        // a map it was never confirmed to be on. Log evidence that starts a new raid this way
-        // always carries its own MapId, so it never reaches the fallback and is unaffected.
+        // a map it was never confirmed to be on.
+        //
+        // Nor does the next raid keep the last one's map while it loads. It used to, and an
+        // online raid corrected it within a second from its profileStatus line; an offline or
+        // transit raid writes none, so two Labs raids on 2026-09-23 were recorded on the
+        // Lighthouse map the player had just left (#892). Unknown until a line names the map.
         var mapId = Current.IsManualMapOverride && evidence.Kind != RaidEvidenceKind.ManualOverride && !enteringNewRaid
             ? Current.MapId
-            : evidence.MapId ?? (clearingRaid || anotherRaid || (evidence.StartsNewRaid && !repeatOfThisRaid) ? null : Current.MapId);
+            : evidence.MapId ?? (clearingRaid || enteringNewRaid || anotherRaid || (evidence.StartsNewRaid && !repeatOfThisRaid) ? null : Current.MapId);
         // Lines from a later launch of the game than the raid's own are not the raid doing
         // anything, unless they are the raid itself coming back (a reconnect carries its id).
         var isThisRaidsActivity = !RaidIdentity.IsLaterSession(Current.LogSession, evidence.LogSession) || sameRaidByKey;

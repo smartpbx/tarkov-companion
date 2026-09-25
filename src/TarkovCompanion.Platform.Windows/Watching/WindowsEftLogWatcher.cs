@@ -334,9 +334,24 @@ public sealed partial class WindowsEftLogWatcher(
             // A seek into the middle of the file lands mid-line, and half a line is worse than
             // no line: it would be offered to the JSON parsers as though it were whole.
             var first = truncated ? 1 : 0;
+            // Counted over every line, because the replayed ones alone can straddle a clock step
+            // without showing it (#892).
+            DateTimeOffset? lastStamp = null;
+            var stretch = 0;
             for (var index = first; index < read.Count; index++)
             {
                 var line = read[index];
+                var written = RaidReplayDecision.WrittenUtc(line, _timeProvider.LocalTimeZone);
+                if (written is { } stamp)
+                {
+                    if (lastStamp is { } before && RaidReplayDecision.IsClockStep(before, stamp))
+                    {
+                        stretch++;
+                    }
+
+                    lastStamp = stamp;
+                }
+
                 var observedUtc = _timeProvider.GetUtcNow();
                 // Parsed for two side effects: the parser learns the profile id, and the
                 // private state machine works out what the player is in the middle of.
@@ -344,10 +359,11 @@ public sealed partial class WindowsEftLogWatcher(
                 {
                     // Kept with the time the game wrote it, because the files are replayed one
                     // after another and are not in time order with each other.
-                    replayed.Add(new(
-                        evidence,
-                        RaidReplayDecision.WrittenUtc(line, _timeProvider.LocalTimeZone),
-                        replayed.Count));
+                    replayed.Add(new(evidence, written, replayed.Count)
+                    {
+                        Source = path,
+                        Stretch = stretch,
+                    });
                 }
 
                 Notify(line, observedUtc, mode);
