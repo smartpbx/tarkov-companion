@@ -83,10 +83,13 @@
              In the shared icon template, so every place a destination is drawn carries it and
              none of them has to remember to. Decorative like the icon it sits on: the words are
              on the button, in NoticeDescription. -->
-        <Ellipse Width="8" Height="8" Margin="0,0,1,1"
+        <!-- [#881] 11 px with a ring in the rail's own colour, over the gear's corner rather
+             than inside it: at 8 px, in the icon's stroke colour family, it read as part of the gear. -->
+        <Ellipse Width="11" Height="11" Margin="0,0,-3,-3"
                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
                  IsVisible="{Binding HasNotice}"
                  Fill="{DynamicResource V2.Brush.Info}"
+                 Stroke="{DynamicResource V2.Brush.Surface}" StrokeThickness="2"
                  AutomationProperties.AccessibilityView="Raw" />
       </Panel>
     </DataTemplate>
@@ -284,6 +287,25 @@
       <Setter Property="Margin" Value="12,12,12,16" />
       <Setter Property="Padding" Value="10" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="Border.v2-rail-update">
+      <Setter Property="Margin" Value="6,0,6,10" />
+      <Setter Property="Padding" Value="8" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-rail-update.icons-only">
+      <Setter Property="Margin" Value="6,0,6,10" />
+      <Setter Property="Padding" Value="2" />
+    </Style>
+    <Style Selector="Button.v2-rail-update-dismiss, Button.v2-rail-update-icon">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
     </Style>
     <Style Selector="Button.v2-rail-gear.selected">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -495,6 +517,23 @@
                       AutomationProperties.ItemStatus="{Binding SetupDestination.StatusDescription}"
                       Content="{Binding SetupDestination.DisplayLabel}" Command="{Binding SetupDestination.NavigateCommand}" />
             </StackPanel>
+            <!-- [#881] The rail's "Update ready · Restart", for when the destinations are a row. -->
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding UpdateReadyNotice.IsVisible}"
+                        AutomationProperties.AutomationId="v2-shell-update-ready-row"
+                        AutomationProperties.Name="{Binding UpdateReadyNotice.Description}">
+              <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                       Fill="{DynamicResource V2.Brush.Info}" AutomationProperties.AccessibilityView="Raw" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding UpdateReadyNotice.Label}" />
+              <Button Classes="v2-target primary" Content="{Binding UpdateReadyNotice.ActionLabel}"
+                      AutomationProperties.Name="{Binding UpdateReadyNotice.Description}"
+                      Command="{Binding UpdateReadyNotice.InstallCommand}" />
+              <Button Classes="v2-target v2-rail-update-dismiss" VerticalAlignment="Center"
+                      AutomationProperties.Name="{Binding UpdateReadyNotice.DismissLabel}"
+                      ToolTip.Tip="{Binding UpdateReadyNotice.DismissLabel}"
+                      Command="{Binding UpdateReadyNotice.DismissCommand}">
+                <Path Classes="v2-icon v2-icon-muted" Width="14" Height="14" Stretch="Uniform" Data="{DynamicResource V2.Icon.Close}" />
+              </Button>
+            </StackPanel>
           </StackPanel>
         </Border>
 
@@ -615,7 +654,10 @@
           <!-- [#607] "the sidebar toggling button should be at the bottom above settings": the
                destinations start at the top, the toggle sits directly above the Settings gear,
                its icon lined up with the gear's, in the labelled and the icons-only rail alike. -->
-          <Grid RowDefinitions="*,Auto,Auto">
+          <!-- [#881] The rows below the destinations are Auto and the destinations' row is the
+               only one that gives way (it scrolls), so the notice, the toggle and the gear keep
+               their whole height at every window size. -->
+          <Grid RowDefinitions="*,Auto,Auto,Auto">
             <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
               <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,8,0,12"
                             AutomationProperties.AutomationId="v2-shell-navigation-rail">
@@ -640,7 +682,51 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
-            <Button Grid.Row="1" Classes="v2-target v2-rail-collapse" HorizontalAlignment="Left" Margin="16,0,0,0"
+            <!-- [#881] "Update ready · Restart", said in words above the gear. The gear's dot was
+                 the only sign of a waiting build, and an 8 px dot is easy to miss. Quiet (a card in
+                 the rail, not a dialog) and dismissible for this build; the dot stays. -->
+            <Border Grid.Row="1" Classes="v2-rail-update" Classes.icons-only="{Binding !ShowsRailLabels}"
+                    IsVisible="{Binding UpdateReadyNotice.IsVisible}"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.AutomationId="v2-shell-update-ready"
+                    AutomationProperties.Name="{Binding UpdateReadyNotice.Description}"
+                    ToolTip.Tip="{Binding UpdateReadyNotice.Description}">
+              <Panel>
+                <!-- No dot here: the card's own Info outline is the mark, and the 138 px inside it
+                     is needed for the words at 200% text. -->
+                <StackPanel Spacing="8" IsVisible="{Binding ShowsRailLabels}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                    <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center"
+                               TextWrapping="Wrap" Text="{Binding UpdateReadyNotice.Label}" />
+                    <Button Grid.Column="1" Classes="v2-target v2-rail-update-dismiss" VerticalAlignment="Top"
+                            AutomationProperties.AutomationId="v2-shell-update-ready-dismiss"
+                            AutomationProperties.Name="{Binding UpdateReadyNotice.DismissLabel}"
+                            ToolTip.Tip="{Binding UpdateReadyNotice.DismissLabel}"
+                            Command="{Binding UpdateReadyNotice.DismissCommand}">
+                      <Path Classes="v2-icon v2-icon-muted" Width="14" Height="14" Stretch="Uniform"
+                            Data="{DynamicResource V2.Icon.Close}" />
+                    </Button>
+                  </Grid>
+                  <Button Classes="v2-target primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                          AutomationProperties.AutomationId="v2-shell-update-ready-restart"
+                          AutomationProperties.Name="{Binding UpdateReadyNotice.Description}"
+                          Content="{Binding UpdateReadyNotice.ActionLabel}" Command="{Binding UpdateReadyNotice.InstallCommand}" />
+                </StackPanel>
+                <!-- The icons-only rail is 60 px: one button, the same action, the words in its tooltip. -->
+                <Button Classes="v2-target v2-rail-update-icon" IsVisible="{Binding !ShowsRailLabels}"
+                        HorizontalAlignment="Center"
+                        AutomationProperties.AutomationId="v2-shell-update-ready-restart-icon"
+                        AutomationProperties.Name="{Binding UpdateReadyNotice.Description}"
+                        Command="{Binding UpdateReadyNotice.InstallCommand}">
+                  <Panel Width="24" Height="24">
+                    <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Refresh}" Stroke="{DynamicResource V2.Brush.Info}" />
+                    <Ellipse Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Top"
+                             Fill="{DynamicResource V2.Brush.Info}" AutomationProperties.AccessibilityView="Raw" />
+                  </Panel>
+                </Button>
+              </Panel>
+            </Border>
+            <Button Grid.Row="2" Classes="v2-target v2-rail-collapse" HorizontalAlignment="Left" Margin="16,0,0,0"
                     AutomationProperties.AutomationId="v2-shell-navigation-rail-toggle"
                     AutomationProperties.Name="{Binding NavigationRailToggleName}"
                     AutomationProperties.ItemStatus="{Binding NavigationRailStateLabel}"
@@ -648,7 +734,7 @@
                     Command="{Binding CycleNavigationRailCommand}">
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
             </Button>
-            <Button Grid.Row="2" Classes="v2-target v2-rail-gear"
+            <Button Grid.Row="3" Classes="v2-target v2-rail-gear"
                     Classes.selected="{Binding SetupDestination.IsCurrent}"
                     AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
                     AutomationProperties.Name="{Binding SetupDestination.Label}"
@@ -694,10 +780,32 @@
                         AutomationProperties.AutomationId="v2-shell-navigation-show-rail"
                         AutomationProperties.Name="{Binding ShowNavigationRailLabel}"
                         Content="{Binding ShowNavigationRailLabel}" Command="{Binding ShowNavigationRailCommand}" />
+                <!-- [#881] And while the rail is hidden, in the launcher's flyout. -->
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding UpdateReadyNotice.IsVisible}"
+                            AutomationProperties.AutomationId="v2-shell-update-ready-launcher"
+                            AutomationProperties.Name="{Binding UpdateReadyNotice.Description}">
+                  <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                           Fill="{DynamicResource V2.Brush.Info}" AutomationProperties.AccessibilityView="Raw" />
+                  <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding UpdateReadyNotice.Label}" />
+                  <Button Classes="v2-target primary" Content="{Binding UpdateReadyNotice.ActionLabel}"
+                          AutomationProperties.Name="{Binding UpdateReadyNotice.Description}"
+                          Command="{Binding UpdateReadyNotice.InstallCommand}" />
+                  <Button Classes="v2-target v2-rail-update-dismiss" VerticalAlignment="Center"
+                          AutomationProperties.Name="{Binding UpdateReadyNotice.DismissLabel}"
+                          ToolTip.Tip="{Binding UpdateReadyNotice.DismissLabel}"
+                          Command="{Binding UpdateReadyNotice.DismissCommand}">
+                    <Path Classes="v2-icon v2-icon-muted" Width="14" Height="14" Stretch="Uniform" Data="{DynamicResource V2.Icon.Close}" />
+                  </Button>
+                </StackPanel>
               </StackPanel>
             </Flyout>
           </Button.Flyout>
-          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+          <Panel>
+            <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+            <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Top"
+                     IsVisible="{Binding SetupDestination.HasNotice}"
+                     Fill="{DynamicResource V2.Brush.Info}" AutomationProperties.AccessibilityView="Raw" />
+          </Panel>
         </Button>
         </Border>
 

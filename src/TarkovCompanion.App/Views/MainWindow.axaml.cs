@@ -78,7 +78,10 @@ public sealed partial class MainWindow : Window
         {
             MinWidth = V2ShellWindowPlacement.MinimumWidth;
             MinHeight = V2ShellWindowPlacement.MinimumHeight;
-            if (previewShell.RestoreWindow(screens) is { } preview)
+            // [#881] The title bar and borders, which the saved client height does not include,
+            // and the DPI scale, since the screens are in device pixels and the size is not.
+            var frameHeight = FrameSize is { } frame ? Math.Max(0, frame.Height - ClientSize.Height) : 0;
+            if (previewShell.RestoreWindow(screens, frameHeight, DesktopScaling) is { } preview)
             {
                 Width = preview.Width;
                 Height = preview.Height;

@@ -1024,6 +1024,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         SetupDestination.ShowsLabel = ShowsRailLabels;
         OnPropertyChanged(nameof(NavigationRailWidth));
+        OnPropertyChanged(nameof(ShowsRailLabels));
     }
 
     public string NavigationRailStateLabel => V2ShellText.Get(NavigationRail switch
@@ -1807,7 +1808,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         FocusRequested?.Invoke(this, new(target, V2FocusReason.Restored));
     }
 
-    public V2ShellWindowPlacement? RestoreWindow(IReadOnlyList<ScreenBounds> screens)
+    public V2ShellWindowPlacement? RestoreWindow(IReadOnlyList<ScreenBounds> screens, double frameHeight = 0, double scaling = 1)
     {
         ArgumentNullException.ThrowIfNull(screens);
         if (_window is not { } window)
@@ -1815,7 +1816,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             return null;
         }
 
-        var clamped = window.ClampTo(screens);
+        var clamped = window.ClampTo(screens, frameHeight, scaling);
         if (clamped != window)
         {
             _window = clamped;
@@ -3569,6 +3570,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
 
         _updateNotice?.Dispose();
+        _updateReadyNotice?.Dispose();
         ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;
         _persistence.Completed -= PersistenceCompleted;
         foreach (var source in _legacyContextSources)

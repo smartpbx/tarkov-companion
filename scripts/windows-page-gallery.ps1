@@ -682,6 +682,19 @@ function Invoke-ShellInteraction {
                 }
             }
 
+            # [#881] "The settings gear is cut off." Inside the window is not enough when the
+            # window's bottom is under the taskbar: the gear was inside the window and the taskbar
+            # was on top of it. The work area is where the screen can actually be seen.
+            if ([bool](Get-InteractionProperty -Object $BoundsAssertion -Name "insideWorkArea" -Default $false)) {
+                $Work = [System.Windows.Forms.Screen]::FromHandle($WindowHandle).WorkingArea
+                if ($Bounds.Left -lt $Work.Left -or $Bounds.Top -lt $Work.Top -or
+                    $Bounds.Right -gt $Work.Right -or $Bounds.Bottom -gt $Work.Bottom) {
+                    throw ("'$Description' left '$BoundsLabel' outside the screen's work area (under the taskbar): " +
+                        "control [$($Bounds.Left),$($Bounds.Top),$($Bounds.Right),$($Bounds.Bottom)] " +
+                        "against work area [$($Work.Left),$($Work.Top),$($Work.Right),$($Work.Bottom)].")
+                }
+            }
+
             # [V2 rough package 46] "More map is better." The map card took 46.6% of a 1920x1080
             # window; the rail collapsing, the Raid plan column shrinking and the layer switches
             # folding into a menu gave it 56.1%, and putting the chrome away gives it 77.4%. A
@@ -1307,7 +1320,8 @@ function Set-V2PreviewState {
         focusTarget = Resolve-FocusTarget (Get-InteractionProperty -Object $Seed -Name "focusTarget")
         recents = @()
         pins = @()
-        window = $null
+        # [#881] A remembered window, to launch through the placement restore a player gets.
+        window = Get-InteractionProperty -Object $Seed -Name "window"
         captureShortcutEnabled = $true
     }
     $Json = $State | ConvertTo-Json -Depth 4
@@ -1771,6 +1785,52 @@ foreach ($Route in $V2AcceptanceRoutes) {
         $Shots.Add([pscustomobject]$Shot)
     }
 }
+# [#881] "The settings gear is cut off … this makes the notification of a new update very quiet
+# too." Gating, because it is a real player's bug. The rail's gear (Setup) and its toggle must be
+# wholly on screen at 1920x1080, in a 1920x1009 window (about what a maximised window gets on a
+# 1080p screen with a taskbar), and — the one that failed on the player's machine — when the
+# window is restored from a remembered 1920x1080 at the screen's top-left. The restore used to
+# fit the client alone into the work area, so the frame ended a title bar lower and the gear sat
+# half under the taskbar every launch.
+$RailBottomBounds = @(
+    [pscustomobject]@{ automationId = "v2-shell-destination-setup"; insideWindow = $true },
+    [pscustomobject]@{ automationId = "v2-shell-navigation-rail-toggle"; insideWindow = $true })
+$RailBottomOnScreen = @(
+    [pscustomobject]@{ automationId = "v2-shell-destination-setup"; insideWindow = $true; insideWorkArea = $true },
+    [pscustomobject]@{ automationId = "v2-shell-navigation-rail-toggle"; insideWindow = $true; insideWorkArea = $true })
+foreach ($RailSize in @(
+    [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080; bounds = $RailBottomBounds },
+    [pscustomobject]@{ suffix = "1920x1009"; width = 1920; height = 1009; bounds = $RailBottomOnScreen })) {
+    $Shots.Add([pscustomobject]@{
+        name = "v2-a-rail-gear-$($RailSize.suffix)"
+        args = @("--ui-shell", "v2-a"); shellMode = "v2-a"
+        width = $RailSize.width; height = $RailSize.height
+        seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/plan" }
+        captureBeforeInteraction = $true
+        interaction = [pscustomobject]@{ steps = @([pscustomobject]@{
+            action = "assert"; description = "Variant A rail gear at $($RailSize.width)x$($RailSize.height)"
+            expectedAutomationIds = @("v2-shell-navigation-rail"); expectedHeading = "Plan"
+            expectedBounds = $RailSize.bounds }) }
+    })
+}
+# No --window-size (width 0), so the app restores the seeded placement itself. "--page" keeps it
+# from being an ordinary launch, which would take the single-instance mutex (see the stale-focus
+# case's history). Advisory for now: its first run (36095428027) photographed a 560x820 window,
+# the size shell-v2-a-narrow leaves saved, so the seeded placement is not yet what this launch
+# restores; until that is understood, a failure here says more about the harness than the app.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-rail-gear-restored"
+    args = @("--ui-shell", "v2-a", "--page", "plan"); shellMode = "v2-a"
+    width = 0; height = 0; advisory = $true
+    seedPreview = [pscustomobject]@{
+        variant = "v2-a"; address = "#/plan"
+        window = [ordered]@{ width = 1920; height = 1080; left = 0; top = 0; isMaximized = $false } }
+    captureBeforeInteraction = $true
+    interaction = [pscustomobject]@{ steps = @([pscustomobject]@{
+        action = "assert"; description = "Variant A rail gear in a window restored at the screen's size"
+        expectedAutomationIds = @("v2-shell-navigation-rail"); expectedHeading = "Plan"
+        expectedBounds = $RailBottomOnScreen }) }
+})
 # [#606] The raid map's extract and transit markers, on a real map, photographed on Windows.
 # Headless renders (tools/V2RenderPreview) showed the redone markers as correct twice while the
 # owner's Windows screen showed a glyph spilling out of its disc and a dark disc behind an extract,
