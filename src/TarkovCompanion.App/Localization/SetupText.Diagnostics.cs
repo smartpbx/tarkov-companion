@@ -40,6 +40,8 @@ public static partial class SetupText
     public static string AdminSectionReset => UiText.Get("Setup.Admin.SectionReset");
     public static string AdminAllReset => UiText.Get("Setup.Admin.AllReset");
     public static string AdminImported => UiText.Get("Setup.Admin.Imported");
+    public static string AdminBackupHeading => UiText.Get("Setup.Admin.BackupHeading");
+    public static string AdminBackupScope => UiText.Get("Setup.Admin.BackupScope");
     public static string SelfTestNotTested => UiText.Get("Setup.SelfTest.NotTested");
     public static string SelfTestTook(double seconds) => UiText.Format("Setup.SelfTest.Took", seconds);
     public static string SelfTestPrompt => UiText.Get("Setup.SelfTest.Prompt");

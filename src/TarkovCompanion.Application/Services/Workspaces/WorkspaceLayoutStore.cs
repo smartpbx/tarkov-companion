@@ -17,14 +17,29 @@ public interface IWorkspaceLayoutStore
 
     /// <summary>Remembers a value, best effort; a failure to write is not worth telling anybody about.</summary>
     void Set(string key, string value);
+
+    /// <summary>Everything remembered, for Setup's Backup &amp; reset (#902). A store that cannot list
+    /// its entries has none to export.</summary>
+    IReadOnlyDictionary<string, string> Entries => new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Replaces everything remembered with <paramref name="entries"/> in one write; an empty
+    /// set is "Reset everything". A missing key reads as the default again.</summary>
+    void Replace(IReadOnlyDictionary<string, string> entries)
+    {
+    }
+
+    /// <summary>Raised after a <see cref="Replace"/>, on the thread that made it, so a page holding a
+    /// value it read at construction reads it again instead of keeping the old one until a restart.</summary>
+    event EventHandler? Replaced
+    {
+        add { }
+        remove { }
+    }
 }
 
 /// <summary>The keys, in one place, so a reader can see everything that is remembered.</summary>
 public static class WorkspaceLayoutKeys
 {
-    /// <summary>How much of the shell's navigation rail is showing: labels, icons or nothing.</summary>
-    public const string NavigationRail = "shell.navigation-rail";
-
     /// <summary>The Raid context panel's width in device-independent pixels.</summary>
     public const string RaidPanelWidth = "raid.panel-width";
 

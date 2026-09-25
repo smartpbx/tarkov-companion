@@ -410,6 +410,9 @@ plus the notification switches and screenshot retention (never the TarkovTracker
 relay's credentials — there is no field for either), a pure diff between two bundles, and a JSON
 file the same shape `JsonFileWorkspacePreferenceStore` uses. Setup shows the diff and asks before
 any of "Reset this section", "Reset everything" or an import touches anything.
+Since #902 the bundle covers every group `App/Services/Settings/SettingsRegistry.cs` lists (layers,
+page choices, network, flags, squad-sharing switches, scale, map choices); Backup & reset lives under
+About, and "Reset this section" at the foot of each section that is a setting's home.
 
 Binding the operational primitives to capture and paired-device transitions stays with those feature
 owners, outside #266; this disconnected gallery deliberately contains no commands or protocol state.

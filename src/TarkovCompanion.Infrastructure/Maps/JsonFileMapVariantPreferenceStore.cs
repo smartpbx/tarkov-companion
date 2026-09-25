@@ -44,6 +44,39 @@ public sealed class JsonFileMapVariantPreferenceStore(string settingsPath) : IMa
         }
     }
 
+    public async Task<IReadOnlyDictionary<string, string>> GetAllAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return new SortedDictionary<string, string>(
+                await ReadOrEmptyAsync(cancellationToken).ConfigureAwait(false),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ReplaceAllAsync(IReadOnlyDictionary<string, string> choices, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(choices);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await WriteAsync(
+                    choices.Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && !string.IsNullOrWhiteSpace(entry.Value))
+                        .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.OrdinalIgnoreCase),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<Dictionary<string, string>> ReadOrEmptyAsync(CancellationToken cancellationToken)
     {
         try

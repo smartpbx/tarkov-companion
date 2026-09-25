@@ -63,6 +63,10 @@ public sealed class SetupLootScanViewModel : BindableViewModel
         }
 
         RebuildChoices();
+        if (layout is not null)
+        {
+            layout.Replaced += (_, _) => _post(ReadStored);
+        }
     }
 
     /// <summary>Raised on the interface thread after the player picks a different countdown.</summary>
@@ -141,6 +145,29 @@ public sealed class SetupLootScanViewModel : BindableViewModel
         _layout?.Set(
             WorkspaceLayoutKeys.LootAutoReturnSeconds,
             seconds is { } stored ? stored.ToString(CultureInfo.InvariantCulture) : "off");
+        RebuildChoices();
+        OnPropertyChanged(nameof(Timeout));
+        TimeoutChanged?.Invoke(_timeout);
+    }
+
+    /// <summary>[#902] Backup &amp; reset replaced the layout: take what it holds now, as a restart would.</summary>
+    private void ReadStored()
+    {
+        var timeout = Parse(_layout?.Get(WorkspaceLayoutKeys.LootAutoReturnSeconds));
+        // The field, not the property: the property saves, and a reset must not write the default back.
+        var tabletOnly = string.Equals(_layout?.Get(WorkspaceLayoutKeys.LootOnTabletOnly), "on", StringComparison.Ordinal);
+        if (tabletOnly != _tabletOnly)
+        {
+            _tabletOnly = tabletOnly;
+            OnPropertyChanged(nameof(TabletOnly));
+        }
+
+        if (timeout == _timeout)
+        {
+            return;
+        }
+
+        _timeout = timeout;
         RebuildChoices();
         OnPropertyChanged(nameof(Timeout));
         TimeoutChanged?.Invoke(_timeout);
