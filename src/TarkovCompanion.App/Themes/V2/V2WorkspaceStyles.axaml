@@ -105,6 +105,16 @@
   <Style Selector="Button.v2-chip.v2-selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
   </Style>
+  <!-- [#902 P6] A single-choice picker (theme, text size, language, Loot scan return). These used
+       v2-tab, so a row of settings under Setup's own section tabs read as a second level of tabs.
+       A choice is a button with the selected look of a checked segment; v2-tab is navigation only. -->
+  <Style Selector="Button.v2-choice.selected /template/ ContentPresenter#PART_ContentPresenter,
+                   Button.v2-choice.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   Button.v2-choice.selected:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
 
   <!-- [#574] One button family. V2PrimitiveStyles.axaml gives every v2-target its height, side
        padding, radius and type size from tokens; this gives it one look. Quiet is the default:

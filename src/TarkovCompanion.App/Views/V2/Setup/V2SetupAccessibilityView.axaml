@@ -3,12 +3,12 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
-             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
-             xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
+             xmlns:l="using:TarkovCompanion.App.Localization">
   <!-- #292/#315: theme, colour vision, text size, density, reduced motion and the focus ring in
        one place, with a live preview strip and the keyboard shortcut table (#292 task 1/4).
-       Every row is a set of toggles rather than a combo box: the choice and what is in force are
-       both readable without opening anything, which is the point of the section. -->
+       Every row is a set of choices rather than a combo box: the choice and what is in force are
+       both readable without opening anything, which is the point of the section. The choices use
+       v2-choice, not v2-tab, so they do not read as a second row of section tabs (#902 P6). -->
   <StackPanel Classes="v2-stack">
     <StackPanel Classes="v2-stack" DataContext="{Binding Appearance}" x:DataType="vm:V2AppearanceSettingsViewModel">
       <TextBlock Classes="v2-body" AutomationProperties.AutomationId="v2-setup-appearance-summary"
@@ -18,11 +18,11 @@
         <TextBlock Classes="v2-label" Text="{Binding ThemeLabel}" />
         <ItemsControl ItemsSource="{Binding Themes}" AutomationProperties.AutomationId="v2-setup-appearance-themes">
           <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+              <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
                       AutomationProperties.AutomationId="{Binding AutomationId}"
                       AutomationProperties.Name="{Binding Label}"
                       AutomationProperties.HelpText="{Binding AutomationState}"
@@ -37,11 +37,11 @@
         <TextBlock Classes="v2-label" Text="{Binding VisionLabel}" />
         <ItemsControl ItemsSource="{Binding ColorVisions}" AutomationProperties.AutomationId="v2-setup-appearance-visions">
           <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+              <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
                       AutomationProperties.AutomationId="{Binding AutomationId}"
                       AutomationProperties.Name="{Binding Label}"
                       AutomationProperties.HelpText="{Binding AutomationState}"
@@ -56,11 +56,11 @@
         <TextBlock Classes="v2-label" Text="{Binding TextScaleLabel}" />
         <ItemsControl ItemsSource="{Binding TextScales}" AutomationProperties.AutomationId="v2-setup-appearance-textscales">
           <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+              <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
                       AutomationProperties.AutomationId="{Binding AutomationId}"
                       AutomationProperties.Name="{Binding Label}"
                       AutomationProperties.HelpText="{Binding AutomationState}"
@@ -75,11 +75,11 @@
         <TextBlock Classes="v2-label" Text="{Binding DensityLabel}" />
         <ItemsControl ItemsSource="{Binding Densities}" AutomationProperties.AutomationId="v2-setup-appearance-densities">
           <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+              <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
                       AutomationProperties.AutomationId="{Binding AutomationId}"
                       AutomationProperties.Name="{Binding Label}"
                       AutomationProperties.HelpText="{Binding AutomationState}"
@@ -89,24 +89,28 @@
         </ItemsControl>
       </StackPanel>
 
-      <StackPanel Classes="v2-field">
-        <TextBlock Classes="v2-label" Text="{Binding MotionLabel}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-motion"
-                  Content="{Binding MotionToggleLabel}" Command="{Binding ReduceMotionCommand}" />
-        </WrapPanel>
-        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding MotionHint}" />
-      </StackPanel>
-
-      <!-- #292 task 1: the one thing missing from the old Appearance section. -->
-      <StackPanel Classes="v2-field">
-        <TextBlock Classes="v2-label" Text="{Binding FocusLabel}" />
-        <WrapPanel Classes="v2-toolbar">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-focus"
-                  Content="{Binding FocusToggleLabel}" Command="{Binding FocusAlwaysVisibleCommand}" />
-        </WrapPanel>
-        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding FocusHint}" />
-      </StackPanel>
+      <!-- [#902 P6] Real switches with fixed labels. These were buttons that read "Animations on" or
+           "Keyboard only", and a player could not tell the state from what a press would do. -->
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MotionLabel}" />
+          <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding MotionHint}" />
+        </StackPanel>
+        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                      IsChecked="{Binding ReduceMotion, Mode=OneWay}" Command="{Binding ReduceMotionCommand}"
+                      AutomationProperties.AutomationId="v2-setup-appearance-motion"
+                      AutomationProperties.Name="{Binding MotionLabel}" />
+      </Grid>
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding FocusLabel}" />
+          <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding FocusHint}" />
+        </StackPanel>
+        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                      IsChecked="{Binding FocusAlwaysVisible, Mode=OneWay}" Command="{Binding FocusAlwaysVisibleCommand}"
+                      AutomationProperties.AutomationId="v2-setup-appearance-focus"
+                      AutomationProperties.Name="{Binding FocusLabel}" />
+      </Grid>
     </StackPanel>
 
     <!-- Live preview strip: real, themed controls, so every choice above redraws something here
@@ -146,18 +150,8 @@
                 AutomationProperties.AutomationId="v2-setup-accessibility-shortcuts">
       <TextBlock Classes="v2-label" Text="{Binding ShortcutsHeading}" />
       <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ShortcutsHint}" />
-      <!-- [#902 P9] Alt+Shift+C can clash with Windows' input-language switch, and turning it
-           off or back on was a palette command only. Same state as the Capture dialog's switch. -->
-      <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="12"
-            IsVisible="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext), Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
-        <TextBlock Classes="v2-body" VerticalAlignment="Center"
-                   Text="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).CaptureShortcutSwitchLabel}" />
-        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
-                      IsChecked="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).CaptureShortcutEnabled, Mode=OneWay}"
-                      Command="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).ToggleCaptureShortcutCommand}"
-                      AutomationProperties.AutomationId="v2-setup-capture-shortcut"
-                      AutomationProperties.Name="{Binding $parent[shellViews:V2ShellView].((shellVm:V2ShellViewModel)DataContext).CaptureShortcutSwitchLabel}" />
-      </Grid>
+      <!-- [#902 P6] Read-only here: the Capture shortcut's switch is in Game & Capture, its one home. -->
+      <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{x:Static l:SetupText.AccessibilityCaptureRow}" />
       <ItemsControl ItemsSource="{Binding Shortcuts}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate><WrapPanel ItemSpacing="16" LineSpacing="4" /></ItemsPanelTemplate>

@@ -9,11 +9,11 @@
     <TextBlock Classes="v2-label" Text="{Binding ReturnHeading}" />
     <ItemsControl ItemsSource="{Binding Choices}">
       <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:LootAutoReturnChoiceViewModel">
-          <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+          <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
                   AutomationProperties.AutomationId="{Binding AutomationId}"
                   AutomationProperties.Name="{Binding Label}"
                   Content="{Binding Label}" Command="{Binding ChooseCommand}" />

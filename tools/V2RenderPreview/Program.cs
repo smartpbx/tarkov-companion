@@ -2626,7 +2626,7 @@ internal static class Program
             if (shell?.SetupWorkspace is { } setupWorkspace &&
                 (args.Contains("--selftest-demo") || args.Contains("--selftest-live")))
             {
-                setupWorkspace.Select(V2SetupSection.Diagnostics);
+                setupWorkspace.Select(V2SetupSection.UpdatesDiagnostics);
                 if (args.Contains("--selftest-demo"))
                 {
                     // [V2 rough package 43a] --selftest-waiting renders the state that used to be

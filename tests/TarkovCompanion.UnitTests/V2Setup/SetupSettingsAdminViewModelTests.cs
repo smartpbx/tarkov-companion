@@ -17,7 +17,7 @@ public sealed class SetupSettingsAdminViewModelTests
     public async Task ResettingASectionWithNothingToResetSaysSoWithoutOpeningAPreview()
     {
         var (view, _, _) = Build();
-        view.SetCurrentSection(V2SetupSection.Data);
+        view.SetCurrentSection(V2SetupSection.About);
 
         await ((AsyncDelegateCommand)view.ResetSectionCommand).ExecuteAsync();
 
@@ -29,7 +29,7 @@ public sealed class SetupSettingsAdminViewModelTests
     public async Task ResettingAnUnchangedSectionSaysAlreadyAtDefaults()
     {
         var (view, _, _) = Build();
-        view.SetCurrentSection(V2SetupSection.Accessibility);
+        view.SetCurrentSection(V2SetupSection.AppearanceWindow);
 
         await ((AsyncDelegateCommand)view.ResetSectionCommand).ExecuteAsync();
 
@@ -41,7 +41,7 @@ public sealed class SetupSettingsAdminViewModelTests
     public async Task ResettingAChangedSectionPreviewsBeforeApplying()
     {
         var (view, preferences, _) = Build();
-        view.SetCurrentSection(V2SetupSection.Accessibility);
+        view.SetCurrentSection(V2SetupSection.AppearanceWindow);
         await preferences.UpdateAsync(WorkspacePreferences.Default with { Theme = AppearanceTheme.Light }, CancellationToken.None);
 
         await ((AsyncDelegateCommand)view.ResetSectionCommand).ExecuteAsync();
@@ -56,7 +56,7 @@ public sealed class SetupSettingsAdminViewModelTests
     public async Task ConfirmingAppliesThePendingChangeAndClearsIt()
     {
         var (view, preferences, _) = Build();
-        view.SetCurrentSection(V2SetupSection.Accessibility);
+        view.SetCurrentSection(V2SetupSection.AppearanceWindow);
         await preferences.UpdateAsync(WorkspacePreferences.Default with { Theme = AppearanceTheme.Light }, CancellationToken.None);
         await ((AsyncDelegateCommand)view.ResetSectionCommand).ExecuteAsync();
 
@@ -71,7 +71,7 @@ public sealed class SetupSettingsAdminViewModelTests
     public async Task CancellingLeavesEverythingUntouched()
     {
         var (view, preferences, _) = Build();
-        view.SetCurrentSection(V2SetupSection.Accessibility);
+        view.SetCurrentSection(V2SetupSection.AppearanceWindow);
         await preferences.UpdateAsync(WorkspacePreferences.Default with { Theme = AppearanceTheme.Light }, CancellationToken.None);
         await ((AsyncDelegateCommand)view.ResetSectionCommand).ExecuteAsync();
 

@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Network;
 using TarkovCompanion.App.Localization;
 using System.ComponentModel;
 using System.Globalization;
@@ -78,6 +79,8 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
     private bool _tidiesScreenshots;
     private string _retention = string.Empty;
     private string _dataFreshness = string.Empty;
+    private string _networkTitle = SetupText.HomeNetworkTitle(localOnly: false, 1, 1);
+    private string _networkDetail = string.Empty;
 
     public V2HomeOverviewViewModel(Action<V2RouteId> navigate, Action<V2SetupSection> selectSection)
     {
@@ -86,8 +89,10 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
         ExploreMapCommand = new DelegateCommand(() => _navigate(V2Routes.Raid));
         OpenPlanCommand = new DelegateCommand(() => _navigate(V2Routes.Plan));
         OpenDebriefCommand = new DelegateCommand(() => _navigate(V2Routes.Debrief));
-        ReviewPrivacyCommand = new DelegateCommand(() => _selectSection(V2SetupSection.Privacy));
-        AllSettingsCommand = new DelegateCommand(() => _selectSection(V2SetupSection.GameProfile));
+        // [#902 P6] "Review privacy" opened the tab that held only screenshot cleanup; Local only and
+        // everything that leaves the PC are in Data & Network.
+        ReviewPrivacyCommand = new DelegateCommand(() => _selectSection(V2SetupSection.DataNetwork));
+        AllSettingsCommand = new DelegateCommand(() => _selectSection(V2SetupSection.GameCapture));
         PrimaryCommand = new DelegateCommand(Primary);
     }
 
@@ -154,8 +159,13 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
     public string CleanupDetail => _tidiesScreenshots
         ? SetupText.HomePrivacyCleanupOnDetail(_retention)
         : SetupText.HomePrivacyCleanupOffDetail;
-    public string TelemetryTitle => SetupText.HomePrivacyTelemetry;
-    public string TelemetryDetail => SetupText.HomePrivacyTelemetryDetail;
+    /// <summary>
+    /// [#902 P6] What the network policy allows now. This card said "Diagnostics: Local only ·
+    /// Nothing is sent unless you report a problem" whatever the switches were, while game data,
+    /// update checks and squad sharing went online.
+    /// </summary>
+    public string TelemetryTitle => _networkTitle;
+    public string TelemetryDetail => _networkDetail;
     public string ReviewPrivacyLabel => SetupText.HomePrivacyReview;
     public ICommand ReviewPrivacyCommand { get; }
 
@@ -227,6 +237,24 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
         _raids = (raids ?? []).Take(RaidLines).ToArray();
         _raidStatus = status ?? string.Empty;
         Raise(nameof(RecentRaids), nameof(HasRecentRaids), nameof(HasNoRecentRaids), nameof(RecentRaidsLabel));
+    }
+
+    /// <summary>Reads the network line from the policy now and whenever it changes.</summary>
+    public void AttachNetwork(INetworkPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ApplyNetwork(policy);
+        policy.Changed += (_, _) => ApplyNetwork(policy);
+    }
+
+    internal void ApplyNetwork(INetworkPolicy policy)
+    {
+        var services = Enum.GetValues<NetworkService>();
+        var allowed = services.Where(service => policy.Check(service) == NetworkVerdict.Allowed).ToArray();
+        var localOnly = policy.LocalOnlyForced || policy.Controls.LocalOnly;
+        _networkTitle = SetupText.HomeNetworkTitle(localOnly, allowed.Length, services.Length);
+        _networkDetail = SetupText.HomeNetworkDetail(localOnly, [.. allowed.Select(SetupText.NetworkServiceTitle)]);
+        Raise(nameof(TelemetryTitle), nameof(TelemetryDetail));
     }
 
     public void ApplyPrivacy(bool tidiesScreenshots, string retention)

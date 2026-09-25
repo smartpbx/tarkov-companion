@@ -154,7 +154,7 @@ public sealed class V2ShellRegistryTests
         var a = V2ShellVariants.A;
 
         Assert.Equal(["Raid", "Intel", "Plan", "Team", "Debrief"], a.Destinations.Select(item => V2ShellText.Get(item.LabelKey)));
-        Assert.Equal("Setup & Admin", V2ShellText.Get(a.Setup.LabelKey));
+        Assert.Equal("Setup", V2ShellText.Get(a.Setup.LabelKey));
         Assert.Equal(V2NavigationStyle.Rail, a.Navigation);
         Assert.Equal(V2SetupPlacement.LabelledRailSection, a.SetupPlacement);
         Assert.Equal(V2SearchPlacement.InsideItemsWorkspace, a.SearchPlacement);

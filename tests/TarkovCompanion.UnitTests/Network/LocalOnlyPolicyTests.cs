@@ -334,6 +334,28 @@ public sealed class LocalOnlyPolicyTests : IDisposable
         public void Save(NetworkControls controls) => Saves++;
     }
 
+    /// <summary>
+    /// [#902 P6] The switch said "Off" while the Data page said "Offline mode is on". The state beside
+    /// the switch says what is in force: on, off, or on because this run started offline.
+    /// </summary>
+    [Fact]
+    public void LocalOnlySaysStartedOfflineWhenTheRunBeganWithoutTheNetworkAndTheSwitchIsOff()
+    {
+        var policy = new NetworkPolicyService(new MemoryStore());
+        var startedOffline = true;
+        var page = new SetupNetworkControlsViewModel(policy, startedOffline: () => startedOffline);
+
+        Assert.False(page.IsLocalOnly);
+        Assert.Equal("On · started offline", page.LocalOnlyState);
+
+        policy.Set(policy.Controls with { LocalOnly = true });
+        Assert.Equal("On", page.LocalOnlyState);
+
+        startedOffline = false;
+        policy.Set(policy.Controls with { LocalOnly = false });
+        Assert.Equal("Off", page.LocalOnlyState);
+    }
+
     private sealed class MemoryStore(NetworkControls? initial = null) : INetworkControlsStore
     {
         private NetworkControls _controls = initial ?? NetworkControls.Default;
