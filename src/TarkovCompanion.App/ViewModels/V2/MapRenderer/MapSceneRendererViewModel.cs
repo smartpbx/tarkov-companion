@@ -244,6 +244,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The floor a compact selector shows as chosen; null only before the scene has any.</summary>
     public MapSceneRendererFloorViewModel? SelectedFloor => Floors.FirstOrDefault(floor => floor.IsSelected);
     public IReadOnlyList<MapSceneRendererLayerViewModel> Layers { get; private set; } = [];
+    /// <summary>[#902 P4] The High-value loot row, for the switch in the Raid loot card's header.</summary>
+    public MapSceneRendererLayerViewModel? LootLayer => Layers.FirstOrDefault(layer => layer.Layer.Id == HighValueLootLayerService.LayerId);
     /// <summary>[#902] The same rows as <see cref="Layers"/>, under the Layers menu's headers.</summary>
     public IReadOnlyList<MapSceneRendererLayerGroupViewModel> LayerGroups { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> SpatialObjects { get; private set; } = [];
@@ -525,6 +527,29 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public ICommand? FollowFloorCommand => _followFloorCommand;
 
     public string FollowFloorLabel => Text("Map.Floor.Follow");
+
+    /// <summary>
+    /// [#902 P4] What the map's loot chip does on a page with a loot card of its own: opens that
+    /// card, the one place the filters are chosen, instead of a second copy of its chips.
+    /// </summary>
+    public ICommand? LootFilterOpener
+    {
+        get => _lootFilterOpener;
+        set
+        {
+            _lootFilterOpener = value;
+            OnPropertyChanged(nameof(LootFilterOpener));
+            OnPropertyChanged(nameof(HasLootFilterOpener));
+            OnPropertyChanged(nameof(ShowsLootFilterFlyout));
+        }
+    }
+
+    public bool HasLootFilterOpener => HasHighValueLoot && _lootFilterOpener is not null;
+
+    /// <summary>The chip with its own flyout of filter chips, where no card is there to open.</summary>
+    public bool ShowsLootFilterFlyout => HasHighValueLoot && _lootFilterOpener is null;
+
+    private ICommand? _lootFilterOpener;
 
     public void SetFollowFloor(bool isOn, ICommand command)
     {
@@ -1925,6 +1950,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         BuildLayers();
         OnPropertyChanged(nameof(Layers));
+        OnPropertyChanged(nameof(LootLayer));
         OnPropertyChanged(nameof(LayerGroups));
     }
 
@@ -2924,6 +2950,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         if (layers)
         {
             OnPropertyChanged(nameof(Layers));
+            OnPropertyChanged(nameof(LootLayer));
             OnPropertyChanged(nameof(LayerGroups));
             // [V2 rough package 46] The Layers button's count is the only thing saying what is
             // drawn once the switches are behind a menu, so it has to move when they do.

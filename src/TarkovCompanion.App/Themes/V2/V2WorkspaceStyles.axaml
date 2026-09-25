@@ -207,6 +207,11 @@
         <Border x:Name="PART_Row" Background="Transparent" CornerRadius="{DynamicResource V2.Shape.Control}"
                 MinHeight="{TemplateBinding MinHeight}" Padding="8,0">
           <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
+            <!-- [#902 P3] A toggle row always draws its box, empty or ticked, so an off row reads
+                 as off and not as a plain label; a button row has none. -->
+            <Border x:Name="PART_Box" Width="16" Height="16" CornerRadius="3" BorderThickness="1.5"
+                    BorderBrush="{DynamicResource V2.Brush.Border}" HorizontalAlignment="Center"
+                    VerticalAlignment="Center" IsVisible="False" />
             <Path x:Name="PART_Mark" Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Tick}"
                   HorizontalAlignment="Center" Opacity="0" />
             <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}"
@@ -219,6 +224,9 @@
   </Style>
   <Style Selector="ToggleButton.v2-menu-row:checked /template/ Path#PART_Mark">
     <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="ToggleButton.v2-menu-row /template/ Border#PART_Box">
+    <Setter Property="IsVisible" Value="True" />
   </Style>
   <Style Selector="ToggleButton.v2-menu-row:pointerover /template/ Border#PART_Row, Button.v2-menu-row:pointerover /template/ Border#PART_Row">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />

@@ -828,7 +828,13 @@
           <!-- A gem, not "$": Loot focus, named in the tooltip. -->
           <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gem}" />
         </Button>
-        <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasHighValueLoot}">
+        <!-- [#902 P4] Where the host has a loot card (Raid), the chip opens it: one place for the filters. -->
+        <Button Classes="v2-target" Padding="8,5" Content="{Binding HighValueLoot.CompactFilterLabel, FallbackValue={x:Null}}"
+                IsVisible="{Binding HasLootFilterOpener}"
+                Command="{Binding LootFilterOpener}"
+                AutomationProperties.AutomationId="v2-map-loot-open-filters"
+                AutomationProperties.Name="Potential loot value filter" />
+        <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding ShowsLootFilterFlyout}">
           <ContentControl.ContentTemplate>
             <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
               <Button Classes="v2-target" Padding="8,5" Content="{Binding CompactFilterLabel}"
@@ -844,7 +850,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
-                            <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                            <prim:SelectionToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
                                           Content="{Binding Label}" Command="{Binding SelectCommand}" />
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -855,7 +861,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
-                            <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                            <prim:SelectionToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
                                           Content="{Binding Label}" Command="{Binding SelectCommand}" />
                           </DataTemplate>
                         </ItemsControl.ItemTemplate>

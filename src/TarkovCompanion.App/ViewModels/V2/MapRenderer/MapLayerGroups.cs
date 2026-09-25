@@ -16,11 +16,11 @@ public static class MapLayerGroups
 {
     private static readonly (string Key, string[] LayerIds)[] Groups =
     [
-        ("You", ["you", "visited"]),
+        ("You", ["you", "my-trail"]),
         ("Squad", ["squad"]),
         ("Routes", [ObjectiveRouteSceneBuilder.LayerId.Value, "traffic-routes", "traffic-route-direct"]),
         ("Quests", ["quest-objectives"]),
-        ("Map", ["labels", "extracts", "keys", "switches", "hazards", "spawns"]),
+        ("Map", ["labels", "extracts", "keys", "switches", "hazards", "nearby-spawns", "spawns"]),
         ("Marks", ["my-marks", "group-marks", "drawings"]),
         ("Loot", [HighValueLootLayerService.LayerId.Value]),
         ("Traffic", [MapSceneRendererViewModel.TrafficHeatLayerId.Value]),

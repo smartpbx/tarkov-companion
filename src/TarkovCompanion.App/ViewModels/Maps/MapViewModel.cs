@@ -1363,6 +1363,9 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly IQuestReadService? _questReadService;
     private readonly QuestMapProjectionService? _questProjectionService;
     private readonly FollowSetting _followSetting;
+    // [#902 P3] Follow floor, remembered like Follow beside it.
+    private readonly LayoutToggle _followFloorSetting;
+    private string? _visitedLocationId;
     private readonly MapPresentationService _presentationService = new();
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _selectionLoad;
@@ -1523,6 +1526,19 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
         _questProjectionService = questProjectionService;
         _followSetting = new(layout);
         _followsPlayer = _followSetting.Value;
+        _followFloorSetting = new(layout, WorkspaceLayoutKeys.RaidFollowFloor, defaultValue: true);
+        _autoSelectsFloor = _followFloorSetting.Read();
+    }
+
+    /// <summary>
+    /// [#902] Reads Follow and Follow floor again, after Backup &amp; reset or an import replaced
+    /// the stored choices, so the map shows them without a restart.
+    /// </summary>
+    internal void ReloadStoredChoices()
+    {
+        _followSetting.Reload();
+        Set(ref _followsPlayer, _followSetting.Value, nameof(FollowsPlayer));
+        Set(ref _autoSelectsFloor, _followFloorSetting.Read(), nameof(AutoSelectsFloor));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -2225,6 +2241,17 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     public async Task SelectLocationAsync(MapLocation location)
     {
         ArgumentNullException.ThrowIfNull(location);
+        // [#902 P3] Another map's trails are not drawn on this one: dropped with the map, and
+        // read again for the new one below while the trail is on.
+        var locationChanged = !string.Equals(_visitedLocationId, location.Id, StringComparison.OrdinalIgnoreCase);
+        if (locationChanged && _visited.Count > 0)
+        {
+            _visited = [];
+            _visitedLocationId = null;
+            VisitedTrails = [];
+            OnPropertyChanged(nameof(VisitedTrails));
+        }
+
         SelectedLocation = location;
         Variants = location.Variants.Where(variant => variant.HasRuntimeAsset).ToArray();
         try
@@ -2240,6 +2267,11 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
         if (selected is not null)
         {
             await LoadVariantAsync(selected, persist: false).ConfigureAwait(true);
+        }
+
+        if (ShowsVisited && locationChanged)
+        {
+            await LoadVisitedAsync(_lifetime.Token).ConfigureAwait(true);
         }
     }
 
@@ -2516,7 +2548,13 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     public bool AutoSelectsFloor
     {
         get => _autoSelectsFloor;
-        private set => Set(ref _autoSelectsFloor, value);
+        private set
+        {
+            if (Set(ref _autoSelectsFloor, value))
+            {
+                _followFloorSetting.Write(value);
+            }
+        }
     }
 
     public void ToggleAutoFloor()
@@ -4351,12 +4389,30 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     /// Loaded on demand rather than with the map. Most sessions never ask for it, and a read
     /// across every raid on a map is not work to do on the way to drawing one.
     /// </remarks>
-    public async Task ToggleVisitedAsync()
+    public Task ToggleVisitedAsync() => SetShowsVisitedAsync(!ShowsVisited);
+
+    /// <summary>
+    /// [#902 P3] Turns the trails on or off. On reads them for the open map, and a later map
+    /// change reads that map's; off forgets them, so turning them on again reads afresh.
+    /// </summary>
+    /// <remarks>
+    /// Turning the layer off used to untick the row and leave the lines on the map, and a map
+    /// change kept the old map's trails drawn over the new plan.
+    /// </remarks>
+    public async Task SetShowsVisitedAsync(bool isShown)
     {
-        ShowsVisited = !ShowsVisited;
-        if (!ShowsVisited)
+        if (ShowsVisited == isShown)
         {
+            return;
+        }
+
+        ShowsVisited = isShown;
+        if (!isShown)
+        {
+            _visited = [];
+            _visitedLocationId = null;
             VisitedTrails = [];
+            OnPropertyChanged(nameof(VisitedTrails));
             return;
         }
 
@@ -4381,10 +4437,21 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            _visited = await _raidHistory
+            var trails = await _raidHistory
                 .ListTrailsForMapAsync(location.Id, VisitedRaidLimit, cancellationToken)
                 .ConfigureAwait(true);
+            // Turned off, or another map opened, while the read was out: this answer is stale.
+            if (!ShowsVisited || !ReferenceEquals(SelectedLocation, location))
+            {
+                return;
+            }
+
+            _visited = trails;
+            _visitedLocationId = location.Id;
             UpdateVisitedTrails();
+            // The Raid map draws from VisitedRaids; this says there is something new to draw
+            // even when the V1 projection has nothing yet.
+            OnPropertyChanged(nameof(VisitedTrails));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

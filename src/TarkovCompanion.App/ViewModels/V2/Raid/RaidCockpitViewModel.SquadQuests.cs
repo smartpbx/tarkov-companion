@@ -6,6 +6,7 @@ using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Planning;
 
@@ -15,15 +16,15 @@ namespace TarkovCompanion.App.ViewModels.V2.Raid;
 /// [#780] Squadmates' open objectives on the Raid map, in their colour, quieter than the player's own.
 /// </summary>
 /// <remarks>
-/// Off until the Objectives card's "Squad" toggle is pressed: a squad's objectives are help to
-/// offer, not the player's own plan, and five people's quests at once would bury the map. They are
+/// On unless the Objectives card's "Squad" toggle is turned off, and remembered (#902 P4): a squad's
+/// objectives are drawn quieter than the player's own, as help to offer. They are
 /// placed by the same quest layer as the player's own, from this player's own catalog; an objective
 /// the player has open too is already a filled pin and is not drawn again.
 /// </remarks>
 public sealed partial class RaidCockpitViewModel
 {
     private SquadQuestFeed? _squadQuests;
-    private bool _showSquadObjectives;
+    private bool _showSquadObjectives = true;
     private bool _routeSquadStops;
     private ICommand? _toggleSquadObjectivesCommand;
     private ICommand? _toggleRouteSquadStopsCommand;
@@ -63,7 +64,11 @@ public sealed partial class RaidCockpitViewModel
     public bool HasSquadObjectivesHere => _squadProjection is { Objectives.Count: > 0 };
 
     /// <summary>The Objectives card shows for the player's own objectives or the squad's.</summary>
-    public bool HasObjectivesCard => HasQuestObjectives || HasSquadObjectivesHere;
+    /// <remarks>
+    /// [#902 P4] Counted before done objectives are filtered out: the card holds "Show completed",
+    /// and marking the last objective done used to take the card, and the way back, with it.
+    /// </remarks>
+    public bool HasObjectivesCard => HasQuestObjectives || _objectivesHereBeforeDone > 0 || HasSquadObjectivesHere;
 
     /// <summary>"Squad": adds squadmates' open objectives on this map.</summary>
     public bool ShowSquadObjectives
@@ -73,6 +78,7 @@ public sealed partial class RaidCockpitViewModel
         {
             if (SetProperty(ref _showSquadObjectives, value))
             {
+                _layout?.Set(WorkspaceLayoutKeys.RaidSquadObjectives, value ? "on" : "off");
                 OnPropertyChanged(nameof(ShowsSquadObjectiveSummary));
                 FeedObjectiveRouteStops();
                 _rebuildRequest.Request();
@@ -91,6 +97,7 @@ public sealed partial class RaidCockpitViewModel
         {
             if (SetProperty(ref _routeSquadStops, value))
             {
+                _layout?.Set(WorkspaceLayoutKeys.RaidRouteSquad, value ? "on" : "off");
                 FeedObjectiveRouteStops();
             }
         }

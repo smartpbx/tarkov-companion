@@ -165,7 +165,8 @@ public sealed class LayersCanAlwaysBeTurnedBackOnTests : IDisposable
 
     [Theory]
     [InlineData("you", "You")]
-    [InlineData("visited", "You")]
+    [InlineData("my-trail", "You")]
+    [InlineData("nearby-spawns", "Map")]
     [InlineData("squad", "Squad")]
     [InlineData("traffic-routes", "Routes")]
     [InlineData("objective-route", "Routes")]

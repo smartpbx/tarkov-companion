@@ -46,8 +46,6 @@ public static partial class RaidText
     public static string TurnQuarter => UiText.Get("Raid.TurnQuarter");
     public static string TurnQuarterTip => UiText.Get("Raid.TurnQuarterTip");
     public static string Rotate => UiText.Get("Raid.Rotate");
-    public static string ShowVisited => UiText.Get("Raid.ShowVisited");
-    public static string ShowVisitedTip => UiText.Get("Raid.ShowVisitedTip");
     public static string VisitedCount(int count) => UiText.Format("Raid.VisitedCount", count);
     public static string SquadNames => UiText.Get("Raid.SquadNames");
     public static string SquadNamesTip => UiText.Get("Raid.SquadNamesTip");
@@ -88,6 +86,16 @@ public static partial class RaidText
     public static string PlannedRouteDetail => UiText.Get("Raid.PlannedRouteDetail");
     public static string LayerYou => UiText.Get("Raid.LayerYou");
     public static string LayerVisited => UiText.Get("Raid.LayerVisited");
+    public static string LayerMyTrail => UiText.Get("Raid.LayerMyTrail");
+    public static string LayerNearbySpawns => UiText.Get("Raid.LayerNearbySpawns");
+    public static string AllObjectivesDone(int count) => UiText.Format("Raid.AllObjectivesDone", count);
+    public static string FollowFloor => UiText.Get("Raid.FollowFloor");
+    public static string FollowFloorTip => UiText.Get("Raid.FollowFloorTip");
+    public static string DrawingTools => UiText.Get("Raid.DrawingTools");
+    public static string DrawingToolsTip => UiText.Get("Raid.DrawingToolsTip");
+    public static string DrawingToolsRestart => UiText.Get("Raid.DrawingToolsRestart");
+    public static string LootFilterEdit(string summary) => UiText.Format("Raid.LootFilterEdit", summary);
+    public static string LootFilterEditTip => UiText.Get("Raid.LootFilterEditTip");
     public static string LayerMyMarks => UiText.Get("Raid.LayerMyMarks");
     public static string MemberPath(string member) => UiText.Format("Raid.MemberPath", member);
     public static string RaidOn(string date) => UiText.Format("Raid.RaidOn", date);

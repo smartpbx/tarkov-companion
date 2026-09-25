@@ -22,6 +22,9 @@ internal sealed class FollowSetting
 
     public bool Value { get; private set; }
 
+    /// <summary>[#902] Reads the stored choice again, after Backup &amp; reset replaced it.</summary>
+    public void Reload() => Value = Parse(_store?.Get(WorkspaceLayoutKeys.RaidFollow));
+
     public bool Set(bool value)
     {
         Value = value;

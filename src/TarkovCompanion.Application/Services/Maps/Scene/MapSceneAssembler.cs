@@ -30,6 +30,13 @@ public sealed record MapSceneLegacyElement(
     public MapSceneOfferState OfferState { get; } = Enum.IsDefined(OfferState)
         ? OfferState
         : throw new ArgumentOutOfRangeException(nameof(OfferState));
+
+    /// <summary>
+    /// [#902 P3] A layer of the host's own for this copy of the element, instead of its kind's
+    /// layer: Raid's Nearby spawns are the same catalog spawns as All spawns, with their own
+    /// switch. The copy gets its own id, so both can be in one scene.
+    /// </summary>
+    public MapSceneLayerId? LayerOverride { get; init; }
 }
 
 public sealed record MapSceneBuildResult(MapSceneSnapshot? Scene, string? UnavailableReason)
@@ -183,10 +190,12 @@ public sealed class MapSceneAssembler
             _ => MapSceneTruthKind.StaticReference,
         };
         var point = new MapScenePoint(element.Position.X, element.Position.Y);
-        var id = StableId(element);
+        var id = source.LayerOverride is { } layer
+            ? new MapSceneObjectId($"{layer.Value}:{StableId(element).Value}")
+            : StableId(element);
         return new(
             id,
-            IdFor(element.Layer),
+            source.LayerOverride ?? IdFor(element.Layer),
             kind,
             truth,
             element.Label,

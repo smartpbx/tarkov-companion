@@ -21,14 +21,25 @@ internal sealed class LootValueFilterSetting
     public LootValueFilterSetting(IWorkspaceLayoutStore? store)
     {
         _store = store;
-        Threshold = ParseThreshold(store?.Get(WorkspaceLayoutKeys.RaidLootValueThreshold));
-        Basis = ParseBasis(store?.Get(WorkspaceLayoutKeys.RaidLootValueBasis));
+        Reload();
+    }
+
+    /// <summary>[#902] Reads the stored threshold and basis again, after Backup &amp; reset replaced them.</summary>
+    public void Reload()
+    {
+        Threshold = ParseThreshold(_store?.Get(WorkspaceLayoutKeys.RaidLootValueThreshold));
+        Basis = ParseBasis(_store?.Get(WorkspaceLayoutKeys.RaidLootValueBasis));
     }
 
     public long Threshold { get; private set; }
 
     public LootSpawnValueBasis Basis { get; private set; }
 
+    /// <remarks>
+    /// [#902 P4] The floor is always cleared: the loot layer follows the map's own floor. A loot
+    /// floor chosen on one map was carried to the next, where no spawn is on it, and emptied the
+    /// layer with no chip lit to say why.
+    /// </remarks>
     public HighValueLootLayerFilterState Apply(HighValueLootLayerFilterState state) =>
         state.WithFilter(Clone(state.Filter, Basis, Threshold));
 
@@ -64,7 +75,7 @@ internal sealed class LootValueFilterSetting
         filter.MaximumSourceAge,
         filter.MinimumConfidence,
         filter.IncludeProfileRelevant,
-        filter.FloorId,
+        null,
         filter.ItemIds,
         filter.Categories,
         minimumValueRoubles);
