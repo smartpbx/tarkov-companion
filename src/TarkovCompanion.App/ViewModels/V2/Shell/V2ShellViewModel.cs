@@ -2254,6 +2254,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         SynchronizeLegacySelection();
         LoadHomeOverview(snapshot);
         ReloadPlanWhenGameDataChanges(snapshot.Data.UpdatedUtc);
+        ReloadWhenDatabaseBecomesReady(snapshot.DatabaseReady);
         // v2r-team (package 9, wave 2): kept live on every refresh, like Legacy.Group/Legacy.Squad
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
