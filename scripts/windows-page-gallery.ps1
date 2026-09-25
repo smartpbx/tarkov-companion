@@ -2125,6 +2125,18 @@ $Shots.Add([pscustomobject]@{
 })
 
 $GalleryClock = [System.Diagnostics.Stopwatch]::StartNew()
+# [#870] The page-state scenes take the profile, config and download cache away and run offline.
+# Run after every other shot, so a gating shot (the loot layer, the Raid map) never starts from
+# what they left behind: runs 36078094906 and 36079690007 failed the loot layer right after them.
+$StateSceneNames = @("empty", "loading", "degraded", "error")
+$OrderedShots = [System.Collections.Generic.List[object]]::new()
+foreach ($Candidate in $Shots) {
+    if ([string](Get-InteractionProperty -Object $Candidate -Name "galleryScene" -Default "") -notin $StateSceneNames) { $OrderedShots.Add($Candidate) }
+}
+foreach ($Candidate in $Shots) {
+    if ([string](Get-InteractionProperty -Object $Candidate -Name "galleryScene" -Default "") -in $StateSceneNames) { $OrderedShots.Add($Candidate) }
+}
+$Shots = $OrderedShots
 foreach ($Shot in $Shots) {
     $Page = $Shot.name
     $Screenshot = Join-Path $ScreenshotDirectory ("{0}.png" -f $Page.ToLowerInvariant())
