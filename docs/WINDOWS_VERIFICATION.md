@@ -65,7 +65,9 @@ and has neither a step that could publish nor a token that could.
    relay stopped answering (Raid, Flea with a search, Team › Group, Tablet unpaired, Setup); `error`
    makes the page's own load throw (`LoadFaultInjection`; Plan, Debrief, Stash), finds the
    load-fault notice and presses its Retry (each page is one `PageLoadState`, so failed never
-   also says empty). Each asserts its message element reads as words with no exception name. The
+   also says empty). Each asserts its message element reads as words with no exception name. They
+   run after every other shot, and `%LOCALAPPDATA%\TarkovCompanion` (less `Logs`) is mirrored
+   aside before the first and back after each one, so later steps never inherit their state. The
    `inspect` and `routestops` scenes add Raid's Inspect popover and five Route stops, in raid on
    Customs.
    Each Variant A capture is then pixel-diffed (`scripts/windows-gallery-diff.ps1`, advisory,
