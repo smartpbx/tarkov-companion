@@ -299,7 +299,22 @@
                   AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.Name="{Binding UnavailableReason}"
                   AutomationProperties.AutomationId="v2-raid-unavailable">
-            <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
+            <Panel>
+              <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap"
+                         IsVisible="{Binding !MapCatalogNotice.IsVisible}" />
+              <!-- #292: no map list. Local only says so and opens the switch; a failed download offers Retry. -->
+              <StackPanel Spacing="12" MaxWidth="460" IsVisible="{Binding MapCatalogNotice.IsVisible}"
+                          AutomationProperties.AutomationId="v2-raid-map-catalog-notice">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MapCatalogNotice.Title}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-label" Text="{Binding MapCatalogNotice.Detail}" TextWrapping="Wrap" />
+                </StackPanel>
+                <Button Classes="v2-target" HorizontalAlignment="Left"
+                        AutomationProperties.AutomationId="v2-raid-map-catalog-action"
+                        Content="{Binding MapCatalogNotice.ActionLabel}" IsEnabled="{Binding MapCatalogNotice.CanAct}"
+                        Command="{Binding MapCatalogNotice.ActionCommand}" />
+              </StackPanel>
+            </Panel>
           </Border>
           <!-- #452: a floor that would not rasterise says so over the map, with Retry. -->
           <prim:V2LoadFaultNotice DataContext="{Binding MapFault}" MaxWidth="520" Margin="12,72,12,12"

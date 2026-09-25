@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Network;
+using TarkovCompanion.Core.Network;
 
 namespace TarkovCompanion.Infrastructure.Maps;
 
@@ -78,7 +80,10 @@ public sealed class TarkovDevMapCatalogClient(
                         MapCatalogAvailability.Unavailable,
                         cacheError is null
                             ? $"Map catalog is unavailable: {exception.Message}"
-                            : $"Map catalog and local cache are unavailable: {exception.Message}; cache: {cacheError}");
+                            : $"Map catalog and local cache are unavailable: {exception.Message}; cache: {cacheError}")
+                    {
+                        Failure = IsLocalOnly(exception) ? MapCatalogFailure.LocalOnly : MapCatalogFailure.Failed,
+                    };
             }
         }
         finally
@@ -256,6 +261,19 @@ public sealed class TarkovDevMapCatalogClient(
         memory.Position = 0;
         using var reader = new StreamReader(memory, detectEncodingFromByteOrderMarks: true);
         return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool IsLocalOnly(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is NetworkBlockedException { Verdict: NetworkVerdict.LocalOnly })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsRecoverable(Exception exception, CancellationToken callerToken) => exception switch

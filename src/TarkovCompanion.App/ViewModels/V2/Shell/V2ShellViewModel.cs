@@ -555,6 +555,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             _plan.OpenHideoutRequested += PlanOpenHideoutRequested;
         }
 
+        if (RaidCockpitWorkspace is { } raidMap)
+        {
+            // [#292] "No map saved on this PC yet" opens the Local only switch.
+            raidMap.OpenDataPrivacyRequested += RaidOpenDataPrivacyRequested;
+        }
+
         WireLegacyContext();
         WireRaidClock();
         WireLootAutoReturn();
@@ -1657,6 +1663,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private void PlanShowOnMapRequested(object? sender, EventArgs e) => GoTo(V2Routes.Raid);
 
     private void PlanOpenHideoutRequested(object? sender, EventArgs e) => GoTo(V2Routes.Hideout);
+
+    private void RaidOpenDataPrivacyRequested(object? sender, EventArgs e)
+    {
+        var opened = Router.Navigate(V2Routes.Setup, "v2-raid-map-catalog-action");
+        Act(opened);
+        if (opened.Succeeded)
+        {
+            SetupWorkspace?.Select(V2SetupSection.DataPrivacy);
+        }
+    }
 
     private void ArmSelectedCaptureIntent() => RequestCaptureArm(
         SelectedCaptureIntent,
@@ -3567,6 +3583,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             _plan.ShowOnMapRequested -= PlanShowOnMapRequested;
             _plan.OpenHideoutRequested -= PlanOpenHideoutRequested;
+        }
+
+        if (RaidCockpitWorkspace is { } raidMap)
+        {
+            raidMap.OpenDataPrivacyRequested -= RaidOpenDataPrivacyRequested;
         }
 
         _updateNotice?.Dispose();

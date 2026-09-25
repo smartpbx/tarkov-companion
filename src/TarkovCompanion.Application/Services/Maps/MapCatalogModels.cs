@@ -216,4 +216,24 @@ public sealed record MapCatalogLoadResult(
     string? SourceJson = null)
 {
     public bool IsAvailable => Catalog is not null;
+
+    /// <summary>Why <see cref="Catalog"/> is null, when it is.</summary>
+    /// <remarks>
+    /// [#292] The page has to tell "Local only kept the download from happening" from "the
+    /// download failed": the first is a choice with a switch to undo it, the second wants Retry.
+    /// <see cref="Message"/> carries the exception text, which belongs in the log, not on screen.
+    /// </remarks>
+    public MapCatalogFailure Failure { get; init; }
+}
+
+/// <summary>Why a map catalog load produced no catalog.</summary>
+public enum MapCatalogFailure
+{
+    None,
+
+    /// <summary>Local only is on and nothing was cached, so nothing was asked for.</summary>
+    LocalOnly,
+
+    /// <summary>The download or the cache failed.</summary>
+    Failed,
 }
