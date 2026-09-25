@@ -70,10 +70,8 @@ public sealed class UpdateStateFile(string folder, ILogger? logger = null) : IUp
         ArgumentNullException.ThrowIfNull(state);
         lock (_gate)
         {
-            Directory.CreateDirectory(folder);
-            var temporary = FilePath + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(state, Json));
-            File.Move(temporary, FilePath, overwrite: true);
+            // Durable as well as atomic (#888): a pin lost to a power cut offers the build it held back.
+            TarkovCompanion.Infrastructure.Settings.AtomicJsonFile.Write(FilePath, JsonSerializer.Serialize(state, Json));
         }
     }
 }

@@ -211,12 +211,9 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         await _preferences.UpdateAsync(target.Appearance, CancellationToken.None).ConfigureAwait(true);
         if (_notifications is not null)
         {
-            foreach (var kind in NotificationSamples.All)
-            {
-                await _notifications.SetEnabledAsync(kind, target.Notifications.IsEnabled(kind), CancellationToken.None).ConfigureAwait(true);
-            }
-
-            await _notifications.SetPopupAsync(target.Notifications.ShowsDesktopPopup, CancellationToken.None).ConfigureAwait(true);
+            // One write of the whole record (#888). The per-switch calls this replaced never set
+            // quiet hours, so an import or reset listed quiet-hours changes and applied none.
+            await _notifications.ReplaceAsync(target.Notifications, CancellationToken.None).ConfigureAwait(true);
         }
 
         await _retention.SaveAsync(target.ScreenshotRetention, CancellationToken.None).ConfigureAwait(true);

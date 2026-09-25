@@ -50,6 +50,9 @@ public sealed class SetupNotificationRowViewModel : BindableViewModel
         private set => SetProperty(ref _isEnabled, value);
     }
 
+    /// <summary>Shows what the bridge holds, without saving anything.</summary>
+    internal void Show(bool enabled) => IsEnabled = enabled;
+
     public string AutomationId => $"v2-setup-notification-{Kind.ToString().ToLowerInvariant()}";
 
     public string TestAutomationId => $"{AutomationId}-test";
@@ -77,14 +80,19 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
 {
     private readonly NotificationBridge? _bridge;
     private readonly Func<bool> _trayIsAvailable;
+    private readonly Action<Action> _dispatch;
     private bool _showsPopup;
     private bool _quietHours;
     private int _quietFromHour;
     private int _quietToHour;
 
-    public SetupNotificationsViewModel(NotificationBridge? bridge, Func<bool>? trayIsAvailable = null)
+    public SetupNotificationsViewModel(
+        NotificationBridge? bridge,
+        Func<bool>? trayIsAvailable = null,
+        Action<Action>? dispatch = null)
     {
         _bridge = bridge;
+        _dispatch = dispatch ?? (static action => action());
         // Read late: this page is composed before Avalonia has a tray to attach.
         _trayIsAvailable = trayIsAvailable ?? (static () => false);
         var settings = bridge?.Settings ?? NotificationSettings.Default;
@@ -106,6 +114,49 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
             QuietHours = !QuietHours;
             _ = SaveQuietHoursAsync();
         });
+        if (bridge is not null)
+        {
+            // #888: this page is built before the bridge has read notifications.json, so the copy
+            // above is the defaults. Re-read whenever the bridge's settings change: after the load,
+            // after an import or reset, and after every switch here.
+            bridge.SettingsChanged += (_, _) => _dispatch(Refresh);
+        }
+    }
+
+    /// <summary>
+    /// Shows the bridge's current settings. Writes the backing fields directly, because the
+    /// hour setters save, and showing a value is not choosing it.
+    /// </summary>
+    public void Refresh()
+    {
+        var settings = _bridge?.Settings ?? NotificationSettings.Default;
+        ShowsPopup = settings.ShowsDesktopPopup;
+        QuietHours = settings.QuietHours;
+        if (SetField(ref _quietFromHour, Math.Clamp(settings.QuietFromHour, 0, 23)))
+        {
+            OnPropertyChanged(nameof(QuietFromHour));
+        }
+
+        if (SetField(ref _quietToHour, Math.Clamp(settings.QuietToHour, 0, 23)))
+        {
+            OnPropertyChanged(nameof(QuietToHour));
+        }
+
+        foreach (var row in Rows)
+        {
+            row.Show(settings.IsEnabled(row.Kind));
+        }
+    }
+
+    private static bool SetField(ref int field, int value)
+    {
+        if (field == value)
+        {
+            return false;
+        }
+
+        field = value;
+        return true;
     }
 
     public IReadOnlyList<SetupNotificationRowViewModel> Rows { get; }
