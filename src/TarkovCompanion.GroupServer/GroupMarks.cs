@@ -87,6 +87,12 @@ public sealed class GroupMarks
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.Ordinal);
     private long _nextId;
 
+    /// <summary>Raised by every change that should reach the file.</summary>
+    private long _changes;
+
+    /// <summary>The change the file on disk already holds; only touched under the save gate.</summary>
+    private long _written;
+
     /// <param name="storePath">
     /// Where the squad's marks are kept, or null to hold them only in memory.
     /// </param>
@@ -100,51 +106,107 @@ public sealed class GroupMarks
         _timeProvider = timeProvider;
         _storePath = storePath;
         Load();
+
+        // #886: ids start at the clock, in milliseconds, rather than at the highest waypoint
+        // that survived. Pings are never written and removed waypoints are gone, so the old
+        // seed handed a ping's id out again after a restart, and the client removing that
+        // expired ping deleted a squadmate's new waypoint. Nothing issues a mark a millisecond,
+        // so a later start always numbers above everything an earlier one issued. Well inside
+        // a double's exact range, which is what the tablet's JavaScript reads it as.
+        _nextId = Math.Max(_nextId, timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
     }
+
+    /// <summary>The most rooms that may hold marks, the same bound the live rooms have.</summary>
+    public const int MaximumRooms = GroupRooms.MaximumRooms;
 
     private sealed class Room
     {
         public List<GroupWaypoint> Waypoints { get; } = [];
 
         public List<GroupPing> Pings { get; } = [];
+
+        /// <summary>Set, under the room's lock, once the sweep has removed it from the map of rooms.</summary>
+        public bool Retired { get; set; }
     }
 
-    public GroupWaypoint AddWaypoint(string room, string by, string mapId, double x, double y, double z, string? label, string? color = null)
+    /// <summary>The room's marks, or null when it has none and no more rooms may be added.</summary>
+    /// <remarks>
+    /// #886: rooms were GetOrAdd-only, so against an open relay every new key left a room
+    /// behind for good, and each one made every later save longer. Checked before the room is
+    /// created, as GroupRooms does, so a refused key allocates nothing. An existing room is
+    /// never refused.
+    /// </remarks>
+    private Room? RoomFor(string room) =>
+        _rooms.TryGetValue(room, out var entry) ? entry
+        : _rooms.Count >= MaximumRooms ? null
+        : _rooms.GetOrAdd(room, _ => new());
+
+    /// <summary>Adds a waypoint, or returns null when the relay already holds marks for as many rooms as it will.</summary>
+    public GroupWaypoint? AddWaypoint(string room, string by, string mapId, double x, double y, double z, string? label, string? color = null)
     {
-        var entry = _rooms.GetOrAdd(room, _ => new());
         var waypoint = new GroupWaypoint(
             Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label),
             _timeProvider.GetUtcNow(), null, null, MarkPalette.Normalize(color));
-        lock (entry)
+        while (true)
         {
-            // Oldest first, so a group that keeps marking loses its stalest plan rather than
-            // being told it cannot make a new one.
-            if (entry.Waypoints.Count >= MaximumWaypointsPerRoom)
+            if (RoomFor(room) is not { } entry)
             {
-                entry.Waypoints.RemoveAt(0);
+                return null;
             }
 
-            entry.Waypoints.Add(waypoint);
+            lock (entry)
+            {
+                // The sweep removed this room between the lookup and the lock; the next lookup
+                // makes a fresh one rather than adding to a room nothing can reach.
+                if (entry.Retired)
+                {
+                    continue;
+                }
+
+                // Oldest first, so a group that keeps marking loses its stalest plan rather than
+                // being told it cannot make a new one.
+                if (entry.Waypoints.Count >= MaximumWaypointsPerRoom)
+                {
+                    entry.Waypoints.RemoveAt(0);
+                }
+
+                entry.Waypoints.Add(waypoint);
+                break;
+            }
         }
 
         Save();
         return waypoint;
     }
 
-    public GroupPing AddPing(string room, string by, string mapId, double x, double y, double z, string? label, string? color = null)
+    /// <summary>Adds a ping, or returns null when the relay already holds marks for as many rooms as it will.</summary>
+    public GroupPing? AddPing(string room, string by, string mapId, double x, double y, double z, string? label, string? color = null)
     {
-        var entry = _rooms.GetOrAdd(room, _ => new());
         var ping = new GroupPing(
             Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label), _timeProvider.GetUtcNow(), MarkPalette.Normalize(color));
-        lock (entry)
+        while (true)
         {
-            entry.Pings.RemoveAll(Expired);
-            if (entry.Pings.Count >= MaximumPingsPerRoom)
+            if (RoomFor(room) is not { } entry)
             {
-                entry.Pings.RemoveAt(0);
+                return null;
             }
 
-            entry.Pings.Add(ping);
+            lock (entry)
+            {
+                if (entry.Retired)
+                {
+                    continue;
+                }
+
+                entry.Pings.RemoveAll(Expired);
+                if (entry.Pings.Count >= MaximumPingsPerRoom)
+                {
+                    entry.Pings.RemoveAt(0);
+                }
+
+                entry.Pings.Add(ping);
+                break;
+            }
         }
 
         return ping;
@@ -183,19 +245,27 @@ public sealed class GroupMarks
     /// mind" about one it had just sent. Save() persists waypoints only (see its own remark);
     /// removing a ping early needs no extra durability; it was already going to disappear.
     /// </remarks>
-    public bool Remove(string room, long id)
+    /// <param name="onlyBy">
+    /// #886: when given, only a mark this name dropped is removed. A client taking back a mark it
+    /// sent itself says so, and a stale id then cannot remove a squadmate's mark, whatever the
+    /// relay numbered it. Left out, anybody may remove anybody's, as before.
+    /// </param>
+    public bool Remove(string room, long id, string? onlyBy = null)
     {
         if (!_rooms.TryGetValue(room, out var entry))
         {
             return false;
         }
 
+        var ownerless = string.IsNullOrWhiteSpace(onlyBy);
+        bool Owned(string by) => ownerless || string.Equals(by.Trim(), onlyBy!.Trim(), StringComparison.OrdinalIgnoreCase);
+
         bool removedWaypoint;
         bool removedPing;
         lock (entry)
         {
-            removedWaypoint = entry.Waypoints.RemoveAll(waypoint => waypoint.Id == id) > 0;
-            removedPing = !removedWaypoint && entry.Pings.RemoveAll(ping => ping.Id == id) > 0;
+            removedWaypoint = entry.Waypoints.RemoveAll(waypoint => waypoint.Id == id && Owned(waypoint.By)) > 0;
+            removedPing = !removedWaypoint && entry.Pings.RemoveAll(ping => ping.Id == id && Owned(ping.By)) > 0;
         }
 
         if (removedWaypoint)
@@ -230,6 +300,66 @@ public sealed class GroupMarks
         return cleared;
     }
 
+    /// <summary>Forgets every mark a room has, for a room an operator removed.</summary>
+    public void ClearRoom(string room)
+    {
+        if (_rooms.TryRemove(room, out var entry))
+        {
+            bool hadWaypoints;
+            lock (entry)
+            {
+                entry.Retired = true;
+                hadWaypoints = entry.Waypoints.Count > 0;
+            }
+
+            if (hadWaypoints)
+            {
+                Save();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drops expired pings, waypoints past their lifetime, and rooms left with nothing.
+    /// </summary>
+    /// <remarks>
+    /// #886: the lifetime was applied only when the file was read back, so a waypoint held in
+    /// memory never aged out, and nothing ever removed a room. Run by the relay's one-minute
+    /// sweeper beside the live rooms' own.
+    /// </remarks>
+    public void Sweep()
+    {
+        var now = _timeProvider.GetUtcNow();
+        var cutoff = now - WaypointLifetime;
+        var dropped = false;
+        foreach (var (room, entry) in _rooms)
+        {
+            lock (entry)
+            {
+                entry.Pings.RemoveAll(Expired);
+                dropped |= entry.Waypoints.RemoveAll(waypoint => waypoint.CreatedUtc <= cutoff) > 0;
+                // Retired under the same lock an adder takes, so a mark racing the sweep goes
+                // into a fresh room rather than into this one after it has left the map.
+                if (entry.Waypoints.Count == 0 && entry.Pings.Count == 0
+                    && _rooms.TryRemove(new KeyValuePair<string, Room>(room, entry)))
+                {
+                    entry.Retired = true;
+                }
+            }
+        }
+
+        if (dropped)
+        {
+            Save();
+        }
+    }
+
+    /// <summary>Called once a save has taken its snapshot and before it writes; for tests only.</summary>
+    internal Action? SnapshotTaken { get; set; }
+
+    /// <summary>How many rooms hold marks, for tests and the health counts.</summary>
+    public int RoomCount => _rooms.Count;
+
     /// <summary>Everything the group has marked, with expired pings already gone.</summary>
     public (IReadOnlyList<GroupWaypoint> Waypoints, IReadOnlyList<GroupPing> Pings) Read(string room)
     {
@@ -257,6 +387,12 @@ public sealed class GroupMarks
     /// leaves the previous plan rather than a truncated one. A failure is logged nowhere and
     /// swallowed on purpose: losing the file costs the group its marks, and throwing here
     /// would cost them the mark they were making as well.
+    ///
+    /// #886: the snapshot is taken inside the gate. It used to be taken before it, so two
+    /// waypoints dropped together could be written newest first and oldest last, and the
+    /// newer one was missing after the next restart. Saves are also coalesced: every change
+    /// raises a count, and a caller that reaches the gate after somebody else already wrote
+    /// its change writes nothing, so a burst of marks costs one write rather than one each.
     /// </remarks>
     private void Save()
     {
@@ -265,26 +401,36 @@ public sealed class GroupMarks
             return;
         }
 
+        var change = Interlocked.Increment(ref _changes);
         try
         {
-            var snapshot = new Dictionary<string, IReadOnlyList<GroupWaypoint>>(StringComparer.Ordinal);
-            foreach (var (room, entry) in _rooms)
-            {
-                lock (entry)
-                {
-                    if (entry.Waypoints.Count > 0)
-                    {
-                        snapshot[room] = entry.Waypoints.ToArray();
-                    }
-                }
-            }
-
             lock (_saveGate)
             {
+                if (_written >= change)
+                {
+                    return;
+                }
+
+                // Everything up to here is in the snapshot below, taken after this read.
+                var covers = Volatile.Read(ref _changes);
+                var snapshot = new Dictionary<string, IReadOnlyList<GroupWaypoint>>(StringComparer.Ordinal);
+                foreach (var (room, entry) in _rooms)
+                {
+                    lock (entry)
+                    {
+                        if (entry.Waypoints.Count > 0)
+                        {
+                            snapshot[room] = entry.Waypoints.ToArray();
+                        }
+                    }
+                }
+
+                SnapshotTaken?.Invoke();
                 Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
                 var temporary = _storePath + ".writing";
                 File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot));
                 File.Move(temporary, _storePath, overwrite: true);
+                _written = covers;
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
@@ -298,7 +444,8 @@ public sealed class GroupMarks
     /// <remarks>
     /// The next id is seeded above the largest one restored. Without that a restart would
     /// start numbering at one again and the first new waypoint would collide with a restored
-    /// one, so completing either would complete the wrong mark.
+    /// one, so completing either would complete the wrong mark. That alone was not enough
+    /// (#886): the constructor also seeds it from the clock.
     /// </remarks>
     private void Load()
     {

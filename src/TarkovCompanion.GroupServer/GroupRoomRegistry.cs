@@ -213,9 +213,11 @@ public sealed class GroupRoomRegistry
 
         try
         {
-            var snapshot = _rooms.Values.ToArray();
+            // #886: the snapshot is taken inside the gate, so a slower save can never write an
+            // older list over a newer one.
             lock (_saveGate)
             {
+                var snapshot = _rooms.Values.ToArray();
                 Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
                 var temporary = _storePath + ".writing";
                 File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot));

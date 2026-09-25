@@ -142,6 +142,53 @@ public sealed class GroupRoomsTests
         Assert.True(rooms.Publish("room", "Clay", Member("Clay")));
     }
 
+    /// <summary>
+    /// [#886] The trail's and the raid clock's ages grow between two publishes of the same thing,
+    /// and counting that as a change brought the #453 wake storm back for the rest of every raid.
+    /// </summary>
+    [Fact]
+    public void Older_trail_points_and_an_older_raid_clock_are_not_a_change()
+    {
+        var rooms = new GroupRooms(TimeProvider.System);
+        var first = InRaid(trailAges: [12.4, 5.1], clockAge: 3.2);
+
+        Assert.True(rooms.Publish("room", "Geo", first));
+        Assert.False(rooms.Publish("room", "Geo", InRaid(trailAges: [12.9, 5.6], clockAge: 3.7) with { PositionAgeSeconds = 0.5 }));
+        Assert.False(rooms.Publish("room", "Geo", InRaid(trailAges: [40, 33], clockAge: 31)));
+
+        // The readers are still told the fresh ages: the stored state is the newest one.
+        var stored = rooms.Read("room", "Clay").Members.Single();
+        Assert.Equal(40, stored.Trail[0].AgeSeconds);
+        Assert.Equal(31, stored.RaidClockAgeSeconds);
+    }
+
+    /// <summary>
+    /// [#886] Teammate latency: with ages ignored, a real change must still wake the room at once.
+    /// </summary>
+    [Fact]
+    public void A_move_a_new_trail_point_or_a_new_clock_reading_is_still_a_change()
+    {
+        var rooms = new GroupRooms(TimeProvider.System);
+        Assert.True(rooms.Publish("room", "Geo", InRaid(trailAges: [12, 5], clockAge: 3)));
+
+        // Moved: the position itself, with the trail's ages grown as they always do.
+        Assert.True(rooms.Publish("room", "Geo", InRaid(trailAges: [13, 6], clockAge: 4) with { X = 50 }));
+
+        // A new screenshot: the old position joins the trail.
+        var longer = InRaid(trailAges: [14, 7, 1], clockAge: 5) with { X = 50 };
+        Assert.True(rooms.Publish("room", "Geo", longer));
+
+        // A fresh clock reading.
+        Assert.True(rooms.Publish("room", "Geo", longer with { RaidClockSeconds = 1500, RaidClockAgeSeconds = 0 }));
+    }
+
+    private static GroupMemberState InRaid(double[] trailAges, double clockAge) => Member("Geo") with
+    {
+        Trail = [.. trailAges.Select((age, index) => new GroupTrailPoint(index * 10, index * 20, age))],
+        RaidClockSeconds = 1800,
+        RaidClockAgeSeconds = clockAge,
+    };
+
     private static GroupMemberState Member(string name, IReadOnlyList<GroupObservedMember>? observed = null) => new(
         name,
         "bigmap",
