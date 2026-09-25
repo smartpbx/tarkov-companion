@@ -299,6 +299,8 @@ internal static class Program
             if (shell is not null && args.Contains("--update-waiting"))
             {
                 shell.SetupDestination.HasNotice = true;
+                // [#881] And the words above the gear that go with it.
+                shell.UpdateReadyNotice.PresentForPreview();
             }
 
             // [#294] How large everything is drawn, so a render can show the scale actually

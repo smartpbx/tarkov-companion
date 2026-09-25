@@ -25,10 +25,19 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
     /// Preview state is deliberately separate from V1's layout file, but an unplugged monitor
     /// has the same failure mode in both shells: a perfectly valid saved window nobody can reach.
     /// Keep deliberate edge overlap, and move only a window with no usable overlap at all.
+    ///
+    /// [#881] <paramref name="frameHeight"/> is what the window adds above and below its client
+    /// area (title bar and borders), and <paramref name="scaling"/> is device pixels per
+    /// device-independent pixel. <see cref="Width"/> and <see cref="Height"/> are the client's
+    /// size in device-independent pixels, while the screens and <see cref="Left"/>/<see cref="Top"/>
+    /// are device pixels; comparing the two directly let a window whose client alone matched the
+    /// work area keep its title bar's height of client under the taskbar.
     /// </remarks>
-    public V2ShellWindowPlacement ClampTo(IReadOnlyList<ScreenBounds> screens)
+    public V2ShellWindowPlacement ClampTo(IReadOnlyList<ScreenBounds> screens, double frameHeight = 0, double scaling = 1)
     {
         ArgumentNullException.ThrowIfNull(screens);
+        frameHeight = double.IsFinite(frameHeight) && frameHeight > 0 ? frameHeight : 0;
+        scaling = double.IsFinite(scaling) && scaling > 0 ? scaling : 1;
         if (screens.Count == 0 || Left is not { } left || Top is not { } top)
         {
             return this;
@@ -42,7 +51,7 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
                 top + Height > screen.Top &&
                 top + grabbable < screen.Bottom)
             {
-                return FitVertically(screen);
+                return FitVertically(screen, frameHeight, scaling);
             }
         }
 
@@ -50,11 +59,11 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
         var availableWidth = Math.Max(0, home.Right - home.Left);
         var availableHeight = Math.Max(0, home.Bottom - home.Top);
         var clampedWidth = Math.Max(MinimumWidth, Math.Min(Width, availableWidth));
-        var clampedHeight = Math.Max(MinimumHeight, Math.Min(Height, availableHeight));
+        var clampedHeight = Math.Max(MinimumHeight, Math.Min(Height, availableHeight / scaling - frameHeight));
         return this with
         {
             Left = home.Left + Math.Max(0, Math.Min(40, (availableWidth - clampedWidth) / 2)),
-            Top = home.Top + Math.Max(0, Math.Min(40, (availableHeight - clampedHeight) / 2)),
+            Top = home.Top + Math.Max(0, Math.Min(40, (availableHeight - (clampedHeight + frameHeight) * scaling) / 2)),
             Width = clampedWidth,
             Height = clampedHeight,
         };
@@ -69,8 +78,13 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
     /// saved 1080 tall on a 1080p screen (work area about 1032) keeps its last 48 pixels under it.
     /// That is where the navigation rail keeps Setup, reported as "the settings gear is clipped".
     /// The window is made no taller than the work area and moved up until it ends inside it.
+    ///
+    /// [#881] "The whole height" includes the title bar. This fit once compared the client's
+    /// height alone with the work area, so a window it had "fitted" (client 1032 tall at the top of
+    /// a 1032 work area) still ended a title bar lower, and the gear stayed half under the taskbar
+    /// every launch. The client now gets the work area less the frame, in the same units.
     /// </remarks>
-    private V2ShellWindowPlacement FitVertically(ScreenBounds screen)
+    private V2ShellWindowPlacement FitVertically(ScreenBounds screen, double frameHeight, double scaling)
     {
         if (Top is not { } top)
         {
@@ -78,8 +92,9 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
         }
 
         var available = Math.Max(0, screen.Bottom - screen.Top);
-        var height = Math.Max(MinimumHeight, Math.Min(Height, available));
-        var fittedTop = Math.Max(screen.Top, Math.Min(top, screen.Bottom - height));
+        var height = Math.Max(MinimumHeight, Math.Min(Height, available / scaling - frameHeight));
+        var outer = (height + frameHeight) * scaling;
+        var fittedTop = Math.Max(screen.Top, Math.Min(top, Math.Floor(screen.Bottom - outer)));
         return height == Height && fittedTop == top ? this : this with { Height = height, Top = fittedTop };
     }
 

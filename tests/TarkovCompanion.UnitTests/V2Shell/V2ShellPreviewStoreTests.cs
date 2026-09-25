@@ -337,6 +337,44 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
         Assert.Equal(offTheSide, offTheSide.ClampTo(screens));
     }
 
+    [Fact]
+    public void A_fitted_window_ends_above_the_taskbar_title_bar_included()
+    {
+        // [#881] "The settings gear is cut off." The fit gave the client the work area's whole
+        // 1032 px and put the frame's top at 0, so the client ended a title bar (31 px here, plus
+        // the bottom border) below the taskbar's top edge — over the rail's gear, every launch.
+        ScreenBounds[] screens = [new(0, 0, 1920, 1032)];
+        const double frame = 39;
+
+        var fitted = new V2ShellWindowPlacement(1920, 1080, 0, 0, false).ClampTo(screens, frame);
+
+        Assert.Equal(1032d - frame, fitted.Height);
+        Assert.True(fitted.Top!.Value + fitted.Height + frame <= 1032);
+
+        // The same window already saved at the work area's height (what the old fit wrote) is
+        // brought back up too, not left as it was.
+        var oldFit = new V2ShellWindowPlacement(1920, 1032, 0, 0, false).ClampTo(screens, frame);
+        Assert.True(oldFit.Top!.Value + oldFit.Height + frame <= 1032);
+
+        // A window that fits with its frame is moved, not shrunk.
+        var lowDown = new V2ShellWindowPlacement(1500, 900, 200, 300, false).ClampTo(screens, frame);
+        Assert.Equal(900d, lowDown.Height);
+        Assert.Equal(1032d - 900 - frame, lowDown.Top!.Value);
+    }
+
+    [Fact]
+    public void A_fitted_window_compares_device_pixels_with_device_pixels()
+    {
+        // At 125% a 1032-pixel work area holds 825.6 device-independent pixels of window. The
+        // saved size is in the latter and the screen in the former.
+        ScreenBounds[] screens = [new(0, 0, 1920, 1032)];
+
+        var fitted = new V2ShellWindowPlacement(1500, 900, 0, 0, false).ClampTo(screens, 31, 1.25);
+
+        Assert.True((fitted.Height + 31) * 1.25 <= 1032 + 1e-9);
+        Assert.Equal(0d, fitted.Top!.Value);
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
