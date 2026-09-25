@@ -37,6 +37,13 @@ public sealed partial class EftLogParser
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["bigmap"] = "customs",
+            // The scene preset names the map by its asset rather than its location id, so these
+            // spellings appear only in "scene preset path:maps/<name>_preset" (#892). All but
+            // factory_night were read off a real log; that one follows factory_day.
+            ["city"] = "streets-of-tarkov",
+            ["factory_day"] = "factory",
+            ["factory_night"] = "night-factory",
+            ["rezerv_base"] = "reserve",
             ["customs"] = "customs",
             ["factory4_day"] = "factory",
             ["factory4_night"] = "night-factory",
@@ -103,6 +110,10 @@ public sealed partial class EftLogParser
             return null;
         }
 
+        // The profile reload that ends an offline raid (see RaidEvidence.EndsOnlyARaidWithoutId).
+        var profileReload = state == RaidLifecycleState.PostRaid
+            && line.Contains("CompleteSelectedProfile", StringComparison.Ordinal);
+
         var confidence = state switch
         {
             RaidLifecycleState.InRaid => new Confidence(0.95),
@@ -123,6 +134,7 @@ public sealed partial class EftLogParser
             // Only the profileStatus line carries one outside a notification. It is what tells a
             // reconnect into the raid already open from the start of another raid (#568).
             RaidKey = TryExtractRaidKey(line),
+            EndsOnlyARaidWithoutId = profileReload,
         };
     }
 
@@ -165,9 +177,18 @@ public sealed partial class EftLogParser
             return RaidLifecycleState.InRaid;
         }
 
-        if (ContainsAny(line, "locationloaded", "trace-networkgamecreate"))
+        // The scene preset is loaded once per raid, before anything else about it is written,
+        // and it is the only map evidence an offline or transit raid leaves (#892).
+        if (ContainsAny(line, "locationloaded", "trace-networkgamecreate", "scene preset path:"))
         {
             return RaidLifecycleState.LoadingRaid;
+        }
+
+        // The game reloads the profile on coming back to the menu. It ends a raid only when that
+        // raid has no id of its own, which RaidStateService checks.
+        if (line.Contains("CompleteSelectedProfile", StringComparison.Ordinal))
+        {
+            return RaidLifecycleState.PostRaid;
         }
 
         return null;
@@ -175,6 +196,32 @@ public sealed partial class EftLogParser
 
     private string? TryExtractMapId(string line)
     {
+        // A line that begins with white space is the inside of a notification the game printed
+        // over several lines, and nothing on it says whose it is. In output_000.log a Factory
+        // raid's pretty-printed end, arriving after the next raid's confirmation, renamed a
+        // running Labs raid to Factory for one line (2026-09-23).
+        if (char.IsWhiteSpace(line[0]))
+        {
+            return null;
+        }
+
+        // "scene preset path:maps/laboratory_preset.bundle" and "[Transit] ... Locations:laboratory ->"
+        // are all a transit into The Lab wrote on 2026-09-23. Neither fits the pattern below: one
+        // says "maps/", the other "Locations" (#892).
+        var preset = ScenePresetPattern().Match(line);
+        if (preset.Success)
+        {
+            return ResolveMapId(preset.Groups["map"].Value);
+        }
+
+        var transit = TransitPattern().Match(line);
+        if (transit.Success)
+        {
+            // Where the transit goes when the line says; the only location named otherwise.
+            var to = transit.Groups["to"];
+            return ResolveMapId(to.Success && to.Length > 0 ? to.Value : transit.Groups["from"].Value);
+        }
+
         var match = LocationPattern().Match(line);
         return match.Success ? ResolveMapId(match.Groups["map"].Value) : null;
     }
@@ -322,12 +369,11 @@ public sealed partial class EftLogParser
                 // the rest of the session. Holding the raid open lost the end of roughly one
                 // raid in four, which is most of what raid tracking is for.
                 //
-                // What Transfer means in the game is still not established. It lands only on
-                // scav runs and on a bit over half of those, which is the shape of a
-                // particular kind of scav exit rather than of scav runs in general; that is a
-                // guess and is not written down as more. The status is named in the summary
-                // rather than hidden, so a player who reads it has the same fact this
-                // comment does.
+                // At least some Transfer ends are transits: on 2026-09-23 one was followed by
+                // a Lab raid that wrote no short id at all (#892). That next raid is its own raid and
+                // is found from its scene preset, so ending this one here is still right. The
+                // status is named in the summary rather than hidden, so a player who reads it
+                // has the same fact this comment does.
                 "userMatchOver" when transferred => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
@@ -389,6 +435,16 @@ public sealed partial class EftLogParser
         @"(?:location|map)(?:id)?['""]?\s*[:=]\s*['""]?(?<map>[a-z0-9_-]+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LocationPattern();
+
+    [GeneratedRegex(
+        @"scene preset path:\s*maps/(?<map>[a-z0-9_]+?)_preset",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ScenePresetPattern();
+
+    [GeneratedRegex(
+        @"\[Transit\].*?Locations:\s*(?<from>[a-z0-9_]+)\s*(?:->\s*(?<to>[a-z0-9_]*))?",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TransitPattern();
 
     [GeneratedRegex(
         @"shortId:\s*(?<key>[A-Za-z0-9]+)",

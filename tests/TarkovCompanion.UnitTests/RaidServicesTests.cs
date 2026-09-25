@@ -19,10 +19,12 @@ public sealed class RaidServicesTests
             .ToArray();
 
         // The fixture is a real session: profile selected, matching, location loaded, the
-        // map-bearing profileStatus line, game started, then the raid-over notification.
-        Assert.Equal(RaidLifecycleState.LoadingRaid, evidence[0].SuggestedState);
-        Assert.Equal(RaidLifecycleState.InRaid, evidence[1].SuggestedState);
-        Assert.Equal("customs", evidence[1].MapId);
+        // map-bearing profileStatus line, game started, then the raid-over notification. The
+        // profile selection ends only a raid without an id, so it ends nothing here (#892).
+        Assert.True(evidence[0].EndsOnlyARaidWithoutId);
+        Assert.Equal(RaidLifecycleState.LoadingRaid, evidence[1].SuggestedState);
+        Assert.Equal(RaidLifecycleState.InRaid, evidence[2].SuggestedState);
+        Assert.Equal("customs", evidence[2].MapId);
         Assert.Equal(RaidLifecycleState.PostRaid, evidence[^1].SuggestedState);
         Assert.Equal("customs", evidence[^1].MapId);
     }

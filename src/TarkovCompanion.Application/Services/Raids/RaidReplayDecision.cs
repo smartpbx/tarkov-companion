@@ -6,8 +6,19 @@ namespace TarkovCompanion.Application.Services.Raids;
 /// <summary>One piece of raid evidence read back from a file that was already written.</summary>
 /// <param name="Evidence">What the parser made of the line.</param>
 /// <param name="WrittenUtc">When the game wrote it, from the line's own stamp, where it had one.</param>
-/// <param name="Order">Where it came in the replay, which breaks ties between equal stamps.</param>
-public sealed record ReplayedRaidLine(RaidEvidence Evidence, DateTimeOffset? WrittenUtc, long Order);
+/// <param name="Order">Where it came in the replay: its place within its file, and the tie-break between files.</param>
+public sealed record ReplayedRaidLine(RaidEvidence Evidence, DateTimeOffset? WrittenUtc, long Order)
+{
+    /// <summary>The file it was read from. Lines of one file are taken in the order written.</summary>
+    public string? Source { get; init; }
+
+    /// <summary>
+    /// How many times the clock had stepped back in its file before this line, counted over every
+    /// line of the file (see <see cref="RaidReplayDecision.IsClockStep"/>). Null leaves it to be
+    /// counted over the replayed lines alone, which are sparse enough to miss a step.
+    /// </summary>
+    public int? Stretch { get; init; }
+}
 
 /// <summary>The raid the newest game session left open, and whether it can still be running.</summary>
 /// <param name="Start">The line that began it, or null when the session left no raid open.</param>
@@ -49,6 +60,9 @@ public static class RaidReplayDecision
     /// <summary>How far ahead of the companion's clock a line may be stamped and still be believed.</summary>
     private static readonly TimeSpan ClockSlack = TimeSpan.FromMinutes(5);
 
+    /// <summary>How far a file's stamps may run backwards before the clock is taken to have stepped.</summary>
+    private static readonly TimeSpan ClockStep = TimeSpan.FromMinutes(5);
+
     public static RaidReplayVerdict Decide(
         IReadOnlyList<ReplayedRaidLine> newestSession,
         bool gameIsRunning,
@@ -57,29 +71,49 @@ public static class RaidReplayDecision
     {
         ArgumentNullException.ThrowIfNull(newestSession);
         ReplayedRaidLine? open = null;
+        // The last scene the game loaded, which names the map of a raid that has no id (#892).
+        ReplayedRaidLine? loading = null;
         DateTimeOffset? lastSeen = null;
-        foreach (var line in newestSession
-                     .OrderBy(line => line.WrittenUtc ?? DateTimeOffset.MinValue)
-                     .ThenBy(line => line.Order))
+        var lastEpoch = int.MinValue;
+        foreach (var (line, epoch) in InWrittenOrder(newestSession))
         {
-            if (line.WrittenUtc is { } written && (lastSeen is null || written > lastSeen))
+            if (line.WrittenUtc is { } written
+                && (epoch > lastEpoch || lastSeen is null || written > lastSeen))
             {
                 lastSeen = written;
+                lastEpoch = epoch;
             }
 
             var evidence = line.Evidence;
             switch (evidence.SuggestedState)
             {
+                // A new scene with another map is another raid, whatever the last one left behind.
+                case RaidLifecycleState.LoadingRaid when evidence.MapId is not null:
+                    loading = line;
+                    if (open is not null && open.Evidence.MapId is { } openMap
+                        && !string.Equals(openMap, evidence.MapId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        open = null;
+                    }
+
+                    break;
                 // A bare GameStarted names no raid and no map, so it continues a raid and never
                 // begins one: whatever wrote it after the last raid ended is not a raid to resume.
+                // Unless a scene was loaded for it, which is all an offline raid ever writes.
                 case RaidLifecycleState.InRaid
                     when open is not null || evidence.MapId is not null
-                        || evidence.RaidKey is not null || evidence.StartsNewRaid:
-                    open = Begin(open, line);
+                        || evidence.RaidKey is not null || evidence.StartsNewRaid || loading is not null:
+                    open = open is null && loading is not null && evidence.MapId is null
+                        ? line with { Evidence = evidence with { MapId = loading.Evidence.MapId } }
+                        : Begin(open, line);
+                    loading = null;
                     break;
                 case RaidLifecycleState.PostRaid or RaidLifecycleState.Menu:
-                    // The end of another raid is not the end of this one.
-                    if (open is not null && !RaidIdentity.DifferentRaid(open.Evidence.RaidKey, evidence.RaidKey))
+                    loading = null;
+                    // The end of another raid is not the end of this one, and a profile reload
+                    // ends only a raid with no id.
+                    if (open is not null && !RaidIdentity.DifferentRaid(open.Evidence.RaidKey, evidence.RaidKey)
+                        && !(evidence.EndsOnlyARaidWithoutId && open.Evidence.RaidKey is not null))
                     {
                         open = null;
                     }
@@ -101,13 +135,110 @@ public static class RaidReplayDecision
         }
 
         var bound = (longestRaid ?? RaidResume.LongestRaid) + RaidResume.Margin;
-        if (open.WrittenUtc is { } started && (nowUtc - started > bound || started - nowUtc > ClockSlack))
+        if (open.WrittenUtc is { } started && nowUtc - started > bound)
         {
             return new(open.Evidence, started, lastSeen, false,
                 $"{where} was never reported over, but it began longer ago than any raid lasts.");
         }
 
+        if (open.WrittenUtc is { } ahead && ahead - nowUtc > ClockSlack)
+        {
+            return new(open.Evidence, ahead, lastSeen, false,
+                $"{where} was never reported over, but it is stamped later than now, so the clock has moved since.");
+        }
+
         return new(open.Evidence, open.WrittenUtc, lastSeen, true, $"{where} is still running.");
+    }
+
+    /// <summary>
+    /// Puts the files back together in the order the game wrote them, with the clock step each line came after.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This used to sort every line by its stamp. The stamp is the PC's clock, and on 2026-09-22 that
+    /// clock stepped back four hours in the middle of a game session (Windows resynchronising). Sorted
+    /// by stamp, the Lighthouse raid that began after the step came before the Shoreline raid that had
+    /// ended before it, so the Shoreline end closed it, and a companion restarted in that Lighthouse
+    /// raid spent its last 23 minutes on no map (#892).
+    /// </para>
+    /// <para>
+    /// A file is appended in real time, so its own order is right whatever the clock did. Stamps are
+    /// used only to interleave the files, and only within one stretch between steps: every file of a
+    /// session steps at the same moment (measured: application, backend and output all stepped once,
+    /// together, in both sessions that stepped), so each file's k-th stretch from the end is the same
+    /// stretch of time.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<(ReplayedRaidLine Line, int Epoch)> InWrittenOrder(IReadOnlyList<ReplayedRaidLine> lines)
+    {
+        var files = lines
+            .GroupBy(line => line.Source ?? string.Empty, StringComparer.Ordinal)
+            .Select(file => Stretches(file.OrderBy(line => line.Order)).ToArray())
+            .ToArray();
+        var next = new int[files.Length];
+        while (true)
+        {
+            var pick = -1;
+            for (var index = 0; index < files.Length; index++)
+            {
+                if (next[index] < files[index].Length
+                    && (pick < 0 || Earlier(files[index][next[index]], files[pick][next[pick]])))
+                {
+                    pick = index;
+                }
+            }
+
+            if (pick < 0)
+            {
+                yield break;
+            }
+
+            var chosen = files[pick][next[pick]++];
+            yield return (chosen.Line, chosen.Epoch);
+        }
+
+        static bool Earlier(
+            (ReplayedRaidLine Line, int Epoch, DateTimeOffset At) candidate,
+            (ReplayedRaidLine Line, int Epoch, DateTimeOffset At) best) =>
+            candidate.Epoch != best.Epoch
+                ? candidate.Epoch < best.Epoch
+                : candidate.At != best.At ? candidate.At < best.At : candidate.Line.Order < best.Line.Order;
+    }
+
+    /// <summary>Whether a file's stamps going from <paramref name="before"/> to <paramref name="after"/> means its clock stepped back.</summary>
+    public static bool IsClockStep(DateTimeOffset before, DateTimeOffset after) => before - after > ClockStep;
+
+    /// <summary>
+    /// Numbers the stretches of one file between backward clock steps, counting back from its end;
+    /// an unstamped line sits with the line before it.
+    /// </summary>
+    /// <remarks>
+    /// Counted from the end because every file runs up to the moment the companion reads it, while
+    /// their beginnings differ: a replay reads only the tail of a large file, and that tail can begin
+    /// after the step.
+    /// </remarks>
+    private static IEnumerable<(ReplayedRaidLine Line, int Epoch, DateTimeOffset At)> Stretches(IEnumerable<ReplayedRaidLine> file)
+    {
+        var counted = new List<(ReplayedRaidLine Line, int Epoch, DateTimeOffset At)>();
+        var epoch = 0;
+        DateTimeOffset? previous = null;
+        foreach (var line in file)
+        {
+            if (line.WrittenUtc is { } written)
+            {
+                if (previous is { } before && IsClockStep(before, written))
+                {
+                    epoch++;
+                }
+
+                previous = written;
+            }
+
+            counted.Add((line, line.Stretch ?? epoch, previous ?? DateTimeOffset.MinValue));
+        }
+
+        var last = counted.Count > 0 ? counted[^1].Epoch : 0;
+        return counted.Select(entry => entry with { Epoch = entry.Epoch - last });
     }
 
     private static ReplayedRaidLine Begin(ReplayedRaidLine? open, ReplayedRaidLine line)
