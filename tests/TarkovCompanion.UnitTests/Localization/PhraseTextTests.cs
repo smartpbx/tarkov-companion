@@ -103,6 +103,37 @@ public sealed class PhraseTextTests
 
 public sealed class UnitTextTests
 {
+    /// <summary>
+    /// The group's ages read "42s" and "3m 5s", built in English below the App (#314 follow-up).
+    /// A duration is now said by the table, and a clock that stepped back reads as nothing elapsed.
+    /// </summary>
+    [Theory]
+    [InlineData(0, "0 s")]
+    [InlineData(42, "42 s")]
+    [InlineData(59, "59 s")]
+    [InlineData(60, "1 min")]
+    [InlineData(185, "3 min 5 s")]
+    [InlineData(3_600, "1 h 0 min")]
+    [InlineData(7_815, "2 h 10 min")]
+    [InlineData(-3, "0 s")]
+    public void Durations_read_through_the_table(int seconds, string expected)
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        Assert.Equal(expected, UnitText.Duration(TimeSpan.FromSeconds(seconds), CultureInfo.GetCultureInfo("en-US")));
+    }
+
+    [Fact]
+    public void A_duration_argument_in_a_phrase_is_said_as_a_duration()
+    {
+        using var scope = UiText.Scope(UiText.Create("en", _ => { }));
+        Assert.Equal(
+            "Server unreachable · x · last heard 3 min 5 s ago",
+            PhraseText.Say(new Phrase(
+                TarkovCompanion.Application.Services.Group.GroupStatus.LastHeard,
+                new Phrase(TarkovCompanion.Application.Services.Group.GroupStatus.ServerUnreachable, "x"),
+                TimeSpan.FromSeconds(185))));
+    }
+
     [Theory]
     [InlineData(0L, "₽0")]
     [InlineData(950L, "₽950")]

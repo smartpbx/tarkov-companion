@@ -135,15 +135,6 @@ public sealed class GroupSessionServiceTests
         Assert.Null(store.Current.Group.StaleSince);
     }
 
-    [Theory]
-    [InlineData(0, "0s")]
-    [InlineData(42, "42s")]
-    [InlineData(59, "59s")]
-    [InlineData(61, "1m 1s")]
-    [InlineData(185, "3m 5s")]
-    public void HowLongAgoReadsAsSomebodyWouldSayIt(int seconds, string expected) =>
-        Assert.Equal(expected, GroupSessionService.Ago(TimeSpan.FromSeconds(seconds)));
-
     /// <summary>
     /// A report over the relay's size budget is trimmed and sent rather than refused whole.
     /// </summary>

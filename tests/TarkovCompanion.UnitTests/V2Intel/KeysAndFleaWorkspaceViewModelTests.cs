@@ -302,6 +302,53 @@ public sealed class FleaWorkspaceViewModelTests
         Assert.Equal("No local item matched that query.", workspace.SearchStatus);
     }
 
+    /// <summary>
+    /// A failed search printed "Item search failed: " and the exception's message. It now says so
+    /// in words, offers Retry where the rows were, and Retry that succeeds takes the notice away.
+    /// </summary>
+    [Fact]
+    public async Task AFailedSearchSaysSoInWordsAndRetryRecovers()
+    {
+        var repository = new FakeItemRepository(Item("gpu", "Graphics card"));
+        var search = new FailingOnceSearch(new RepositorySearch(repository));
+        var page = new FleaPageViewModel(search, repository, new EmptyHistory());
+        var workspace = new FleaWorkspaceViewModel(page);
+        page.Apply(V2ShellTestData.Snapshot().WithData(DataAvailability.Current, 10, DateTimeOffset.UnixEpoch));
+
+        workspace.SearchQuery = "graphics";
+        await page.SearchAsync();
+
+        Assert.Equal("Search failed", workspace.SearchStatus);
+        Assert.DoesNotContain(FailingOnceSearch.Message, workspace.SearchStatus, StringComparison.Ordinal);
+        Assert.True(workspace.SearchFault.IsVisible);
+        Assert.Equal("Couldn't search the item cache", workspace.SearchFault.Title);
+        Assert.DoesNotContain(FailingOnceSearch.Message, workspace.SearchFault.Detail, StringComparison.Ordinal);
+        Assert.False(workspace.ShowsNoResults);
+
+        await workspace.SearchFault.RetryAsync();
+
+        Assert.False(workspace.SearchFault.IsVisible);
+        Assert.True(workspace.HasResults);
+        Assert.Equal("1 result from the local cache", workspace.SearchStatus);
+    }
+
+    private sealed class FailingOnceSearch(IItemSearchService inner) : IItemSearchService
+    {
+        public const string Message = "SQLite Error 1: 'no such table: items'";
+        private bool _failed;
+
+        public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(string query, int limit, CancellationToken cancellationToken)
+        {
+            if (!_failed)
+            {
+                _failed = true;
+                throw new InvalidOperationException(Message);
+            }
+
+            return inner.SearchAsync(query, limit, cancellationToken);
+        }
+    }
+
     private sealed class RepositorySearch(IItemRepository repository) : IItemSearchService
     {
         public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(string query, int limit, CancellationToken cancellationToken) =>

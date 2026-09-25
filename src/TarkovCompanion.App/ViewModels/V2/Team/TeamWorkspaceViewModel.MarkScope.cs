@@ -33,7 +33,7 @@ public sealed partial class TeamWorkspaceViewModel
         {
             var isPing = mark.Kind == RaidMarkKind.Ping;
             var kind = isPing ? TeamText.Ping : TeamText.Waypoint;
-            var age = TeamText.Ago(GroupSessionService.Ago(now - mark.CreatedUtc));
+            var age = TeamText.Ago(UnitText.Duration(now - mark.CreatedUtc));
             var timeLeft = RaidMarkLifetimes.TimeLeft(mark, now);
             var id = mark.Id;
             yield return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, TeamText.MarkedByYou, age, isPing ? timeLeft : null, false)
@@ -73,7 +73,7 @@ public sealed partial class TeamWorkspaceViewModel
         ArgumentNullException.ThrowIfNull(mark);
         var isPing = mark.Kind == RaidMarkKind.Ping;
         var kind = isPing ? TeamText.Ping : TeamText.Waypoint;
-        var age = TeamText.Ago(GroupSessionService.Ago(now - mark.CreatedUtc));
+        var age = TeamText.Ago(UnitText.Duration(now - mark.CreatedUtc));
         var timeLeft = RaidMarkLifetimes.TimeLeft(mark, now);
         return new(0, kind, mark.State.Label ?? kind, mark.State.MapId, TeamText.MarkedByYou, age, isPing ? timeLeft : null, false)
         {

@@ -1243,6 +1243,39 @@ function Restore-SceneState {
 }
 
 <#
+    [#870 follow-up] The page-state scenes (empty, loading, degraded, error) change more than
+    Database and Config: a fresh profile launched offline can write preview state, snapshots,
+    exports, update and inbox folders, anything under %LOCALAPPDATA%\TarkovCompanion. So the whole
+    folder, less Logs, is mirrored aside once before the first state scene and mirrored back after
+    each one, and the workflow's later steps see the folder exactly as the gating shots left it.
+    robocopy /MIR copies only what differs on the way back, so the download cache (map tiles,
+    tessdata) is copied in full once rather than once per scene. Exit codes 0-7 are success.
+#>
+$StateBackup = Join-Path $env:TEMP ("tc-gallery-state-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+$StateBackedUp = $false
+
+function Invoke-StateMirror {
+    param([string]$From, [string]$To)
+    New-Item -ItemType Directory -Path $From -Force | Out-Null
+    New-Item -ItemType Directory -Path $To -Force | Out-Null
+    & robocopy.exe $From $To /MIR /XD Logs /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    $Code = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    if ($Code -ge 8) { throw "robocopy $From -> $To failed with exit code $Code" }
+}
+
+function Backup-StateSceneFolder {
+    if ($script:StateBackedUp) { return }
+    Invoke-StateMirror -From $AppDataRoot -To $StateBackup
+    $script:StateBackedUp = $true
+}
+
+function Restore-StateSceneFolder {
+    if (-not $script:StateBackedUp) { return }
+    Invoke-StateMirror -From $StateBackup -To $AppDataRoot
+}
+
+<#
     A focus target the preview store will accept: the text, or nothing at all.
 
     V2 rough package 30 (acceptance sweep): "" is not "no focus target" to the store. It rejects
@@ -2151,6 +2184,7 @@ foreach ($Shot in $Shots) {
     $script:GalleryChannelRoot = $null
     $script:GalleryChannelToken = $null
     $CacheSetAside = $false
+    $IsStateScene = $false
     try {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
         # V2 rough package 30 (acceptance sweep): a window this size needs a desktop that size.
@@ -2174,6 +2208,8 @@ foreach ($Shot in $Shots) {
             continue
         }
 
+        $IsStateScene = [string](Get-InteractionProperty -Object $Shot -Name "galleryScene" -Default "") -in $StateSceneNames
+        if ($IsStateScene) { Backup-StateSceneFolder }
         # [#279] A fresh profile (the "empty" state scenes): the database and config go, restored
         # from the scene backup in the finally below, and the download cache is set aside so an
         # offline launch cannot rebuild the catalog from it.
@@ -2382,13 +2418,8 @@ foreach ($Shot in $Shots) {
             }
             $Process.Dispose()
         }
-        if ($null -ne $ChannelRoot) {
-            Remove-Item -LiteralPath $ChannelRoot -Recurse -Force -ErrorAction SilentlyContinue
-            try { Restore-SceneState }
-            catch { $Result.detail = "{0} (scene state not restored: {1})" -f $Result.detail, $_.Exception.Message }
-        }
-        if ($null -eq $PreviousOffline) { Remove-Item Env:\TARKOV_COMPANION_OFFLINE -ErrorAction SilentlyContinue }
-        else { $env:TARKOV_COMPANION_OFFLINE = $PreviousOffline }
+        # The cache goes back before any restore, so the state mirror below finds it unchanged
+        # and copies nothing of it.
         if ($CacheSetAside) {
             try {
                 if (Test-Path -LiteralPath $LiveCache) { Remove-Item -LiteralPath $LiveCache -Recurse -Force }
@@ -2396,8 +2427,19 @@ foreach ($Shot in $Shots) {
             }
             catch { $Result.detail = "{0} (download cache not put back: {1})" -f $Result.detail, $_.Exception.Message }
         }
+        if ($null -ne $ChannelRoot) {
+            Remove-Item -LiteralPath $ChannelRoot -Recurse -Force -ErrorAction SilentlyContinue
+            try { Restore-SceneState }
+            catch { $Result.detail = "{0} (scene state not restored: {1})" -f $Result.detail, $_.Exception.Message }
+        }
+        if ($null -eq $PreviousOffline) { Remove-Item Env:\TARKOV_COMPANION_OFFLINE -ErrorAction SilentlyContinue }
+        else { $env:TARKOV_COMPANION_OFFLINE = $PreviousOffline }
         try { Restore-TextScalePreference }
         catch { $Result.detail = "{0} (text scale not restored: {1})" -f $Result.detail, $_.Exception.Message }
+        if ($IsStateScene) {
+            try { Restore-StateSceneFolder }
+            catch { $Result.detail = "{0} (app data not restored after the state scene: {1})" -f $Result.detail, $_.Exception.Message }
+        }
         $Result.shotSeconds = [Math]::Round($ShotClock.Elapsed.TotalSeconds, 2)
 
         # Every outcome, including a launch that never showed a window: what the toolkit said

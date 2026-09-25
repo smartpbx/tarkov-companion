@@ -659,7 +659,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         Presence = group.Members
             .Select(member => new TeamPresenceRowViewModel(
                 member.Name,
-                member.Since is { } since ? TeamText.Ago(GroupSessionService.Ago(since)) : TeamText.JustNow,
+                member.Since is { } since ? TeamText.Ago(UnitText.Duration(since)) : TeamText.JustNow,
                 reconnecting ? TeamPresenceState.Offline
                     : member.HasGoneQuiet ? TeamPresenceState.Stale
                     : TeamPresenceState.Live)
@@ -701,7 +701,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 : waypoint.Label!;
             var age = waypoint.CreatedUtc == DateTimeOffset.UnixEpoch
                 ? TeamText.AgeUnknown
-                : TeamText.Ago(GroupSessionService.Ago(now - waypoint.CreatedUtc));
+                : TeamText.Ago(UnitText.Duration(now - waypoint.CreatedUtc));
             marks.Add(new(
                 waypoint.Id,
                 TeamText.Waypoint,
@@ -737,17 +737,17 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 string.IsNullOrWhiteSpace(ping.Label) ? TeamText.Ping : ping.Label!,
                 ping.MapId,
                 TeamText.PingedBy(ping.By),
-                TeamText.Ago(GroupSessionService.Ago(elapsed)),
-                remaining > TimeSpan.Zero ? TeamText.TimeLeft(GroupSessionService.Ago(remaining)) : TeamText.Expiring,
+                TeamText.Ago(UnitText.Duration(elapsed)),
+                remaining > TimeSpan.Zero ? TeamText.TimeLeft(UnitText.Duration(remaining)) : TeamText.Expiring,
                 false)
             {
                 RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(
                     ping.Id,
                     new RemovedMark(ping.MapId, new WorldPosition(ping.X, ping.Y, ping.Z), ping.Label, IsPing: true, TeamText.Ping))),
-                Detail = JoinDetail(MapLabel(ping.MapId), TeamText.Ago(GroupSessionService.Ago(elapsed))),
+                Detail = JoinDetail(MapLabel(ping.MapId), TeamText.Ago(UnitText.Duration(elapsed))),
                 MetadataLabel = JoinDetail(
                     TeamText.ScopeSquad,
-                    OwnMarkTtl(ping.Id, now) ?? TeamText.Ttl(remaining > TimeSpan.Zero ? TeamText.TimeLeft(GroupSessionService.Ago(remaining)) : TeamText.Expiring),
+                    OwnMarkTtl(ping.Id, now) ?? TeamText.Ttl(remaining > TimeSpan.Zero ? TeamText.TimeLeft(UnitText.Duration(remaining)) : TeamText.Expiring),
                     TeamText.By(ping.By),
                     reconnecting ? TeamText.OfflineSnapshot : string.Empty),
             });

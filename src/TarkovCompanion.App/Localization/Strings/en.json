@@ -1422,12 +1422,14 @@
     "one": "{0} result from the local cache",
     "other": "{0} results from the local cache"
   },
-  "Intel.Flea.Page.SearchFailed": "Item search failed: {0}",
+  "Intel.Flea.Page.SearchFailed": "Search failed",
+  "Intel.Flea.Page.SearchFailedTitle": "Couldn't search the item cache",
+  "Intel.Flea.Page.SearchFailedDetail": "Nothing is lost. Retry searches again.",
   "Intel.Flea.Page.ReadingHistory": "Reading locally stored observations…",
   "Intel.Flea.Page.NoObservations": "No stored observations for {0} yet.",
   "Intel.Flea.Page.OneObservation": "1 observation of {0}",
   "Intel.Flea.Page.Observations": "{0} observations of {1} · last {2:N0} days",
-  "Intel.Flea.Page.Unreadable": "Unreadable · {0}",
+  "Intel.Flea.Page.Unreadable": "Couldn't read the stored prices",
   "Intel.Flea.Page.PerSlotUnavailable": "Value per slot unavailable",
   "Intel.Flea.Page.PerSlot": "{0} per slot",
   "Intel.Flea.Page.HistoryNotBuilt": "7 d history not built yet",
@@ -2174,6 +2176,10 @@
     "other": "{0} items"
   },
   "Raid.WaysOutSummary": "{0} ways out (transits included; co-op hidden)",
+  "Raid.TrafficWaysOutAllSides": {
+    "one": "{0} way out, both sides",
+    "other": "{0} ways out, both sides"
+  },
   "Raid.SpawnAreaCount": {
     "one": "{0} spawn area",
     "other": "{0} spawn areas"
@@ -2254,6 +2260,7 @@
   "Raid.DirectHigherContact": "Direct line · higher contact",
   "Raid.WhyThisRoute": "Why this route",
   "Raid.RouteTo": "To {0}",
+  "Raid.RouteToAssumingPmc": "To {0} · assuming PMC",
   "Raid.RouteCaveat": "Straight-line guidance · walls, water and terrain are not modelled",
   "Raid.RouteHint": "Take a screenshot in raid, or select a spawn on the map, to route from there",
   "Raid.DirectLineTo": "Direct line to {0} · {1}",
@@ -3651,28 +3658,81 @@
   "Setup.Probe.FolderNotFound": "not found",
   "Setup.Probe.FolderChosen": "{0}: {1} — chosen because {2}; {3:N0} entries, {4}",
   "Setup.Probe.FolderStaleFact": "The log folder has stood still since {0} while screenshots kept arriving until {1} — the game is writing its logs somewhere else.",
-  "Setup.Probe.FoldersPass": "{0} folder(s) found, and each one is being written to.",
+  "Setup.Probe.CountLines": {
+    "one": "{0:N0} line",
+    "other": "{0:N0} lines"
+  },
+  "Setup.Probe.CountFiles": {
+    "one": "{0:N0} file",
+    "other": "{0:N0} files"
+  },
+  "Setup.Probe.CountRaids": {
+    "one": "{0:N0} raid",
+    "other": "{0:N0} raids"
+  },
+  "Setup.Probe.CountQuestNotifications": {
+    "one": "{0:N0} quest notification",
+    "other": "{0:N0} quest notifications"
+  },
+  "Setup.Probe.CountFleaSales": {
+    "one": "{0:N0} flea sale",
+    "other": "{0:N0} flea sales"
+  },
+  "Setup.Probe.CountRows": {
+    "one": "{0:N0} row",
+    "other": "{0:N0} rows"
+  },
+  "Setup.Probe.CountTables": {
+    "one": "{0:N0} table",
+    "other": "{0:N0} tables"
+  },
+  "Setup.Probe.CountRooms": {
+    "one": "{0:N0} room",
+    "other": "{0:N0} rooms"
+  },
+  "Setup.Probe.CountMembers": {
+    "one": "{0:N0} member",
+    "other": "{0:N0} members"
+  },
+  "Setup.Probe.CountOthers": {
+    "one": "{0:N0} other",
+    "other": "{0:N0} others"
+  },
+  "Setup.Probe.CountObjects": {
+    "one": "{0:N0} object",
+    "other": "{0:N0} objects"
+  },
+  "Setup.Probe.FoldersPass": {
+    "one": "{0} folder found, and it is being written to.",
+    "other": "{0} folders found, and each one is being written to."
+  },
   "Setup.Probe.FoldersBroken": "The {0} folder could not be used.",
   "Setup.Probe.FoldersJoin": " and ",
   "Setup.Probe.FoldersStale": "The log folder has stopped changing while screenshots keep arriving.",
   "Setup.Probe.LogsNothingRead": "Nothing was read: {0}",
-  "Setup.Probe.LogsRead": "Read {0:N0} line(s), {1}, from {2} file(s) in session {3}",
+  "Setup.Probe.LogsRead": "Read {0}, {1}, from {2} in session {3}",
   "Setup.Probe.LogsFileUnreadable": "{0} could not be read: {1}",
-  "Setup.Probe.LogsFile": "{0}: {1:N0} line(s){2}, {3} quest, {4} flea",
+  "Setup.Probe.LogsFile": "{0}: {1}{2}, {3} quest, {4} flea",
   "Setup.Probe.LogsChatOnly": " (quest and flea notifications only)",
   "Setup.Probe.LogsNotOpened": "Not opened: {0}",
   "Setup.Probe.LogsSessionStarted": "That session started {0} ({1})",
   "Setup.Probe.LogsNoRaid": "No raid was recognised in this session",
-  "Setup.Probe.LogsRaids": "{0} raid(s) recognised; the last was {1} ({2})",
+  "Setup.Probe.LogsRaids": {
+    "one": "{0} raid recognised; it was {1} ({2})",
+    "other": "{0} raids recognised; the last was {1} ({2})"
+  },
   "Setup.Probe.LogsUnnamedMap": "on an unnamed map",
   "Setup.Probe.LogsLastRaidLine": "That raid's last line was {0} ({1})",
   "Setup.Probe.LogsQueueTime": "Queue time {0:0.0} s, from the game's MatchingCompleted line",
   "Setup.Probe.LogsNoQueueTime": "No queue time in this session — the game writes one only when matchmaking finishes",
-  "Setup.Probe.LogsEvents": "{0} quest notification(s) and {1} flea sale(s) across every file read",
+  "Setup.Probe.LogsEvents": "{0} and {1} across every file read",
   "Setup.Probe.LogsEmpty": "{0} is {1} and not one line came back.",
   "Setup.Probe.LogsNothingRecognised": "Read {0:N0} lines and recognised nothing in them.",
-  "Setup.Probe.LogsNoQuests": "Recognised {0} raid(s) but not one quest notification in {1} file(s). If you handed a quest in during this session, the companion did not see it.",
-  "Setup.Probe.LogsPass": "Understood {0} event(s) from this session.",
+  "Setup.Probe.LogsNoQuests": "Recognised {0} but not one quest notification in {1}. If you handed a quest in during this session, the companion did not see it.",
+  "Setup.Probe.LogsPass": {
+    "one": "Understood {0} event from this session.",
+    "other": "Understood {0} events from this session."
+  },
   "Setup.Probe.LogsNoFolderChosen": "no log folder has been chosen, so there was no session to read",
   "Setup.Probe.LogsFolderMissing": "the log folder {0} does not exist",
   "Setup.Probe.LogsNoSession": "{0} holds no session folder the game would have written",
@@ -3705,18 +3765,24 @@
   "Setup.Probe.DataNeverRefreshed": "never refreshed",
   "Setup.Probe.DataDidNotRefresh": "{0}: did not refresh — {1} (last good copy {2})",
   "Setup.Probe.DataNoRowsLanded": "{0}: {1} cached, {2}, and no rows landed",
-  "Setup.Probe.DataRows": "{0}: {1:N0} row(s), {2}, {3}",
+  "Setup.Probe.DataRows": "{0}: {1}, {2}, {3}",
   "Setup.Probe.DataFail": "{0} did not land.",
   "Setup.Probe.DataPass": "All {0} endpoints have rows.",
   "Setup.Probe.DataLastRefresh": "the last refresh was {0} and recorded no reason",
   "Setup.Probe.DbNone": "There is no database to read.",
   "Setup.Probe.DbMigrationsApplied": "All {0} migrations applied, the newest being {1}",
   "Setup.Probe.DbNoMigration": "none",
-  "Setup.Probe.DbMigrationsMissing": "{0} migration(s) not applied: {1}",
-  "Setup.Probe.DbTableRows": "{0}: {1:N0} row(s)",
-  "Setup.Probe.DbBehind": "The schema is {0} migration(s) behind this build.",
+  "Setup.Probe.DbMigrationsMissing": {
+    "one": "{0} migration not applied: {1}",
+    "other": "{0} migrations not applied: {1}"
+  },
+  "Setup.Probe.DbTableRows": "{0}: {1}",
+  "Setup.Probe.DbBehind": {
+    "one": "The schema is {0} migration behind this build.",
+    "other": "The schema is {0} migrations behind this build."
+  },
   "Setup.Probe.DbEmpty": "The database file is empty.",
-  "Setup.Probe.DbPass": "Schema current, {0}, {1} table(s) counted.",
+  "Setup.Probe.DbPass": "Schema current, {0}, {1} counted.",
   "Setup.Probe.RelayNotConfigured": "No relay is configured, so there was nothing to reach.",
   "Setup.Probe.RelaySharingOffNoServer": "Sharing is off and no server address is saved",
   "Setup.Probe.RelayNoAnswer": "{0} did not answer.",
@@ -3725,8 +3791,8 @@
   "Setup.Probe.RelayRunning": "Running {0}{1}, protocol {2}",
   "Setup.Probe.RelayUnnamedBuild": "an unnamed build",
   "Setup.Probe.RelayProtocolUnknown": "unknown",
-  "Setup.Probe.RelayRooms": "{0} room(s) and {1} member(s) on the relay",
-  "Setup.Probe.RelaySharingOn": "Sharing is on as {0}, with {1} other(s) in the room",
+  "Setup.Probe.RelayRooms": "{0} and {1} on the relay",
+  "Setup.Probe.RelaySharingOn": "Sharing is on as {0}, with {1} in the room",
   "Setup.Probe.RelayUnnamedPlayer": "an unnamed player",
   "Setup.Probe.RelaySharingOff": "Sharing is off, so nobody is being published to",
   "Setup.Probe.RelayLatency": "Squadmate positions arrive in {0:0.00} s, {1:0.00} s at the slow end, over {2} of {3} delivered",
@@ -3743,11 +3809,17 @@
   "Setup.Probe.TabletNoDevice": "No device is paired, so there was nothing to publish to.",
   "Setup.Probe.TabletNoDevicesAt": "No paired devices at {0}",
   "Setup.Probe.TabletThisRelay": "this relay",
-  "Setup.Probe.TabletPublished": "The desktop published {0} with {1:N0} object(s) {2}",
+  "Setup.Probe.TabletPublished": "The desktop published {0} with {1} {2}",
   "Setup.Probe.TabletAMap": "a map",
   "Setup.Probe.TabletNoScene": "The desktop has published no scene this session",
-  "Setup.Probe.TabletPass": "{0} paired device(s), and the desktop is publishing a scene.",
-  "Setup.Probe.TabletFail": "{0} paired device(s), and the desktop has published nothing.",
+  "Setup.Probe.TabletPass": {
+    "one": "{0} paired device, and the desktop is publishing a scene.",
+    "other": "{0} paired devices, and the desktop is publishing a scene."
+  },
+  "Setup.Probe.TabletFail": {
+    "one": "{0} paired device, and the desktop has published nothing.",
+    "other": "{0} paired devices, and the desktop has published nothing."
+  },
   "Setup.Probe.TabletNoAuthority": "this build has no paired-device authority, so no tablet can be paired",
   "Setup.Probe.BytesUnknown": "unknown size",
   "Setup.Probe.BytesB": "{0} B",
@@ -3789,6 +3861,10 @@
   "Units.Thousands": "{0}k",
   "Units.Millions": "{0}M",
   "Units.Kilograms": "{0} kg",
+  "Units.DurationSeconds": "{0} s",
+  "Units.DurationMinutes": "{0} min",
+  "Units.DurationMinutesSeconds": "{0} min {1} s",
+  "Units.DurationHoursMinutes": "{0} h {1} min",
   "Raid.SpawnReach.About": "about {0} away",
   "Raid.SpawnReach.Away": "{0} away",
   "Raid.SpawnReach.SecondsRange": "{0}–{1} s",

@@ -49,7 +49,12 @@ public sealed partial class RaidCockpitViewModel
 
     public bool HasSuggestedRoute => ShownRoute is not null;
 
-    public string RouteTitle => ShownRoute is { } route ? RaidText.RouteTo(route.Extract) : string.Empty;
+    /// <summary>"To Crossroads", or "To Crossroads · assuming PMC" when the side was unknown and the map has no shared exit.</summary>
+    public string RouteTitle => ShownRoute is { } route
+        ? _routesAssumePmc ? RaidText.RouteToAssumingPmc(route.Extract) : RaidText.RouteTo(route.Extract)
+        : string.Empty;
+
+    private bool _routesAssumePmc;
 
     public string RouteStartLabel => _routeStartLabel;
 
@@ -85,13 +90,14 @@ public sealed partial class RaidCockpitViewModel
             return ([], []);
         }
 
-        var scav = string.Equals(raid.Side, "scav", StringComparison.OrdinalIgnoreCase);
         // [Issue 573] A co-op extract is not a suggested-route target either, unless the player
         // asked to see co-op extracts normally.
-        var extracts = model.OverlayElements
-            .Where(element => element.Layer == MapOverlayKind.Extracts && !element.Label.EndsWith('→') &&
-                element.Faction != (scav ? MapFeatureFaction.Pmc : MapFeatureFaction.Scav) &&
-                CoOpExtracts.IsOffered(element.Label, _coOpExtractVisibility))
+        var (sided, assumesPmc) = RaidExtractSide.RouteTargets(
+            model.OverlayElements.Where(element => element.Layer == MapOverlayKind.Extracts && !element.Label.EndsWith('→') &&
+                CoOpExtracts.IsOffered(element.Label, _coOpExtractVisibility)),
+            RaidExtractSide.Of(raid.Side));
+        _routesAssumePmc = assumesPmc;
+        var extracts = sided
             .GroupBy(element => element.Label, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToArray();
@@ -104,7 +110,7 @@ public sealed partial class RaidCockpitViewModel
 
         var signature = string.Create(
             CultureInfo.InvariantCulture,
-            $"{_priorSignature}|{field.CellOf(start.At)}|{string.Join(',', pool.Select(element => element.Label))}");
+            $"{_priorSignature}|{field.CellOf(start.At)}|{assumesPmc}|{string.Join(',', pool.Select(element => element.Label))}");
         if (signature != _routesSignature)
         {
             if (!ReferenceEquals(_routeGraphPrior, prior))

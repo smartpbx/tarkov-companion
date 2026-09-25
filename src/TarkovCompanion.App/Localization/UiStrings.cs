@@ -61,6 +61,18 @@ public sealed class UiStrings
         return string.Format(CultureInfo.CurrentCulture, pattern, [count, .. arguments]);
     }
 
+    /// <summary>
+    /// A counted phrase formatted in <paramref name="format"/> rather than the UI culture: the
+    /// self-test's probes are handed their culture so a test can pin it. One/other still follows
+    /// the interface language, which is whose grammar the words are in.
+    /// </summary>
+    public string Plural(IFormatProvider format, string key, long count, params object?[] arguments)
+    {
+        var text = Lookup(key);
+        var pattern = text.One is { } one && UiPluralRule.IsOne(Culture, count) ? one : text.Other;
+        return string.Format(format, pattern, [count, .. arguments]);
+    }
+
     private UiString Lookup(string key)
     {
         ArgumentNullException.ThrowIfNull(key);

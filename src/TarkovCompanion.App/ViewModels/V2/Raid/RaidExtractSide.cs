@@ -53,4 +53,30 @@ public static class RaidExtractSide
     public static bool IsUnsure(MapFeatureFaction extract, MapFeatureFaction raid) =>
         raid is not (MapFeatureFaction.Pmc or MapFeatureFaction.Scav) &&
         extract is (MapFeatureFaction.Pmc or MapFeatureFaction.Scav);
+
+    /// <summary>
+    /// The exits a suggested route may end at, and whether that choice had to assume a PMC raid.
+    /// </summary>
+    /// <remarks>
+    /// Routes used to drop Scav exits whenever the side was not "scav", so a raid whose side was
+    /// never read got PMC routes with nothing saying so (#875). With the side known this is
+    /// <see cref="CanUse"/>. With it unknown, only exits both sides can take are routed to; a map
+    /// with none of those falls back to PMC exits and says it assumed so, rather than routing a
+    /// player who may be a scav to an exit that will not open for them without a word.
+    /// </remarks>
+    public static (IReadOnlyList<MapOverlayElement> Targets, bool AssumesPmc) RouteTargets(
+        IEnumerable<MapOverlayElement> extracts,
+        MapFeatureFaction raid)
+    {
+        var all = extracts as IReadOnlyCollection<MapOverlayElement> ?? [.. extracts];
+        if (raid is MapFeatureFaction.Pmc or MapFeatureFaction.Scav)
+        {
+            return ([.. all.Where(element => CanUse(element.Faction, raid))], false);
+        }
+
+        MapOverlayElement[] both = [.. all.Where(element => element.Faction is not (MapFeatureFaction.Pmc or MapFeatureFaction.Scav))];
+        return both.Length > 0
+            ? (both, false)
+            : ([.. all.Where(element => CanUse(element.Faction, MapFeatureFaction.Pmc))], true);
+    }
 }

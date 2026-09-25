@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows.Input;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 
 namespace TarkovCompanion.App.ViewModels.V2.Intel;
 
@@ -55,6 +56,13 @@ public sealed class FleaWorkspaceViewModel : BindableViewModel
             }
         });
         _page.PropertyChanged += PageChanged;
+        _page.SearchFault.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName == nameof(LoadFaultNoticeViewModel.IsVisible))
+            {
+                OnPropertyChanged(nameof(ShowsNoResults));
+            }
+        };
     }
 
     private FleaScanViewModel? _scan;
@@ -117,7 +125,10 @@ public sealed class FleaWorkspaceViewModel : BindableViewModel
 
     public bool HasResults => _page.Results.Count > 0;
 
-    public bool ShowsNoResults => !HasResults;
+    /// <summary>The empty hint, but never beside a failed search's notice (#871's rule, one state at a time).</summary>
+    public bool ShowsNoResults => !HasResults && !_page.SearchFault.IsVisible;
+
+    public LoadFaultNoticeViewModel SearchFault => _page.SearchFault;
 
     public bool HasSelection => _page.Selected is not null;
 

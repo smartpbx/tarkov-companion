@@ -1262,7 +1262,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             return;
         }
 
-        var stale = good.Saying(new(GroupStatus.LastHeard, detail, Ago(staleFor))) with
+        var stale = good.Saying(new(GroupStatus.LastHeard, detail, staleFor)) with
         {
             StaleSince = since,
             UpdatedUtc = now,
@@ -1345,11 +1345,6 @@ public sealed class GroupSessionService : IAsyncDisposable
     private static bool HasBeenInRaidLongEnoughToExpectOne(ApplicationRuntimeSnapshot snapshot) =>
         snapshot.Raid.StartedUtc is { } started &&
         DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes(2);
-
-    /// <summary>How long ago, in the shortest form that is still honest.</summary>
-    public static string Ago(TimeSpan elapsed) => elapsed < TimeSpan.FromMinutes(1)
-        ? $"{Math.Max(0, (int)elapsed.TotalSeconds)}s"
-        : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
 
     /// <summary>How large a report body the relay will accept.</summary>
     /// <remarks>

@@ -120,11 +120,13 @@ public static partial class IntelText
     public static string FleaPageDimensions(int width, int height, int slots) => UiText.Format("Intel.Flea.Page.Dimensions", width, height, slots);
     public static string FleaPageSource(string moment) => UiText.Format("Intel.Flea.Page.Source", moment);
     public static string FleaPageResults(int count) => UiText.Plural("Intel.Flea.Page.Results", count);
-    public static string FleaPageSearchFailed(string message) => UiText.Format("Intel.Flea.Page.SearchFailed", message);
+    public static string FleaPageSearchFailed => UiText.Get("Intel.Flea.Page.SearchFailed");
+    public static string FleaPageSearchFailedTitle => UiText.Get("Intel.Flea.Page.SearchFailedTitle");
+    public static string FleaPageSearchFailedDetail => UiText.Get("Intel.Flea.Page.SearchFailedDetail");
     public static string FleaPageNoObservations(string item) => UiText.Format("Intel.Flea.Page.NoObservations", item);
     public static string FleaPageOneObservation(string item) => UiText.Format("Intel.Flea.Page.OneObservation", item);
     public static string FleaPageObservations(int count, string item, double days) => UiText.Format("Intel.Flea.Page.Observations", count, item, days);
-    public static string FleaPageUnreadable(string message) => UiText.Format("Intel.Flea.Page.Unreadable", message);
+    public static string FleaPageUnreadable => UiText.Get("Intel.Flea.Page.Unreadable");
     public static string FleaPagePerSlot(string roubles) => UiText.Format("Intel.Flea.Page.PerSlot", roubles);
     public static string FleaPageHistory(string low, string average, string high) => UiText.Format("Intel.Flea.Page.History", low, average, high);
     public static string FleaPageBand(string low, string high) => UiText.Format("Intel.Flea.Page.Band", low, high);

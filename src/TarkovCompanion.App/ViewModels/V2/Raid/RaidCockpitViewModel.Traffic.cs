@@ -156,10 +156,16 @@ public sealed partial class RaidCockpitViewModel
         _ => RaidText.LevelRaised,
     };
 
-    private static string CoverageLabel(TrafficPriorBasis basis, int spawnAreaCount) => string.Join(" · ", new[]
+    /// <remarks>
+    /// The ways out here are every side's (#875 follow-up): other players' traffic heads for their
+    /// own exits, so the model weighs Scav exits too. The card's header counts only the player's
+    /// own, so a PMC raid on Customs read "14 ways out" above "29 ways out (transits included)".
+    /// The line now says whose exits it counted rather than passing both sides off as the player's.
+    /// </remarks>
+    internal static string CoverageLabel(TrafficPriorBasis basis, int spawnAreaCount) => string.Join(" · ", new[]
     {
         spawnAreaCount > 0 ? RaidText.SpawnAreaCount(spawnAreaCount) : RaidText.NoSpawnAreasLower,
-        basis.Extracts > 0 ? RaidText.WaysOutSummary(basis.Extracts) : RaidText.NoWaysOut,
+        basis.Extracts > 0 ? RaidText.TrafficWaysOutAllSides(basis.Extracts) : RaidText.NoWaysOut,
         basis.LootSpawns > 0 ? RaidText.LootSpawns(basis.LootSpawns) : RaidText.NoLootData,
     });
 

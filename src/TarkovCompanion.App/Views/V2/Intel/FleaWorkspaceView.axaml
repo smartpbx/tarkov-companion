@@ -4,7 +4,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
-             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+             xmlns:pages="using:TarkovCompanion.App.ViewModels"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- [f920 capture] A photographed offer's verdict chip and row. -->
@@ -132,6 +133,9 @@
             <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
                        Text="{x:Static l:IntelText.FleaEmptyHint}" />
           </StackPanel>
+          <!-- A search that threw: words and Retry where the rows would be; the exception is in the log. -->
+          <prim:V2LoadFaultNotice Grid.Row="1" DataContext="{Binding SearchFault}" MaxWidth="480"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
           <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Results}" IsVisible="{Binding HasResults}">
               <ItemsControl.ItemTemplate>
