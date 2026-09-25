@@ -257,8 +257,12 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         _offerState = offerState;
         SelectCommand = selectCommand;
         Requirements = requirements;
+        _timeLeft = timeLeft;
         RequirementText = MapExtractRequirementText.Describe(requirements, name, timeLeft);
     }
+
+    /// <summary>#889: kept so <see cref="WithRoute"/> describes a train from the same clock.</summary>
+    private string? _timeLeft;
 
     /// <summary>The scene object this row is the same extract as, for the map to select.</summary>
     public MapSceneObjectId Id { get; }
@@ -307,6 +311,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
 
     public void UpdateTimeLeft(string? timeLeft)
     {
+        _timeLeft = timeLeft;
         var text = MapExtractRequirementText.Describe(Requirements, Name, timeLeft);
         if (RequirementText != text)
         {
@@ -383,7 +388,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
     }
 
     internal RaidExtractRowViewModel WithRoute(string estimate, bool isRouted, ICommand command) =>
-        new(Id, Position, Name, Detail, _offerState, SelectCommand, Requirements)
+        new(Id, Position, Name, Detail, _offerState, SelectCommand, Requirements, _timeLeft)
         {
             Estimate = estimate, IsRouted = isRouted, RouteCommand = command, IsTransit = IsTransit, IsSideUnsure = IsSideUnsure,
         };
@@ -505,6 +510,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     // (supervisor, outbox, lifecycle, scan, observation), ten to eighteen times for one screenshot,
     // and only these two are things the plan draws.
     private RaidSnapshot? _seenRaid;
+    private Guid? _letterRaidId;
+    private string? _failedDecodeKey;
+    private DateTimeOffset _failedDecodeRetryUtc;
+    private static readonly TimeSpan DecodeRetryPause = TimeSpan.FromSeconds(5);
     private GroupSnapshot? _seenGroup;
 
     // The traffic line, and the bookkeeping that keeps a slow evaluation from overwriting a newer
@@ -2245,20 +2254,28 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </remarks>
     private void RuntimeStateChanged(object? sender, EventArgs e)
     {
+        // #889: the store calls this on whichever thread published (the log watcher, the history
+        // pump, the supervisor), and everything below touches interface state the rebuild uses on
+        // the UI thread: the letter dictionary, the Marks rows, the mark note. Posted in
+        // publication order, so a raid's end is still seen before the next raid's start.
         var snapshot = _stateStore.Current;
-        ObserveMarkLifetimes(snapshot);
-        var raid = snapshot.Raid;
-        var group = snapshot.Group;
-        if (ReferenceEquals(raid, _seenRaid) && ReferenceEquals(group, _seenGroup))
+        Dispatch(() => ObserveRuntime(snapshot));
+    }
+
+    private void ObserveRuntime(ApplicationRuntimeSnapshot snapshot)
+    {
+        if (_disposed)
         {
             return;
         }
 
-        // [Issue 571] A letter belongs to one raid; a genuinely new one starts the alphabet over
-        // rather than carrying the last raid's assignments into this one's first rebuild.
-        if (raid?.RaidId != _seenRaid?.RaidId)
+        ObserveMarkLifetimes(snapshot);
+        var raid = snapshot.Raid;
+        var group = snapshot.Group;
+        ResetLettersForNewRaid(raid);
+        if (ReferenceEquals(raid, _seenRaid) && ReferenceEquals(group, _seenGroup))
         {
-            _questLetters.Reset();
+            return;
         }
 
         _seenRaid = raid;
@@ -2278,12 +2295,39 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _rebuildRequest.Request();
     }
 
-    private void MarksChanged()
+    // #889: the store raises Changed on the pool (after its file write, and from the expiry
+    // timer), so the rows are rebuilt on the UI thread like every other reader of them.
+    private void MarksChanged() => Dispatch(() =>
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         // [#286] A route stop removed from the Marks card leaves the planned route too.
         PlannedRouteMarksChanged();
         RefreshMarkRows();
         _rebuildRequest.Request();
+    });
+
+    /// <summary>
+    /// [Issue 571] A letter belongs to one raid; a genuinely new one starts the alphabet over
+    /// rather than carrying the last raid's assignments into this one's first rebuild.
+    /// </summary>
+    /// <remarks>
+    /// #889: its own record of which raid the letters belong to. Compared with <c>_seenRaid</c>,
+    /// a rebuild that read the new raid first wrote it there and the reset never ran. Called
+    /// from the rebuild and from the runtime pass, both on the UI thread.
+    /// </remarks>
+    private void ResetLettersForNewRaid(RaidSnapshot? raid)
+    {
+        if (raid?.RaidId == _letterRaidId)
+        {
+            return;
+        }
+
+        _letterRaidId = raid?.RaidId;
+        _questLetters.Reset();
     }
 
     private void RefreshMarkRows()
@@ -2412,6 +2456,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // then differs from what was seen and asks for one more pass, instead of being taken for
         // something this pass already drew.
         var runtime = _stateStore.Current;
+        ResetLettersForNewRaid(runtime.Raid);
         _seenRaid = runtime.Raid;
         _seenGroup = runtime.Group;
         var model = _map.RenderModel;
@@ -2501,7 +2546,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             // layer per floor onto the same cache file, so the source hash alone cannot tell floors
             // apart the way V1's own floor switch relies on (see TarkovDevMapAssetCache.GetSvgAsync).
             var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
-            if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
+            if ((_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null) &&
+                !(_cachedAsset is not null && assetCacheKey == _failedDecodeKey && _timeProvider.GetUtcNow() < _failedDecodeRetryUtc))
             {
                 // Before the call, because the call is what died on 2026-09-19: rasterising a
                 // drawing faults natively, raising no managed exception for any handler to see.
@@ -2542,11 +2588,25 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 // decode is cancelled by a newer rebuild landing first, leaving the markers behind
                 // would make the next rebuild trust a bitmap that was never actually produced.
                 var decoded = await LoadBackgroundImageAsync(fetched.RenderPath, cancellationToken).ConfigureAwait(true);
-                cancellationToken.ThrowIfCancellationRequested();
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // #889: a decode already started finishes whatever the token says, and a
+                    // newer rebuild cancels this one several times a second while a squad shares.
+                    // Nothing else holds this bitmap, so it is released here, not by a finalizer.
+                    decoded?.Dispose();
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+
                 // The other half of "reading svg": without it the next launch cannot tell a run
                 // that died in the rasteriser from one that died an hour after the map drew.
                 CrashBreadcrumbs.Drop("map-asset", $"drew {assetCacheKey}");
-                _cachedAssetVariantKey = assetCacheKey;
+                // #889: a decode that failed (the file held by a scanner, say) is not cached as
+                // done, or the plan stays without its picture until the floor changes. Tried
+                // again after a pause rather than on every rebuild, which come three a second.
+                var decodeFailed = decoded is null && !string.IsNullOrWhiteSpace(fetched.RenderPath);
+                _failedDecodeKey = decodeFailed ? assetCacheKey : null;
+                _failedDecodeRetryUtc = _timeProvider.GetUtcNow() + DecodeRetryPause;
+                _cachedAssetVariantKey = decodeFailed ? null : assetCacheKey;
                 _cachedAsset = fetched;
                 _backgroundSha = fetched.ContentSha256;
                 ReplaceBackgroundImage(decoded);

@@ -997,6 +997,8 @@ public sealed class GroupSessionService : IAsyncDisposable
                     Colour = TarkovCompanion.Core.Common.MarkPalette.Normalize(p.Color),
                 }).ToArray(),
             PositionLatency = _latency.Current,
+            // #889: so a reader can tell a new group key's room from this one's.
+            Room = GroupSnapshot.RoomOf(settings.ServerUri, settings.Key?.Trim()),
         };
         // Kept so the next failed exchange has something true to keep showing. StaleSince is
         // null here by construction: this read worked, so nothing on screen is old.
@@ -1586,12 +1588,13 @@ public sealed class GroupSessionService : IAsyncDisposable
         // application stayed on everybody else's map for the full three-minute lifetime,
         // apparently still in the raid.
         //
-        // Before the worker is stopped, so its last exchange cannot re-register this member after
-        // the goodbye; and on its own short budget, so a relay that has gone away cannot hold the
-        // application open while it closes. Half a second, not the two a rename gets (#786): this
-        // runs inside the application's teardown, and a goodbye that does not arrive costs the
-        // group a stale marker, never the player a hung close.
-        await WithdrawRegisteredAsync(ClosingWithdrawBudget).ConfigureAwait(false);
+        // After the worker has stopped (#889): withdrawn first, a held exchange that the DELETE
+        // itself ended let the loop POST once more after the goodbye and re-register this member
+        // for the full lifetime. Stopped first, no exchange can follow the DELETE. On its own
+        // short budget, so a relay that has gone away cannot hold the application open while it
+        // closes. Half a second, not the two a rename gets (#786): this runs inside the
+        // application's teardown, and a goodbye that does not arrive costs the group a stale
+        // marker, never the player a hung close.
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_worker is { } worker)
         {
@@ -1604,6 +1607,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             }
         }
 
+        await WithdrawRegisteredAsync(ClosingWithdrawBudget).ConfigureAwait(false);
         _stopping.Dispose();
     }
 

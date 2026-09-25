@@ -31,6 +31,25 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task MarksIsASnapshotThatALaterWriteNeverChanges()
+    {
+        // #889: the getter handed out the live List, and every writer mutated it in place, so a
+        // reader enumerating on one thread broke when a relay placement landed on another.
+        var store = new JsonFileRaidMarkStore(StorePath);
+        var first = await store.AddAsync(RaidMarkKind.Waypoint, "factory", null, 10, 10, label: null);
+        var snapshot = store.Marks;
+
+        await store.AddAsync(RaidMarkKind.Waypoint, "factory", null, 20, 20, label: null);
+        await store.RemoveAsync(first.Id);
+        await store.MoveAsync(first.Id, 30, 30);
+
+        var kept = Assert.Single(snapshot);
+        Assert.Equal(first.Id, kept.Id);
+        Assert.Equal(10, kept.State.X);
+        Assert.Single(store.Marks);
+    }
+
+    [Fact]
     public async Task MoveUpdatesThePositionAndRemoveDropsTheMark()
     {
         var store = new JsonFileRaidMarkStore(StorePath);
