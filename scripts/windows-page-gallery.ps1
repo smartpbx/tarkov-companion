@@ -1448,8 +1448,9 @@ $Shots.Add([pscustomobject]@{
             (New-NavigationStep "Variant A Ammo section" "v2-shell-section-items.ammo" "Ammo"),
             (New-NavigationStep "Variant A Keys section" "v2-shell-section-items.keys" "Keys"),
             (New-NavigationStep "Variant A Flea section" "v2-shell-section-items.flea" "Flea"),
-            (New-NavigationStep "Variant A Stash scan section" "v2-shell-section-stash" "Stash scan"),
+            # [#902 P9] Stash scan is a Plan section in Variant A now, as it already was in B.
             (New-NavigationStep "Variant A Plan destination" "v2-shell-destination-plan" "Plan"),
+            (New-NavigationStep "Variant A Stash scan section" "v2-shell-section-stash" "Stash scan"),
             (New-NavigationStep "Variant A Hideout section" "v2-shell-section-plan.hideout" "Hideout"),
             (New-NavigationStep "Variant A Loadout section" "v2-shell-section-plan.loadout" "Loadout"),
             (New-NavigationStep "Variant A Events section" "v2-shell-section-plan.events" "Events"),
