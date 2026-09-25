@@ -2099,6 +2099,17 @@ internal static class Program
                 }
             }
 
+            // [#292 follow-up] --loot-refresh: press the loot panel's Refresh first, as a player
+            // under Local only would, so the render shows what the panel says afterwards.
+            if (args.Contains("--loot-refresh") &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel lootRefreshRaid &&
+                lootRefreshRaid.Renderer?.HighValueLoot is { } refreshPanel)
+            {
+                refreshPanel.RefreshCommand.Execute(null);
+                Pump(80);
+                Console.WriteLine($"Loot after refresh: {refreshPanel.NoDataMessage}");
+            }
+
             // [Issue 563] Press "High-value loot only" the way the gem button on the map does, so
             // a render can show what it leaves on the map with and without loot-spawn data.
             if (args.Contains("--loot-preset") &&

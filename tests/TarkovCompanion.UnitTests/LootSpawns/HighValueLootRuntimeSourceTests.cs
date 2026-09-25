@@ -75,6 +75,50 @@ public sealed class HighValueLootRuntimeSourceTests
     }
 
     [Fact]
+    public async Task A_refresh_skipped_for_local_only_is_the_reason_the_layer_gives_first()
+    {
+        // [#292 follow-up] Refresh under Local only said the source refresh had failed. It was
+        // never attempted; the layer says so, and the panel puts it as "Local only · off".
+        var refresh = new StubRefresh
+        {
+            Result = new(
+                LootSpawnSourceImportDisposition.SkippedLocalOnly,
+                null,
+                null,
+                [new(LootSpawnRefreshCodes.LocalOnly, "Local only is on.")]),
+        };
+        var source = Source(new MemoryStore(null), refresh);
+        await source.InitializeAsync(CancellationToken.None);
+        var before = source.Build(Request(Now));
+        Assert.NotEqual(LootSpawnRefreshCodes.LocalOnly, before.Diagnostics[0].Code);
+
+        await source.RefreshAsync(force: true, CancellationToken.None);
+        var after = source.Build(Request(Now));
+
+        Assert.Equal(ResultCompleteness.Unavailable, after.Status.Completeness);
+        Assert.Equal(LootSpawnRefreshCodes.LocalOnly, after.Diagnostics[0].Code);
+        Assert.Equal(before.Diagnostics.Count + 1, after.Diagnostics.Count);
+    }
+
+    [Fact]
+    public async Task A_local_only_refresh_leaves_a_published_head_drawn_as_it_was()
+    {
+        var bundle = Bundle(Now, "generation-one");
+        var refresh = new StubRefresh
+        {
+            Result = new(LootSpawnSourceImportDisposition.SkippedLocalOnly, null, bundle, [new(LootSpawnRefreshCodes.LocalOnly, "Local only is on.")]),
+        };
+        var source = Source(new MemoryStore(bundle), refresh);
+        await source.InitializeAsync(CancellationToken.None);
+
+        await source.RefreshAsync(force: true, CancellationToken.None);
+        var result = source.Build(Request(Now.AddMinutes(1)));
+
+        Assert.Single(result.Entries);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == LootSpawnRefreshCodes.LocalOnly);
+    }
+
+    [Fact]
     public async Task Published_refresh_atomically_advances_the_runtime_head()
     {
         var first = Bundle(Now, "generation-one");

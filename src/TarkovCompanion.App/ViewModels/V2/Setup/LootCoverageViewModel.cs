@@ -122,6 +122,12 @@ public sealed class LootCoverageViewModel : BindableViewModel
             return string.Empty;
         }
 
+        if (outcome.Disposition is LootSpawnSourceImportDisposition.SkippedLocalOnly)
+        {
+            // [#292] Not a failure: the refresh was not attempted.
+            return SetupText.CoverageLootLocalOnly;
+        }
+
         var reason = outcome.Diagnostics.Count > 0
             ? outcome.Diagnostics[0].Detail
             : SetupText.CoverageLootNoSnapshot;
