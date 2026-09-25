@@ -462,6 +462,7 @@
                           IsEnabled="{Binding Pairing.CanStartPairing}" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
+                           AutomationProperties.AutomationId="v2-team-pairing-unavailable"
                            IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
 
                 <Border Classes="v2-team-row" IsVisible="{Binding Pairing.HasClockSkewNotice}"

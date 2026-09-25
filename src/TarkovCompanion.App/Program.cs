@@ -162,6 +162,12 @@ internal static class Program
             var services = AppComposition.Build(options);
             // [#279] Developer mode only: a seeded gallery scene and its readiness answer.
             var galleryReadiness = options.DeveloperMode && options.GalleryScene is not null ? new GalleryReadiness() : null;
+            if (galleryReadiness is not null)
+            {
+                // Before anything loads: the loading and error scenes hold or fail the page loads.
+                GalleryStateScene.Arm(options.GalleryScene!.Value);
+            }
+
             var app = new App(services) { GalleryReadiness = galleryReadiness };
             var diagnosticChannel = DiagnosticCommandChannel.Start(
                 options.DeveloperMode,

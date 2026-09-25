@@ -121,6 +121,7 @@
               AutomationProperties.AutomationId="v2-flea-results">
         <Grid RowDefinitions="Auto,*" RowSpacing="10">
           <TextBlock Grid.Row="0" Classes="v2-label" Text="{Binding SearchStatus}" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="v2-flea-search-status"
                      AutomationProperties.LiveSetting="Polite" Margin="2,0" />
           <StackPanel Grid.Row="1" Spacing="10" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center"
                       IsVisible="{Binding ShowsNoResults}">

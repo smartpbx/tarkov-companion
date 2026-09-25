@@ -1214,6 +1214,11 @@ function Wait-GalleryReady {
 $AppDataRoot = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
 $SceneBackup = Join-Path $env:TEMP ("tc-gallery-scene-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
 $SceneBackedUp = $false
+# [#279] The fresh-profile scenes set the download cache aside here, and the offline ones set
+# the app's offline switch; both are put back after each launch.
+$LiveCache = Join-Path $AppDataRoot "Cache"
+$CacheAside = Join-Path $env:TEMP ("tc-gallery-cache-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
+$PreviousOffline = $env:TARKOV_COMPANION_OFFLINE
 
 function Backup-SceneState {
     if ($script:SceneBackedUp) { return }
@@ -1842,6 +1847,128 @@ $Shots.Add([pscustomobject]@{
                 minimumWindowHeightFraction = 0.75 })
         }) }
 })
+# [#279] Each workspace in the states a player meets when something is missing, photographed on
+# Windows: every shot above is a runner that has just downloaded everything. The app reaches each
+# state by the path a player's machine takes to it (GalleryStateScene):
+#   empty    - a fresh profile: database, config and download cache taken away for the launch,
+#              and offline, so the app opens a new database with no catalog.
+#   loading  - the page's own load held at its first line (LoadHold); photographed while held,
+#              then released, and the page must leave its loading message.
+#   degraded - offline over the downloaded catalog, stamped six days old, and a squad whose relay
+#              stopped answering; Tablet is photographed unpaired, as a runner always is.
+#   error    - the page's own load made to fail (LoadFaultInjection); Plan's Retry must recover.
+# Each shot asserts that the page's message is there and reads as words ($StateReadable: two
+# words at least, and no exception name or stack frame). Advisory, like the matrix: a state that
+# reads badly is an issue to file, not a reason to stop publishing. Chosen per page by the states
+# it has: Stash has no degraded data of its own and Team loads nothing slow enough to hold.
+$StateReadable = '^(?![\s\S]*(Exception|\bat [A-Z][\w.]+\()).*\p{L}{3,}\s+\p{L}{2,}'
+$StateShots = @(
+    @{ state = "empty"; key = "raid"; address = "#/raid"; heading = "Raid"; message = "v2-shell-surface-state" },
+    @{ state = "empty"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status" },
+    @{ state = "empty"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status" },
+    @{ state = "empty"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status" },
+    @{ state = "empty"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
+    @{ state = "loading"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-plan-status"
+        holding = '^Loading your quest board'; after = '^(?!Loading your quest board)' },
+    @{ state = "loading"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status"
+        holding = '^Raid history has not been loaded'; after = '^(?!Raid history has not been loaded)' },
+    @{ state = "loading"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-stash-status"
+        holding = '^Stash snapshots have not been loaded'; after = '^(?!Stash snapshots have not been loaded)' },
+    @{ state = "degraded"; key = "raid"; address = "#/raid"; heading = "Raid"; message = "v2-shell-surface-state"; holding = '(?i)offline' },
+    @{ state = "degraded"; key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"; message = "v2-flea-search-status"; search = "Salewa" },
+    @{ state = "degraded"; key = "team-group"; address = "#/team/group"; heading = "Group"; message = "v2-team-group-status" },
+    @{ state = "degraded"; key = "tablet"; address = "#/tablet"; heading = "Tablet preview"; message = "v2-team-pairing-unavailable"; also = @("v2-team-pair-tablet") },
+    @{ state = "degraded"; key = "setup"; address = "#/setup"; heading = "Setup & Admin"; message = "v2-shell-topbar-freshness" },
+    @{ state = "error"; key = "plan"; address = "#/plan"; heading = "Plan"; message = "v2-load-fault"; retry = $true },
+    @{ state = "error"; key = "debrief"; address = "#/debrief"; heading = "Debrief"; message = "v2-debrief-status" },
+    @{ state = "error"; key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"; message = "v2-stash-status" }
+)
+foreach ($State in $StateShots) {
+    $Patterns = @([pscustomobject]@{ automationId = $State.message; pattern = $StateReadable })
+    if ($State.ContainsKey("holding")) { $Patterns += [pscustomobject]@{ automationId = $State.message; pattern = $State.holding } }
+    $Steps = [System.Collections.Generic.List[object]]::new()
+    $Steps.Add([pscustomobject]@{
+        action = "assert"; description = "$($State.state) $($State.address) says so in words"
+        expectedHeading = $State.heading
+        expectedAutomationIds = @($State.message) + @($(if ($State.ContainsKey("also")) { $State.also } else { @() }))
+        expectedNamePatterns = $Patterns
+    })
+    if ($State.state -eq "loading") {
+        $Steps.Add([pscustomobject]@{ action = "ready"; condition = "release"; description = "the held load let go" })
+        $Steps.Add([pscustomobject]@{
+            action = "assert"; description = "the page left its loading message"
+            expectedNamePatterns = @([pscustomobject]@{ automationId = $State.message; pattern = $State.after })
+        })
+    }
+    if ($State.ContainsKey("retry")) {
+        $Steps.Add([pscustomobject]@{ action = "ready"; condition = "release"; description = "the load stops failing" })
+        $Steps.Add([pscustomobject]@{
+            action = "invoke"; description = "press Retry on the load notice"
+            targetAutomationId = "v2-load-fault-retry"; targetControlType = "Button"
+        })
+        $Steps.Add([pscustomobject]@{
+            action = "assert"; description = "Retry brought the quest board back"
+            expectedNamePatterns = @([pscustomobject]@{ automationId = "v2-plan-status"; pattern = "^(?!Quest data isn't available yet|Loading your quest board)" })
+        })
+    }
+    if ($State.ContainsKey("search")) {
+        $Steps.Insert(0, [pscustomobject]@{
+            action = "set-value"; description = "search the flea for $($State.search)"
+            targetAutomationId = "v2-flea-search"; value = $State.search
+        })
+        $Steps.Insert(1, [pscustomobject]@{
+            action = "invoke"; description = "run the flea search"
+            targetAutomationId = "v2-flea-search-go"; targetControlType = "Button"
+        })
+    }
+    $Shot = [ordered]@{
+        name = "v2-a-state-$($State.state)-$($State.key)-1920"
+        # Raid on Customs, like the map scenes, not whichever map the runner last left open.
+        args = @("--ui-shell", "v2-a") + $(if ($State.key -eq "raid") { @("--map", "customs") } else { @() })
+        shellMode = "v2-a"; width = 1920; height = 1080
+        galleryScene = $State.state
+        seedPreview = [pscustomobject]@{ variant = "v2-a"; address = $State.address }
+        # The state as it first stands; the steps after it may change it (release, Retry, search).
+        captureBeforeInteraction = -not $State.ContainsKey("search")
+        interaction = [pscustomobject]@{ steps = $Steps.ToArray() }
+        advisory = $true
+    }
+    if ($State.state -eq "empty") { $Shot["freshProfile"] = $true }
+    if ($State.state -in @("empty", "degraded")) { $Shot["offline"] = $true }
+    $Shots.Add([pscustomobject]$Shot)
+}
+# [#286/#868] Inspect and Route, the two map modes #868 added, which no Windows capture had shown:
+# in raid on Customs, one Inspect click with its popover, and five Route stops with their bar.
+# Advisory until a run or two has shown they photograph the same way each time.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-customs-inspect-1920"
+    args = @("--ui-shell", "v2-a", "--map", "customs")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "inspect"
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    captureBeforeInteraction = $true
+    advisory = $true
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "assert"; description = "Inspect mode lit and its popover open"
+            expectedAutomationIds = @("v2-map-plan", "v2-raid-mode-inspect", "v2-raid-inspect", "v2-raid-inspect-close")
+        }) }
+})
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-customs-routestops-1920"
+    args = @("--ui-shell", "v2-a", "--map", "customs")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "routestops"
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    captureBeforeInteraction = $true
+    advisory = $true
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "assert"; description = "Route mode's bar says five stops"
+            expectedAutomationIds = @("v2-map-plan", "v2-raid-route-bar", "v2-raid-route-undo", "v2-raid-route-clear")
+            expectedNamePatterns = @([pscustomobject]@{ automationId = "v2-raid-route-summary"; pattern = '\b5\b' })
+        }) }
+})
 # [#797] Reserve's objectives stood under one "3" count box: the same route scene on Reserve
 # shows each objective's lettered pin, fanned apart where they share a bunker, and zone outlines.
 $Shots.Add([pscustomobject]@{
@@ -2007,6 +2134,7 @@ foreach ($Shot in $Shots) {
     $ChannelToken = $null
     $script:GalleryChannelRoot = $null
     $script:GalleryChannelToken = $null
+    $CacheSetAside = $false
     try {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
         # V2 rough package 30 (acceptance sweep): a window this size needs a desktop that size.
@@ -2030,6 +2158,22 @@ foreach ($Shot in $Shots) {
             continue
         }
 
+        # [#279] A fresh profile (the "empty" state scenes): the database and config go, restored
+        # from the scene backup in the finally below, and the download cache is set aside so an
+        # offline launch cannot rebuild the catalog from it.
+        if ([bool](Get-InteractionProperty -Object $Shot -Name "freshProfile" -Default $false)) {
+            Backup-SceneState
+            foreach ($Name in @("Database", "Config")) {
+                $Live = Join-Path $AppDataRoot $Name
+                if (Test-Path -LiteralPath $Live) { Remove-Item -LiteralPath $Live -Recurse -Force }
+            }
+            if (Test-Path -LiteralPath $LiveCache) {
+                Move-Item -LiteralPath $LiveCache -Destination $CacheAside
+                $CacheSetAside = $true
+            }
+        }
+        # The app's own offline switch (AppComposition.OfflineEnvironmentVariable), for this launch only.
+        if ([bool](Get-InteractionProperty -Object $Shot -Name "offline" -Default $false)) { $env:TARKOV_COMPANION_OFFLINE = "1" }
         $SeedPreview = Get-InteractionProperty -Object $Shot -Name "seedPreview"
         if ($null -ne $SeedPreview) { Set-V2PreviewState -Seed $SeedPreview }
         $ShotTextScale = [int](Get-InteractionProperty -Object $Shot -Name "textScale" -Default 0)
@@ -2227,6 +2371,15 @@ foreach ($Shot in $Shots) {
             try { Restore-SceneState }
             catch { $Result.detail = "{0} (scene state not restored: {1})" -f $Result.detail, $_.Exception.Message }
         }
+        if ($null -eq $PreviousOffline) { Remove-Item Env:\TARKOV_COMPANION_OFFLINE -ErrorAction SilentlyContinue }
+        else { $env:TARKOV_COMPANION_OFFLINE = $PreviousOffline }
+        if ($CacheSetAside) {
+            try {
+                if (Test-Path -LiteralPath $LiveCache) { Remove-Item -LiteralPath $LiveCache -Recurse -Force }
+                Move-Item -LiteralPath $CacheAside -Destination $LiveCache
+            }
+            catch { $Result.detail = "{0} (download cache not put back: {1})" -f $Result.detail, $_.Exception.Message }
+        }
         try { Restore-TextScalePreference }
         catch { $Result.detail = "{0} (text scale not restored: {1})" -f $Result.detail, $_.Exception.Message }
         $Result.shotSeconds = [Math]::Round($ShotClock.Elapsed.TotalSeconds, 2)
@@ -2345,6 +2498,7 @@ function Write-GallerySummary {
     $Families = $Launched | Group-Object -Property {
         if ($_.shellMode -eq "legacy") { "legacy pages" }
         elseif ($_.page -match '^v2-a-.+-(1280x720|1500x900|1120x720|1920-text\d+)$') { "V2 matrix $($Matches[1])" }
+        elseif ($_.page -match '^v2-a-state-') { "V2 states" }
         elseif ($null -ne $_.readySeconds -and $_.page -match '^v2-a-raid-') { "V2 map scenes" }
         elseif ($_.page -match '^v2-a-') { "V2 routes 1920" }
         else { "other V2 and map renderer" }

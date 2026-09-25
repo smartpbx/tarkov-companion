@@ -1233,6 +1233,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         {
             UiActivity.Step("plan:start");
             LoadFaultInjection.ThrowIfInjected("plan");
+            await LoadHold.WaitIfHeldAsync("plan", cancellationToken).ConfigureAwait(true);
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             UiActivity.Step("plan:profile");
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);

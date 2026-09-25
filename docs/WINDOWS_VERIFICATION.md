@@ -56,6 +56,17 @@ and has neither a step that could publish nor a token that could.
    1280x720, 1500x900, 1120x720 (the window minimum) and 150%/200% text at 1080p for some
    routes: reported in the log and the job summary (with per-family timings and every PNG
    captured), never failing the step.
+   Advisory state shots (`v2-a-state-<empty|loading|degraded|error>-<route>-1920`) photograph
+   the messages a player meets when something is missing (`GalleryStateScene`): `empty` wipes
+   Database, Config and the download cache and launches offline (a first launch without
+   internet; Raid, Flea, Plan, Debrief, Setup); `loading` holds the page's own load at its first
+   line (`LoadHold`), then releases it and asserts the loading message went (Plan, Debrief,
+   Stash); `degraded` launches offline over the catalog stamped six days old, with a squad whose
+   relay stopped answering (Raid, Flea with a search, Team › Group, Tablet unpaired, Setup); `error`
+   makes the page's own load throw (`LoadFaultInjection`; Plan, Debrief, Stash) and presses
+   Plan's Retry. Each asserts its message element reads as words with no exception name. The
+   `inspect` and `routestops` scenes add Raid's Inspect popover and five Route stops, in raid on
+   Customs.
    Each Variant A capture is then pixel-diffed (`scripts/windows-gallery-diff.ps1`, advisory,
    never failing) against the approved set: the newest `gallery-baselines` artifact, kept 90
    days. A pixel counts as changed when a channel differs by more than 24 and no pixel within

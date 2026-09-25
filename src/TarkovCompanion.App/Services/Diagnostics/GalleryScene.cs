@@ -2,6 +2,7 @@ using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Shell;
@@ -48,14 +49,33 @@ public enum GallerySceneKind
     /// (<see cref="GalleryPageReadiness"/>), so Ammo is not photographed while it is still reading.
     /// </summary>
     Page,
+
+    /// <summary>[#279] A fresh profile: ready once the empty database is open and the page has said so.</summary>
+    Empty,
+
+    /// <summary>[#279] The page's own load held at its first line (<see cref="LoadHold"/>); "release" lets it finish.</summary>
+    Loading,
+
+    /// <summary>[#279] Cached data six days old and a relay that stopped answering; the gallery launches it offline.</summary>
+    Degraded,
+
+    /// <summary>[#279] The page's own load made to fail (<see cref="LoadFaultInjection"/>); "release" stops failing it.</summary>
+    Error,
+
+    /// <summary>[#286] In raid on the map, Inspect mode, a spot clicked: the popover.</summary>
+    Inspect,
+
+    /// <summary>[#286] In raid on the map, Route mode, five stops clicked: the numbered route.</summary>
+    RouteStops,
 }
 
 public static class GallerySceneKinds
 {
     public static GallerySceneKind Parse(string value) =>
-        Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
+        // By name only: Enum.TryParse also takes "7", which is whichever scene happens to be seventh.
+        !int.TryParse(value, out _) && Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
             ? kind
-            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw or page, not '{value}'.");
+            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw, page, empty, loading, degraded, error, inspect or routestops, not '{value}'.");
 }
 
 /// <summary>
@@ -130,6 +150,12 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
             return;
         }
 
+        if (GalleryStateScene.IsState(scene))
+        {
+            await new GalleryStateScene(services, main, scene).RunAsync(readiness, cancellationToken).ConfigureAwait(true);
+            return;
+        }
+
         try
         {
             var raid = services.GetRequiredService<RaidCockpitViewModel>();
@@ -148,6 +174,8 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                 GallerySceneKind.Marks => await MarksAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.InRaid => await InRaidAsync(raid, cancellationToken).ConfigureAwait(true),
                 GallerySceneKind.Draw => await DrawAsync(raid, cancellationToken).ConfigureAwait(true),
+                GallerySceneKind.Inspect => await InspectAsync(raid, cancellationToken).ConfigureAwait(true),
+                GallerySceneKind.RouteStops => await RouteStopsAsync(raid, cancellationToken).ConfigureAwait(true),
                 _ => $"{raid.MapExtracts.Count} extracts",
             };
 
@@ -193,7 +221,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         }
     }
 
-    private static async Task<string> PageLoadedAsync(V2ShellViewModel shell, CancellationToken cancellationToken)
+    internal static async Task<string> PageLoadedAsync(V2ShellViewModel shell, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + MapTimeout;
         var quiet = 0;
@@ -263,6 +291,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
             GallerySceneKind.Route => kinds.Contains(MapSceneObjectKind.QuestObjective),
             GallerySceneKind.Squad => kinds.Contains(MapSceneObjectKind.TeammateLastKnown),
             GallerySceneKind.Marks => kinds.Count(kind => kind is MapSceneObjectKind.Ping or MapSceneObjectKind.Waypoint) >= _placedMarks,
+            GallerySceneKind.RouteStops => kinds.Count(kind => kind is MapSceneObjectKind.Waypoint) >= _placedMarks,
             GallerySceneKind.Draw => renderer.GeometryObjects.Count(item => item.SceneObject.Id.Value.Contains("drawing:", StringComparison.Ordinal)) >= 3,
             _ => true,
         };
@@ -433,6 +462,62 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         return $"{raid.DrawingStore.Drawings.Count} lines, {(index >= 0 ? "a squad line" : "no squad line")}";
     }
 
+    /// <summary>
+    /// [#286] The inraid scene, then Inspect mode and one click near the middle of the plan, on an
+    /// objective or a place name where there is one: the popover #868 added, which no Windows
+    /// capture had shown. The click goes through <see cref="RaidCockpitViewModel.ModeClicked"/>,
+    /// the call a real click in Inspect mode makes.
+    /// </summary>
+    private async Task<string> InspectAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
+    {
+        var clock = await InRaidAsync(raid, cancellationToken).ConfigureAwait(true);
+        var renderer = FitForModes(raid);
+        var bounds = renderer.Scene.Bounds;
+        var middle = new MapScenePoint(bounds.MinimumX + (bounds.Width * 0.5), bounds.MinimumY + (bounds.Height * 0.5));
+        var target = renderer.Scene.VisibleObjects
+            .Where(item => item.Kind is MapSceneObjectKind.QuestObjective or MapSceneObjectKind.Label && item.Geometry.Points.Count > 0)
+            .OrderBy(item => item.Kind == MapSceneObjectKind.QuestObjective ? 0 : 1)
+            .ThenBy(item => Math.Pow(item.Geometry.Points[0].X - middle.X, 2) + Math.Pow(item.Geometry.Points[0].Y - middle.Y, 2))
+            .Select(item => (MapScenePoint?)item.Geometry.Points[0])
+            .FirstOrDefault() ?? middle;
+        raid.SetInteractionMode(MapInteractionMode.Inspect);
+        raid.ModeClicked(new(target.X + (bounds.Width * 0.01), target.Y + (bounds.Height * 0.01)));
+        await WaitForAsync(() => raid.HasInspection && raid.InspectSections.Count > 0, StepTimeout, "the Inspect popover", cancellationToken)
+            .ConfigureAwait(true);
+        return $"{clock}, inspect '{raid.InspectTitle}' with {raid.InspectSections.Count} sections";
+    }
+
+    /// <summary>[#286] The inraid scene, then Route mode and five clicks across the plan: five numbered stops.</summary>
+    private async Task<string> RouteStopsAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
+    {
+        var clock = await InRaidAsync(raid, cancellationToken).ConfigureAwait(true);
+        var bounds = FitForModes(raid).Scene.Bounds;
+        raid.SetInteractionMode(MapInteractionMode.Route);
+        (double X, double Y)[] stops = [(0.30, 0.62), (0.38, 0.52), (0.47, 0.56), (0.56, 0.47), (0.63, 0.36)];
+        foreach (var (fx, fy) in stops)
+        {
+            raid.ModeClicked(new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy)));
+        }
+
+        _placedMarks = stops.Length;
+        await WaitForAsync(() => raid.PlannedRouteStopCount == stops.Length && raid.Marks.Count >= stops.Length, StepTimeout,
+            $"{stops.Length} route stops", cancellationToken).ConfigureAwait(true);
+        return $"{clock}, route '{raid.PlannedRouteSummary}'";
+    }
+
+    /// <summary>The whole plan in view and not following the player, so a click lands where it is aimed.</summary>
+    private static MapSceneRendererViewModel FitForModes(RaidCockpitViewModel raid)
+    {
+        if (raid.FollowsPlayer)
+        {
+            raid.ToggleFollowCommand.Execute(null);
+        }
+
+        var renderer = raid.Renderer ?? throw new InvalidOperationException("the map is not open");
+        renderer.FitPlanCommand.Execute(null);
+        return renderer;
+    }
+
     private async Task<string> MarksAsync(RaidCockpitViewModel raid, CancellationToken cancellationToken)
     {
         var placed = _placedMarks = await GalleryMarks.PlaceAsync(
@@ -459,7 +544,7 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
     }
 
     /// <summary>Checks on the UI thread every 100 ms; the app keeps drawing in between.</summary>
-    private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout, string what, CancellationToken cancellationToken)
+    internal static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout, string what, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (!condition())

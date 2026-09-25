@@ -1014,6 +1014,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         try
         {
+            // [#279] The gallery's loading and error scenes (LoadHold, LoadFaultInjection).
+            LoadFaultInjection.ThrowIfInjected("stash");
+            await LoadHold.WaitIfHeldAsync("stash", cancellationToken).ConfigureAwait(true);
             // An unfinished scan from a previous run is read back here, the first time the
             // workspace is opened, and waits paused until the player says to keep going.
             if (_guidedScan is not null)
