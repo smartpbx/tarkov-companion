@@ -109,6 +109,7 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.RaidLootValueThreshold, false, "Setup.Settings.Layout.LootThreshold"),
         new(WorkspaceLayoutKeys.RaidLootValueBasis, false, "Setup.Settings.Layout.LootBasis"),
         new(WorkspaceLayoutKeys.RaidLayerVisibility, false, "Setup.Settings.Layout.MapLayers"),
+        new(WorkspaceLayoutKeys.RaidObjectiveRouteMaps, false, "Setup.Settings.Layout.ObjectiveRouteMaps"),
         new(WorkspaceLayoutKeys.RaidFollow, false, "Setup.Settings.Layout.Follow"),
         new(WorkspaceLayoutKeys.LootAutoReturnSeconds, false, "Setup.Settings.Layout.LootReturn", V2SetupSection.Diagnostics),
         new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.Diagnostics),

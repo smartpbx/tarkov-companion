@@ -91,7 +91,7 @@ public sealed record V2DestinationDefinition(V2RouteId Route, string LabelKey);
 ///
 /// A destination is normally the variant's label for a route-registry root. The small override
 /// table records routes whose registry root is not a visible destination: item details in A, and
-/// the deliberate variant difference where Stash scan belongs to Intel in A and Prepare in B.
+/// and Stash scan, which belongs to Plan in A and Prepare in B (it moved from Intel in #910).
 /// Addresses remain free to be stable deep links rather than silently becoming the navigation
 /// model; this matters for
 /// <c>#/tablet</c>, which belongs to Team without being nested below <c>#/team</c>.

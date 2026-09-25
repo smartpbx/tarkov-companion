@@ -5,7 +5,7 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// </summary>
 /// <remarks>
 /// #265 is comparing labels and placement, so neither can be an identity. "Plan" in one variant
-/// is "Prepare" in the other; Stash scan lives under Intel in one and Prepare in the other; Intel
+/// is "Prepare" in the other, and Stash scan lives under whichever of the two it is; Intel
 /// is a destination in one and a panel in the other. A persisted address, a recent, a pin or a
 /// test written against a label would silently change meaning the day a session moves a label.
 /// </remarks>

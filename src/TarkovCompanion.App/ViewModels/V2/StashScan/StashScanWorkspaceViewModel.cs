@@ -823,6 +823,15 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public ICommand? SelectedItemOpenLoadoutCommand => SelectedItem?.OpenLoadoutCommand;
 
+    /// <summary>
+    /// The "Open in Intel" button's visibility and parameter. Flattened for the reason given on
+    /// <see cref="SelectedItemDisplayName"/>: <c>SelectedItem.HasItem</c> with a FallbackValue still
+    /// logs a binding fault while nothing is selected, and Windows verification fails on it.
+    /// </summary>
+    public bool SelectedItemHasItem => SelectedItem?.HasItem == true;
+
+    public string SelectedItemId => SelectedItem?.ItemId ?? string.Empty;
+
     /// <summary>The selected item's group and the whole of its reason, which a row has to trim.</summary>
     public string SelectedItemSortLabel => SelectedItem is not { } item
         ? string.Empty
@@ -888,6 +897,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 OnPropertyChanged(nameof(SelectedItemSortLabel));
                 OnPropertyChanged(nameof(SelectedItemHasLoadoutLink));
                 OnPropertyChanged(nameof(SelectedItemOpenLoadoutCommand));
+                OnPropertyChanged(nameof(SelectedItemHasItem));
+                OnPropertyChanged(nameof(SelectedItemId));
             }
         }
     }

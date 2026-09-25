@@ -1448,11 +1448,12 @@ $Shots.Add([pscustomobject]@{
             (New-NavigationStep "Variant A Ammo section" "v2-shell-section-items.ammo" "Ammo"),
             (New-NavigationStep "Variant A Keys section" "v2-shell-section-items.keys" "Keys"),
             (New-NavigationStep "Variant A Flea section" "v2-shell-section-items.flea" "Flea"),
-            (New-NavigationStep "Variant A Stash scan section" "v2-shell-section-stash" "Stash scan"),
             (New-NavigationStep "Variant A Plan destination" "v2-shell-destination-plan" "Plan"),
             (New-NavigationStep "Variant A Hideout section" "v2-shell-section-plan.hideout" "Hideout"),
             (New-NavigationStep "Variant A Loadout section" "v2-shell-section-plan.loadout" "Loadout"),
             (New-NavigationStep "Variant A Events section" "v2-shell-section-plan.events" "Events"),
+            # [#910] Stash scan moved from Intel to Plan in Variant A too.
+            (New-NavigationStep "Variant A Stash scan section" "v2-shell-section-stash" "Stash scan"),
             (New-NavigationStep "Variant A Team destination" "v2-shell-destination-team" "Team"),
             (New-NavigationStep "Variant A Group section" "v2-shell-section-team.group" "Group"),
             (New-NavigationStep "Variant A Tablet section" "v2-shell-section-team.tablet" "Devices"),
