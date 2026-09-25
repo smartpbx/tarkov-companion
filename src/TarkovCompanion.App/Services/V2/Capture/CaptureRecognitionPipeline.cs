@@ -46,7 +46,9 @@ public sealed class CaptureRecognitionPipeline(
     // CaptureAnalysis - see ICaptureStageTimeline's own remarks for why. Optional: every existing
     // composition and test predates it, and a host that never registers one gets no timing lines
     // rather than a missing-service failure.
-    Application.Services.CaptureSessions.ICaptureStageTimeline? stageTimeline = null) : ICaptureSessionPipeline, ILootScanRecognitionProgressSource
+    Application.Services.CaptureSessions.ICaptureStageTimeline? stageTimeline = null,
+    // [#893] One line per analysed frame, so a capture that ends "no change" says which gate held it.
+    Microsoft.Extensions.Logging.ILogger<CaptureRecognitionPipeline>? logger = null) : ICaptureSessionPipeline, ILootScanRecognitionProgressSource
 {
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
     private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
@@ -207,6 +209,34 @@ public sealed class CaptureRecognitionPipeline(
                 detection.Confidence,
                 grid?.Lattice is not null,
                 request.RequestedIntent);
+            (detectedContext, isAmbiguous, confidence) = PlaceUnarmedInRaidContainer(
+                detectedContext,
+                isAmbiguous,
+                confidence,
+                grid?.Lattice is not null,
+                request.RequestedIntent,
+                detection.Context,
+                request.Context.ActiveMap is not null);
+            if (logger is not null)
+            {
+                // [#893] The field logs said what ScanUseCase read and never what this pipeline
+                // decided, and the capture panel acts on this one. Pixel-free, no file name.
+                Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(
+                    logger,
+                    "Capture {CorrelationId} analysed: detector {Detected} at {DetectorConfidence:0.00}, placed as {Context} at {Confidence:0.00} ({Decision}); ambiguous={Ambiguous}, available={Available}, intent={Intent}, in raid={InRaid}, lattice={Lattice}, grid cells={Cells}.",
+                    request.CorrelationId,
+                    detection.Context,
+                    detection.Confidence.Value,
+                    detectedContext?.ToString() ?? "none",
+                    confidence.Value,
+                    RecognitionThresholds.Classify(confidence),
+                    isAmbiguous,
+                    isAvailable,
+                    request.RequestedIntent,
+                    request.Context.ActiveMap is not null,
+                    grid?.Lattice is not null,
+                    grid?.OccupiedCells.Count ?? 0);
+            }
 
             return new(
                 contentHash,
@@ -399,6 +429,31 @@ public sealed class CaptureRecognitionPipeline(
         ScanIntent intent) =>
         isAmbiguous && latticeMeasured && GridSurfaceFor(intent) is not null
             ? (MapContainer(intent), false, new(Math.Max(confidence.Value, RecognitionThresholds.Ambiguous)))
+            : (detected, isAmbiguous, confidence);
+
+    /// <summary>
+    /// [#893] An unarmed in-raid container screen whose lattice was measured is acted on, however
+    /// weakly its words were read.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="GridSurfaceFor(ScanIntent, ScanContext, bool)"/> already measures the grid of an
+    /// unarmed container screen in raid, and <see cref="PlaceFromLattice"/> lifts a weak reading to
+    /// the floor intake acts on, but only under an armed intent. The unarmed in-raid case, the
+    /// product's main in-raid action, kept the anchor detector's own confidence, and a container
+    /// read below <see cref="RecognitionThresholds.Candidate"/> ended "below threshold, no change"
+    /// with its measured grid thrown away. The owner's real Container frames (2026-09-24/25)
+    /// produced no loot scan at all; this is one gate that explains it, not a proven one.
+    /// </remarks>
+    internal static (RecognizedContext? Context, bool IsAmbiguous, Confidence Confidence) PlaceUnarmedInRaidContainer(
+        RecognizedContext? detected,
+        bool isAmbiguous,
+        Confidence confidence,
+        bool latticeMeasured,
+        ScanIntent intent,
+        ScanContext detectedScan,
+        bool inRaid) =>
+        !isAmbiguous && latticeMeasured && intent == ScanIntent.Auto && detectedScan == ScanContext.Container && inRaid
+            ? (detected, false, new(Math.Max(confidence.Value, RecognitionThresholds.Ambiguous)))
             : (detected, isAmbiguous, confidence);
 
     /// <summary>
