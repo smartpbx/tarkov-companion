@@ -21,6 +21,7 @@ namespace TarkovCompanion.App.Services;
 public sealed class CoalescingDispatch(SynchronizationContext? context, Action work)
 {
     private readonly Action _work = work ?? throw new ArgumentNullException(nameof(work));
+    private readonly Lock _inline = new();
     private int _pending;
 
     /// <summary>
@@ -30,10 +31,30 @@ public sealed class CoalescingDispatch(SynchronizationContext? context, Action w
     /// Runs it straight away when there is no dispatcher, or when the caller is already on it:
     /// a test host and a headless run have no dispatcher, and posting to the thread you are
     /// already on would delay the work for no reason.
+    ///
+    /// Without a dispatcher the work is also run one caller at a time. The shell's save queue
+    /// finishes on the thread pool and asks for a pass from there, while the runtime store asks
+    /// from whichever thread updated it. Two passes at once each read the store and then wrote
+    /// the surface, so the one that read first could write last: a stale "offline" surface
+    /// replaced the recovered one, and a dismissed banner came back or a new one stayed hidden.
+    /// That failed A_global_problem_is_one_dismissible_line... three times on 2026-09-25. One at
+    /// a time, whichever pass runs last reads the latest state, which is all the dispatcher
+    /// guaranteed. The lock is re-entrant, so a pass that asks for another runs it inline as
+    /// before.
     /// </remarks>
     public void Request()
     {
-        if (context is null || ReferenceEquals(SynchronizationContext.Current, context))
+        if (context is null)
+        {
+            lock (_inline)
+            {
+                _work();
+            }
+
+            return;
+        }
+
+        if (ReferenceEquals(SynchronizationContext.Current, context))
         {
             _work();
             return;

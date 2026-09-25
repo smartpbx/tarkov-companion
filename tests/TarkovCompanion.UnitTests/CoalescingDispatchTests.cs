@@ -112,6 +112,60 @@ public sealed class CoalescingDispatchTests
         Assert.Equal(2, passes);
     }
 
+    [Fact]
+    public async Task Without_a_dispatcher_two_threads_never_run_the_work_at_once()
+    {
+        // The shell's save queue asks for a pass from the thread pool while the runtime store asks
+        // from the thread that updated it. Run together, the pass that read the store first could
+        // write the surface last, and a stale problem banner replaced the current one.
+        using var firstEntered = new ManualResetEventSlim();
+        using var releaseFirst = new ManualResetEventSlim();
+        var running = 0;
+        var mostAtOnce = 0;
+        var passes = 0;
+        var dispatch = new CoalescingDispatch(null, () =>
+        {
+            var now = Interlocked.Increment(ref running);
+            InterlockedMax(ref mostAtOnce, now);
+            if (Interlocked.Increment(ref passes) == 1)
+            {
+                firstEntered.Set();
+                releaseFirst.Wait(TimeSpan.FromSeconds(10));
+            }
+
+            Interlocked.Decrement(ref running);
+        });
+
+        var first = Task.Run(dispatch.Request);
+        Assert.True(firstEntered.Wait(TimeSpan.FromSeconds(10)));
+        var second = Task.Run(dispatch.Request);
+
+        // Unserialized, the second pass enters at once; give it every chance to.
+        await Task.Delay(200);
+        Assert.Equal(1, Volatile.Read(ref passes));
+
+        releaseFirst.Set();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(2, passes);
+        Assert.Equal(1, mostAtOnce);
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        var current = Volatile.Read(ref target);
+        while (value > current)
+        {
+            var seen = Interlocked.CompareExchange(ref target, value, current);
+            if (seen == current)
+            {
+                return;
+            }
+
+            current = seen;
+        }
+    }
+
     /// <summary>A dispatcher that holds what is posted to it until it is asked to run it.</summary>
     /// <remarks>
     /// Holding rather than running is what makes the coalescing observable: on a real dispatcher
