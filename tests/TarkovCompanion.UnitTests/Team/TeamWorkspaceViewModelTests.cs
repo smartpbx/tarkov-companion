@@ -211,6 +211,40 @@ public sealed class TeamWorkspaceViewModelTests
         Assert.All(viewModel.Marks, row => Assert.EndsWith("Offline snapshot", row.MetadataLabel, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// [#891] The relay stamps squad marks with its clock. On a PC four hours fast every ping read
+    /// "4 h ago · Expiring" the moment it arrived; measured against the relay it reads as it is.
+    /// </summary>
+    [Fact]
+    public void Squad_mark_ages_are_measured_on_the_relays_clock_when_the_pc_is_hours_out()
+    {
+        var relayNow = new DateTimeOffset(2026, 9, 25, 1, 13, 22, TimeSpan.Zero);
+        var pc = new FixedClock(relayNow.AddHours(4));
+        var relayClock = new TarkovCompanion.Application.Services.Devices.RelayClockOffsetTracker(clock: pc);
+        relayClock.Observe(relayNow, pc.GetUtcNow(), overTls: true);
+        var viewModel = new TeamWorkspaceViewModel(
+            GroupSession(),
+            new FakeGroupSettingsStore(GroupSharingSettings.Off),
+            clock: pc,
+            relayClock: relayClock);
+        var waypoint = new GroupWaypointView(1, "Geo", "customs", 0, 0, 0, null, null) { CreatedUtc = relayNow.AddMinutes(-2) };
+        var ping = new GroupPingView(3, "Geo", "customs", 0, 0, 0, null, relayNow.AddSeconds(-40));
+
+        viewModel.Apply(SnapshotWithGroup(new GroupSnapshot(true, [], "Sharing", relayNow)
+        {
+            Waypoints = [waypoint],
+            Pings = [ping],
+        }));
+
+        Assert.Equal("Customs · 2 min ago", viewModel.Waypoints.Single().Detail);
+        Assert.Contains("TTL · 5 s left", viewModel.Pings.Single().MetadataLabel, StringComparison.Ordinal);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     [Fact]
     public void Waypoints_are_numbered_per_map_so_the_list_matches_each_map()
     {

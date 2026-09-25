@@ -307,11 +307,39 @@ public sealed class RaidActivityCoordinator(
     /// the raid card all see the moved times at once. Nothing is recorded: the raid's stored
     /// start stays what the PC said when it happened.
     /// </remarks>
+    /// <para>
+    /// [#891] Except that the raid's stored start was taken on the old clock and its end will be
+    /// taken on the new one: a raid across a four-hour step was stored ending before it began.
+    /// So the open raid is remembered, and its end carries the moved start into the stored row.
+    /// </para>
     public Task<RaidSnapshot> RebaseClockAsync(TimeSpan jump, CancellationToken cancellationToken) =>
         TransitionAsync(
             state => Task.FromResult(state is RaidStateService raid ? raid.RebaseClock(jump) : state.Current),
-            (_, _, _) => Task.CompletedTask,
+            (_, current, _) =>
+            {
+                if (current is { State: RaidLifecycleState.InRaid, RaidId: { } open })
+                {
+                    _clockRebasedRaidId = open;
+                }
+
+                return Task.CompletedTask;
+            },
             cancellationToken);
+
+    /// <summary>[#891] The open raid whose held start was moved by a clock step, until it ends.</summary>
+    private Guid? _clockRebasedRaidId;
+
+    /// <summary>The start to store with this raid's end, when a clock step moved it.</summary>
+    private DateTimeOffset? RebasedStart(Guid raidId, RaidSnapshot raid)
+    {
+        if (_clockRebasedRaidId != raidId)
+        {
+            return null;
+        }
+
+        _clockRebasedRaidId = null;
+        return raid.StartedUtc;
+    }
 
     public Task<RaidSnapshot> ApplyPositionAsync(ScreenshotPosition position, CancellationToken cancellationToken)
     {
@@ -530,9 +558,10 @@ public sealed class RaidActivityCoordinator(
         {
             // An end the game never reported is dated to the raid's own last activity and says
             // so, instead of reading like a raid that ended normally just now (#568).
+            var rebasedStart = RebasedStart(previousRaidId, previous);
             commands.Add(evidence.EndsUnreported
-                ? NotReported(previousRaidId, previous, evidence.ObservedUtc)
-                : RaidHistoryCommand.EndRaid(previousRaidId, evidence.ObservedUtc, null, null));
+                ? NotReported(previousRaidId, previous, evidence.ObservedUtc, rebasedStart)
+                : RaidHistoryCommand.EndRaid(previousRaidId, evidence.ObservedUtc, null, null, rebasedStart));
         }
         else if (previous.RaidId is { } displacedRaidId
             && previous.State == RaidLifecycleState.InRaid
@@ -542,16 +571,21 @@ public sealed class RaidActivityCoordinator(
             // Another raid began while this one was still open, so the game never reported its
             // end: the process died, or the machine did. Its row used to stay open until the next
             // restart swept it up, with Debrief showing it in progress all the while.
-            commands.Add(NotReported(displacedRaidId, previous, evidence.ObservedUtc));
+            commands.Add(NotReported(displacedRaidId, previous, evidence.ObservedUtc, RebasedStart(displacedRaidId, previous)));
         }
     }
 
-    private static RaidHistoryCommand NotReported(Guid raidId, RaidSnapshot raid, DateTimeOffset noticedUtc) =>
+    private static RaidHistoryCommand NotReported(
+        Guid raidId,
+        RaidSnapshot raid,
+        DateTimeOffset noticedUtc,
+        DateTimeOffset? rebasedStartUtc = null) =>
         RaidHistoryCommand.EndRaid(
             raidId,
             raid.LastActivityUtc is { } last && last <= noticedUtc ? last : noticedUtc,
             RaidClosure.NotReportedOutcome,
-            RaidClosure.NotReportedNotes);
+            RaidClosure.NotReportedNotes,
+            rebasedStartUtc);
 
     /// <summary>
     /// Ends the open raid as not reported once it has run longer than any raid on its map can.

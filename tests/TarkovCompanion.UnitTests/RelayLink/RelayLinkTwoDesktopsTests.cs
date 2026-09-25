@@ -164,8 +164,9 @@ public sealed class RelayLinkTwoDesktopsTests
     }
 
     [Fact]
-    public async Task ADesktopRetriesImmediatelyWhenItsFourHourClockSkewIsFixed()
+    public async Task ADesktopFourHoursFastIsOnTheRelayBeforeAndAfterItsClockIsFixed()
     {
+        // [#891] It used to be refused until the clock was fixed; now it signs at the relay's time.
         var relayNow = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         var relayClock = new RelayTestClock(relayNow);
         var desktopClock = new RelayTestClock(relayNow.AddHours(4));
@@ -183,16 +184,13 @@ public sealed class RelayLinkTwoDesktopsTests
             groupKey: GroupKeyOfTheSquad,
             clockOffset: offset);
 
-        Assert.False(desktop.Panel.IsClaimedByThisDesktop);
+        Assert.True(desktop.Panel.IsClaimedByThisDesktop, desktop.Panel.RelayClaimMessage);
         Assert.Equal(
-            "Your PC clock is 4 h ahead of real time. Pairing won't work until it's fixed.",
+            "PC clock 4 h ahead of the relay. Corrected automatically.",
             desktop.Panel.ClockSkewNotice);
 
         desktopClock.Advance(TimeSpan.FromHours(-4));
         offset.ObserveOffsetSeconds(0);
-        await LinkWait.UntilAsync(
-            () => desktop.Panel.IsClaimedByThisDesktop,
-            "the corrected clock to interrupt registration back-off");
 
         Assert.False(desktop.Panel.HasClockSkewNotice);
         Assert.True(desktop.Panel.IsClaimedByThisDesktop, desktop.Panel.RelayClaimMessage);

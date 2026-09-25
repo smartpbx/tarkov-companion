@@ -1104,7 +1104,10 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         RaidHistoryCommand.Ended ended => new EncodedCommand(
             ended.RaidId,
             OutboxCommandKind.RaidEnded,
-            OutboxPayload.FromTypedJson(new EndedPayload(ended.RaidId, ended.EndUtc, Text(ended.Outcome), Text(ended.Notes)))),
+            OutboxPayload.FromTypedJson(new EndedPayload(ended.RaidId, ended.EndUtc, Text(ended.Outcome), Text(ended.Notes))
+            {
+                StartUtc = ended.RebasedStartUtc,
+            })),
         _ => throw new ArgumentException("The raid history command is not part of the closed outbox contract.", nameof(command)),
     };
 
@@ -1384,7 +1387,10 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
 
     private sealed record EndedPayload(Guid RaidId, DateTimeOffset EndUtc, string? Outcome, string? Notes)
     {
-        public RaidHistoryCommand ToCommand() => RaidHistoryCommand.EndRaid(RaidId, EndUtc, Outcome, Notes);
+        /// <summary>[#891] Absent from every payload written before it, which then moves nothing.</summary>
+        public DateTimeOffset? StartUtc { get; init; }
+
+        public RaidHistoryCommand ToCommand() => RaidHistoryCommand.EndRaid(RaidId, EndUtc, Outcome, Notes, StartUtc);
     }
 
     private sealed class RaidHistoryCommandHandler(IRaidHistoryService inner) : IOutboxCommandHandler

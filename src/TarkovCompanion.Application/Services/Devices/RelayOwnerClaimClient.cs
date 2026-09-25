@@ -100,7 +100,11 @@ public sealed class RelayOwnerClaimClient
         return result;
     }
 
-    private async Task<RelayClaimResult> ClaimByKeyCoreAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    /// <param name="nowUtc">This PC's own clock. [#891] Corrected here, not by the caller.</param>
+    private async Task<RelayClaimResult> ClaimByKeyCoreAsync(
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken,
+        bool retriedForClock = false)
     {
         try
         {
@@ -125,10 +129,13 @@ public sealed class RelayOwnerClaimClient
                 return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, "key-claim-unsupported");
             }
 
+            // [#891] Measured after the challenge, whose response carried the relay's Date: a PC
+            // four hours fast is signed at the relay's time on its very first attempt.
+            var correction = Correction(nowUtc);
             var material = DesktopRelayOwnerClaim.Build(
                 _signer,
                 _authority.Snapshot.CanonicalState.DesktopDeviceId,
-                nowUtc,
+                nowUtc + correction,
                 nonce);
             // [#553] Registering is what a desktop does now: its group key says it belongs on
             // this relay and the signature says which desktop it is. Nobody claims anything, and
@@ -155,7 +162,12 @@ public sealed class RelayOwnerClaimClient
                 if (registered.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed))
                 {
                     var registrationRefusal = await ReadRefusalAsync(registered, cancellationToken).ConfigureAwait(false);
-                    ObserveClockSkew(registrationRefusal);
+                    if (ObserveClockSkew(registrationRefusal, nowUtc, correction) && !retriedForClock)
+                    {
+                        // The relay said exactly how far out the claim was: once more, at its time.
+                        return await ClaimByKeyCoreAsync(nowUtc, cancellationToken, retriedForClock: true).ConfigureAwait(false);
+                    }
+
                     return registered.StatusCode switch
                     {
                         HttpStatusCode.TooManyRequests => new RelayClaimResult(RelayClaimOutcome.RateLimited),
@@ -164,7 +176,7 @@ public sealed class RelayOwnerClaimClient
                         _ => new RelayClaimResult(
                             RelayClaimOutcome.Refused,
                             registrationRefusal.Code,
-                            registrationRefusal.OffsetSeconds),
+                            PcOffset(registrationRefusal, correction)),
                     };
                 }
             }
@@ -182,14 +194,18 @@ public sealed class RelayOwnerClaimClient
             }
 
             var refusal = await ReadRefusalAsync(response, cancellationToken).ConfigureAwait(false);
-            ObserveClockSkew(refusal);
+            if (ObserveClockSkew(refusal, nowUtc, correction) && !retriedForClock)
+            {
+                return await ClaimByKeyCoreAsync(nowUtc, cancellationToken, retriedForClock: true).ConfigureAwait(false);
+            }
+
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 return new RelayClaimResult(RelayClaimOutcome.RateLimited);
             }
 
             // With no group key set this is all a desktop can try, and the caller says so.
-            return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, refusal.Code, refusal.OffsetSeconds);
+            return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, refusal.Code, PcOffset(refusal, correction));
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
@@ -229,10 +245,11 @@ public sealed class RelayOwnerClaimClient
                 return byKey;
             }
 
+            var correction = Correction(nowUtc);
             var material = DesktopRelayOwnerClaim.Build(
                 _signer,
                 _authority.Snapshot.CanonicalState.DesktopDeviceId,
-                nowUtc);
+                nowUtc + correction);
 
             // Asked first so a relay another desktop owns is reported without spending this
             // desktop's claim-route budget on an attempt that can only fail.
@@ -274,7 +291,7 @@ public sealed class RelayOwnerClaimClient
             }
 
             var refusal = await ReadRefusalAsync(response, cancellationToken).ConfigureAwait(false);
-            ObserveClockSkew(refusal);
+            ObserveClockSkew(refusal, nowUtc, correction);
             return response.StatusCode switch
             {
                 // Refused before the admin key was read, so re-typing it cannot help and neither
@@ -282,7 +299,7 @@ public sealed class RelayOwnerClaimClient
                 HttpStatusCode.NotImplemented => new RelayClaimResult(RelayClaimOutcome.NotConfiguredForClaiming),
                 HttpStatusCode.Unauthorized => new RelayClaimResult(RelayClaimOutcome.AdminKeyRefused),
                 HttpStatusCode.TooManyRequests => new RelayClaimResult(RelayClaimOutcome.RateLimited),
-                _ => new RelayClaimResult(RelayClaimOutcome.Refused, refusal.Code, refusal.OffsetSeconds),
+                _ => new RelayClaimResult(RelayClaimOutcome.Refused, refusal.Code, PcOffset(refusal, correction)),
             };
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
@@ -305,12 +322,29 @@ public sealed class RelayOwnerClaimClient
         return JsonSerializer.Deserialize<OwnerStatusWire>(json, JsonOptions);
     }
 
-    private void ObserveClockSkew(RelayClaimRefusal refusal)
+    /// <summary>The refusal's offset as server minus this PC, not minus the corrected claim.</summary>
+    private static long? PcOffset(RelayClaimRefusal refusal, TimeSpan applied) =>
+        refusal.OffsetSeconds + (long)applied.TotalSeconds;
+
+    private TimeSpan Correction(DateTimeOffset nowUtc) => _clockOffset?.CorrectionAt(nowUtc) ?? TimeSpan.Zero;
+
+    /// <summary>Records a clock-skew refusal's offset; true when it now gives a correction to retry with.</summary>
+    /// <remarks>
+    /// [#891] The relay measures against the time the claim carried, which was already corrected
+    /// by <paramref name="applied"/>: the PC's own offset is the two together.
+    /// </remarks>
+    private bool ObserveClockSkew(RelayClaimRefusal refusal, DateTimeOffset nowUtc, TimeSpan applied)
     {
-        if (refusal is { Code: "clock-skew", OffsetSeconds: { } offsetSeconds })
+        if (refusal is not { Code: "clock-skew", OffsetSeconds: { } offsetSeconds } || _clockOffset is null)
         {
-            _clockOffset?.ObserveOffsetSeconds(offsetSeconds);
+            return false;
         }
+
+        _clockOffset.ObserveOffsetSeconds(
+            offsetSeconds + (long)applied.TotalSeconds,
+            RelayClockOffsetTracker.IsTrustedTransport(_relay.BaseAddress),
+            nowUtc);
+        return Correction(nowUtc) != applied;
     }
 
     private static string DescribeRefusalForLog(RelayClaimResult result) => result switch

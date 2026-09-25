@@ -137,6 +137,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     private readonly IGroupSettingsStore _groupSettings;
     private readonly CompanionPairingViewModel? _pairing;
     private readonly TimeProvider _clock;
+    private readonly TarkovCompanion.Application.Services.Devices.RelayClockOffsetTracker? _relayClock;
 
     private static readonly MapSceneLayerId GroupMarksLayerId = new("group-marks");
     private const string WaypointObjectPrefix = "group-waypoint:";
@@ -167,8 +168,11 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         // [#780] The squad's quests, named from this player's catalog. Optional like the rest.
         SquadQuestFeed? squadQuests = null,
         // [#289] The extract, note and ready state this player shares. Optional like the rest.
-        GroupSquadStatus? squadStatus = null)
+        GroupSquadStatus? squadStatus = null,
+        // [#891] The relay stamps squad marks with its own clock; this PC's may be hours out.
+        TarkovCompanion.Application.Services.Devices.RelayClockOffsetTracker? relayClock = null)
     {
+        _relayClock = relayClock;
         _groupSession = groupSession ?? throw new ArgumentNullException(nameof(groupSession));
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
         _pairing = pairing;
@@ -690,6 +694,9 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
             .ToArray();
 
         var marks = new List<TeamMarkRowViewModel>(group.Waypoints.Count + group.Pings.Count);
+        // [#891] Waypoints and pings carry the relay's time, so their ages are measured on it: a
+        // PC four hours fast read every ping as "4 h ago · Expiring" the moment it arrived.
+        var relayNow = _relayClock?.ToRelayTime(now) ?? now;
         // Numbered by NumberWaypoints, the same numbering the centre map's markers carry (and in
         // the order MapViewModel numbers them in). Only waypoints are numbered; a ping is always
         // "Ping" and never carries a custom name.
@@ -701,7 +708,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 : waypoint.Label!;
             var age = waypoint.CreatedUtc == DateTimeOffset.UnixEpoch
                 ? TeamText.AgeUnknown
-                : TeamText.Ago(UnitText.Duration(now - waypoint.CreatedUtc));
+                : TeamText.Ago(UnitText.Duration(relayNow - waypoint.CreatedUtc));
             marks.Add(new(
                 waypoint.Id,
                 TeamText.Waypoint,
@@ -729,7 +736,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
         foreach (var ping in group.Pings)
         {
-            var elapsed = now - ping.CreatedUtc;
+            var elapsed = relayNow - ping.CreatedUtc;
             var remaining = PingLifetime - elapsed;
             marks.Add(new(
                 ping.Id,

@@ -433,8 +433,10 @@ The claim is kept (2026-09-20, #289). The session the relay issues is stored in 
 protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
 panel reads claimed after a restart with nothing typed; "Forget this relay" drops it.
 
-The desktop measures the relay's HTTP `Date` header, names clock skew in Team and Diagnostics, and
-retries a refused registration after 30 s, 1 m, 2 m, 4 m, then every 5 m (#704). A clock set while
+The desktop measures the relay's HTTP `Date` header and, when that came over HTTPS (or loopback),
+stamps everything the relay or a tablet checks at the relay's time, so a PC clock hours out still
+registers and pairs from its first request (#891); Diagnostics says so, and nothing asks the player
+to act. A refused registration is retried after 30 s, 1 m, 2 m, 4 m, then every 5 m (#704). A clock set while
 the app runs (#799) is noticed within 2 s by comparing wall and monotonic time; the raid's held
 times and the marks' creation and expiry move by the jump, and the group publishes at once.
 

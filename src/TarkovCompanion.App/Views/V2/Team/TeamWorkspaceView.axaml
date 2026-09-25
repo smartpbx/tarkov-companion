@@ -465,7 +465,7 @@
                            AutomationProperties.AutomationId="v2-team-pairing-unavailable"
                            IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
 
-                <Border Classes="v2-team-row" IsVisible="{Binding Pairing.HasClockSkewNotice}"
+                <Border Classes="v2-team-row" IsVisible="{Binding Pairing.NeedsClockFix}"
                         AutomationProperties.AutomationId="v2-team-clock-skew">
                   <StackPanel Spacing="4">
                     <TextBlock Classes="v2-body v2-team-warning-text" TextWrapping="Wrap"

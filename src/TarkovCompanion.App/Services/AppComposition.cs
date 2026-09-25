@@ -834,7 +834,8 @@ public static class AppComposition
         services.AddSingleton(provider => new RelayClockOffsetTracker(
             new RelayLinkLog(
                 provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink"),
-                timeProvider)));
+                timeProvider),
+            timeProvider));
         services.AddSingleton(provider => new RelayMarksBridge(
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<IRaidMarkStore>(),

@@ -39,6 +39,9 @@ public sealed class RelayRegistrationRetryLoop : IDisposable
         if (_clockOffset is not null)
         {
             _clockOffset.ClockCorrected += RetryNow;
+            // [#891] And when a skew is first measured: the next claim is signed at the relay's
+            // time, so waiting out the back-off would only keep the tablet off the relay longer.
+            _clockOffset.CorrectionAvailable += RetryNow;
         }
     }
 
@@ -174,6 +177,7 @@ public sealed class RelayRegistrationRetryLoop : IDisposable
         if (_clockOffset is not null)
         {
             _clockOffset.ClockCorrected -= RetryNow;
+            _clockOffset.CorrectionAvailable -= RetryNow;
         }
 
         run?.Cancel();

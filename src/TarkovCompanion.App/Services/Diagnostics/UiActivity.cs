@@ -23,27 +23,30 @@ public static class UiActivity
     private static readonly UiStep?[] Steps = new UiStep?[64];
     private static int _nextStep;
 
+    /// <summary>Only its monotonic timestamp is read. A test may replace it; the state is static.</summary>
+    internal static TimeProvider Clock { get; set; } = TimeProvider.System;
+
     /// <summary>The route the shell last navigated to, or empty before the first navigation.</summary>
     public static string Route => _route;
 
     public static void Navigated(string route) => _route = route ?? string.Empty;
 
     /// <summary>A workspace or startup page began loading.</summary>
-    public static void LoadStarted(string surface) => _load = new(surface, DateTimeOffset.UtcNow, null);
+    public static void LoadStarted(string surface) => _load = new(surface, Clock.GetTimestamp(), null);
 
     /// <summary>The load that <see cref="LoadStarted"/> announced has returned, either way.</summary>
     public static void LoadFinished(string surface)
     {
         if (_load is { } current && string.Equals(current.Name, surface, StringComparison.Ordinal))
         {
-            _load = current with { FinishedUtc = DateTimeOffset.UtcNow };
+            _load = current with { FinishedTimestamp = Clock.GetTimestamp() };
         }
     }
 
     /// <summary>Whether the load last announced has yet to return.</summary>
-    public static bool IsLoading => _load is { FinishedUtc: null };
+    public static bool IsLoading => _load is { FinishedTimestamp: null };
 
-    public static void CommandStarted(string name) => _command = new(name, DateTimeOffset.UtcNow, null);
+    public static void CommandStarted(string name) => _command = new(name, Clock.GetTimestamp(), null);
 
     /// <summary>Names a command by the method behind it, which is the only name a command has.</summary>
     /// <remarks>
@@ -132,14 +135,18 @@ public static class UiActivity
         }
 
         // A command is only ever seen starting, so it does not claim to be still running.
-        var age = DateTimeOffset.UtcNow - note.StartedUtc;
-        var state = !tracksCompletion ? string.Empty : note.FinishedUtc is null ? "still running, " : "finished, ";
+        var age = Clock.GetElapsedTime(note.StartedTimestamp);
+        var state = !tracksCompletion ? string.Empty : note.FinishedTimestamp is null ? "still running, " : "finished, ";
         return string.Create(
             CultureInfo.InvariantCulture,
             $"'{note.Name}' ({state}started {age.TotalSeconds:0.0}s ago)");
     }
 
-    private sealed record Note(string Name, DateTimeOffset StartedUtc, DateTimeOffset? FinishedUtc);
+    /// <summary>
+    /// [#891] Monotonic timestamps, as <see cref="UiStep"/> has always used: a wall clock set back
+    /// four hours printed "started -10420.9s ago" in every hang report after it.
+    /// </summary>
+    private sealed record Note(string Name, long StartedTimestamp, long? FinishedTimestamp);
 }
 
 /// <summary>One point reached inside a load: when, what, and on which thread.</summary>
