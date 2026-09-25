@@ -53,8 +53,16 @@ public abstract class RaidHistoryCommand
     public static RaidHistoryCommand RecordPosition(Guid raidId, ScreenshotPosition position) =>
         new PositionRecorded(raidId, position);
 
-    public static RaidHistoryCommand EndRaid(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes) =>
-        new Ended(raidId, endUtc, outcome, notes);
+    /// <param name="rebasedStartUtc">
+    /// [#891] The raid's start moved by a PC clock set while it ran, to store beside the end.
+    /// </param>
+    public static RaidHistoryCommand EndRaid(
+        Guid raidId,
+        DateTimeOffset endUtc,
+        string? outcome,
+        string? notes,
+        DateTimeOffset? rebasedStartUtc = null) =>
+        new Ended(raidId, endUtc, outcome, notes, rebasedStartUtc);
 
     /// <summary>Writes this command to a store directly, as the v1 coordinator recorded it.</summary>
     public abstract Task WriteAsync(IRaidHistoryService target, CancellationToken cancellationToken);
@@ -198,21 +206,31 @@ public abstract class RaidHistoryCommand
 
     internal sealed class Ended : RaidHistoryCommand
     {
-        public Ended(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes)
+        public Ended(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes, DateTimeOffset? rebasedStartUtc = null)
             : base(raidId)
         {
             EndUtc = endUtc;
             Outcome = outcome;
             Notes = notes;
+            RebasedStartUtc = rebasedStartUtc;
         }
 
         public DateTimeOffset EndUtc { get; }
+
+        public DateTimeOffset? RebasedStartUtc { get; }
 
         public string? Outcome { get; }
 
         public string? Notes { get; }
 
-        public override Task WriteAsync(IRaidHistoryService target, CancellationToken cancellationToken) =>
-            target.EndAsync(RaidId, EndUtc, Outcome, Notes, cancellationToken);
+        public override async Task WriteAsync(IRaidHistoryService target, CancellationToken cancellationToken)
+        {
+            if (RebasedStartUtc is { } start)
+            {
+                await target.RebaseStartAsync(RaidId, start, cancellationToken).ConfigureAwait(false);
+            }
+
+            await target.EndAsync(RaidId, EndUtc, Outcome, Notes, cancellationToken).ConfigureAwait(false);
+        }
     }
 }

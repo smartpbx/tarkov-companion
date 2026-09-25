@@ -195,6 +195,38 @@ public sealed class RaidFollowsTheRealRaidTests
         Assert.Null(Assert.Single(history.Rows, raid => raid.Id == next.RaidId).EndedUtc);
     }
 
+    /// <summary>
+    /// [#891] Real, 2026-09-24 (build 1533): Lighthouse began at 04:19:52 on a PC four hours fast,
+    /// Windows set the clock at 00:20:20, and the raid ended at 00:23:09, so it was stored ending
+    /// 3 h 56 min before it began. The held times were already moved (#799); the row was not.
+    /// </summary>
+    [Fact]
+    public async Task ARaidAcrossAClockStepIsStoredEndingAfterItBegan()
+    {
+        var history = new MemoryRaidHistory();
+        await using var outbox = new RaidHistoryOutbox(history, store: new FixtureOutboxStore(capacity: 64));
+        var coordinator = new RaidActivityCoordinator(
+            new RaidStateService(),
+            outbox,
+            new StubProfileService(),
+            new RuntimeStateStore(new(false, Offline: true, GameMode.Regular, "en", TimeSpan.FromHours(9), TimeSpan.FromMinutes(5))));
+        var realStart = new DateTimeOffset(2026, 9, 24, 0, 19, 52, TimeSpan.Zero);
+        var fourHours = TimeSpan.FromHours(4);
+
+        var begun = await coordinator.ApplyEvidenceAsync(
+            new RaidEvidence(RaidEvidenceKind.LogLine, realStart + fourHours, "lighthouse", RaidLifecycleState.InRaid, new Confidence(0.9), "test"),
+            default);
+        await coordinator.RebaseClockAsync(-fourHours, default);
+        await coordinator.ApplyEvidenceAsync(
+            new RaidEvidence(RaidEvidenceKind.LogLine, realStart.AddSeconds(197), "lighthouse", RaidLifecycleState.PostRaid, new Confidence(0.9), "test"),
+            default);
+        await outbox.FlushAsync(default);
+
+        var row = Assert.Single(history.Rows, raid => raid.Id == begun.RaidId);
+        Assert.Equal(realStart, row.StartedUtc);
+        Assert.Equal(realStart.AddSeconds(197), row.EndedUtc);
+    }
+
     [Fact]
     public async Task TwoRaidsBackToBackOnTheSameMapAreTwoRaidsEvenWhenTheFirstWasNeverReportedOver()
     {
@@ -486,6 +518,20 @@ public sealed class RaidFollowsTheRealRaidTests
                 if (index >= 0)
                 {
                     _rows[index] = _rows[index] with { EndedUtc = endUtc, Outcome = outcome, Notes = notes };
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task RebaseStartAsync(Guid raidId, DateTimeOffset startUtc, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                var index = _rows.FindIndex(raid => raid.Id == raidId);
+                if (index >= 0)
+                {
+                    _rows[index] = _rows[index] with { StartedUtc = startUtc };
                 }
             }
 

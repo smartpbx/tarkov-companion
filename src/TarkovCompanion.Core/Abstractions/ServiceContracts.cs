@@ -837,6 +837,14 @@ public interface IRaidHistoryService
     Task EndAsync(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes, CancellationToken cancellationToken);
 
     /// <summary>
+    /// [#891] Moves a raid's stored start, when the PC clock was set while it ran: the start was
+    /// stored on the old clock and the end is stored on the new one.
+    /// </summary>
+    /// <remarks>A store that keeps no start ignores it.</remarks>
+    Task RebaseStartAsync(Guid raidId, DateTimeOffset startUtc, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    /// <summary>
     /// Fixes an outcome or notes field the player says is wrong, after the raid already ended.
     /// </summary>
     /// <remarks>

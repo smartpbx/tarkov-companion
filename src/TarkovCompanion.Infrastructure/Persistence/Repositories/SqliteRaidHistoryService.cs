@@ -444,6 +444,34 @@ public sealed class SqliteRaidHistoryService(
         await EndCoreAsync(connection, null, raidId, endUtc, outcome, notes, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task RebaseStartAsync(Guid raidId, DateTimeOffset startUtc, CancellationToken cancellationToken)
+    {
+        if (_operation.Value is { } operation)
+        {
+            await RebaseStartCoreAsync(operation.Connection, operation.Transaction, raidId, startUtc, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RebaseStartCoreAsync(connection, null, raidId, startUtc, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task RebaseStartCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        Guid raidId,
+        DateTimeOffset startUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE raids SET start_utc = $startUtc WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", raidId.ToString("D"));
+        command.Parameters.AddWithValue("$startUtc", Format(startUtc));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Writes a player's correction, and keeps the fact that it was theirs.
     /// </summary>
