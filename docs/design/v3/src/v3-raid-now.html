@@ -1,0 +1,77 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>V3 · Raid · Now panel</title>
+<link rel="stylesheet" href="v3.css"><script src="v3.js"></script>
+<style>
+.main { grid-template-columns: 1fr 400px; }
+.nowtime { display: flex; align-items: baseline; gap: 12px; }
+.blk { padding: 20px 22px 22px; }
+.sq { min-height: 36px; }
+.exitarrow { width: 30px; height: 30px; border-radius: 50%; background: rgba(113,209,154,.14); border: 1px solid rgba(113,209,154,.5); display: grid; place-items: center; color: var(--success); flex: none; }
+</style></head>
+<body><div class="app" id="app">
+<main class="main">
+  <section class="mapwrap" id="map">
+    <div class="attrib">Customs · 2D plan · concept drawing</div>
+    <div class="zoom"><span>${icon}</span></div>
+    <div class="mapctl" id="ctl"></div>
+  </section>
+  <aside class="card now" id="now"></aside>
+</main></div>
+<script>
+mount('app', chrome({ state: 'In raid', nav: 'raid' }));
+const trail = [[1342, 336], [1318, 440], [1296, 526], [1200, 526], [1100, 530], [1030, 580], [960, 606]];
+const layers =
+  extracts(['zb1011', 'crossroads', 'ogs', 'trailer']) +
+  path(trail, '#5CF0FF', { w: 3.5, dash: '2 9', halo: false, op: .9 }) +
+  path([[938, 614], [972, 590], [1000, 568]], '#F1C75B', { w: 6 }) +
+  landmarks() +
+  pin(1004, 552, 'A') + pin(1340, 318, 'B', { op: .6 }) +
+  member(446, 800, '#56B4E9', 'Geo', '12 s', { heading: 30, ly: 40 }) +
+  member(1012, 262, '#E69F00', 'Riley', '50 s', { heading: 200, ly: 38, lx: 60 }) +
+  you(938, 614, 45, { label: 'You · 12 s ago', lx: -20, ly: 34 }) +
+  mlabel(1070, 598, '40 m', { color: '#F1C75B', weight: 700, size: 13, anchor: 'start' }) +
+  compass(30, 110);
+mount('map', mapSvg('-10 40 1420 1000', layers));
+document.querySelector('.zoom').innerHTML = `<span>${icon('plus','s16')}</span><span>${icon('minus','s16')}</span><span>${icon('fit','s16')}</span>`;
+document.getElementById('ctl').innerHTML = `
+  <span class="c mod">MODELLED TRAFFIC · NOT LIVE</span>
+  <span class="c on">${icon('follow','s16')} Follow ${icon('check','s14')}</span>
+  <span class="c">${icon('raid','s16')} 2D plan</span>
+  <span class="c">${icon('floor','s16')} Floor 2 of 3</span>
+  <span class="c">${icon('layers','s16')} Layers</span>`;
+document.getElementById('now').innerHTML = `
+  <div class="blk" style="padding-top:18px">
+    <div class="caps">Now</div>
+    <div class="display">20:57 left</div>
+    <div class="label">from the raid clock</div>
+    <div class="row" style="margin-top:10px">${icon('check','s16','color:var(--success)')}<span>Survival counts · run-through ended 07:00</span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">You</div>
+    <div class="h2">Dorms 3-story · 2nd floor ·<br>facing NE</div>
+    <div class="label" style="margin-bottom:12px">12 s ago</div>
+    <div class="row" style="align-items:flex-start">
+      <span class="exitarrow">${icon('arrow','s16','transform:rotate(225deg)')}</span>
+      <div class="h2">Nearest offered exit: ZB-1011 · 310 m W · ~5 min</div>
+    </div>
+    <div class="row" style="margin-top:12px;gap:8px"><span class="wrong">wrong?</span><span class="label">floor, facing or exits</span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">Squad <span class="r">from their screenshots</span></div>
+    <div class="sq"><span class="dot" style="background:var(--geo)"></span><b style="font-weight:600">Geo</b><span class="sec">Old Gas Station · 140 m NE</span><span class="age">12 s</span></div>
+    <div class="sq"><span class="dot" style="background:var(--riley)"></span><b style="font-weight:600">Riley</b><span class="sec">Crackhouse · 60 m N</span><span class="age">50 s</span></div>
+    <div class="sq"><span class="dot" style="background:var(--sam)"></span><b style="font-weight:600">Sam</b><span class="sec">not on this map</span></div>
+  </div>
+  <div class="blk">
+    <div class="caps">Next <span class="r gold">● on the gold route</span></div>
+    <div class="row" style="align-items:flex-start"><span style="margin-top:2px">${'<svg width="22" height="26" viewBox="0 0 22 26"><path d="M11 25c-2-6-10-9-10-16a10 10 0 0120 0c0 7-8 10-10 16z" fill="#F1C75B"/><text x="11" y="13.5" text-anchor="middle" font-size="11" font-weight="800" fill="#1d1606" font-family="Inter">A</text></svg>'}</span>
+    <div class="h2">Golden Zibbo lighter · Dorms 3&#8209;story 2F · 40 m</div></div>
+    <div class="dim" style="margin-top:8px;padding-left:32px">then: bronze pocket watch · Big Red · 220 m</div>
+  </div>
+  <div class="blk">
+    <div class="caps">Last scan</div>
+    <div class="sec">No scan yet this raid</div>
+    <div class="row sec" style="margin-top:10px;align-items:flex-start">${icon('camera','s16','margin-top:2px')}<span>Screenshot an open container: the verdict shows here and is spoken.</span></div>
+  </div>
+  <div class="more"><span>More: extracts · objectives · marks · spawns · traffic · corrections</span>${icon('chevr','s16')}</div>`;
+</script></body></html>
