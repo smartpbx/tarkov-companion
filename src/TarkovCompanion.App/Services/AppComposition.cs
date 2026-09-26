@@ -643,7 +643,15 @@ public static class AppComposition
                 provider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(QuestLogHandDoneReconciler)));
             return questLog;
         });
-        services.AddSingleton<IEftLogObserver, EftLogObservers>();
+        // [#971] Built by hand so the profile follower is resolved when the game first names its
+        // mode, not while the Windows log watcher is being constructed at startup.
+        services.AddSingleton<IEftLogObserver>(provider => new EftLogObservers(
+            provider.GetRequiredService<SquadStateService>(),
+            provider.GetRequiredService<FleaSaleStateService>(),
+            provider.GetService<QuestLogProgressService>(),
+            provider.GetService<IRaidActivityRecorder>(),
+            provider.GetService<TarkovCompanion.Application.Services.Situations.SituationService>(),
+            () => provider.GetService<ProfileModeFollower>()));
         TarkovCompanion.App.Services.V2.SituationComposition.Add(services); // [#712 0-2] ADR 0022
         TarkovCompanion.App.Services.Sound.SoundComposition.Add(services); // [#712 0-10] sound, off by default
         TarkovCompanion.App.Services.V2.PreRaidBriefComposition.Add(services); // [#712 0-9]

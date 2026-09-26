@@ -59,13 +59,17 @@ public sealed class EftLogObservers(
     // [#712 0-2] Optional like the rest; without it nothing tells matching from loading.
     Situations.SituationService? situation = null,
     // [#712 decision 4] Optional like the rest; without it the profile stays where the player put it.
-    Profiles.ProfileModeFollower? profileMode = null) : IEftLogObserver
+    // [#971] Asked for on the first session line, never while this is being built. Taking the
+    // follower itself pulled the whole profile service graph into the Windows log watcher's
+    // construction, and on Windows (only there is this observer built at all) the app hung before
+    // its database existed: every Windows run from #952 to #970 timed out on the self-test.
+    Func<Profiles.ProfileModeFollower?>? profileMode = null) : IEftLogObserver
 {
     public void Observe(RaidPhaseMarker marker) => situation?.Observe(marker);
 
     /// <summary>Not awaited, like the quest and sale writes: the watcher is reading a file and must not stop.</summary>
     public void Observe(Core.Domain.Profiles.GameSessionMode mode) =>
-        _ = profileMode?.ObserveAsync(mode, CancellationToken.None);
+        _ = profileMode?.Invoke()?.ObserveAsync(mode, CancellationToken.None);
 
     public void Observe(GroupObservation observation) => squad.Apply(observation);
 
