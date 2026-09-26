@@ -2206,6 +2206,7 @@ internal static class Program
                 Pump(40);
                 SquadQuestsDemo.ShowOnRaid(services, args.Contains("--route-squad"));
                 Pump(80);
+                SquadPlanDemo.Apply(services, args, Pump); // [#712 T7]
             }
 
             // [#269] A squadmate on another game mode: the Team page's one-line warning.

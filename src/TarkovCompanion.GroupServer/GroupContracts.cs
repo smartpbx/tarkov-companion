@@ -150,6 +150,12 @@ public sealed record GroupMemberState(
             return "A note must be 120 characters or fewer.";
         }
 
+        // [#712 T7] The member's own Loadout check and level, as their companion computed them.
+        if (LoadoutCheckError() is { } loadoutCheck)
+        {
+            return loadoutCheck;
+        }
+
         // [#286] Lines drawn on the map for the squad: twenty per member, two hundred points
         // each, as a flat x, z list. The 32 KB body bound still holds the whole publish.
         if (Drawings is { } drawings && (drawings.Count > MaximumDrawings || drawings.Any(drawing =>
@@ -331,6 +337,50 @@ public sealed record GroupMemberState(
     [JsonPropertyName("trail")]
     public IReadOnlyList<GroupTrailPoint> Trail { get; init; } = [];
 
+    /// <summary>[#712 T7] The most checks one Loadout check result carries.</summary>
+    public const int MaximumLoadoutChecks = 8;
+
+    /// <summary>
+    /// [#712 T7] This member's own Loadout check for the map they plan, computed on their companion
+    /// from their own quests and stash; null when they share none (switched off, or an older build).
+    /// </summary>
+    /// <remarks>
+    /// About the sender only, never about anybody else. Left out of the JSON when null, so a publish
+    /// without it is what it was before; a relay that predates it drops it.
+    /// </remarks>
+    [JsonPropertyName("loadoutCheck")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GroupLoadoutCheckState? LoadoutCheck { get; init; }
+
+    /// <summary>[#712 T7] This member's own level, from their own profile; null when not shared.</summary>
+    [JsonPropertyName("level")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Level { get; init; }
+
+    private string? LoadoutCheckError()
+    {
+        if (Level is < 1 or > 79)
+        {
+            return "A level must be between 1 and 79.";
+        }
+
+        if (LoadoutCheck is not { } check)
+        {
+            return null;
+        }
+
+        return check.MapId is { Length: > 64 } ||
+               check.AgeSeconds is { } age && (!double.IsFinite(age) || age < 0 || age > 86_400) ||
+               check.Items is not { } items ||
+               items.Count > MaximumLoadoutChecks ||
+               items.Any(item =>
+                   item is null ||
+                   string.IsNullOrWhiteSpace(item.Kind) || item.Kind.Length > 16 ||
+                   item.Missing is { Length: > 64 })
+            ? "A loadout check may carry at most eight checks, each a kind of 16 characters and a missing item of 64."
+            : null;
+    }
+
     /// <summary>[#286] The most lines one member shares.</summary>
     public const int MaximumDrawings = 20;
 
@@ -369,6 +419,33 @@ public sealed record GroupDrawingState(
     [JsonPropertyName("width")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? Width { get; init; }
+}
+
+/// <summary>[#712 T7] A member's own Loadout check: one line per kind of kit, and how old it is.</summary>
+/// <param name="Items">"keys", "items", "weapon", "gear": checked, missing, or not known.</param>
+public sealed record GroupLoadoutCheckState(
+    [property: JsonPropertyName("items")] IReadOnlyList<GroupLoadoutCheckItemState> Items)
+{
+    /// <summary>The map the check was made for, by quest catalog id.</summary>
+    [JsonPropertyName("mapId")]
+    public string? MapId { get; init; }
+
+    /// <summary>Seconds since the sender's companion made the check.</summary>
+    [JsonPropertyName("age")]
+    public double? AgeSeconds { get; init; }
+}
+
+/// <summary>[#712 T7] One line of a Loadout check.</summary>
+/// <param name="Kind">What was checked: "keys", "items", "weapon" or "gear".</param>
+/// <param name="Ok">True all there, false something is missing, null not known (never scanned).</param>
+public sealed record GroupLoadoutCheckItemState(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("ok")] bool? Ok)
+{
+    /// <summary>The first missing item's name, where <see cref="Ok"/> is false.</summary>
+    [JsonPropertyName("missing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Missing { get; init; }
 }
 
 /// <summary>[#780] One open objective a member is working on.</summary>

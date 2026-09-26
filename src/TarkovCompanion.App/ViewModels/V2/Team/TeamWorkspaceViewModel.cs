@@ -173,7 +173,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         TarkovCompanion.Application.Services.Devices.RelayClockOffsetTracker? relayClock = null,
         // [#902] Local only, or the Squad sharing permission, can stop what these switches start.
         TarkovCompanion.Core.Network.INetworkPolicy? networkPolicy = null,
-        Action<Action>? dispatch = null)
+        Action<Action>? dispatch = null,
+        // [#712 T7] This player's own Loadout check and level, and the maps table for plan names.
+        GroupReadyCheckShare? readyCheck = null,
+        TarkovCompanion.Core.Abstractions.IMapDataService? mapData = null)
     {
         _relayClock = relayClock;
         _groupSession = groupSession ?? throw new ArgumentNullException(nameof(groupSession));
@@ -205,6 +208,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         // had no way back short of restarting the application.
         ReloadCommand = new AsyncDelegateCommand(LoadAsync);
         AttachSharingState(networkPolicy, dispatch);
+        AttachSquadPlan(readyCheck, mapData);
     }
 
     /// <summary>
@@ -403,7 +407,10 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 
     private async Task SaveAsync()
     {
-        var settings = new GroupSharingSettings(IsEnabled, Trimmed(ServerUri), Trimmed(DisplayName), Trimmed(Key), SharesLoadout, SharesQuests);
+        var settings = new GroupSharingSettings(IsEnabled, Trimmed(ServerUri), Trimmed(DisplayName), Trimmed(Key), SharesLoadout, SharesQuests)
+        {
+            SharesReadyCheck = SharesReadyCheck,
+        };
         if (!await SaveOwnAsync(_ => settings).ConfigureAwait(true))
         {
             return;
@@ -808,6 +815,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
         _group = group;
         RefreshModeWarning(group);
         RefreshSquadStatus(group);
+        RefreshSquadPlan(group);
 
         OnPropertyChanged(nameof(MyLoadout));
         OnPropertyChanged(nameof(MyProfile));
