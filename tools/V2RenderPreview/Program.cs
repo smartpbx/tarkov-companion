@@ -1987,6 +1987,41 @@ internal static class Program
                 Pump(40);
             }
 
+            // [#920] The relay owner's admin panel under Team > Devices, as the relay's owner sees
+            // it: two rooms, members with lines drawn, one removed member. "confirm" opens the
+            // one confirm step in the first room. Combine with --pairing-demo paired.
+            if (shell is not null && StringOption(args, "--relay-admin-demo") is { } relayAdminState)
+            {
+                var pairing = services.GetRequiredService<CompanionPairingViewModel>();
+                var adminNow = DateTimeOffset.UtcNow;
+                pairing.PreviewRelayAdmin().PresentForPreview(
+                    [
+                        new RelayAdminRoomView(
+                            "9f2c41aa0b7d4e61a3c2d9e8f7a6b5c4",
+                            "Friday squad",
+                            adminNow.AddSeconds(-4),
+                            3,
+                            1,
+                            [
+                                new RelayAdminMemberView("MaxGooner", adminNow.AddSeconds(-4), 6),
+                                new RelayAdminMemberView("Geo", adminNow.AddSeconds(-9), 0),
+                                new RelayAdminMemberView("Kappa4Life", adminNow.AddSeconds(-2), 2),
+                            ],
+                            ["Randy"]),
+                        new RelayAdminRoomView(
+                            "c05e7d2b9a8f41e3b6d7c8a9e0f1a2b3",
+                            null,
+                            adminNow.AddMinutes(-42),
+                            1,
+                            0,
+                            [],
+                            []),
+                    ],
+                    status: relayAdminState == "done" ? "Done · 8 removed" : null,
+                    pendingInFirstRoom: relayAdminState == "confirm" ? "Clear every drawing in Friday squad?" : null);
+                Pump(20);
+            }
+
             // [V2 rough package 22] A render-only raid: a player position with a heading, the
             // trail behind it, and a squad standing around. Everything downstream of it is the
             // real path — the runtime store, MainWindowViewModel.Apply, MapViewModel.ShowPlayer,

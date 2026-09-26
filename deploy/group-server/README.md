@@ -258,3 +258,13 @@ No new environment variable. New routes added by #506/#514/#516, all under
 `POST owner/resume`, `POST resume/requests`, `GET resume/requests/{ticketId}`,
 `POST resume/requests/{ticketId}/offer`, `POST frames/reset`. Deploy them the way every other
 route deploys — there is nothing route-specific to configure.
+
+### The relay owner's room controls (#920)
+
+No new environment variable and no new state file: removals and cleared-line ids are held in
+memory, like the rooms, and a restart forgets them. New routes: `GET /v2/companion/relay/admin-status`
+and, behind the admin key or the legacy owner's session, `GET /admin/owner/rooms` plus
+`POST /admin/owner/rooms/{room}/drawings/clear`, `marks/clear`, `members/remove` and `reset`
+(docs/GROUP_RELAY.md). The desktop's Relay admin panel needs a relay with these; until the relay is
+redeployed it answers 404 and the panel stays hidden. Each action writes one `RelayOwnerAdmin` log
+line (action, room prefix, authority, count) to the journal.

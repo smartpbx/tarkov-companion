@@ -1,0 +1,98 @@
+<!-- [#920] The relay owner's admin panel, under Team › Devices. Styles (v2-team-*) come from the
+     Team workspace this sits in. Every action asks once, inside the room it acts on. -->
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Team.RelayAdminPanelView"
+             x:DataType="vm:RelayAdminPanelViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Team"
+             xmlns:l="using:TarkovCompanion.App.Localization">
+  <Border Classes="v2-team-row" IsVisible="{Binding IsRelayOwner}"
+          AutomationProperties.AutomationId="v2-team-relay-admin">
+    <StackPanel Spacing="12">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+        <Path Classes="v2-icon v2-icon-muted" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.PinShield}" />
+        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+          <TextBlock Classes="v2-heading-3" Text="{x:Static l:RelayAdminText.Heading}" AutomationProperties.HeadingLevel="3" />
+          <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{x:Static l:RelayAdminText.Hint}" />
+        </StackPanel>
+        <Button Grid.Column="2" Classes="v2-team-outline" VerticalAlignment="Center"
+                AutomationProperties.AutomationId="v2-team-relay-admin-refresh"
+                Content="{x:Static l:RelayAdminText.Refresh}" Command="{Binding RefreshCommand}" />
+      </Grid>
+
+      <TextBlock Classes="v2-label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                 AutomationProperties.AutomationId="v2-team-relay-admin-status"
+                 IsVisible="{Binding HasStatus}" Text="{Binding Status}" />
+      <TextBlock Classes="v2-label" IsVisible="{Binding HasNoRooms}" Text="{x:Static l:RelayAdminText.NoRooms}" />
+
+      <ItemsControl ItemsSource="{Binding Rooms}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:RelayAdminRoomRow">
+            <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="1"
+                    CornerRadius="{DynamicResource V2.Shape.Card}" Padding="14,12">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="1" VerticalAlignment="Center">
+                    <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding Summary}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Classes="v2-team-outline" Content="{x:Static l:RelayAdminText.ClearDrawings}"
+                            AutomationProperties.AutomationId="v2-team-relay-admin-clear-drawings"
+                            Command="{Binding ClearDrawingsCommand}" />
+                    <Button Classes="v2-team-outline" Content="{x:Static l:RelayAdminText.ClearMarks}"
+                            AutomationProperties.AutomationId="v2-team-relay-admin-clear-marks"
+                            Command="{Binding ClearMarksCommand}" />
+                    <Button Classes="v2-team-plain" Content="{x:Static l:RelayAdminText.ResetRoom}"
+                            AutomationProperties.AutomationId="v2-team-relay-admin-reset"
+                            Command="{Binding ResetCommand}" />
+                  </StackPanel>
+                </Grid>
+
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" IsVisible="{Binding IsConfirming}"
+                      AutomationProperties.AutomationId="v2-team-relay-admin-confirm-row">
+                  <TextBlock Classes="v2-body v2-team-warning-text" VerticalAlignment="Center" TextWrapping="Wrap"
+                             AutomationProperties.LiveSetting="Assertive" Text="{Binding PendingPrompt}" />
+                  <Button Grid.Column="1" Classes="v2-team-primary" Content="{x:Static l:RelayAdminText.Confirm}"
+                          AutomationProperties.AutomationId="v2-team-relay-admin-confirm"
+                          Command="{Binding ConfirmCommand}" />
+                  <Button Grid.Column="2" Classes="v2-team-plain" Content="{x:Static l:RelayAdminText.Cancel}"
+                          Command="{Binding CancelCommand}" />
+                </Grid>
+
+                <TextBlock Classes="v2-label" IsVisible="{Binding HasNoMembers}" Text="{x:Static l:RelayAdminText.NoMembers}" />
+                <ItemsControl ItemsSource="{Binding Members}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RelayAdminMemberRow">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                        <Path Classes="v2-icon v2-icon-muted" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.People}" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                          <TextBlock Classes="v2-body" Text="{Binding Name}" />
+                          <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Detail}" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Classes="v2-team-plain" Content="{x:Static l:RelayAdminText.ClearDrawings}"
+                                IsVisible="{Binding HasDrawings}"
+                                AutomationProperties.AutomationId="v2-team-relay-admin-member-clear-drawings"
+                                Command="{Binding ClearDrawingsCommand}" />
+                        <Button Grid.Column="3" Classes="v2-team-plain" Content="{x:Static l:RelayAdminText.Remove}"
+                                AutomationProperties.AutomationId="v2-team-relay-admin-remove"
+                                Command="{Binding RemoveCommand}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="v2-label" IsVisible="{Binding HasRemoved}" Text="{Binding Removed}" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

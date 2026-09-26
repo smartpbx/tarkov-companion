@@ -911,6 +911,18 @@ public sealed class GroupSessionService : IAsyncDisposable
                 return;
             }
 
+            // [#920] The relay owner removed this member. Not a fault and not the key: the group
+            // is off until sharing is turned off and on, which leaves the room and lifts it.
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                _lastGood = null;
+                Publish(GroupSnapshot.Off.Saying(new(GroupStatus.RemovedByOwner)) with
+                {
+                    UpdatedUtc = _clock.GetUtcNow(),
+                });
+                return;
+            }
+
             PublishStale(new(GroupStatus.ServerAnswered, (int)response.StatusCode));
             return;
         }
