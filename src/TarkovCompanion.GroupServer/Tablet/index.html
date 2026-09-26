@@ -1633,6 +1633,10 @@
     } else if (surface.message) {
       message.style.display = "";
       message.textContent = surface.message;
+    } else if (surface.artwork.contentSha256 !== artworkSha) {
+      // [#925] Between a new map's surface and its picture: nothing drawn rather than the old map.
+      message.style.display = "";
+      message.textContent = `Loading ${surface.mapName || "the map"}…`;
     } else {
       message.style.display = "none";
     }
@@ -2186,10 +2190,29 @@
     showNotice(`The desktop sent its view of ${surface.mapName}.`, "ok");
   }
 
+  // [#925] The desktop posts a new map's surface first and its picture second, and the relay
+  // wakes this page on the surface. Asked for the picture in between, the relay still held the
+  // old map's, which this page then filed under the new map's hash: it never asked again, and
+  // drew the old map on the new map's plan until the next switch — the desktop on the map the
+  // tablet chose, the tablet on the one it left. The relay names what it sends (its ETag), so a
+  // picture that is not the one the surface names is not kept; the relay's next revision, when
+  // the picture lands, brings this back here to fetch it again.
+  function artworkTag(response) {
+    const tag = response.headers.get("ETag");
+    return tag === null ? null : tag.replace(/^W\//, "").replace(/"/g, "").toLowerCase();
+  }
+
   async function loadArtwork(sha) {
     try {
       const response = await relayCall("/v2/companion/relay/map/artwork");
       if (!response.ok) return;
+      const tag = artworkTag(response);
+      if (tag !== null && tag !== String(sha).toLowerCase()) {
+        artwork = null;
+        artworkSha = null;
+        return;
+      }
+
       const blob = await response.blob();
       const image = new Image();
       const url = URL.createObjectURL(blob);
@@ -4286,6 +4309,12 @@
   // ping the surface named is actually gone from what this page is drawing, not merely filtered
   // out of a list the test itself is trusting blindly.
   window.__tabletTestPlan = () => live?.surface?.plan ?? null;
+  // [#925] scripts/test-tablet-map-artwork-switch.cjs hashes the picture actually drawn, which is
+  // the only way to tell the old map's picture from the new one filed under the new one's hash.
+  window.__tabletTestArtwork = () => ({
+    src: artwork?.src ?? null,
+    named: live?.surface?.artwork?.contentSha256 ?? null,
+  });
   window.__tabletTestState = () => ({
     mode,
     camera: camera ? { x: camera.x, y: camera.y, zoom: camera.zoom } : null,
