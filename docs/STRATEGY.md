@@ -20,6 +20,8 @@ The Raid page draws a heat layer out of the box (`MapPriorTrafficModel`, version
 
 Routes on that map are the planner below (`TrafficRoutePlanner` gives it the field as a grid graph: AvoidPvP for the suggested route, Fastest for the direct line). The graph is flagged incomplete because the catalog has no walls or water, so the page calls it straight-line guidance; times are path length plus a quarter, at 1.8 to 3.2 m/s; every "Why this route" line is read from the two routes' own numbers.
 
+`PersonalPace` (#712 2-4) measures the player's own pace from their recorded trails (moving legs between their screenshots, timed by the in-game clock in the names) and falls back to 1.8 to 3.2 m/s below 8 legs from 2 raids; Debrief shows it, with the exit they use most and their last five raids on the map. `PersonalExits.Choose` is the exit weighting for the Now panel: a used exit counts up to a quarter nearer, and an offered exit still wins.
+
 ## Route planner
 
 The planner uses phase-valid directed edges in a static navigation graph:

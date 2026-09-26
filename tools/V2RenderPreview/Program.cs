@@ -2416,6 +2416,11 @@ internal static class Program
                     DebriefCoverageDemo.Seed(services, DrainUntilComplete);
                 }
 
+                if (args.Contains("--debrief-patterns-demo"))
+                {
+                    PersonalPatternsDemo.Seed(services, DrainUntilComplete);
+                }
+
                 if (args.Contains("--debrief-context-demo"))
                 {
                     DebriefContextDemo.Seed(services, DrainUntilComplete);
