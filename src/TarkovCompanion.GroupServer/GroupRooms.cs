@@ -293,7 +293,18 @@ public sealed class GroupRooms(TimeProvider timeProvider)
     /// [#920] Takes the lines off one member's stored state, or every member's, and says which
     /// ids went so the publishes that follow can keep them off (<see cref="GroupRoomModeration"/>).
     /// </summary>
-    public IReadOnlyDictionary<string, IReadOnlyList<string>> TakeDrawings(string room, string? memberKey)
+    /// <remarks>
+    /// [#936] <paramref name="keepOff"/> is told a member's ids before their stored state is
+    /// swapped, and the swap is retried against whatever a concurrent publish stored. It used to
+    /// record ids only when the swap won, so a member publishing between the read and the swap
+    /// kept their lines on every map and out of the cleared count. Recorded first, a publish that
+    /// lands after the swap is filtered on its way in; one that was filtered before the ids were
+    /// recorded is caught by the retry, or at worst stands until that member's next publish.
+    /// </remarks>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> TakeDrawings(
+        string room,
+        string? memberKey,
+        Action<string, IReadOnlyList<string>>? keepOff = null)
     {
         var taken = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         if (!_rooms.TryGetValue(room, out var members))
@@ -301,23 +312,35 @@ public sealed class GroupRooms(TimeProvider timeProvider)
             return taken;
         }
 
-        foreach (var (key, entry) in members)
+        foreach (var key in members.Keys)
         {
             if (memberKey is not null && !string.Equals(key, memberKey, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            if (entry.State.Drawings is not { Count: > 0 } drawings)
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            // Bounded: a member publishes every few hundred milliseconds at most, so a swap that
+            // keeps losing is a bug, not a busy member, and the ids already recorded still hold.
+            for (var attempt = 0; attempt < 16 && members.TryGetValue(key, out var entry); attempt++)
             {
-                continue;
+                if (entry.State.Drawings is not { Count: > 0 } drawings)
+                {
+                    break;
+                }
+
+                var these = drawings.Select(drawing => drawing.Id).ToArray();
+                keepOff?.Invoke(key, these);
+                ids.UnionWith(these);
+                if (members.TryUpdate(key, entry with { State = entry.State with { Drawings = null } }, entry))
+                {
+                    break;
+                }
             }
 
-            // Replaced only if nobody published in between; a publish that won the race is
-            // filtered on its way in by the ids recorded from this one anyway.
-            if (members.TryUpdate(key, entry with { State = entry.State with { Drawings = null } }, entry))
+            if (ids.Count > 0)
             {
-                taken[key] = [.. drawings.Select(drawing => drawing.Id)];
+                taken[key] = [.. ids];
             }
         }
 

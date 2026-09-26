@@ -50,13 +50,47 @@ public sealed class RelayAdminClient(Func<HttpMethod, string, CancellationToken,
     {
     }
 
-    /// <summary>Whether the relay counts this desktop as its owner. False on any doubt.</summary>
-    public async Task<bool> IsRelayOwnerAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Whether the relay counts this desktop as its owner: true or false when it said so, null
+    /// when it could not be asked.
+    /// </summary>
+    /// <remarks>
+    /// [#936] This was false on any doubt, and the panel hid itself, its Refresh button included,
+    /// on one 5xx, 429 or timeout, until the owner link happened to drop and come back. False now
+    /// means an answer: a 200 that says so, a 401/403 (not the owner), a 404/405 (a relay from
+    /// before the controls), or no owner session at all.
+    /// </remarks>
+    public async Task<bool?> IsRelayOwnerAsync(CancellationToken cancellationToken)
     {
-        var body = await GetAsync("v2/companion/relay/admin-status", cancellationToken).ConfigureAwait(false);
-        return body is { } json &&
-            json.TryGetProperty("relayOwner", out var owner) &&
-            owner.ValueKind == JsonValueKind.True;
+        try
+        {
+            using var response = await send(HttpMethod.Get, "v2/companion/relay/admin-status", cancellationToken).ConfigureAwait(false);
+            if (response is null)
+            {
+                return false;
+            }
+
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                or HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+            {
+                return false;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = JsonSerializer.Deserialize<JsonElement>(text);
+            return json.ValueKind == JsonValueKind.Object &&
+                json.TryGetProperty("relayOwner", out var owner) &&
+                owner.ValueKind == JsonValueKind.True;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The relay's rooms, or null when they could not be read.</summary>

@@ -14,8 +14,14 @@ namespace TarkovCompanion.GroupServer;
 /// A cleared line is kept off by its id. The drawer's client goes on sending that id until the
 /// line expires on their machine — every client does, including ones from before this existed —
 /// and the relay drops it on the way in, so the squad stops seeing it on their next exchange.
-/// A new line has a new id and shows as normal. The ids held for a member shrink to the ones they
-/// are still sending, so the set never outgrows one member's twenty lines.
+/// A new line has a new id and shows as normal.
+///
+/// [#936] The ids are held until the member stops publishing for <see cref="SuppressionIdle"/>,
+/// leaves, is removed, or the room is reset. They used to shrink to the ids in each publish, on the
+/// idea that an id not sent had expired on the drawer's machine. It had not always: a line set to
+/// Just me, or pushed past the twenty-line or point budget by newer lines, drops out of the publish
+/// while it is still live, and came back on every squadmate's map once it fit again. The set is
+/// bounded instead, at twice one member's lines, the oldest clear giving way first.
 ///
 /// A removal is a kick, not a ban. It holds until the member leaves (<c>DELETE /state/{name}</c>,
 /// which is what turning sharing off does) or <see cref="RemovalLifetime"/> passes, whichever is
@@ -41,7 +47,13 @@ public sealed class GroupRoomModeration(TimeProvider timeProvider)
         public bool Retired { get; set; }
     }
 
-    private sealed record Suppressed(HashSet<string> Ids, DateTimeOffset TouchedUtc);
+    /// <summary>Cleared ids, each with the order it was cleared in, and when the member last published.</summary>
+    private sealed record Suppressed(Dictionary<string, long> Ids, DateTimeOffset TouchedUtc);
+
+    /// <summary>How many cleared ids one member may have held at once.</summary>
+    internal const int MaximumHeldIds = GroupMemberState.MaximumDrawings * 2;
+
+    private long _clearOrder;
 
     /// <summary>Removes a member until they leave or the removal lapses.</summary>
     /// <returns>False when the room already holds as many removals as it can hold members.</returns>
@@ -145,15 +157,19 @@ public sealed class GroupRoomModeration(TimeProvider timeProvider)
                     return;
                 }
 
-                held = new Suppressed(new HashSet<string>(StringComparer.Ordinal), now);
+                held = new Suppressed(new Dictionary<string, long>(StringComparer.Ordinal), now);
             }
 
             foreach (var id in ids.Take(GroupMemberState.MaximumDrawings))
             {
-                if (held.Ids.Count < GroupMemberState.MaximumDrawings * 2)
-                {
-                    held.Ids.Add(id);
-                }
+                held.Ids[id] = Interlocked.Increment(ref _clearOrder);
+            }
+
+            // Bounded by giving up the oldest clears, not by refusing new ones: a line cleared
+            // just now is the one the owner is looking at.
+            foreach (var (id, _) in held.Ids.OrderBy(pair => pair.Value).Take(Math.Max(0, held.Ids.Count - MaximumHeldIds)).ToArray())
+            {
+                held.Ids.Remove(id);
             }
 
             entry.Cleared[member] = held with { TouchedUtc = now };
@@ -164,7 +180,7 @@ public sealed class GroupRoomModeration(TimeProvider timeProvider)
     public GroupMemberState Filter(string room, GroupMemberState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        if (state.Drawings is not { Count: > 0 } drawings || !_rooms.TryGetValue(room, out var entry))
+        if (!_rooms.TryGetValue(room, out var entry))
         {
             return state;
         }
@@ -176,17 +192,15 @@ public sealed class GroupRoomModeration(TimeProvider timeProvider)
                 return state;
             }
 
-            // Only the ids still being sent are worth remembering; the rest have expired on the
-            // drawer's own machine and will not come back.
-            held.Ids.IntersectWith(drawings.Select(drawing => drawing.Id));
-            if (held.Ids.Count == 0)
+            // Every publish keeps the member's clears alive, whatever it carries (#936): an id
+            // missing from this one may be a live line that is only out of the publish for now.
+            entry.Cleared[state.Name] = held with { TouchedUtc = timeProvider.GetUtcNow() };
+            if (state.Drawings is not { Count: > 0 } drawings)
             {
-                entry.Cleared.Remove(state.Name);
                 return state;
             }
 
-            entry.Cleared[state.Name] = held with { TouchedUtc = timeProvider.GetUtcNow() };
-            var kept = drawings.Where(drawing => !held.Ids.Contains(drawing.Id)).ToArray();
+            var kept = drawings.Where(drawing => !held.Ids.ContainsKey(drawing.Id)).ToArray();
             return state with { Drawings = kept.Length == 0 ? null : kept };
         }
     }

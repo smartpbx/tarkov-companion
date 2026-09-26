@@ -297,18 +297,22 @@ and ends held exchanges so squadmates see it on their next one.
   (`GroupRoomModeration`). A client keeps publishing a line until it expires on its own machine;
   the relay drops the cleared ids on the way in, so squadmates stop seeing them on their next
   exchange and they do not come back. A new line has a new id and shows. The drawer still sees
-  their own lines locally until those expire.
+  their own lines locally until those expire. The ids are held until the member leaves or goes
+  quiet for ten minutes, not dropped when one publish leaves them out (#936): a line set to Just
+  me, or pushed past the line budget, is still live.
 - **Removing a member** forgets them and refuses their publishes with **409**
   `removed-by-owner` (not 403, so the limiter does not count it). A current desktop says
   "Removed by the relay owner. Turn sharing off and on to rejoin."; an older one shows "Server
   answered 409". Leaving (`DELETE /state/{name}`, which turning sharing off sends) lifts it, and
-  so does 30 minutes. It is a kick, not a ban.
+  so does 30 minutes. It is a kick, not a ban. A current desktop sends that DELETE on any save
+  of the group settings after the 409, so off and on inside one tick also rejoins (#936).
 - **Reset** clears marks and lines, forgets every member and any removals. Members are back on
   their next exchange, without the lines they had drawn.
 
 The desktop shows these under Team › Devices as **Relay admin**, only when `admin-status` says
 `relayOwner: true`, and asks once before each action. A relay from before #920 answers 404 and
-the panel stays hidden. Revoking a paired tablet stays where it was, on the device's own row.
+the panel stays hidden. A failed `admin-status` read (5xx, 429, timeout) leaves the panel as it
+was and says the relay is unreachable (#936). Revoking a paired tablet stays where it was, on the device's own row.
 
 ## Landmarks for the second screen
 

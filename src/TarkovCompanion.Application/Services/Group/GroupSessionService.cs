@@ -141,6 +141,21 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private bool _waitOutTheTick;
 
+    /// <summary>The wait-out-the-tick delay in progress, so a settings save can end it.</summary>
+    private CancellationTokenSource? _backingOff;
+
+    /// <summary>Whether the relay's last answer was that the owner removed this member (409).</summary>
+    private bool _removedByOwner;
+
+    /// <summary>1 when the group settings were saved since the relay last refused this member.</summary>
+    /// <remarks>
+    /// [#936] The removed member is told to turn sharing off and on. Done inside one tick, the
+    /// loop never read the switch as off, so no DELETE went, the removal never lifted, and the
+    /// next POST was refused again for the rest of the relay's thirty minutes. A save after the
+    /// refusal now sends the goodbye first, and ends the back-off so it goes at once.
+    /// </remarks>
+    private int _settingsSaved;
+
     /// <summary>1 when the next exchange should come straight back with the room (a mark was just sent).</summary>
     private int _roomWanted;
 
@@ -235,6 +250,8 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         // [#286] A line drawn or removed is sent now, like a ready toggle.
         Drawings.Changed += QuestsChanged;
+        // [#936] A switch flipped goes now too, even through a back-off.
+        _settings.Changed += SettingsChanged;
         if (_network is not null)
         {
             // [#292] Local only switched off: say hello now rather than at the end of a tick.
@@ -253,6 +270,21 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// this member says differs from what it said last.
     /// </remarks>
     private void NetworkChanged(object? sender, EventArgs eventArgs) => QuestsChanged();
+
+    private void SettingsChanged(object? sender, EventArgs eventArgs)
+    {
+        Volatile.Write(ref _settingsSaved, 1);
+        try
+        {
+            Volatile.Read(ref _backingOff)?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The back-off ended on its own between the read and the cancel.
+        }
+
+        QuestsChanged();
+    }
 
     private void QuestsChanged()
     {
@@ -421,14 +453,33 @@ public sealed class GroupSessionService : IAsyncDisposable
 
             try
             {
-                if (onATick)
+                if (onATick && _waitOutTheTick)
                 {
                     // A failed exchange waits out the whole interval, and a local change does
                     // not shorten it. Otherwise a player taking screenshots against a relay
                     // that refuses instantly would retry as fast as the rate bound allowed,
-                    // which is the busy loop the backoff exists to prevent.
-                    await Task.Delay(PublishInterval, _waitOutTheTick ? cancellationToken : cycle.Token)
-                        .ConfigureAwait(false);
+                    // which is the busy loop the backoff exists to prevent. A settings save
+                    // does (#936): it is the player acting, once, not the raid moving.
+                    using var backingOff = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    Volatile.Write(ref _backingOff, backingOff);
+                    if (_removedByOwner && Volatile.Read(ref _settingsSaved) == 1)
+                    {
+                        // Saved before this wait began, so nothing was there to end it.
+                        await backingOff.CancelAsync().ConfigureAwait(false);
+                    }
+
+                    try
+                    {
+                        await Task.Delay(PublishInterval, backingOff.Token).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        Volatile.Write(ref _backingOff, null);
+                    }
+                }
+                else if (onATick)
+                {
+                    await Task.Delay(PublishInterval, cycle.Token).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException)
@@ -845,6 +896,13 @@ public sealed class GroupSessionService : IAsyncDisposable
             _relayHolds = false;
             _latency.Reset();
         }
+        else if (_removedByOwner && _registered is { } removed && Interlocked.Exchange(ref _settingsSaved, 0) == 1)
+        {
+            // [#936] Removed, and the player has touched the switch since: the DELETE is what
+            // lifts a removal on the relay, and the loop never saw the switch off to send it.
+            await WithdrawAsync(removed).ConfigureAwait(false);
+            _removedByOwner = false;
+        }
 
         _registered = identity;
 
@@ -915,6 +973,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             // is off until sharing is turned off and on, which leaves the room and lifts it.
             if (response.StatusCode == HttpStatusCode.Conflict)
             {
+                // Only a save from here on counts as the player acting on the message.
+                _removedByOwner = true;
+                Volatile.Write(ref _settingsSaved, 0);
                 _lastGood = null;
                 Publish(GroupSnapshot.Off.Saying(new(GroupStatus.RemovedByOwner)) with
                 {
@@ -926,6 +987,8 @@ public sealed class GroupSessionService : IAsyncDisposable
             PublishStale(new(GroupStatus.ServerAnswered, (int)response.StatusCode));
             return;
         }
+
+        _removedByOwner = false;
 
         var room = await response.Content.ReadFromJsonAsync<RoomStateDto>(Json, cancellationToken).ConfigureAwait(false);
         // A relay that answers with one can hold the next exchange until the room moves. One
@@ -1591,6 +1654,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         Drawings.Changed -= QuestsChanged;
+        _settings.Changed -= SettingsChanged;
         if (_network is not null)
         {
             _network.Changed -= NetworkChanged;

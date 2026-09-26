@@ -1,5 +1,6 @@
 using System.Net;
 using TarkovCompanion.Application.Services.Devices;
+using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.UnitTests.RelayDeviceSecurity;
 using TarkovCompanion.UnitTests.Updates;
 
@@ -61,6 +62,40 @@ public sealed class RelayLinkResumeRefusalTests
         var refused = await UntilAsync(async () => (await tablet.ReadResumeTicketAsync(ticketId)).Refused);
 
         Assert.Equal("not-recognised", refused);
+        await desktop.Panel.ResumesSettled;
+    }
+
+    [Fact]
+    public async Task AnAttemptGoneAtTheDeadlineIsAFailureTheTabletKeepsItsPairingThrough()
+    {
+        // [#936] The coordinator throws UnauthorizedAccessException for an attempt it pruned at
+        // the offer's deadline, and every one of those was refused as not-recognised: the tablet
+        // then deleted a pairing that was still good. Only a wrong device key says that now.
+        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
+        await using var relay = await LinkRelay.StartAsync(clock);
+        using var disk = new DesktopDisk();
+        using var tablet = new TabletSimulator(relay.Origin, clock);
+        await using var desktop = await DesktopRun.StartAsync(disk, relay.Origin, clock);
+        await desktop.ClaimAsync();
+        await desktop.PairAsync(tablet, "Raid tablet");
+
+        var ticketId = await tablet.KnockAsync();
+        var code = await UntilAsync(async () =>
+        {
+            await desktop.Bridge.PollOnceAsync(CancellationToken.None);
+            return (await tablet.ReadResumeTicketAsync(ticketId)).Code;
+        });
+
+        // The right tablet answers, but the desktop's attempt is gone by the time it reads it.
+        await tablet.SubmitPairingRequestAsync(
+            code,
+            "Raid tablet",
+            // Any coordinator call at the deadline prunes it, as the desktop's own next one would.
+            offer => desktop.Coordinator.AcknowledgeRelayResolvedCodeAsync(
+                new PairingAttemptId(Guid.NewGuid()), offer.ExpiresUtc).AsTask());
+        var refused = await UntilAsync(async () => (await tablet.ReadResumeTicketAsync(ticketId)).Refused);
+
+        Assert.Equal("failed", refused);
         await desktop.Panel.ResumesSettled;
     }
 

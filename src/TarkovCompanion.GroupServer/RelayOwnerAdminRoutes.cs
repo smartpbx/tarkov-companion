@@ -255,12 +255,9 @@ public static class RelayOwnerAdminRoutes
 
     private static int ClearDrawings(GroupRooms rooms, GroupRoomModeration moderation, string room, string? member)
     {
-        var taken = rooms.TakeDrawings(room, member);
-        foreach (var (name, ids) in taken)
-        {
-            moderation.Clear(room, name, ids);
-        }
-
+        // [#936] Kept off before the stored lines are taken, so a publish racing the clear is
+        // filtered rather than stored again.
+        var taken = rooms.TakeDrawings(room, member, (name, ids) => moderation.Clear(room, name, ids));
         return taken.Values.Sum(ids => ids.Count);
     }
 
