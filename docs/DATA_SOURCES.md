@@ -44,6 +44,12 @@ provenance, and yields whenever the primary publishes the same map-scoped normal
 input. A checked 2026-09-23 embedded table also fills missing backpack, armor, carried-item,
 and timed-window extract conditions.
 
+### Boss spawn chances
+
+The pre-raid brief (#712 0-9) reads `bosses[].spawnChance` from each synced map's stored payload
+(`maps.source_json`) and names the mob from the cached maps language table; it shows the catalog
+rate as "possible", never as a sighting (`SqliteMapBossCatalog`).
+
 ### High-value loot-spawn locations
 
 The `json.tarkov.dev` maps payload supplies loose-loot positions with candidate item IDs and

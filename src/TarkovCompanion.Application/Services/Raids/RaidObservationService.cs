@@ -71,6 +71,7 @@ public sealed class RaidObservationService : IAsyncDisposable
 
     /// <summary>Whether an unparsable screenshot name has already been reported this session.</summary>
     private int _unreadableNameReported;
+    private readonly FormatGuards.FormatHealthMonitor? _formatHealth;
     private bool _disposed;
 
     public RaidObservationService(
@@ -100,8 +101,11 @@ public sealed class RaidObservationService : IAsyncDisposable
         // ICaptureStageTimeline's own remarks.
         ICaptureStageTimeline? stageTimeline = null,
         // #703: passively recognised TASKS frames become one review-only offer outside raids.
-        QuestScreenshotBurstCollector? questScreenshotBursts = null)
+        QuestScreenshotBurstCollector? questScreenshotBursts = null,
+        // [#712 0-3] Told every screenshot name's shape, so a renamed format is noticed.
+        FormatGuards.FormatHealthMonitor? formatHealth = null)
     {
+        _formatHealth = formatHealth;
         _captureContext = captureSessions is null
             ? captureContext
             : captureContext ?? throw new ArgumentNullException(
@@ -490,6 +494,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                     // Remembered whether or not it parses, because the ones that do not are
                     // exactly the ones somebody needs to see.
                     RememberScreenshotName(Path.GetFileName(path));
+                    _formatHealth?.ObserveScreenshotName(Path.GetFileName(path));
 
                     // #572: the other half of the settle-wait measurement above.
                     lock (_screenshotScanGate)

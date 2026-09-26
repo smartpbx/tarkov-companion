@@ -83,7 +83,18 @@ public static class Flag
         OnInStable: false,
         NeedsRestart: true);
 
-    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards];
+    /// <summary>[#712 0-9] The brief the Raid panel shows while the game log says matching or loading.</summary>
+    public static readonly FeatureFlagDefinition PreRaidBrief = new(
+        "preraid-brief",
+        "Pre-raid brief",
+        "The Raid panel's brief while you match. Off keeps the usual cards.",
+        OwnerIssue: 712,
+        OnInDev: true,
+        OnInRough: true,
+        OnInStable: false,
+        NeedsRestart: false);
+
+    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, PreRaidBrief];
 }
 
 /// <summary>Whether a feature is on for this run.</summary>

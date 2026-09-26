@@ -292,6 +292,7 @@ internal static class Program
                 return 0;
             }
 
+            FormatHealthDemo.Apply(services, StringOption(args, "--format-health-demo")); // [#712 0-3]
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             V2ShellViewModel? shell = null;
             Task? seeding = null;
@@ -2072,6 +2073,53 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            // [#712 0-9] --brief-demo pmc|scav [--brief-phase matching|loading]: the queue for --map, as the
+            // log reports it (the raid state loading, the Ready line), so the Raid panel shows the pre-raid brief
+            // through the real path: runtime store, SituationService, the cockpit's brief.
+            if (shell is not null && StringOption(args, "--brief-demo") is { } briefSide)
+            {
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.Application.Services.Group.GroupSessionService>().DisposeAsync().AsTask());
+                var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                var situation = services.GetRequiredService<TarkovCompanion.Application.Services.Situations.SituationService>();
+                var briefNow = DemoClock.GetUtcNow();
+                var briefMap = viewModel.Map.RenderModel?.Location.Id ?? mapId ?? "customs";
+                var queued = new TarkovCompanion.Core.Domain.Raids.RaidSnapshot(
+                    null, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.LoadingRaid, briefMap, null, briefNow, new(0.9), null, [], false)
+                {
+                    Side = briefSide.Equals("scav", StringComparison.OrdinalIgnoreCase) ? "scav" : "PMC",
+                };
+                TarkovCompanion.Application.Services.Group.GroupMemberView Mate(string name, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState state) =>
+                    new(name, briefMap, state, "PMC", null, null, null, [], []);
+                var squad = RaidDemo(viewModel.Map.RenderModel).Group;
+                squad = squad with { Members = [Mate("Geo", TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.LoadingRaid), Mate("Riley", TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.LoadingRaid), Mate("Sam", TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.Menu)] };
+                var loading = StringOption(args, "--brief-phase")?.Equals("loading", StringComparison.OrdinalIgnoreCase) == true;
+                situation.Observe(new TarkovCompanion.Core.Domain.Raids.RaidPhaseMarker(TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.MatchingStarted, briefNow.AddSeconds(-41)));
+                if (loading)
+                {
+                    situation.Observe(new TarkovCompanion.Core.Domain.Raids.RaidPhaseMarker(TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.MatchingCompleted, briefNow.AddSeconds(-5)));
+                }
+
+                for (var i = 0; i < 6; i++)
+                {
+                    store.Update(snapshot => snapshot with { Raid = queued, Group = squad });
+                    Pump(2);
+                }
+
+                Pump(30);
+                try
+                {
+                    var bossRead = services.GetRequiredService<TarkovCompanion.Application.Services.Maps.IMapBossCatalog>().GetAsync(briefMap, CancellationToken.None);
+                    DrainUntilComplete(bossRead);
+                    Console.WriteLine($"brief bosses: {string.Join(", ", bossRead.Result.Select(boss => $"{boss.Name} {boss.Chance:P0}"))}");
+                }
+                catch (Exception exception)
+                {
+                    Console.WriteLine($"brief bosses failed: {exception}");
+                }
+
+                Console.WriteLine($"brief: shown={services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel>().PreRaidBrief.IsShown} phase={situation.Current.Phase.Value} map={situation.Current.Map?.Value}");
             }
 
             // [#286] --draw-demo with --raid-demo: the first placed squadmate has drawn an arrow-ish
