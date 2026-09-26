@@ -48,8 +48,13 @@ public sealed class CaptureRecognitionPipeline(
     // rather than a missing-service failure.
     Application.Services.CaptureSessions.ICaptureStageTimeline? stageTimeline = null,
     // [#893] One line per analysed frame, so a capture that ends "no change" says which gate held it.
-    Microsoft.Extensions.Logging.ILogger<CaptureRecognitionPipeline>? logger = null) : ICaptureSessionPipeline, ILootScanRecognitionProgressSource
+    Microsoft.Extensions.Logging.ILogger<CaptureRecognitionPipeline>? logger = null,
+    // [#712 1-1] Every unarmed frame goes to every screen detector; the decision is announced here.
+    ScreenRoutingLog? routingLog = null,
+    ScreenDetectorRunner? runner = null) : ICaptureSessionPipeline, ILootScanRecognitionProgressSource
 {
+    private readonly ScreenDetectorRunner _runner = runner ?? new ScreenDetectorRunner();
+
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
     private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -105,9 +110,12 @@ public sealed class CaptureRecognitionPipeline(
             var coordinated = await _ocr.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
             stageTimeline?.Mark(request.CorrelationId, "context_ocr", ocrStopwatch.Elapsed);
             stageTimeline?.Reached(request.CorrelationId, Application.Services.CaptureSessions.CaptureTimelineKinds.Classified);
+            var auto = request.RequestedIntent == ScanIntent.Auto;
+            var healthReading = HealthScreenClassifier.Classify(coordinated.FullFrame);
             // #287: the HEALTH tab draws the stash beside the body, so its anchors say Container.
-            // It is placed first, and never measured as a grid nobody asked about.
-            if (HealthScreenClassifier.Classify(coordinated.FullFrame) is { IsHealthTab: true } health)
+            // It is placed first, and never measured as a grid nobody asked about. An unarmed
+            // frame is placed by the detectors below instead, where health is one of them.
+            if (!auto && healthReading is { IsHealthTab: true } health)
             {
                 if (progressStarted)
                 {
@@ -133,11 +141,17 @@ public sealed class CaptureRecognitionPipeline(
             var detectedContext = isAmbiguous ? (RecognizedContext?)null : Map(detection.Context, request.RequestedIntent);
             var isAvailable = !coordinated.IsEmpty && coordinated.FullFrame.IsAvailable;
 
+            var inRaid = request.Context.ActiveMap is not null;
+            var anchorScores = AnchorScores(detection);
+            var healthTab = healthReading is { IsHealthTab: true } ? healthReading.Confidence.Value : (double?)null;
             GridReconstructionRequest? grid = null;
             GridReconstructionRequest? carried = null;
             IReadOnlyList<CarriedGridReconstructionRequest> carriedGrids = [];
             var carriedCoverageComplete = false;
-            if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
+            var wantedSurface = auto
+                ? UnarmedGridSurface(anchorScores, inRaid, healthTab is not null)
+                : GridSurfaceFor(request.RequestedIntent, detection.Context, inRaid);
+            if (wantedSurface is { } surface)
             {
                 if (surface == InventoryGridSurface.VisibleLoot)
                 {
@@ -195,7 +209,10 @@ public sealed class CaptureRecognitionPipeline(
         // instead of its words. Without this the review offered "Analyse as armed" and intake
         // then refused it as "context unknown, no change" - the button did nothing, on the one
         // machine class (no OCR, or OCR that read no anchor) where it was the only way forward.
-            var fleaListings = await ReadFleaListingsAsync(request, detection.Context, cancellationToken).ConfigureAwait(false);
+            var fleaContext = auto && Score(anchorScores, ScanContext.FleaListings) >= ScreenDetectorRunner.Threshold
+                ? ScanContext.FleaListings
+                : detection.Context;
+            var fleaListings = await ReadFleaListingsAsync(request, fleaContext, cancellationToken).ConfigureAwait(false);
             if (fleaListings.Count > 0 && isAmbiguous && request.RequestedIntent == ScanIntent.Flea)
             {
             // Priced rows under an armed Flea intent are a flea screen, whatever the anchor
@@ -210,27 +227,70 @@ public sealed class CaptureRecognitionPipeline(
                 detection.Confidence,
                 grid?.Lattice is not null,
                 request.RequestedIntent);
-            (detectedContext, isAmbiguous, confidence) = PlaceUnarmedInRaidContainer(
-                detectedContext,
-                isAmbiguous,
-                confidence,
-                grid?.Lattice is not null,
-                request.RequestedIntent,
-                detection.Context,
-                request.Context.ActiveMap is not null);
+            ScreenRouting routing;
+            if (auto)
+            {
+                var detectorsStopwatch = System.Diagnostics.Stopwatch.StartNew();
+                routing = _runner.Decide(new ScreenEvidence(
+                    anchorScores,
+                    inRaid,
+                    healthTab,
+                    LootLatticeMeasured: grid is { Surface: InventoryGridSurface.VisibleLoot, Lattice: not null },
+                    StashLatticeMeasured: grid is { Surface: InventoryGridSurface.Stash, Lattice: not null },
+                    FleaRows: fleaListings.Count,
+                    NameCarriesPosition: request.NameCarriesPosition));
+                stageTimeline?.Mark(request.CorrelationId, "screen_detectors", detectorsStopwatch.Elapsed);
+                (detectedContext, isAmbiguous, confidence) = Place(routing);
+            }
+            else
+            {
+                routing = ScreenRouting.Chosen(KindFor(request.RequestedIntent));
+            }
+
+            routingLog?.Record(new(
+                request.CorrelationId,
+                request.SessionId,
+                request.ArtifactId,
+                _timeProvider.GetUtcNow(),
+                routing));
+            if (auto && routing is { Outcome: ScreenRoutingOutcome.Routed, Kind: ScreenKind.Health })
+            {
+                if (progressStarted)
+                {
+                    LootRecognitionStopped?.Invoke(this, new(
+                        request.SessionId,
+                        request.ArtifactId,
+                        request.CorrelationId,
+                        request.DecodeRevision,
+                        WasCancelled: false));
+                }
+
+                return new(
+                    contentHash,
+                    RecognizedContext.HealthAndCharacter,
+                    IsAmbiguous: false,
+                    IsAvailable: true,
+                    HealthTabDiagnostic,
+                    routing.Confidence)
+                {
+                    Routing = routing,
+                };
+            }
             if (logger is not null)
             {
                 // [#893] The field logs said what ScanUseCase read and never what this pipeline
                 // decided, and the capture panel acts on this one. Pixel-free, no file name.
                 Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(
                     logger,
-                    "Capture {CorrelationId} analysed: detector {Detected} at {DetectorConfidence:0.00}, placed as {Context} at {Confidence:0.00} ({Decision}); ambiguous={Ambiguous}, available={Available}, intent={Intent}, in raid={InRaid}, lattice={Lattice}, grid cells={Cells}.",
+                    "Capture {CorrelationId} analysed: detector {Detected} at {DetectorConfidence:0.00}, placed as {Context} at {Confidence:0.00} ({Decision}); routing {Routing} ({Because}); ambiguous={Ambiguous}, available={Available}, intent={Intent}, in raid={InRaid}, lattice={Lattice}, grid cells={Cells}.",
                     request.CorrelationId,
                     detection.Context,
                     detection.Confidence.Value,
                     detectedContext?.ToString() ?? "none",
                     confidence.Value,
                     RecognitionThresholds.Classify(confidence),
+                    routing.Outcome,
+                    routing.Because,
                     isAmbiguous,
                     isAvailable,
                     request.RequestedIntent,
@@ -247,12 +307,19 @@ public sealed class CaptureRecognitionPipeline(
                 coordinated.DiagnosticCode,
                 confidence,
                 grid,
-                await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
-                    .ConfigureAwait(false),
+                // A frame the detectors placed as a screen with no item on it (TASKS, the world
+                // view) is not searched for one.
+                auto && detectedContext is null && !routing.IsUnsure
+                    ? []
+                    : await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
+                        .ConfigureAwait(false),
                 CarriedGrid: carried,
                 FleaListings: fleaListings,
                 CarriedGrids: carriedGrids,
-                CarriedCoverageComplete: carriedCoverageComplete);
+                CarriedCoverageComplete: carriedCoverageComplete)
+            {
+                Routing = routing,
+            };
         }
         catch (OperationCanceledException)
         {
@@ -433,31 +500,6 @@ public sealed class CaptureRecognitionPipeline(
             : (detected, isAmbiguous, confidence);
 
     /// <summary>
-    /// [#893] An unarmed in-raid container screen whose lattice was measured is acted on, however
-    /// weakly its words were read.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="GridSurfaceFor(ScanIntent, ScanContext, bool)"/> already measures the grid of an
-    /// unarmed container screen in raid, and <see cref="PlaceFromLattice"/> lifts a weak reading to
-    /// the floor intake acts on, but only under an armed intent. The unarmed in-raid case, the
-    /// product's main in-raid action, kept the anchor detector's own confidence, and a container
-    /// read below <see cref="RecognitionThresholds.Candidate"/> ended "below threshold, no change"
-    /// with its measured grid thrown away. The owner's real Container frames (2026-09-24/25)
-    /// produced no loot scan at all; this is one gate that explains it, not a proven one.
-    /// </remarks>
-    internal static (RecognizedContext? Context, bool IsAmbiguous, Confidence Confidence) PlaceUnarmedInRaidContainer(
-        RecognizedContext? detected,
-        bool isAmbiguous,
-        Confidence confidence,
-        bool latticeMeasured,
-        ScanIntent intent,
-        ScanContext detectedScan,
-        bool inRaid) =>
-        !isAmbiguous && latticeMeasured && intent == ScanIntent.Auto && detectedScan == ScanContext.Container && inRaid
-            ? (detected, false, new(Math.Max(confidence.Value, RecognitionThresholds.Ambiguous)))
-            : (detected, isAmbiguous, confidence);
-
-    /// <summary>
     /// The same, for a frame nobody armed an intent for.
     /// </summary>
     /// <remarks>
@@ -473,6 +515,65 @@ public sealed class CaptureRecognitionPipeline(
         (intent == ScanIntent.Auto && detected == ScanContext.Container && inRaid
             ? InventoryGridSurface.VisibleLoot
             : null);
+
+    /// <summary>Every anchor context's score; a detection built without them keeps its winner's.</summary>
+    internal static IReadOnlyDictionary<ScanContext, double> AnchorScores(ContextDetection detection) =>
+        detection.Scores.Count > 0
+            ? detection.Scores
+            : detection.Context == ScanContext.Unknown
+                ? new Dictionary<ScanContext, double>()
+                : new Dictionary<ScanContext, double> { [detection.Context] = detection.Confidence.Value };
+
+    private static double Score(IReadOnlyDictionary<ScanContext, double> scores, ScanContext context) =>
+        scores.TryGetValue(context, out var score) ? score : 0;
+
+    /// <summary>
+    /// [#712 1-1] Which lattice an unarmed frame is measured for, so the loot and stash detectors
+    /// have their evidence: container words in raid are loot, out of raid the stash panel.
+    /// </summary>
+    internal static InventoryGridSurface? UnarmedGridSurface(
+        IReadOnlyDictionary<ScanContext, double> anchorScores,
+        bool inRaid,
+        bool healthTab) =>
+        healthTab || Score(anchorScores, ScanContext.Container) < ScreenDetectorRunner.Threshold
+            ? null
+            : inRaid ? InventoryGridSurface.VisibleLoot : InventoryGridSurface.Stash;
+
+    /// <summary>What the capture path is told about a frame the detectors decided.</summary>
+    /// <remarks>
+    /// Unsure is ambiguous, which intake never acts on. TASKS and the world view are placed but
+    /// have no context of their own, so intake ends them quietly with "no change": nothing reads
+    /// them here, and neither belongs in the tray.
+    /// </remarks>
+    internal static (RecognizedContext? Context, bool IsAmbiguous, Confidence Confidence) Place(ScreenRouting routing) =>
+        routing.Outcome switch
+        {
+            ScreenRoutingOutcome.Routed when routing.Kind is { } kind => (ContextFor(kind), false, routing.Confidence),
+            ScreenRoutingOutcome.Background => (null, false, routing.Confidence),
+            _ => (null, true, routing.Confidence),
+        };
+
+    /// <summary>The recognised context a detector's screen is handed on as; null where none fits.</summary>
+    internal static RecognizedContext? ContextFor(ScreenKind kind) => kind switch
+    {
+        ScreenKind.Loot => RecognizedContext.Loot,
+        ScreenKind.Stash => RecognizedContext.Stash,
+        ScreenKind.Item => RecognizedContext.Item,
+        ScreenKind.Flea => RecognizedContext.Flea,
+        ScreenKind.ExtractList => RecognizedContext.ExtractsAndMap,
+        ScreenKind.Health => RecognizedContext.HealthAndCharacter,
+        _ => null,
+    };
+
+    /// <summary>The screen a "Read as…" (or a guided scan's) intent names.</summary>
+    internal static ScreenKind KindFor(ScanIntent intent) => intent switch
+    {
+        ScanIntent.Stash or ScanIntent.Ammo or ScanIntent.Keys or ScanIntent.QuestItems => ScreenKind.Stash,
+        ScanIntent.Flea => ScreenKind.Flea,
+        ScanIntent.ExtractsAndMap => ScreenKind.ExtractList,
+        ScanIntent.HealthAndCharacter => ScreenKind.Health,
+        _ => ScreenKind.Loot,
+    };
 
     internal static RecognizedContext Map(ScanContext context, ScanIntent requestedIntent) => context switch
     {

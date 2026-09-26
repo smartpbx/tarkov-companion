@@ -20,6 +20,11 @@ public sealed class ScreenshotFileCaptureSource(string path, IScreenshotImageLoa
 
     public CaptureSourceKind SourceKind => CaptureSourceKind.GameWrittenScreenshot;
 
+    /// <summary>[#712 1-1] The name is shaped like an in-raid shot, position blocks and all.</summary>
+    /// <remarks>Read from the name only; the path itself never leaves this source.</remarks>
+    public bool NameCarriesPosition { get; } =
+        ScreenshotFilenameParser.Classify(path ?? string.Empty) == ScreenshotNameKind.InRaid;
+
     public async ValueTask<CaptureSourceReadResult> ReadAsync(CancellationToken cancellationToken)
     {
         var image = await _loader.LoadAsync(_path, cancellationToken).ConfigureAwait(false);

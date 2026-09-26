@@ -301,7 +301,14 @@ public sealed record CaptureAnalysisRequest(
     CaptureContextMetadata Context,
     CapturedImage Image,
     CaptureCorrelationId CorrelationId,
-    int DecodeRevision);
+    int DecodeRevision)
+{
+    /// <summary>
+    /// [#712 1-1] The game wrote a position into the file's name. It does for every in-raid
+    /// screenshot, so this says "world view" only when no screen detector claims the frame.
+    /// </summary>
+    public bool NameCarriesPosition { get; init; }
+}
 
 /// <summary>
 /// One catalog item a frame was read as, with the alternates it was chosen over.
@@ -364,6 +371,9 @@ public sealed record CaptureAnalysis(
     // False when the frame exposes some carried grids but cannot support a complete no-fit claim.
     bool? CarriedCoverageComplete = null)
 {
+    /// <summary>[#712 1-1] Which detector placed the frame and why; null where no runner was asked.</summary>
+    public ScreenRouting? Routing { get; init; }
+
     /// <summary>The flea rows this frame showed, top to bottom; empty when it was not a flea screen.</summary>
     public IReadOnlyList<CaptureFleaListing> FleaListings { get; } = FleaListings ?? [];
 

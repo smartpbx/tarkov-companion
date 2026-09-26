@@ -68,6 +68,10 @@ public static partial class ShellText
     public static string CaptureReviewAlso(string names) => UiText.Format("Shell.Capture.Review.Also", names);
 
     public static string ReadAsMenu => UiText.Get("Shell.ReadAs.Menu");
+    public static string UnrecognisedHeading => UiText.Get("Shell.Unrecognised.Heading");
+    public static string UnrecognisedRow(string time, string guess) => UiText.Format("Shell.Unrecognised.Row", time, guess);
+    public static string UnrecognisedNoGuess(string time) => UiText.Format("Shell.Unrecognised.NoGuess", time);
+    public static string UnrecognisedCount(int count) => UiText.Format("Shell.Unrecognised.Count", count);
     public static string ReadAsHeading(string intent) => UiText.Format("Shell.ReadAs.Heading", intent);
     public static string ReadAsImageReleased => UiText.Get("Shell.ReadAs.ImageReleased");
     public static string ReadAsByYou(string to, string from) => UiText.Format("Shell.ReadAs.ByYou", to, from);

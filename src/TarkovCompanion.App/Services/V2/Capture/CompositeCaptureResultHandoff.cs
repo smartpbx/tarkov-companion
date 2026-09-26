@@ -14,6 +14,9 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// <see cref="IntelCaptureHandoff"/>, which publishes whichever catalog item the frame was read
 /// as. Extracts, map and health screens reach <see cref="UnsupportedScreenHandoff"/>, which says
 /// what the screen was and that nothing reads it yet (#287).
+///
+/// [#712 1-1] One handler per screen kind replaces the intent switch: the detector that placed a
+/// frame names its handler, and an intent (Read as…, a guided scan) only where no detector did.
 /// </remarks>
 public sealed class CompositeCaptureResultHandoff(
     LootScanCaptureHandoff lootScan,
@@ -28,6 +31,10 @@ public sealed class CompositeCaptureResultHandoff(
     private readonly LootScanCaptureHandoff _lootScan = lootScan ?? throw new ArgumentNullException(nameof(lootScan));
     private readonly StashScanCaptureHandoff _stashScan = stashScan ?? throw new ArgumentNullException(nameof(stashScan));
     private readonly IntelCaptureHandoff _intel = intel ?? throw new ArgumentNullException(nameof(intel));
+    private Dictionary<ScreenKind, Func<CaptureHandoffRequest, CancellationToken, ValueTask<CaptureHandoffResult>>>? _handlerTable;
+
+    private Dictionary<ScreenKind, Func<CaptureHandoffRequest, CancellationToken, ValueTask<CaptureHandoffResult>>> _handlers =>
+        _handlerTable ??= BuildHandlers();
 
     /// <summary>
     /// Raised for every accepted capture that was not read as a loot container (#572): the player
@@ -42,37 +49,83 @@ public sealed class CompositeCaptureResultHandoff(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        // One named item and no lattice is an inspect screen, not a container.
-        var isLootGrid = request.EffectiveIntent == ScanIntent.Loot &&
-            (request.Analysis.Grid is not null || request.Analysis.Identified.Count == 0);
-        if (!isLootGrid)
+        var screen = ScreenFor(request);
+        if (screen != ScreenKind.Loot)
         {
             NonLootIntentHandled?.Invoke(this, request.EffectiveIntent);
         }
 
-        if (request.EffectiveIntent == ScanIntent.Loot && !isLootGrid)
+        if (screen == ScreenKind.Item && request.EffectiveIntent == ScanIntent.Loot)
         {
             stageTimeline?.Classify(request.CorrelationId, CaptureTimelineKinds.Item);
         }
 
-        return request.EffectiveIntent switch
+        return _handlers.TryGetValue(screen, out var handler)
+            ? handler(request, cancellationToken)
+            : ValueTask.FromResult(CaptureHandoffResult.Accepted);
+    }
+
+    /// <summary>
+    /// [#712 1-1] The screen a handed-on capture is of: the detector's answer where one placed it,
+    /// otherwise the one the intent names ("Read as…", a guided case scan).
+    /// </summary>
+    /// <remarks>
+    /// One named item and no lattice is an inspect screen, not a container, whichever said Loot.
+    /// Ammo, Keys and Quest items keep their own entries: an open case is a case scan's frame.
+    /// </remarks>
+    internal static ScreenKind ScreenFor(CaptureHandoffRequest request)
+    {
+        var routed = request.Decision == CaptureReviewAction.UseDetected
+            && request.Analysis.Routing is { Outcome: ScreenRoutingOutcome.Routed, Kind: { } kind }
+                ? kind
+                : (ScreenKind?)null;
+        var screen = routed ?? request.EffectiveIntent switch
         {
-            ScanIntent.Loot when !isLootGrid => _intel.AcceptItemAsync(request, cancellationToken),
-            ScanIntent.Loot => _lootScan.AcceptAsync(request, cancellationToken),
-            ScanIntent.Stash => _stashScan.AcceptAsync(request, cancellationToken),
-            // #283: an open case under an Ammo or Keys case scan is one of its screenshots; the
-            // stash handoff ignores it when no case scan is collecting, and Intel still names it.
-            ScanIntent.Ammo or ScanIntent.Keys => CaseThenIntelAsync(request, cancellationToken),
+            ScanIntent.Loot => ScreenKind.Loot,
+            ScanIntent.Stash => ScreenKind.Stash,
+            ScanIntent.Flea => ScreenKind.Flea,
+            ScanIntent.ExtractsAndMap => ScreenKind.ExtractList,
+            ScanIntent.HealthAndCharacter => ScreenKind.Health,
+            _ => ScreenKind.Item,
+        };
+        return screen == ScreenKind.Loot && request.Analysis.Grid is null && request.Analysis.Identified.Count > 0
+            ? ScreenKind.Item
+            : screen;
+    }
+
+    private Dictionary<ScreenKind, Func<CaptureHandoffRequest, CancellationToken, ValueTask<CaptureHandoffResult>>> BuildHandlers()
+    {
+        var handlers = new Dictionary<ScreenKind, Func<CaptureHandoffRequest, CancellationToken, ValueTask<CaptureHandoffResult>>>
+        {
+            [ScreenKind.Loot] = _lootScan.AcceptAsync,
+            // A stash nobody asked to scan is one more frame of a guided scan, or nothing: a single
+            // unarmed frame must not replace the stash the player last scanned (1-11 merges them).
+            [ScreenKind.Stash] = (request, token) =>
+                request.Analysis.Routing is { Outcome: ScreenRoutingOutcome.Routed }
+                    ? _stashScan.AcceptSeenAsync(request, token)
+                    : _stashScan.AcceptAsync(request, token),
+            [ScreenKind.Item] = (request, token) => request.EffectiveIntent switch
+            {
+                ScanIntent.Loot => _intel.AcceptItemAsync(request, token),
+                // #283: an open case under an Ammo or Keys case scan is one of its screenshots; the
+                // stash handoff ignores it when no case scan is collecting, and Intel still names it.
+                ScanIntent.Ammo or ScanIntent.Keys => CaseThenIntelAsync(request, token),
+                var intent when IntelCaptureHandoff.Intents.Contains(intent) => _intel.AcceptAsync(request, token),
+                _ => ValueTask.FromResult(CaptureHandoffResult.Accepted),
+            },
             // [f920 capture] #284: legible flea rows go to Intel > Flea. A flea capture with no
             // rows still names its item where it can, as it did before.
-            ScanIntent.Flea when flea is not null && request.Analysis.FleaListings.Count > 0 =>
-                flea.AcceptAsync(request, cancellationToken),
-            var intent when unsupported is not null && UnsupportedScreenHandoff.Intents.Contains(intent) =>
-                unsupported.AcceptAsync(request, cancellationToken),
-            var intent when IntelCaptureHandoff.Intents.Contains(intent) =>
-                _intel.AcceptAsync(request, cancellationToken),
-            _ => ValueTask.FromResult(CaptureHandoffResult.Accepted),
+            [ScreenKind.Flea] = (request, token) => flea is not null && request.Analysis.FleaListings.Count > 0
+                ? flea.AcceptAsync(request, token)
+                : _intel.AcceptAsync(request, token),
         };
+        if (unsupported is not null)
+        {
+            handlers[ScreenKind.ExtractList] = unsupported.AcceptAsync;
+            handlers[ScreenKind.Health] = unsupported.AcceptAsync;
+        }
+
+        return handlers;
     }
 
     private async ValueTask<CaptureHandoffResult> CaseThenIntelAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)

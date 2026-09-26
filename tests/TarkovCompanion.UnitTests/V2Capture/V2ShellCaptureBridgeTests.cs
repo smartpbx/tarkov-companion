@@ -14,6 +14,7 @@ using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.UnitTests.Profiles;
 using TarkovCompanion.UnitTests.V2Shell;
@@ -34,36 +35,54 @@ public sealed class V2ShellCaptureBridgeTests
 {
     private static readonly CaptureSessionId Session = new(Guid.Parse("30000000-0000-0000-0000-000000000287"));
 
+    /// <summary>
+    /// [#712 1-1] A picked frame read as something other than what the player chose (Read as…, a
+    /// guided scan) follows their choice. It used to stop on a Skip / Analyse-as prompt.
+    /// </summary>
     [Fact]
-    public async Task ADisagreeingReviewStopsForThePlayerRatherThanResolvingItself()
+    public async Task ADisagreementFollowsWhatThePlayerChoseWithoutAPrompt()
     {
         await using var fixture = await Fixture.CreateAsync();
 
         fixture.Arm(ScanIntent.Stash);
         fixture.Sessions.RaiseReview(Review(ScanIntent.Stash, RecognizedContext.Flea, disagreement: true));
 
-        var attention = fixture.Shell.CaptureState.Attention;
-        Assert.NotNull(attention);
-        Assert.Equal(V2CaptureAttentionKind.IntentMismatch, attention.Kind);
-        Assert.Equal(RecognizedContext.Flea, attention.DetectedContext);
-        Assert.Empty(fixture.Sessions.Reviewed);
-        Assert.Equal(
-            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsArmed, V2CaptureResolutionKind.AnalyzeAsDetected],
-            fixture.Shell.CaptureAttentionActions.Select(action => action.Resolution));
+        Assert.Null(fixture.Shell.CaptureState.Attention);
+        Assert.Equal(CaptureReviewAction.UseArmedIntent, Assert.Single(fixture.Sessions.Reviewed).Action);
     }
 
+    /// <summary>
+    /// [#712 1-1] Nothing armed and nothing placed: the frame ends quietly (the tray lists it). It
+    /// used to stop on an "Analyse as…" prompt the player had to answer.
+    /// </summary>
     [Fact]
-    public async Task AnUnplaceableScreenStopsTooAndOffersRetry()
+    public async Task AnUnplaceableScreenEndsQuietlyWithNoPromptAndNothingArmed()
     {
         await using var fixture = await Fixture.CreateAsync();
 
-        fixture.Arm(ScanIntent.Auto);
         fixture.Sessions.RaiseReview(Review(ScanIntent.Auto, detected: null, disagreement: false));
 
-        Assert.Equal(V2CaptureAttentionKind.UnknownContext, fixture.Shell.CaptureState.Attention?.Kind);
-        Assert.Contains(
-            V2CaptureResolutionKind.Retry,
-            fixture.Shell.CaptureAttentionActions.Select(action => action.Resolution));
+        Assert.Null(fixture.Shell.CaptureState.Attention);
+        Assert.Empty(fixture.Sessions.Armed);
+        Assert.Equal(CaptureReviewAction.Cancel, Assert.Single(fixture.Sessions.Reviewed).Action);
+    }
+
+    [Fact]
+    public async Task AnUnsureFrameIsListedInTheTrayAndAPlacedOneIsNot()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var runner = new ScreenDetectorRunner();
+        var unsure = runner.Decide(new(new Dictionary<ScanContext, double> { [ScanContext.FleaListings] = 0.40 }, InRaid: false));
+        var placed = runner.Decide(new(new Dictionary<ScanContext, double> { [ScanContext.FleaListings] = 0.75 }, InRaid: false));
+
+        fixture.Routing.Record(new(CaptureCorrelationId.New(), Session, "shot-unsure", V2ShellTestData.Now, unsure));
+        fixture.Routing.Record(new(CaptureCorrelationId.New(), Session, "shot-placed", V2ShellTestData.Now, placed));
+
+        var row = Assert.Single(fixture.Shell.UnrecognisedScreens);
+        Assert.Equal("shot-unsure", row.ArtifactId);
+        Assert.Contains("flea 40", row.Label, StringComparison.Ordinal);
+        Assert.NotNull(row.Source);
+        Assert.Null(fixture.Shell.CaptureState.Attention);
     }
 
     [Fact]
@@ -75,20 +94,6 @@ public sealed class V2ShellCaptureBridgeTests
         fixture.Sessions.RaiseReview(Review(ScanIntent.Stash, RecognizedContext.Stash, disagreement: false));
 
         Assert.Null(fixture.Shell.CaptureState.Attention);
-        Assert.Equal(CaptureReviewAction.UseDetected, Assert.Single(fixture.Sessions.Reviewed).Action);
-    }
-
-    [Fact]
-    public async Task TheDisagreementActionsReachTheCoordinator()
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        fixture.Arm(ScanIntent.Stash);
-        fixture.Sessions.RaiseReview(Review(ScanIntent.Stash, RecognizedContext.Flea, disagreement: true));
-
-        fixture.Shell.CaptureAttentionActions
-            .Single(action => action.Resolution == V2CaptureResolutionKind.AnalyzeAsDetected)
-            .InvokeCommand.Execute(null);
-
         Assert.Equal(CaptureReviewAction.UseDetected, Assert.Single(fixture.Sessions.Reviewed).Action);
     }
 
@@ -339,8 +344,10 @@ public sealed class V2ShellCaptureBridgeTests
             FakeSessions sessions,
             IntelCaptureHandoff intel,
             FakeLootProgress progress,
-            V2ShellCaptureBridge bridge)
+            V2ShellCaptureBridge bridge,
+            ScreenRoutingLog routing)
         {
+            Routing = routing;
             Shell = shell;
             Sessions = sessions;
             Intel = intel;
@@ -355,6 +362,8 @@ public sealed class V2ShellCaptureBridgeTests
         public IntelCaptureHandoff Intel { get; }
 
         public FakeLootProgress Progress { get; }
+
+        public ScreenRoutingLog Routing { get; }
 
         private V2ShellCaptureBridge Bridge { get; }
 
@@ -371,6 +380,7 @@ public sealed class V2ShellCaptureBridgeTests
             await runtime.InitializeAsync(CancellationToken.None);
             var intel = new IntelCaptureHandoff();
             var progress = new FakeLootProgress();
+            var routing = new ScreenRoutingLog();
             var bridge = new V2ShellCaptureBridge(
                 shell,
                 sessions,
@@ -381,8 +391,9 @@ public sealed class V2ShellCaptureBridgeTests
                     new CompanionDeviceId(Guid.Parse("10000000-0000-0000-0000-000000000288")),
                     WorkspaceOriginKind.DesktopApplication,
                     "desktop"),
-                lootRecognitionProgress: progress);
-            return new(shell, sessions, intel, progress, bridge);
+                lootRecognitionProgress: progress,
+                unrecognised: new UnrecognisedScreenTray(routing));
+            return new(shell, sessions, intel, progress, bridge, routing);
         }
 
         public void Arm(ScanIntent intent)

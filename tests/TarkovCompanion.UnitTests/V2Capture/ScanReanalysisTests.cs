@@ -217,7 +217,7 @@ public sealed class ScanReanalysisTests
         Assert.Contains("No copy is saved.", label.Detail, StringComparison.Ordinal);
     }
 
-    private static OcrLine Line(string text, int x, int y) => new(text, new(x, y, Math.Max(8, text.Length * 9), 14), null);
+    internal static OcrLine Line(string text, int x, int y) => new(text, new(x, y, Math.Max(8, text.Length * 9), 14), null);
 
     private static OcrResult Ocr(IReadOnlyList<OcrLine> lines) => new(lines, TimeSpan.Zero, "windows-media-ocr-lines");
 
@@ -234,7 +234,7 @@ public sealed class ScanReanalysisTests
         CaptureCorrelationId.New(),
         0);
 
-    private sealed class ScriptedOcr(IReadOnlyList<OcrLine> lines) : IOcrEngine
+    internal sealed class ScriptedOcr(IReadOnlyList<OcrLine> lines) : IOcrEngine
     {
         public Task<OcrResult> RecognizeAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(request.Region is null ? Ocr(lines) : Ocr([]));
@@ -246,7 +246,7 @@ public sealed class ScanReanalysisTests
             Task.FromResult(new CaptureAnalysis(new string('a', 64), RecognizedContext.Loot, false, true, null, new(0.9)));
     }
 
-    private sealed class NoIcons : IIconEvidenceCache
+    internal sealed class NoIcons : IIconEvidenceCache
     {
         public Task<IconContentEvidenceAsset> StoreAsync(IconContentWriteRequest request, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

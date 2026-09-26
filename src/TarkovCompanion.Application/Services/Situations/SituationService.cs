@@ -45,6 +45,7 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
     private readonly TimeProvider _time;
     private readonly ISituationPlaces? _places;
     private readonly LatestScanResultPublisher? _scans;
+    private readonly CaptureSessions.ScreenRoutingLog? _routing;
     private readonly ILogger<SituationService>? _logger;
     private readonly SituationFolder _folder;
     private readonly Lock _gate = new();
@@ -63,8 +64,10 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
         LatestScanResultPublisher? scans = null,
         ILogger<SituationService>? logger = null,
         TimeSpan? refresh = null,
-        FormatGuards.FormatHealthMonitor? formatHealth = null)
+        FormatGuards.FormatHealthMonitor? formatHealth = null,
+        CaptureSessions.ScreenRoutingLog? routing = null)
     {
+        _routing = routing;
         _runtime = runtime;
         _time = time ?? TimeProvider.System;
         _places = places;
@@ -86,6 +89,11 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
         if (_scans is not null)
         {
             _scans.Published += ScanPublished;
+        }
+
+        if (_routing is not null)
+        {
+            _routing.Recorded += ScreenRouted;
         }
 
         FormatHealth = formatHealth;
@@ -126,6 +134,9 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
     public void Observe(RaidPhaseMarker marker) => Apply(folder => folder.Observe(marker));
 
     public void Observe(ScanOutcome scan) => Apply(folder => folder.Observe(scan));
+
+    /// <summary>[#712 1-1] Which detector placed a screenshot, for LAST SCAN's and the Screen phase's "because".</summary>
+    public void Observe(CaptureSessions.ScreenRoutingRecord routed) => Apply(folder => folder.Observe(routed));
 
     public void SetPlan(SituationPlan? plan) => Apply(folder => folder.SetPlan(plan));
 
@@ -174,6 +185,11 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
             _scans.Published -= ScanPublished;
         }
 
+        if (_routing is not null)
+        {
+            _routing.Recorded -= ScreenRouted;
+        }
+
         if (FormatHealth is not null)
         {
             FormatHealth.Changed -= FormatHealthChanged;
@@ -204,6 +220,8 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
     private void FormatHealthChanged(object? sender, EventArgs e) => Refresh();
 
     private void ScanPublished(ScanOutcome outcome) => Observe(outcome);
+
+    private void ScreenRouted(object? sender, CaptureSessions.ScreenRoutingRecord routed) => Observe(routed);
 
     private void Apply(Action<SituationFolder> input)
     {
