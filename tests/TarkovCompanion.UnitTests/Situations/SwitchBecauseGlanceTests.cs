@@ -10,7 +10,7 @@ namespace TarkovCompanion.UnitTests.Situations;
 /// <summary>
 /// [#712 0-7] The glance ratchet's third rule, from V3.0's exit gate: every automatic switch has a
 /// "because" line. Whole evenings through the situation engine, and after every step each phase
-/// change so far is in the transition log with its reason, and the Now panel's foot shows the newest.
+/// change so far is in the transition log with its reason, and the Now panel's foot shows the phase's own.
 /// </summary>
 public sealed class SwitchBecauseGlanceTests
 {
@@ -106,9 +106,12 @@ public sealed class SwitchBecauseGlanceTests
                     $"step {step}: {transition.From} -> {transition.To} (version {transition.Version}) has no because line");
             }
 
+            // The foot reads the phase fact itself (#712 follow-up to #952): at a switch that is the
+            // switch's own reason, and within a phase it moves on with the evidence ("started the
+            // raid" after "confirmed the raid"), where the transition log would hold the older line.
             if (log.Count > 0)
             {
-                Assert.Equal(log[^1].Because, panel.State.Because);
+                Assert.Equal(timeline.Now.Phase.Because, panel.State.Because);
                 Assert.True(panel.State.HasBecause);
             }
         }

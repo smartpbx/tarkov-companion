@@ -155,7 +155,7 @@
           </Grid>
         </Border>
       </Button>
-      <!-- The newest automatic change's reason (ADR 0022's transitions), so a switch is never silent. -->
+      <!-- The phase's own reason from the situation (ADR 0022), so a switch is never silent. -->
       <TextBlock DockPanel.Dock="Bottom" Classes="now-small" Margin="22,0,22,10" MaxLines="2" TextTrimming="CharacterEllipsis"
                  Text="{Binding State.Because}"
                  AutomationProperties.AutomationId="v2-now-because">
@@ -293,7 +293,9 @@
           <StackPanel Spacing="10">
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingSquad}" />
-              <TextBlock Grid.Column="1" Classes="now-small" Text="{x:Static l:NowText.SquadSource}" IsVisible="{Binding State.HasSquad}" />
+              <TextBlock Grid.Column="1" Classes="now-small" Text="{Binding State.SquadSource}" IsVisible="{Binding State.HasSquad}"
+                         ToolTip.Tip="{Binding State.SquadBecause}" ToolTip.IsEnabled="{Binding State.HasSquadBecause}"
+                         AutomationProperties.AutomationId="v2-now-squad-source" />
             </Grid>
             <TextBlock Classes="now-row" TextWrapping="Wrap" Text="{Binding State.SquadLine}" IsVisible="{Binding ShowsSquadLine}"
                        MaxLines="{Binding SquadLineLines}" TextTrimming="CharacterEllipsis" />

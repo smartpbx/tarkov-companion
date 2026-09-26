@@ -192,6 +192,70 @@ public sealed class MapSceneRendererParityTests
     }
 
     [Fact]
+    public void A_renderer_that_fills_its_card_never_fits_out_to_a_letterbox()
+    {
+        // [#961] Team's squad map: the same quarter-turned plan that fits at 0.7 above stays at
+        // zoom 1, which in a filling renderer already covers the card edge to edge.
+        var scene = Scene([Player(headingDegrees: 0)], bearingDegrees: 90);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            () => Guid.Parse("20000000-0000-0000-0000-000000000025"),
+            _ => new TestArtwork(new(1000, 700)),
+            fillsViewport: true);
+        var published = new List<MapSceneViewChange>();
+        renderer.ViewChangeRequested += published.Add;
+
+        renderer.FitPlanCommand.Execute(null);
+
+        Assert.Equal(1, Assert.Single(published).Camera!.Value.Zoom, 6);
+    }
+
+    [Fact]
+    public void The_squad_map_frames_every_plan_waypoint_in_its_column_at_1920x1080()
+    {
+        // [#961] Team's map column at 1920x1080 is about 535 by 875, and Customs is twice as wide
+        // as it is tall. Covering the column crops two thirds of the plan away, which took the
+        // squad's first and last waypoints off the card; the fit frames the plan instead.
+        MapScenePoint[] plan = [new(23, 40), new(45, 55), new(60, 50), new(82, 70)];
+        var scene = Scene([.. plan.Select((point, index) => Waypoint(index, point))]);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            () => Guid.NewGuid(),
+            _ => new TestArtwork(new(2000, 1000)),
+            fillsViewport: true,
+            fitsTo: item => item.Kind == MapSceneObjectKind.Waypoint);
+        renderer.ViewChangeRequested += change =>
+        {
+            var result = MapSceneViewReducer.Apply(renderer.Scene, change);
+            renderer.Present(result.Scene);
+        };
+
+        renderer.SetViewportSize(535, 875);
+
+        foreach (var point in plan)
+        {
+            var (x, y) = renderer.ToCard(point);
+            Assert.InRange(x, 0, 535);
+            Assert.InRange(y, 0, 875);
+        }
+
+        // With no plan on the map, the whole map is fitted: less than the cover zoom.
+        var empty = new MapSceneRendererViewModel(
+            Scene([Player(headingDegrees: 0)]),
+            Presentation,
+            () => Guid.NewGuid(),
+            _ => new TestArtwork(new(2000, 1000)),
+            fillsViewport: true,
+            fitsTo: item => item.Kind == MapSceneObjectKind.Waypoint);
+        var published = new List<MapSceneViewChange>();
+        empty.ViewChangeRequested += published.Add;
+        empty.FitPlanCommand.Execute(null);
+        Assert.InRange(Assert.Single(published).Camera!.Value.Zoom, 0.01, 0.99);
+    }
+
+    [Fact]
     public void Setting_a_bearing_normalises_it_and_says_nothing_when_it_has_not_moved()
     {
         var renderer = Renderer(Scene([Player(headingDegrees: 0)]), () => Guid.Parse("20000000-0000-0000-0000-000000000024"));
@@ -264,6 +328,17 @@ public sealed class MapSceneRendererParityTests
         [],
         Provenance(),
         headingDegrees: headingDegrees);
+
+    private static MapSceneObject Waypoint(int index, MapScenePoint point) => new(
+        new($"group:waypoint:{index}"),
+        new("you"),
+        MapSceneObjectKind.Waypoint,
+        MapSceneTruthKind.LocalLastKnown,
+        $"{index + 1}",
+        null,
+        MapSceneGeometry.At(point),
+        [],
+        Provenance());
 
     private static MapSceneObject Trail() => new(
         new("you:trail"),

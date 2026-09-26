@@ -192,8 +192,7 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
             return;
         }
 
-        var because = _source?.Transitions is { Count: > 0 } transitions ? transitions[^1].Because : null;
-        var state = NowPanelState.Project(_situation, _clock.GetUtcNow(), _exits, _verdict, because, _leaveMargin);
+        var state = NowPanelState.Project(_situation, _clock.GetUtcNow(), _exits, _verdict, _leaveMargin);
         UpdateSquad(state.Squad);
         State = state;
     }

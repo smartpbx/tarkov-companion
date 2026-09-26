@@ -13,6 +13,7 @@ using TarkovCompanion.App.Views.V2.Now;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Personalization;
+using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Situations;
 using TarkovCompanion.UnitTests.V2MapRenderer;
@@ -238,9 +239,10 @@ public sealed partial class NowPanelGlanceTests
             yield return $"the exit {exit.Name} was never seen offered, and '{NowText.ExitUnconfirmed}' is not on screen";
         }
 
-        if (situation.Squad.Count > 0 && state.ShowsSquad && !Shows(NowText.SquadSource))
+        // [#403] Companions' rows or the game's party list: either way, where they came from is on screen.
+        if (state.HasSquad && state.ShowsSquad && !Shows(state.SquadSource))
         {
-            yield return $"SQUAD is shown without '{NowText.SquadSource}'";
+            yield return $"SQUAD is shown without '{state.SquadSource}'";
         }
 
         if (panel.ShowsSquadRows)
@@ -310,7 +312,7 @@ public sealed partial class NowPanelGlanceTests
     internal static IEnumerable<Fixture> Fixtures()
     {
         yield return new("unknown", Situation.Initial with { ComputedUtc = Now });
-        foreach (var phase in new[] { SituationPhase.Menu, SituationPhase.Matching, SituationPhase.PostRaid })
+        foreach (var phase in new[] { SituationPhase.Menu, SituationPhase.PostRaid })
         {
             yield return new(phase.ToString(), Out(phase));
         }
@@ -319,9 +321,28 @@ public sealed partial class NowPanelGlanceTests
         {
             LastScan = new(ScanContext.SingleItem, "Graphics card", 1, "Sell", Now.AddSeconds(-30), "read"),
         });
+        // [#403] The queue with its stage line and a full party nobody shares from.
+        yield return new("Matching", Out(SituationPhase.Matching) with
+        {
+            Stages = [new(RaidPhaseMarkerKind.MatchingStarted, Now.AddSeconds(-50)), new(RaidPhaseMarkerKind.MatchingStep, Now.AddSeconds(-48))],
+            Party = FullParty,
+        });
         yield return new("loading", Out(SituationPhase.Loading) with
         {
             Map = new("customs", Confidence.Certain, SituationSource.GameLog, Now, "log"),
+        });
+        yield return new("spawning, every stage", Out(SituationPhase.Loading) with
+        {
+            Map = new("customs", Confidence.Certain, SituationSource.GameLog, Now, "log"),
+            Stages =
+            [
+                new(RaidPhaseMarkerKind.MatchingStarted, Now.AddSeconds(-80)),
+                new(RaidPhaseMarkerKind.MatchingCompleted, Now.AddSeconds(-60)),
+                new(RaidPhaseMarkerKind.LocationLoaded, Now.AddSeconds(-40)),
+                new(RaidPhaseMarkerKind.Spawning, Now.AddSeconds(-12)),
+                new(RaidPhaseMarkerKind.Spawned, Now.AddSeconds(-2)),
+            ],
+            Party = FullParty,
         });
         yield return new("dead", Reported(SituationPhase.Dead, SituationOutcome.Died, SituationSource.Player));
         yield return new("extracted", Reported(SituationPhase.Extracted, SituationOutcome.Survived, SituationSource.Screenshot));
@@ -359,6 +380,17 @@ public sealed partial class NowPanelGlanceTests
         Next = situation.Next! with { Label = "Locate and obtain Secure Folder 0031 in one of the bunkhouses on Customs" },
         Then = situation.Then! with { Label = "Stash a regular Zibbo lighter at Dorm room 303 on Customs" },
     };
+
+    private static SituationParty FullParty { get; } = new(
+        [
+            new("PLAYER_WITH_A_LONG_NAME_B", true, true),
+            new("PLAYER_WITH_A_LONG_NAME_C", false, false),
+            new("PLAYER_WITH_A_LONG_NAME_D", null, false),
+            new("PLAYER_WITH_A_LONG_NAME_E", true, false),
+        ],
+        2,
+        Now.AddSeconds(-20),
+        "The game's group notifications.");
 
     private static Situation Out(SituationPhase phase) =>
         new(3, Now, new(phase, new Confidence(0.9), SituationSource.GameLog, Now.AddMinutes(-1), "log"));
