@@ -17,7 +17,9 @@ public sealed partial class WindowsEftLogWatcher(
     // Only asked once, at startup, whether the game is running at all: a raid nobody reported
     // over is not still going if there is no game (#568). Absent means it cannot be asked, and
     // the other checks decide alone.
-    IGameWindowLocator? gameLocator = null) : IEftLogWatcher
+    IGameWindowLocator? gameLocator = null,
+    // [#712 0-3] Told every line's shape, so a game update that reshapes the logs is noticed.
+    TarkovCompanion.Application.Services.FormatGuards.FormatHealthMonitor? formatHealth = null) : IEftLogWatcher
 {
     /// <summary>How often file lengths are re-checked when no change notification arrives.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
@@ -119,6 +121,7 @@ public sealed partial class WindowsEftLogWatcher(
 
                 foreach (var line in appended)
                 {
+                    formatHealth?.ObserveLogLine(path, line);
                     var observedUtc = _timeProvider.GetUtcNow();
                     if (mode == LogReadMode.Full && parser.ParseLine(line, observedUtc) is { } evidence)
                     {
@@ -371,6 +374,7 @@ public sealed partial class WindowsEftLogWatcher(
             for (var index = first; index < read.Count; index++)
             {
                 var line = read[index];
+                formatHealth?.ObserveLogLine(path, line);
                 var written = RaidReplayDecision.WrittenUtc(line, _timeProvider.LocalTimeZone);
                 if (written is { } stamp)
                 {

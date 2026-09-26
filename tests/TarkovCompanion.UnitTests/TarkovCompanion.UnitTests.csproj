@@ -34,5 +34,7 @@
          breaks the encoder fails even where no decoder is installed. -->
     <None Include="V2Team/qr-golden.txt" Link="V2Team/qr-golden.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Compatibility/Fixtures/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- [#712 0-3] Format-guard fixture packs, one folder per game build. Synthetic only: the repository is public. -->
+    <None Include="FormatGuards/Packs/**/*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

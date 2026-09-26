@@ -292,6 +292,7 @@ internal static class Program
                 return 0;
             }
 
+            FormatHealthDemo.Apply(services, StringOption(args, "--format-health-demo")); // [#712 0-3]
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             V2ShellViewModel? shell = null;
             Task? seeding = null;

@@ -311,6 +311,11 @@ of `scripts/build.sh` or `scripts/test.sh`, the same way `tools/V2RenderPreview`
 the counts and conclusions above from its output rather than from a fresh manual `grep`, so the
 same double-counting and case-sensitivity mistakes this note already paid for cannot recur.
 
+**Format guards (#712 0-3).** Every line and name shape the parsers depend on has a synthetic
+fixture per build in `tests/TarkovCompanion.UnitTests/FormatGuards/Packs/<build>/pack.json`; a new
+build that changes a shape gets its own folder. At run time `FormatHealthMonitor` counts recognised
+against unrecognised shapes and Setup › Updates & Diagnostics says when one changed.
+
 ## Still unknown
 
 Four map tokens were never observed because those maps were not played in the logged window:

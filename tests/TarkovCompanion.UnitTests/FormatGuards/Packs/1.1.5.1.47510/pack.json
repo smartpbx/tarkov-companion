@@ -1,0 +1,665 @@
+{
+  "gameVersion": "1.1.5.1.47510",
+  "about": "Synthetic lines in the shapes game build 1.1.5.1.47510 writes, measured on 2026-09-22..25. Every id, name, token and address here is made up (quest, trader and item ids are public tarkov.dev ids).",
+  "logLines": [
+    {
+      "name": "application.complete-selected-profile",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|CompleteSelectedProfile ProfileId:f00000000000000000000001 AccountId: 1000001",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "PostRaid",
+          "endsOnlyARaidWithoutId": true
+        }
+      },
+      "note": "Signs the player in (learns the PMC profile) and, on return to the menu, ends a raid that had no id."
+    },
+    {
+      "name": "application.prepare-selected-profile",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|PrepareSelectedProfileLocally ProfileId:f00000000000000000000001 AccountId: 1000001",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "application.init-game-version",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|Init: pstrGameVersion: Escape from Tarkov 1.1.5.1.47510, uiAddress: 0, usPort: 0",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "application.matching-with-group",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|Matching with group id: f00000000000000000000009",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "phase": "MatchingStarted"
+      }
+    },
+    {
+      "name": "application.matching-with-empty-group",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|Matching with group id: ",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "phase": "MatchingStarted"
+      }
+    },
+    {
+      "name": "application.scene-preset.lighthouse",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/lighthouse_preset.bundle rcid:lighthouse.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "lighthouse"
+        }
+      }
+    },
+    {
+      "name": "application.scene-preset.city",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/city_preset.bundle rcid:city.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "streets-of-tarkov"
+        }
+      }
+    },
+    {
+      "name": "application.scene-preset.laboratory",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/laboratory_preset.bundle rcid:laboratory.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "the-lab"
+        }
+      }
+    },
+    {
+      "name": "application.scene-preset.shoreline",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/shoreline_preset.bundle rcid:shoreline.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "shoreline"
+        }
+      }
+    },
+    {
+      "name": "application.scene-preset.rezerv_base",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/rezerv_base_preset.bundle rcid:Rezerv_Base.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "reserve"
+        }
+      }
+    },
+    {
+      "name": "application.scene-preset.factory_day",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/factory_day_preset.bundle rcid:factory_day.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "factory"
+        }
+      }
+    },
+    {
+      "name": "application.scene-preset.customs",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/customs_preset.bundle rcid:bigmap.scenespreset.asset",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "map": "customs"
+        }
+      }
+    },
+    {
+      "name": "application.matching-completed",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|MatchingCompleted:18.36 real:25.02 diff:6.66",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "phase": "MatchingCompleted",
+        "loadTimeSeconds": 25.02
+      }
+    },
+    {
+      "name": "application.matching-completed-offline",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|MatchingCompleted:0 real:0 diff:0",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "phase": "MatchingCompleted"
+      },
+      "note": "An offline or transit raid: matching is over, but there is no queue time."
+    },
+    {
+      "name": "application.location-loaded",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|LocationLoaded:18.4 real:24.73 diff:6.33",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid"
+        },
+        "phase": "LocationLoaded"
+      }
+    },
+    {
+      "name": "application.network-game-create-step",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameCreate 3",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid"
+        }
+      }
+    },
+    {
+      "name": "application.profile-status.Lighthouse",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: f00000000000000000000001, Status: Busy, RaidMode: Online, Ip: 203.0.113.10, Port: 17000, Location: Lighthouse, Sid: FAKE-SID, GameMode: deathmatch, shortId: FAKE01'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "lighthouse",
+          "raidKey": "FAKE01"
+        }
+      }
+    },
+    {
+      "name": "application.profile-status.TarkovStreets",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: f00000000000000000000001, Status: Busy, RaidMode: Online, Ip: 203.0.113.10, Port: 17000, Location: TarkovStreets, Sid: FAKE-SID, GameMode: deathmatch, shortId: FAKE01'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "streets-of-tarkov",
+          "raidKey": "FAKE01"
+        }
+      }
+    },
+    {
+      "name": "application.profile-status.RezervBase",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: f00000000000000000000001, Status: Busy, RaidMode: Online, Ip: 203.0.113.10, Port: 17000, Location: RezervBase, Sid: FAKE-SID, GameMode: deathmatch, shortId: FAKE01'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "reserve",
+          "raidKey": "FAKE01"
+        }
+      }
+    },
+    {
+      "name": "application.profile-status.laboratory",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: f00000000000000000000001, Status: Busy, RaidMode: Online, Ip: 203.0.113.10, Port: 17000, Location: laboratory, Sid: FAKE-SID, GameMode: deathmatch, shortId: FAKE01'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "the-lab",
+          "raidKey": "FAKE01"
+        }
+      }
+    },
+    {
+      "name": "application.profile-status.Shoreline",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: f00000000000000000000001, Status: Busy, RaidMode: Online, Ip: 203.0.113.10, Port: 17000, Location: Shoreline, Sid: FAKE-SID, GameMode: deathmatch, shortId: FAKE01'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "shoreline",
+          "raidKey": "FAKE01"
+        }
+      }
+    },
+    {
+      "name": "application.game-started",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|GameStarted:75.58(75.58) real:88.64(88.64) diff:13.05",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid"
+        },
+        "phase": "GameStarted"
+      }
+    },
+    {
+      "name": "application.game-started-reconnect",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|GameStarted:12.3(0) real:15.1(0) diff:2.8",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid"
+        },
+        "phase": "GameStarted"
+      }
+    },
+    {
+      "name": "application.transit-locations",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|[Transit] Flag:None, RaidId:f0000000000000000000000a, Count:0, Locations:laboratory -> ",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "map": "the-lab"
+        }
+      }
+    },
+    {
+      "name": "application.transit-count",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|[Transit] `f0000000000000000000000a` Count:0, EventPlayer:False",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "output.mirrored-profile-status",
+      "file": "output",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|output|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: f00000000000000000000001, Status: Busy, RaidMode: Online, Ip: 203.0.113.10, Port: 17000, Location: Lighthouse, Sid: FAKE-SID, GameMode: deathmatch, shortId: FAKE01'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "lighthouse",
+          "raidKey": "FAKE01"
+        }
+      },
+      "note": "output repeats application lines with the source named twice."
+    },
+    {
+      "name": "output.stack-frame",
+      "file": "output",
+      "line": "UnityEngine.Debug:Log(Object)",
+      "header": "Neutral",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "output.json-block",
+      "file": "output",
+      "line": "  \"FSR2Mode\": \"Off\",",
+      "header": "Neutral",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "backend.http-request",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|---> Request HTTPS, id [12]: URL: https://prod.example.invalid/client/game/keepalive, crc: .",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "backend.user-confirmed.pmc",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a userConfirmed [{\"type\":\"userConfirmed\",\"eventId\":\"e0000000000000000000000b\",\"profileid\":\"f00000000000000000000001\",\"profileToken\":\"FAKE-TOKEN\",\"location\":\"Lighthouse\",\"status\":\"Busy\",\"sid\":\"FAKE-SID\",\"ip\":\"203.0.113.10\",\"port\":17000,\"version\":\"live\",\"raidMode\":\"Online\",\"mode\":\"deathmatch\",\"shortId\":\"FAKE01\",\"additional_info\":[]}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "lighthouse",
+          "raidKey": "FAKE01",
+          "side": "PMC",
+          "startsNewRaid": true,
+          "eventId": "e0000000000000000000000b"
+        }
+      },
+      "self": "f00000000000000000000001"
+    },
+    {
+      "name": "backend.user-confirmed.scav",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a userConfirmed [{\"type\":\"userConfirmed\",\"eventId\":\"e0000000000000000000000b\",\"profileid\":\"f00000000000000000000002\",\"profileToken\":\"FAKE-TOKEN\",\"location\":\"TarkovStreets\",\"status\":\"Busy\",\"sid\":\"FAKE-SID\",\"ip\":\"203.0.113.10\",\"port\":17000,\"version\":\"live\",\"raidMode\":\"Online\",\"mode\":\"deathmatch\",\"shortId\":\"FAKE02\",\"additional_info\":[]}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "streets-of-tarkov",
+          "raidKey": "FAKE02",
+          "side": "scav",
+          "startsNewRaid": true,
+          "eventId": "e0000000000000000000000b"
+        }
+      },
+      "self": "f00000000000000000000001"
+    },
+    {
+      "name": "backend.user-match-over.free",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a userMatchOver [{\"type\":\"userMatchOver\",\"eventId\":\"e0000000000000000000000b\",\"profileid\":\"f00000000000000000000001\",\"profileToken\":\"FAKE-TOKEN\",\"location\":\"Lighthouse\",\"status\":\"Free\",\"sid\":\"FAKE-SID\",\"ip\":\"203.0.113.10\",\"port\":17000,\"version\":\"live\",\"raidMode\":\"Online\",\"mode\":\"deathmatch\",\"shortId\":\"FAKE01\",\"additional_info\":[]}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "eftLog": {
+          "state": "PostRaid",
+          "map": "lighthouse",
+          "raidKey": "FAKE01",
+          "side": "PMC"
+        }
+      },
+      "self": "f00000000000000000000001"
+    },
+    {
+      "name": "backend.user-match-over.transfer",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a userMatchOver [{\"type\":\"userMatchOver\",\"eventId\":\"e0000000000000000000000b\",\"profileid\":\"f00000000000000000000002\",\"profileToken\":\"FAKE-TOKEN\",\"location\":\"Lighthouse\",\"status\":\"Transfer\",\"sid\":\"FAKE-SID\",\"ip\":\"203.0.113.10\",\"port\":17000,\"version\":\"live\",\"raidMode\":\"Online\",\"mode\":\"deathmatch\",\"shortId\":\"FAKE01\",\"additional_info\":[]}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "eftLog": {
+          "state": "PostRaid",
+          "map": "lighthouse",
+          "raidKey": "FAKE01",
+          "side": "scav"
+        }
+      },
+      "self": "f00000000000000000000001"
+    },
+    {
+      "name": "backend.user-match-created",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a userMatchCreated [{\"type\":\"userMatchCreated\",\"eventId\":\"e0000000000000000000000b\",\"blockExitButton\":false,\"blockExitButtonDuration\":0,\"showConfirmationPopup\":false}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {}
+    },
+    {
+      "name": "backend.quest-started",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a new_message [{\"type\":\"new_message\",\"eventId\":\"e0000000000000000000000c\",\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"m0000000000000000000000d\",\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":10,\"dt\":1767297600,\"text\":\"quest started\",\"templateId\":\"60896bca6ee58f38c417d4f2 description\",\"hasRewards\":false,\"maxStorageTime\":0}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "quest": {
+          "taskId": "60896bca6ee58f38c417d4f2",
+          "state": "Active"
+        }
+      }
+    },
+    {
+      "name": "backend.quest-completed",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a new_message [{\"type\":\"new_message\",\"eventId\":\"e0000000000000000000000c\",\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"m0000000000000000000000d\",\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":12,\"dt\":1767297600,\"text\":\"quest started\",\"templateId\":\"5936d90786f7742b1420ba5b successMessageText\",\"hasRewards\":false,\"maxStorageTime\":0,\"items\":{\"data\":[],\"stash\":\"s0000000000000000000000e\"},\"profileChangeEvents\":[]}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "quest": {
+          "taskId": "5936d90786f7742b1420ba5b",
+          "state": "Completed"
+        }
+      }
+    },
+    {
+      "name": "backend.quest-failed",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a new_message [{\"type\":\"new_message\",\"eventId\":\"e0000000000000000000000c\",\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"m0000000000000000000000d\",\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":11,\"dt\":1767297600,\"text\":\"quest started\",\"templateId\":\"60896bca6ee58f38c417d4f2 0\",\"hasRewards\":false,\"maxStorageTime\":0}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "quest": {
+          "taskId": "60896bca6ee58f38c417d4f2",
+          "state": "Failed"
+        }
+      },
+      "note": "Failure shape from QuestNotificationParser's remarks; none in the 2026-09-25 sessions."
+    },
+    {
+      "name": "backend.repeatable-completed",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a new_message [{\"type\":\"new_message\",\"eventId\":\"e0000000000000000000000c\",\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"m0000000000000000000000d\",\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":12,\"dt\":1767297600,\"text\":\"quest started\",\"templateId\":\"5b0000000000000000000001 successMessageText 54cb50c76803fa8b248b4571 0\",\"hasRewards\":false,\"maxStorageTime\":0}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "A daily or weekly: not a quest (#893)."
+    },
+    {
+      "name": "backend.flea-sold-message",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a new_message [{\"type\":\"new_message\",\"eventId\":\"e0000000000000000000000c\",\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"m0000000000000000000000d\",\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":4,\"dt\":1767297600,\"text\":\"\",\"templateId\":\"5bdac0b686f7743e1665e09e 0\",\"hasRewards\":false,\"maxStorageTime\":0,\"systemData\":{\"buyerNickname\":\"PLAYER_B\",\"soldItem\":\"59faff1d86f7746c51718c9c\",\"itemCount\":1},\"items\":{\"data\":[],\"stash\":\"s0000000000000000000000e\"},\"profileChangeEvents\":[]}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {}
+    },
+    {
+      "name": "backend.ragfair-offer-sold",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a RagfairOfferSold [{\"type\":\"RagfairOfferSold\",\"eventId\":\"e0000000000000000000000b\",\"offerId\":\"o0000000000000000000000f\",\"handbookId\":\"59faff1d86f7746c51718c9c\",\"count\":2}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "flea": {
+          "offerId": "o0000000000000000000000f",
+          "handbookId": "59faff1d86f7746c51718c9c",
+          "count": 2
+        }
+      }
+    },
+    {
+      "name": "backend.group-raid-ready",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchRaidReady [{\"type\":\"groupMatchRaidReady\",\"eventId\":\"e0000000000000000000000b\",\"extendedProfile\":{\"_id\":\"f00000000000000000000003\",\"aid\":1000003,\"Info\":{\"Nickname\":\"PLAYER_A\",\"Side\":\"Bear\",\"Level\":24,\"MemberCategory\":2,\"GameVersion\":\"standard\",\"SavageLockTime\":0,\"SavageNickname\":\"PLAYER_A_SCAV\",\"PrestigeLevel\":0},\"isLeader\":false,\"isReady\":true}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "group": {
+          "kind": "MemberUpdated",
+          "nickname": "PLAYER_A"
+        }
+      }
+    },
+    {
+      "name": "backend.group-user-leave",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchUserLeave [{\"type\":\"groupMatchUserLeave\",\"eventId\":\"e0000000000000000000000b\",\"aid\":1000003,\"Nickname\":\"PLAYER_A\"}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "group": {
+          "kind": "MemberLeft"
+        }
+      }
+    },
+    {
+      "name": "backend.group-start-game",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchStartGame [{\"type\":\"groupMatchStartGame\",\"eventId\":\"e0000000000000000000000b\",\"groupId\":\"f00000000000000000000009\",\"estimate\":150}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "group": {
+          "kind": "MatchStarting"
+        }
+      }
+    }
+  ],
+  "screenshotNames": [
+    {
+      "name": "in-raid.current",
+      "file": "2026-01-01[20-15]_12.50, 3.25, -40.75_0.00000, 0.70711, 0.00000, 0.70711_9.91 (0).png",
+      "kind": "InRaid",
+      "x": 12.5,
+      "y": 3.25,
+      "z": -40.75,
+      "heading": 90.0,
+      "gameTimeSeconds": 9.91,
+      "duplicate": 0
+    },
+    {
+      "name": "in-raid.current-negative",
+      "file": "2026-01-01[20-16]_-7.00, 0.50, 18.00_0.00000, -0.70711, 0.00000, 0.70711_17.91 (0).png",
+      "kind": "InRaid",
+      "x": -7.0,
+      "y": 0.5,
+      "z": 18.0,
+      "heading": 270.0,
+      "gameTimeSeconds": 17.91,
+      "duplicate": 0
+    },
+    {
+      "name": "in-raid.second-in-a-minute",
+      "file": "2026-01-01[20-16]_-7.00, 0.50, 18.00_0.00000, 0.00000, 0.00000, 1.00000_17.95 (1).png",
+      "kind": "InRaid",
+      "x": -7.0,
+      "y": 0.5,
+      "z": 18.0,
+      "heading": 0.0,
+      "gameTimeSeconds": 17.95,
+      "duplicate": 1
+    },
+    {
+      "name": "in-raid.no-suffix",
+      "file": "2026-01-01[20-17]_1.0, 2.0, 3.0_0.0, 0.0, 0.0, 1.0_10.5.png",
+      "kind": "InRaid",
+      "x": 1.0,
+      "y": 2.0,
+      "z": 3.0,
+      "heading": 0.0,
+      "gameTimeSeconds": 10.5
+    },
+    {
+      "name": "in-raid.jpg",
+      "file": "2026-01-01[20-18]_1.0, 2.0, 3.0_0.0, 0.0, 0.0, 1.0_10.5 (0).jpg",
+      "kind": "InRaid",
+      "x": 1.0,
+      "y": 2.0,
+      "z": 3.0,
+      "heading": 0.0,
+      "gameTimeSeconds": 10.5,
+      "duplicate": 0
+    },
+    {
+      "name": "outside-raid.current",
+      "file": "2026-01-01[21-03]_19.67 (0).png",
+      "kind": "OutsideRaid"
+    },
+    {
+      "name": "outside-raid.no-clock",
+      "file": "2026-01-01[21-04] (0).png",
+      "kind": "OutsideRaid"
+    }
+  ],
+  "logFiles": [
+    {
+      "name": "file.application",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 application_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": "Full",
+      "kind": "Application"
+    },
+    {
+      "name": "file.backend",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 backend_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": "Full",
+      "kind": "Backend"
+    },
+    {
+      "name": "file.output",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 output_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": "Full",
+      "kind": "Output"
+    },
+    {
+      "name": "file.push-notifications",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 push-notifications_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": "ChatOnly",
+      "kind": "Other"
+    },
+    {
+      "name": "file.errors",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 errors_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.network-connection",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 network-connection_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.files-checker",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 files-checker_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.spatial-audio",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 spatial-audio_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    }
+  ]
+}
