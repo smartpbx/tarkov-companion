@@ -19,7 +19,7 @@ namespace TarkovCompanion.App.ViewModels.V2.Now;
 /// The situation changes rarely and the clock every second, so the state is re-projected on a
 /// one-second tick; squad rows are updated in place so a row that pulses keeps pulsing.
 /// </remarks>
-public sealed class NowPanelViewModel : BindableViewModel, IDisposable
+public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
 {
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(1);
 
@@ -111,7 +111,13 @@ public sealed class NowPanelViewModel : BindableViewModel, IDisposable
     public NowPanelState State
     {
         get => _state;
-        private set => SetProperty(ref _state, value);
+        private set
+        {
+            if (SetProperty(ref _state, value))
+            {
+                RaiseFold(); // [#712 0-7]
+            }
+        }
     }
 
     public ObservableCollection<NowSquadRowViewModel> SquadRows { get; } = [];

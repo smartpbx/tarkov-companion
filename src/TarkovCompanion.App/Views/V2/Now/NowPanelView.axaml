@@ -140,7 +140,8 @@
               ToolTip.Tip="{x:Static l:NowText.MoreTip}">
         <Border Padding="22,14" BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.Action}" Text="{x:Static l:NowText.More}" />
+            <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.Action}" Text="{x:Static l:NowText.More}"
+                       MaxLines="{Binding MoreLines}" TextTrimming="CharacterEllipsis" />
             <Path Grid.Column="1" Classes="v2-icon v2-icon-sm v2-icon-action" Data="{DynamicResource V2.Icon.ChevronRight}" />
           </Grid>
         </Border>
@@ -173,24 +174,27 @@
                 AutomationProperties.AutomationId="v2-now-now">
           <StackPanel Spacing="2">
             <TextBlock Classes="now-eyebrow" Text="{Binding State.NowHeading}" />
-            <TextBlock Classes="now-clock" Text="{Binding State.NowHeadline}" Margin="0,4,0,0"
+            <TextBlock Classes="now-clock" Text="{Binding State.NowHeadline}" Margin="0,4,0,0" TextWrapping="Wrap"
                        AutomationProperties.AutomationId="v2-now-clock" />
             <TextBlock Classes="now-note" FontSize="{DynamicResource V2.Type.Heading3.Size}" LineHeight="{DynamicResource V2.Type.Heading3.LineHeight}" FontWeight="SemiBold" IsVisible="{Binding State.IsLate}"
                        Text="{Binding State.NowNote}" AutomationProperties.AutomationId="v2-now-leave" />
+            <!-- [#712 0-7] The leave line names an exit; while YOU's exit line is hidden, its "not seen" goes here. -->
+            <TextBlock Classes="now-small" Text="{Binding State.YouExitNote}" IsVisible="{Binding ShowsLeaveExitNote}" />
             <TextBlock Classes="now-small" IsVisible="{Binding State.HasNowDetail}" Text="{Binding State.NowDetail}" />
-            <StackPanel Classes="v2-icon-label" Margin="0,8,0,0">
-              <StackPanel.IsVisible>
+            <!-- A grid, not a row: at 150% text the run-through line wraps rather than running off the panel. -->
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,8,0,0">
+              <Grid.IsVisible>
                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                   <Binding Path="!State.IsLate" />
                   <Binding Path="State.HasNowNote" />
                 </MultiBinding>
-              </StackPanel.IsVisible>
+              </Grid.IsVisible>
               <Path Classes="v2-icon v2-icon-sm" Stroke="{DynamicResource V2.Brush.Success}" Data="{DynamicResource V2.Icon.Check}"
-                    IsVisible="{Binding State.NowNoteIsDone}" />
+                    VerticalAlignment="Top" Margin="0,3,0,0" IsVisible="{Binding State.NowNoteIsDone}" />
               <Path Classes="v2-icon v2-icon-sm v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}"
-                    IsVisible="{Binding !State.NowNoteIsDone}" />
-              <TextBlock Classes="now-note" Text="{Binding State.NowNote}" />
-            </StackPanel>
+                    VerticalAlignment="Top" Margin="0,3,0,0" IsVisible="{Binding !State.NowNoteIsDone}" />
+              <TextBlock Grid.Column="1" Classes="now-note" Text="{Binding State.NowNote}" />
+            </Grid>
           </StackPanel>
         </Border>
         </Panel>
@@ -203,36 +207,24 @@
               <TextBlock Grid.Column="1" Classes="now-small" Text="{Binding State.YouAge}" IsVisible="{Binding State.IsVerdictFocus}" />
             </Grid>
             <TextBlock Classes="now-lead" Margin="0,4,0,0" Text="{Binding State.YouWhere}"
-                       Classes.now-note="{Binding State.IsVerdictFocus}"
+                       Classes.now-note="{Binding IsYouCompact}"
                        AutomationProperties.AutomationId="v2-now-you-where" />
             <TextBlock Classes="now-small" Text="{Binding State.YouAge}" IsVisible="{Binding State.IsNotVerdictFocus}" />
-            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="0,8,0,0">
-              <Grid.IsVisible>
-                <MultiBinding Converter="{x:Static BoolConverters.And}">
-                  <Binding Path="State.HasYouExit" />
-                  <Binding Path="State.IsNotVerdictFocus" />
-                </MultiBinding>
-              </Grid.IsVisible>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="0,8,0,0" IsVisible="{Binding ShowsYouExit}">
               <Border Width="30" Height="30" CornerRadius="15" VerticalAlignment="Top" Margin="0,2,0,0"
                       BorderBrush="{DynamicResource V2.Brush.Success}" BorderThickness="1.5">
                 <Path Classes="v2-icon v2-icon-sm" Stroke="{DynamicResource V2.Brush.Success}" HorizontalAlignment="Center"
                       Data="{DynamicResource V2.Icon.Exit}" />
               </Border>
               <StackPanel Grid.Column="1" Spacing="2">
-                <TextBlock Classes="now-lead" Text="{Binding State.YouExit}" AutomationProperties.AutomationId="v2-now-you-exit" />
+                <TextBlock Classes="now-lead" Classes.now-note="{Binding IsYouCompact}" Text="{Binding State.YouExit}" AutomationProperties.AutomationId="v2-now-you-exit" />
                 <TextBlock Classes="now-small" Text="{Binding State.YouExitNote}" IsVisible="{Binding State.HasYouExitNote}" />
               </StackPanel>
             </Grid>
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-              <StackPanel.IsVisible>
-                <MultiBinding Converter="{x:Static BoolConverters.And}">
-                  <Binding Path="State.YouIsPlaced" />
-                  <Binding Path="State.IsNotVerdictFocus" />
-                </MultiBinding>
-              </StackPanel.IsVisible>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0" IsVisible="{Binding ShowsWrong}">
               <Button Classes="now-wrong" Content="{x:Static l:NowText.Wrong}" Command="{Binding WrongCommand}"
                       AutomationProperties.AutomationId="v2-now-wrong" />
-              <TextBlock Classes="now-small" VerticalAlignment="Center" Text="{x:Static l:NowText.WrongDetail}" />
+              <TextBlock Classes="now-small" VerticalAlignment="Center" Text="{x:Static l:NowText.WrongDetail}" IsVisible="{Binding ShowsHints}" />
             </StackPanel>
           </StackPanel>
         </Border>
@@ -253,7 +245,7 @@
                 <TextBlock Classes="now-clock now-verdict now-check" Text="{Binding State.CheckText}" IsVisible="{Binding State.CheckText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               </WrapPanel>
             </Button>
-            <ItemsControl ItemsSource="{Binding State.VerdictRows}">
+            <ItemsControl ItemsSource="{Binding VerdictRows}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="now:NowLootRow">
                   <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,0,0,1" Padding="0,8">
@@ -283,15 +275,9 @@
               <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingSquad}" />
               <TextBlock Grid.Column="1" Classes="now-small" Text="{x:Static l:NowText.SquadSource}" IsVisible="{Binding State.HasSquad}" />
             </Grid>
-            <TextBlock Classes="now-row" TextWrapping="Wrap" Text="{Binding State.SquadLine}">
-              <TextBlock.IsVisible>
-                <MultiBinding Converter="{x:Static BoolConverters.And}">
-                  <Binding Path="State.IsVerdictFocus" />
-                  <Binding Path="State.HasSquad" />
-                </MultiBinding>
-              </TextBlock.IsVisible>
-            </TextBlock>
-            <ItemsControl ItemsSource="{Binding SquadRows}" IsVisible="{Binding State.IsNotVerdictFocus}"
+            <TextBlock Classes="now-row" TextWrapping="Wrap" Text="{Binding State.SquadLine}" IsVisible="{Binding ShowsSquadLine}"
+                       MaxLines="{Binding SquadLineLines}" TextTrimming="CharacterEllipsis" />
+            <ItemsControl ItemsSource="{Binding SquadRows}" IsVisible="{Binding ShowsSquadRows}"
                           AutomationProperties.AutomationId="v2-now-squad-rows">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -323,13 +309,13 @@
             </ItemsControl>
             <StackPanel Spacing="2" IsVisible="{Binding State.HasNoSquad}">
               <TextBlock Classes="now-row" Text="{x:Static l:NowText.SquadEmpty}" />
-              <TextBlock Classes="now-small" Text="{x:Static l:NowText.SquadEmptyHint}" />
+              <TextBlock Classes="now-small" Text="{x:Static l:NowText.SquadEmptyHint}" IsVisible="{Binding ShowsHints}" />
             </StackPanel>
           </StackPanel>
         </Border>
 
         <!-- NEXT: the objective route the player opened, this stop and the one after. -->
-        <Border Classes="now-block" IsVisible="{Binding State.ShowsNext}" AutomationProperties.AutomationId="v2-now-next">
+        <Border Classes="now-block" IsVisible="{Binding ShowsNextBlock}" AutomationProperties.AutomationId="v2-now-next">
           <StackPanel Spacing="6">
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingNext}" />
@@ -345,29 +331,24 @@
                       VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Objective}" />
               </Border>
               <StackPanel Grid.Column="1" Spacing="4">
-                <TextBlock Classes="now-lead" MaxLines="2" TextTrimming="CharacterEllipsis" Text="{Binding State.NextLabel}"
+                <TextBlock Classes="now-lead" Classes.now-note="{Binding IsYouCompact}" MaxLines="{Binding NextLabelLines}" TextTrimming="CharacterEllipsis" Text="{Binding State.NextLabel}"
                            ToolTip.Tip="{Binding State.NextLabel}" AutomationProperties.AutomationId="v2-now-next-label" />
                 <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.TextSecondary}" Text="{Binding State.NextDetail}"
                            IsVisible="{Binding State.HasNextDetail}" />
                 <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.TextSecondary}" Opacity="0.8" Text="{Binding State.ThenLabel}" MaxLines="1" TextTrimming="CharacterEllipsis"
-                           IsVisible="{Binding State.HasThen}" />
+                           IsVisible="{Binding ShowsNextThen}" />
               </StackPanel>
             </Grid>
             <StackPanel Spacing="2" IsVisible="{Binding State.HasNoNext}">
               <TextBlock Classes="now-row" Text="{x:Static l:NowText.NextNone}" />
-              <TextBlock Classes="now-small" Text="{x:Static l:NowText.NextNoneHint}" />
+              <TextBlock Classes="now-small" Text="{x:Static l:NowText.NextNoneHint}" IsVisible="{Binding ShowsHints}" />
             </StackPanel>
           </StackPanel>
         </Border>
 
         <!-- LAST SCAN in its one-line form: the verdict counts, or the newest screen read. -->
-        <Border Classes="now-block" BorderThickness="0" AutomationProperties.AutomationId="v2-now-scan">
-          <Border.IsVisible>
-            <MultiBinding Converter="{x:Static BoolConverters.And}">
-              <Binding Path="State.ShowsScan" />
-              <Binding Path="State.IsNotVerdictFocus" />
-            </MultiBinding>
-          </Border.IsVisible>
+        <Border Classes="now-block" BorderThickness="0" AutomationProperties.AutomationId="v2-now-scan"
+                IsVisible="{Binding ShowsScanBlock}">
           <StackPanel Spacing="6">
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingLastScan}" />
@@ -385,7 +366,7 @@
             <TextBlock Classes="now-row" Text="{Binding State.ScanLine}" IsVisible="{Binding State.HasScanLine}" TextWrapping="Wrap" />
             <StackPanel Spacing="6" IsVisible="{Binding State.HasNoScan}">
               <TextBlock Classes="now-row" Text="{Binding State.ScanNone}" />
-              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" IsVisible="{Binding State.ShowsScanHint}">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" IsVisible="{Binding ShowsScanHint}">
                 <Path Classes="v2-icon v2-icon-sm v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" VerticalAlignment="Top" Margin="0,2,0,0" />
                 <TextBlock Grid.Column="1" Classes="now-note" Foreground="{DynamicResource V2.Brush.TextSecondary}" Text="{x:Static l:NowText.ScanNoneHint}" />
               </Grid>

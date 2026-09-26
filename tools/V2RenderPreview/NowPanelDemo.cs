@@ -60,6 +60,26 @@ internal static class NowPanelDemo
         }
     }
 
+    /// <summary>
+    /// [#712 0-7] <c>--now-probe</c>: the room the Raid page gives the Now panel's blocks, in
+    /// DIPs, at this window size and text scale. The glance ratchet (NowPanelGlanceTests) lays the
+    /// panel out in exactly this room; re-measure with this when the shell's chrome changes.
+    /// </summary>
+    public static void Probe(Avalonia.Controls.Window window, string[] args)
+    {
+        if (!args.Contains("--now-probe"))
+        {
+            return;
+        }
+
+        foreach (var view in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<TarkovCompanion.App.Views.V2.Now.NowPanelView>())
+        {
+            var blocks = Avalonia.Controls.ControlExtensions.FindControl<Avalonia.Controls.StackPanel>(view, "Blocks");
+            Console.WriteLine($"Now probe: panel {view.Bounds.Width:0}x{view.Bounds.Height:0}, blocks {blocks?.Bounds.Width:0}x{blocks?.Bounds.Height:0} " +
+                $"(desired {blocks?.DesiredSize.Height:0}), visible={view.IsEffectivelyVisible}");
+        }
+    }
+
     private static string? Option(string[] args, string name)
     {
         var index = Array.IndexOf(args, name);
