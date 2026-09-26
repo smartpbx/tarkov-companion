@@ -44,7 +44,7 @@ public static class GroupNotificationParser
     /// majority on a single ordinal substring scan before touching the JSON parser.
     ///
     /// Callers must debounce the result. Ready and not-ready notifications fire on every
-    /// readiness toggle by any member, hundreds of times per session, each one carrying that
+    /// readiness toggle by any member, hundreds of times per session, a ready one carrying that
     /// member's entire fifty-item inventory. The right consumption is a dictionary keyed by
     /// <see cref="GroupMember.Key"/> holding the latest state per member, refreshed on a
     /// timer, not a stream of events pushed at the UI as they arrive.
@@ -128,10 +128,11 @@ public static class GroupNotificationParser
 
     private static GroupObservation? ReadMemberUpdate(JsonElement payload, string type, DateTimeOffset observedUtc)
     {
-        if (!TryGetObject(payload, "extendedProfile", out var profile))
-        {
-            return null;
-        }
+        // Three shapes, measured on 1.1.5.1.47510 (#403, 2026-09-22..25): RaidReady nests the
+        // member under extendedProfile (187 of 187); InviteAccept writes the same fields at the
+        // top level (7 of 7); RaidNotReady carries only the account id (161 of 161). Reading
+        // only the first shape left every un-readied squadmate showing as ready.
+        var profile = TryGetObject(payload, "extendedProfile", out var nested) ? nested : payload;
 
         var memberId = ReadText(profile, "_id");
         var accountId = ReadInt64(profile, "aid");
@@ -156,12 +157,23 @@ public static class GroupNotificationParser
             ReadText(info, "Side"),
             ReadInt32(info, "Level"),
             ReadBool(profile, "isLeader"),
-            ReadBool(profile, "isReady"),
+            ReadinessOf(type, ReadBool(profile, "isReady")),
             ReadUnixSeconds(info, "SavageLockTime"),
             ReadEquipment(profile));
 
         return new GroupObservation(GroupObservationKind.MemberUpdated, type, observedUtc, member);
     }
+
+    /// <summary>
+    /// The notification's type is itself a statement of readiness, and outranks the field: a
+    /// not-ready notification carries no "isReady" at all, and a member it names is not ready.
+    /// </summary>
+    private static bool? ReadinessOf(string type, bool? stated) => type switch
+    {
+        "groupMatchRaidNotReady" => false,
+        "groupMatchRaidReady" => stated ?? true,
+        _ => stated,
+    };
 
     private static GroupObservation? ReadMemberDeparture(JsonElement payload, string type, DateTimeOffset observedUtc)
     {

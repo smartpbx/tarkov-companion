@@ -13,13 +13,16 @@ public sealed class SituationPartsTests
     [InlineData("2026-09-23 01:46:57.767|1.1.5.1.47510|Info|application|MatchingCompleted:0 real:0 diff:0", RaidPhaseMarkerKind.MatchingCompleted)]
     [InlineData("2026-09-23 21:49:00.000|1.1.5.1.47510|Info|application|LocationLoaded:10.97 real:18.09 diff:7.12", RaidPhaseMarkerKind.LocationLoaded)]
     [InlineData("2026-09-23 21:50:00.000|1.1.5.1.47510|Info|application|GameStarted:31.37(0) real:53.4(0) diff:22.03", RaidPhaseMarkerKind.GameStarted)]
+    [InlineData("2026-09-23 21:48:28.414|1.1.5.1.47510|Debug|application|TRACE-NetworkGameMatching G", RaidPhaseMarkerKind.MatchingStep)]
+    [InlineData("2026-09-23 21:49:35.393|1.1.5.1.47510|Info|application|GameSpawn:58.67(0.09) real:68.88(0.08) diff:10.2", RaidPhaseMarkerKind.Spawning)]
+    [InlineData("2026-09-23 21:49:38.185|1.1.5.1.47510|Info|application|GameSpawned:60.69(1.43) real:71.67(2.2) diff:10.98", RaidPhaseMarkerKind.Spawned)]
     public void TheFourLoadingMarkersAreRead(string line, RaidPhaseMarkerKind kind)
     {
         Assert.Equal(kind, RaidPhaseMarkerParser.ParseLine(line, DateTimeOffset.UnixEpoch)?.Kind);
     }
 
     [Theory]
-    [InlineData("2026-09-23 21:48:28.414|1.1.5.1.47510|Debug|application|TRACE-NetworkGameMatching G")]
+    [InlineData("2026-09-23 21:48:28.414|1.1.5.1.47510|Info|application|GamePooled:55.95(35.32) real:61.82(35.86) diff:5.86")]
     [InlineData("2026-09-23 21:48:28.414|1.1.5.1.47510|Info|backend|GameStarted:31.37 quoted by some other file")]
     [InlineData(null)]
     public void OtherLinesAreNotMarkers(string? line)
