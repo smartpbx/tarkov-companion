@@ -454,6 +454,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly IWorkspaceLayoutStore? _layout;
     private readonly IRaidHistoryService? _raidHistory;
     private readonly FollowZoomSetting _followZoom;
+    private readonly DrawWidthSetting _drawWidth;
     private readonly LootValueFilterSetting _lootValueFilter;
     private readonly MapLayerVisibilitySetting _layerVisibility;
     private double _contextPanelWidth = DefaultContextPanelWidth;
@@ -588,6 +589,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _raidHistory = raidHistory;
         _layout = layout;
         _followZoom = new(layout);
+        _drawWidth = new(layout);
         _lootValueFilter = new(layout);
         _layerVisibility = new(layout);
         _lootFilter = _lootValueFilter.Apply(_lootFilter);

@@ -94,7 +94,10 @@ previous entry rather than adding a second one.
   client also keeps the total under 1,000 points so a full publish stays inside the 32 KB body
   bound. Omitted when nothing is shared. No lifetime crosses the wire: the sender stops
   publishing a line when it expires or is removed, and a line leaves with its member. A relay
-  older than this field drops it; a client older than it ignores it.
+  older than this field drops it; a client older than it ignores it. An optional `"width"`
+  (pixels, 1 to 12; the Draw bar sends 2, 4 or 7, #919) says how thick the line is; a relay
+  refuses a publish outside that range, an older relay drops the field, and a line without it
+  is drawn at the old 3 px.
 
 The reply is everyone else in the group:
 

@@ -233,7 +233,7 @@
       <!-- [#574] The desktop control height, like every other button beside the map; 48 is the
            touch size and the tablet has its own page. -->
       <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
     </Style>
     <Style Selector="ToggleButton.v2-map-choice:checked">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -834,7 +834,7 @@
         <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasLootFilterOpener}">
           <ContentControl.ContentTemplate>
             <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
-              <Button Classes="v2-target" Padding="8,5" Content="{Binding CompactFilterLabel}"
+              <Button Classes="v2-target" Content="{Binding CompactFilterLabel}"
                       Command="{Binding $parent[ContentControl].((vm:MapSceneRendererViewModel)DataContext).LootFilterOpener}"
                       AutomationProperties.AutomationId="v2-map-loot-open-filters"
                       AutomationProperties.Name="Potential loot value filter" />
@@ -844,7 +844,7 @@
         <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding ShowsLootFilterFlyout}">
           <ContentControl.ContentTemplate>
             <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
-              <Button Classes="v2-target" Padding="8,5" Content="{Binding CompactFilterLabel}"
+              <Button Classes="v2-target" Content="{Binding CompactFilterLabel}"
                       AutomationProperties.AutomationId="v2-map-loot-compact-filter"
                       AutomationProperties.Name="Potential loot value filter">
                 <Button.Flyout>

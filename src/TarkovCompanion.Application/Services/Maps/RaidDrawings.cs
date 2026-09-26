@@ -19,7 +19,39 @@ public sealed record RaidDrawing(
     DateTimeOffset CreatedUtc,
     RaidMarkScope Scope,
     RaidMarkLifetime Lifetime,
-    DateTimeOffset? ExpiresUtc);
+    DateTimeOffset? ExpiresUtc,
+    int Width = RaidDrawingWidths.Medium);
+
+/// <summary>
+/// [#919] How thick a drawn line is, in screen pixels: the three the Draw bar offers, and the
+/// bound every width is held to, here, on the relay and on a squadmate's machine.
+/// </summary>
+/// <remarks>
+/// A width is screen pixels rather than plan units so a line reads the same at every zoom, as
+/// the map's other lines do. Old lines (and a squadmate on an older companion) carry none and are
+/// drawn at <see cref="Unstated"/>, the width every line had before there was a choice.
+/// </remarks>
+public static class RaidDrawingWidths
+{
+    public const int Thin = 2;
+    public const int Medium = 4;
+    public const int Thick = 7;
+
+    /// <summary>A line that says nothing about its width: the 3 px every line was before #919.</summary>
+    public const int Unstated = 3;
+
+    public const int Minimum = 1;
+    public const int Maximum = 12;
+
+    /// <summary>The widths the Draw bar offers, thinnest first.</summary>
+    public static IReadOnlyList<int> Choices { get; } = [Thin, Medium, Thick];
+
+    /// <summary>A width inside the bounds; anything else is <see cref="Medium"/>.</summary>
+    public static int Clamp(int width) => width is >= Minimum and <= Maximum ? width : Medium;
+
+    /// <summary>A width from the wire: null for none, or for one outside the bounds.</summary>
+    public static int? Read(int? width) => width is >= Minimum and <= Maximum ? width : null;
+}
 
 /// <summary>The bounds every drawing is held to, on this machine and on the relay.</summary>
 public static class RaidDrawingLimits
@@ -214,7 +246,8 @@ public sealed class RaidDrawingStore
         string? floorId,
         IReadOnlyList<MapPoint> points,
         RaidMarkScope scope,
-        RaidMarkLifetime lifetime)
+        RaidMarkLifetime lifetime,
+        int width = RaidDrawingWidths.Medium)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
         ArgumentNullException.ThrowIfNull(points);
@@ -233,7 +266,8 @@ public sealed class RaidDrawingStore
             now,
             scope,
             lifetime,
-            RaidMarkLifetimes.ExpiresUtc(lifetime, now));
+            RaidMarkLifetimes.ExpiresUtc(lifetime, now),
+            RaidDrawingWidths.Clamp(width));
         Mutate(list =>
         {
             list.Add(drawing);

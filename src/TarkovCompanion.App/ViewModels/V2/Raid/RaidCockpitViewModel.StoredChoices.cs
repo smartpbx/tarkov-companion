@@ -96,6 +96,8 @@ public sealed partial class RaidCockpitViewModel
         _lootValueFilter.Reload();
         _lootFilter = _lootValueFilter.Apply(_lootFilter);
         _followZoom.Reload();
+        _drawWidth.Reload();
+        RaiseDrawingWidth();
         _objectiveRouteMaps = null;
         Cards.Reload();
         RestoreContextPanel();
@@ -192,7 +194,7 @@ public sealed partial class RaidCockpitViewModel
     // [#902 P4] The loot card is the one place the loot filters are chosen.
     // ---------------------------------------------------------------------------------------
 
-    /// <summary>Opens the loot card (and the side panel, if it was put away): from the Layers menu and the map's chip.</summary>
+    /// <summary>Opens the loot card (and the side panel, if it was put away): from the map's chip.</summary>
     public ICommand OpenLootCardCommand => _openLootCardCommand ??= new DelegateCommand(() =>
     {
         if (_contextPanelHidden)

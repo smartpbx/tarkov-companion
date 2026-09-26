@@ -171,7 +171,7 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
-      <Setter Property="Padding" Value="16,6" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
@@ -190,7 +190,7 @@
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
       <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
-      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Button:disabled">

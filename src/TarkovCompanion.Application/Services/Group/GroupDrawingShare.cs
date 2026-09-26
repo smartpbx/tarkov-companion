@@ -10,7 +10,8 @@ namespace TarkovCompanion.Application.Services.Group;
 /// <param name="MapId">The map it was drawn on.</param>
 /// <param name="FloorId">The catalog floor it was drawn on, or null for the whole map.</param>
 /// <param name="Points">World positions (x, z), at most <see cref="RaidDrawingLimits.MaximumPoints"/>.</param>
-public sealed record GroupDrawingView(string Id, string MapId, string? FloorId, IReadOnlyList<(double X, double Z)> Points);
+/// <param name="Width">[#919] The line's width in pixels, or null when the sender predates the choice.</param>
+public sealed record GroupDrawingView(string Id, string MapId, string? FloorId, IReadOnlyList<(double X, double Z)> Points, int? Width = null);
 
 /// <summary>
 /// [#286] The lines this player shares with the squad, set by the Raid map and read by the
@@ -50,6 +51,7 @@ public sealed class GroupDrawingShare
             pair.First.Id == pair.Second.Id &&
             pair.First.MapId == pair.Second.MapId &&
             pair.First.FloorId == pair.Second.FloorId &&
+            pair.First.Width == pair.Second.Width &&
             pair.First.Points.SequenceEqual(pair.Second.Points));
 }
 
@@ -62,6 +64,14 @@ public sealed record GroupDrawingDto(
     [JsonPropertyName("floor")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Floor { get; init; }
+
+    /// <summary>
+    /// [#919] The line's width in pixels. Optional both ways: an older companion neither sends nor
+    /// reads it, and an older relay drops it, so the line arrives at the old width.
+    /// </summary>
+    [JsonPropertyName("width")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Width { get; init; }
 }
 
 /// <summary>[#286] Shared lines to and from the relay's member state.</summary>
@@ -84,6 +94,7 @@ public static class GroupDrawingWire
                 [.. drawing.Points.SelectMany(point => new[] { Math.Round(point.X, 1), Math.Round(point.Z, 1) })])
             {
                 Floor = drawing.FloorId,
+                Width = RaidDrawingWidths.Read(drawing.Width),
             })];
     }
 
@@ -116,7 +127,12 @@ public static class GroupDrawingWire
                 pairs[index] = (points[index * 2], points[index * 2 + 1]);
             }
 
-            result.Add(new(drawing.Id, drawing.MapId, drawing.Floor is { Length: > 0 and <= 64 } floor ? floor : null, pairs));
+            result.Add(new(
+                drawing.Id,
+                drawing.MapId,
+                drawing.Floor is { Length: > 0 and <= 64 } floor ? floor : null,
+                pairs,
+                RaidDrawingWidths.Read(drawing.Width)));
         }
 
         return result;

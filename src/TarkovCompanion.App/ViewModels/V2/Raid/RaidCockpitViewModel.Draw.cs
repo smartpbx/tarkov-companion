@@ -76,6 +76,36 @@ public sealed partial class RaidCockpitViewModel
 
     public RaidMarkLifetime NewDrawingLifetime => _newDrawingLifetime;
 
+    /// <summary>[#919] How thick the next line is, in pixels; remembered.</summary>
+    public int NewDrawingWidth => _drawWidth.Value;
+
+    /// <summary>[#919] Thin, medium, thick: the Draw bar's width picker.</summary>
+    public IReadOnlyList<DrawWidthChoiceViewModel> DrawWidthChoices =>
+    [
+        .. RaidDrawingWidths.Choices.Select(width => new DrawWidthChoiceViewModel(
+            width,
+            width == _drawWidth.Value,
+            new DelegateCommand(() => ChooseDrawingWidth(width)))),
+    ];
+
+    /// <summary>[#919] Picks the width the next line gets, and remembers it. Lines already drawn keep theirs.</summary>
+    public void ChooseDrawingWidth(int width)
+    {
+        if (_drawWidth.Value == width)
+        {
+            return;
+        }
+
+        _drawWidth.Set(width);
+        RaiseDrawingWidth();
+    }
+
+    private void RaiseDrawingWidth()
+    {
+        OnPropertyChanged(nameof(NewDrawingWidth));
+        OnPropertyChanged(nameof(DrawWidthChoices));
+    }
+
     public ICommand ToggleDrawCommand => _toggleDrawCommand ??= new DelegateCommand(() =>
         SetInteractionMode(IsDrawMode ? MapInteractionMode.Navigate : MapInteractionMode.Draw));
 
@@ -124,7 +154,8 @@ public sealed partial class RaidCockpitViewModel
             floorId,
             [.. points.Select(point => new MapPoint(point.X, point.Y))],
             NewMarkScope,
-            _newDrawingLifetime);
+            _newDrawingLifetime,
+            _drawWidth.Value);
         if (drawing is not null &&
             model.TransformAvailability == MapTransformAvailability.Valid &&
             model.Variant.Transform is { } transform)
@@ -250,7 +281,7 @@ public sealed partial class RaidCockpitViewModel
             points.Add((world.X, world.Z));
         }
 
-        return new(drawing.Id.ToString("N", CultureInfo.InvariantCulture)[..12], drawing.MapId, drawing.FloorId, points);
+        return new(drawing.Id.ToString("N", CultureInfo.InvariantCulture)[..12], drawing.MapId, drawing.FloorId, points, drawing.Width);
     }
 
     /// <summary>
@@ -281,7 +312,7 @@ public sealed partial class RaidCockpitViewModel
                 drawing.FloorId is null ? [] : [drawing.FloorId],
                 new DataProvenance("local-drawing", drawing.CreatedUtc),
                 expiresUtc: drawing.ExpiresUtc));
-            styles[id] = new(InkColor, LineThickness: 3, Opacity: 0.95);
+            styles[id] = new(InkColor, LineThickness: drawing.Width, Opacity: 0.95);
         }
 
         foreach (var (member, color, drawing) in squad)
@@ -311,7 +342,8 @@ public sealed partial class RaidCockpitViewModel
                 new(MapSceneGeometryKind.Line, points),
                 drawing.FloorId is null ? [] : [drawing.FloorId],
                 new DataProvenance("group-relay", nowUtc)));
-            styles[id] = new(color, LineThickness: 3, Opacity: 0.9);
+            // [#919] A squadmate on an older companion sends no width: the width every line had then.
+            styles[id] = new(color, LineThickness: drawing.Width ?? RaidDrawingWidths.Unstated, Opacity: 0.9);
         }
 
         return objects.Count == 0

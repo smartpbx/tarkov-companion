@@ -76,6 +76,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[#902 P4] Who a new mark is for, "private" or "squad"; missing is Squad while sharing, else Just me.</summary>
     public const string RaidMarkScope = "raid.mark-scope";
 
+    /// <summary>[#919] The width in pixels of the next line drawn on the Raid map ("2", "4" or "7").</summary>
+    public const string RaidDrawWidth = "raid.draw-width";
+
     /// <summary>[#902 P3] "off" when the map stops following the player's floor.</summary>
     public const string RaidFollowFloor = "raid.follow-floor";
 
