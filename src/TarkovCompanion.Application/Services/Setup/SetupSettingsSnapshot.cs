@@ -65,6 +65,12 @@ public sealed record SetupSettingsSnapshot(
     /// <summary>Per-map artwork, variant and rotation choices (map-defaults.json).</summary>
     public IReadOnlyDictionary<string, string> MapDefaults { get; init; } = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>[#935] The interface language's culture name (interface-language.json); null follows Windows.</summary>
+    public string? InterfaceLanguage { get; init; }
+
+    /// <summary>[#935] Whether Alt+Shift+C captures (the V2 shell's preview state).</summary>
+    public bool CaptureShortcut { get; init; } = true;
+
     /// <summary>What a player who has changed nothing has: every domain's own default.</summary>
     public static SetupSettingsSnapshot Default { get; } = new(
         WorkspacePreferences.Default,
@@ -81,6 +87,8 @@ public sealed record SetupSettingsSnapshot(
         && Network == other.Network
         && Horizons == other.Horizons
         && SquadSharing == other.SquadSharing
+        && string.Equals(InterfaceLanguage, other.InterfaceLanguage, StringComparison.OrdinalIgnoreCase)
+        && CaptureShortcut == other.CaptureShortcut
         && SameEntries(FeatureFlags, other.FeatureFlags)
         && SameEntries(Layout, other.Layout)
         && SameEntries(MapDefaults, other.MapDefaults);
@@ -98,5 +106,6 @@ public sealed record SetupSettingsSnapshot(
         ScreenshotRetention = ScreenshotRetention with { RetentionHours = ScreenshotRetention.SafeRetentionHours },
         InterfaceScale = TarkovCompanion.Application.Services.Shell.ShellLayout.NearestScale(InterfaceScale),
         Horizons = Horizons.Normalized(),
+        InterfaceLanguage = string.IsNullOrWhiteSpace(InterfaceLanguage) ? null : InterfaceLanguage.Trim(),
     };
 }

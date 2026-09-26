@@ -30,6 +30,16 @@ public sealed class LootScanRaidPreference
     {
         _state = new(store, WorkspaceLayoutKeys.PageLoot);
         _risk = _state.Enum("risk", RecommendationRaidRisk.Low);
+        // [#935] After Reset everything or an import the Loot Scan decides with the risk stored now.
+        WorkspaceLayoutReplaced.Reread(store, () =>
+        {
+            var risk = _state.Enum("risk", RecommendationRaidRisk.Low);
+            if (risk != _risk)
+            {
+                _risk = risk;
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        });
     }
 
     public event EventHandler? Changed;

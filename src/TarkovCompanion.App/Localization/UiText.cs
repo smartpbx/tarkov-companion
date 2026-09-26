@@ -169,5 +169,23 @@ public static class UiCulturePreference
         var temporary = path + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(new Dictionary<string, string> { ["culture"] = cultureName }));
         File.Move(temporary, path, overwrite: true);
+        Changed?.Invoke(null, EventArgs.Empty);
     }
+
+    /// <summary>[#935] Back to following Windows, as Reset everything does: the file is removed.</summary>
+    public static void Clear(string configDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configDirectory);
+        var path = Path.Combine(configDirectory, FileName);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
+
+    /// <summary>[#935] Raised after <see cref="Write"/> or <see cref="Clear"/>, so Setup's picker shows
+    /// what a reset or an import chose, and says "Restart to apply".</summary>
+    public static event EventHandler? Changed;
 }

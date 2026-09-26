@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using TarkovCompanion.App.Localization;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.Settings;
 using TarkovCompanion.App.Services.V2.Notifications;
 using TarkovCompanion.Application.Services.Group;
@@ -52,6 +53,13 @@ public sealed class SetupSettingsSources
     public IWorkspaceLayoutStore? Layout { get; init; }
 
     public IMapVariantPreferenceStore? MapDefaults { get; init; }
+
+    /// <summary>[#935] Reads and writes the interface language's culture (null: follow Windows).</summary>
+    public (Func<string?> Get, Action<string?> Set)? InterfaceLanguage { get; init; }
+
+    /// <summary>[#935] Reads and sets the shell's Capture shortcut switch. Settable: the shell that
+    /// owns the switch is composed after this, and attaches it (SetupSettingsAdminViewModel.AttachCaptureShortcut).</summary>
+    public (Func<bool> Get, Action<bool> Set)? CaptureShortcut { get; set; }
 }
 
 /// <summary>
@@ -82,7 +90,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
     private readonly SetupSettingsSources _sources;
     private V2SetupSection _currentSection = V2SetupSection.Overview;
     private SetupSettingsPendingKind _pendingKind;
-    private SetupSettingsSnapshot? _pendingTarget;
+    private PendingRequest? _pendingRequest;
     private IReadOnlyList<SetupSettingsDiffRow> _pendingDiff = [];
     private string _pendingLabel = string.Empty;
     private string _exchangePath = string.Empty;
@@ -105,6 +113,14 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
         ConfirmCommand = new AsyncDelegateCommand(ConfirmAsync);
         CancelCommand = new DelegateCommand(ClearPending);
+    }
+
+    /// <summary>[#935] The shell's Capture shortcut switch, which Reset everything, Export and Import cover.</summary>
+    public void AttachCaptureShortcut(Func<bool> get, Action<bool> set)
+    {
+        ArgumentNullException.ThrowIfNull(get);
+        ArgumentNullException.ThrowIfNull(set);
+        _sources.CaptureShortcut = (get, set);
     }
 
     /// <summary>Which section a bare "Reset this section" press acts on. Pushed by
@@ -191,27 +207,36 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         }
 
         var current = await CaptureCurrentAsync().ConfigureAwait(true);
+        SetOrClearPending(
+            new PendingRequest(SetupSettingsPendingKind.ResetSection, section, null),
+            SectionReset(current, section),
+            current,
+            SetupText.AdminResetSectionQuestion,
+            SetupText.AdminSectionAlreadyDefault);
+    }
+
+    /// <summary><paramref name="current"/> with every setting whose home is <paramref name="section"/> at its default.</summary>
+    internal static SetupSettingsSnapshot SectionReset(SetupSettingsSnapshot current, V2SetupSection section)
+    {
         var target = current;
         foreach (var domain in SettingsRegistry.DomainsIn(section))
         {
             target = WithDefault(target, domain);
         }
 
-        target = target with
+        return target with
         {
             Layout = new SortedDictionary<string, string>(
                 target.Layout.Where(entry => !SettingsRegistry.IsLayoutKeyIn(entry.Key, section)).ToDictionary(),
                 StringComparer.Ordinal),
         };
-
-        SetOrClearPending(SetupSettingsPendingKind.ResetSection, target, current, SetupText.AdminResetSectionQuestion, SetupText.AdminSectionAlreadyDefault);
     }
 
     private async Task PrepareResetAllAsync()
     {
         var current = await CaptureCurrentAsync().ConfigureAwait(true);
         SetOrClearPending(
-            SetupSettingsPendingKind.ResetAll,
+            new PendingRequest(SetupSettingsPendingKind.ResetAll, _currentSection, null),
             SetupSettingsSnapshot.Default,
             current,
             SetupText.AdminResetAllQuestion,
@@ -232,9 +257,10 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             await File.WriteAllTextAsync(ExchangePath, SetupSettingsExport.ToJson(current)).ConfigureAwait(true);
             StatusMessage = SetupText.AdminExported(ExchangePath);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (IsFileProblem(exception))
         {
-            StatusMessage = SetupText.AdminNotExported(exception.Message);
+            CrashLog.Write("warning/Settings", $"Settings export to a file failed: {exception.GetType().Name}: {exception.Message}");
+            StatusMessage = SetupText.AdminNotExported(SetupText.AdminFileProblem(exception, writing: true));
         }
     }
 
@@ -251,9 +277,10 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         {
             text = await File.ReadAllTextAsync(ExchangePath).ConfigureAwait(true);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (IsFileProblem(exception))
         {
-            StatusMessage = SetupText.AdminNotImported(exception.Message);
+            CrashLog.Write("warning/Settings", $"Settings import could not read the file: {exception.GetType().Name}: {exception.Message}");
+            StatusMessage = SetupText.AdminNotImported(SetupText.AdminFileProblem(exception, writing: false));
             ClearPending();
             return;
         }
@@ -262,37 +289,86 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         var result = SetupSettingsExport.Validate(text, current);
         if (!result.IsValid)
         {
-            StatusMessage = SetupText.AdminNotImported(result.Error);
+            CrashLog.Write("warning/Settings", $"Settings import refused the file ({result.Error}): {result.Detail}");
+            StatusMessage = SetupText.AdminNotImported(SetupText.AdminImportError(result.Error));
             ClearPending();
             return;
         }
 
         SetOrClearPending(
-            SetupSettingsPendingKind.Import,
+            new PendingRequest(SetupSettingsPendingKind.Import, _currentSection, text),
             result.Snapshot!,
             current,
             SetupText.AdminImportQuestion(ExchangePath),
             SetupText.AdminImportNothing);
     }
 
+    /// <remarks>
+    /// [#935] The target is built again here, from what is in force now, and not taken from the
+    /// preview. The preview's target was a whole-app snapshot: a squad-sharing switch turned off, a
+    /// scale changed, or a page filter chosen while the preview stood open was written back to its
+    /// old value on Confirm, although no row of the confirmed preview named it.
+    /// </remarks>
     private async Task ConfirmAsync()
     {
-        if (_pendingTarget is not { } target)
+        if (_pendingRequest is not { } request)
         {
             return;
         }
 
-        var applied = _pendingKind;
-        await ApplyAsync(target).ConfigureAwait(true);
-
-        StatusMessage = applied switch
+        try
         {
-            SetupSettingsPendingKind.ResetSection => SetupText.AdminSectionReset,
-            SetupSettingsPendingKind.ResetAll => SetupText.AdminAllReset,
-            SetupSettingsPendingKind.Import => SetupText.AdminImported,
-            _ => StatusMessage,
-        };
-        ClearPending();
+            SetupSettingsSnapshot current;
+            try
+            {
+                current = await CaptureCurrentAsync().ConfigureAwait(true);
+            }
+            catch (Exception exception) when (IsStoreProblem(exception))
+            {
+                CrashLog.Write("warning/Settings", $"Settings could not be read before applying: {exception.GetType().Name}: {exception.Message}");
+                StatusMessage = SetupText.AdminNotApplied;
+                return;
+            }
+
+            SetupSettingsSnapshot target;
+            switch (request.Kind)
+            {
+                case SetupSettingsPendingKind.ResetSection:
+                    target = SectionReset(current, request.Section);
+                    break;
+                case SetupSettingsPendingKind.ResetAll:
+                    target = SetupSettingsSnapshot.Default;
+                    break;
+                default:
+                    var result = SetupSettingsExport.Validate(request.ImportText ?? string.Empty, current);
+                    if (!result.IsValid)
+                    {
+                        StatusMessage = SetupText.AdminNotImported(SetupText.AdminImportError(result.Error));
+                        return;
+                    }
+
+                    target = result.Snapshot!;
+                    break;
+            }
+
+            target = OnlyWhatCanBeApplied(target.Normalized(), current);
+            var failed = await ApplyAsync(target, current).ConfigureAwait(true);
+            var done = request.Kind switch
+            {
+                SetupSettingsPendingKind.ResetSection => SetupText.AdminSectionReset,
+                SetupSettingsPendingKind.ResetAll => SetupText.AdminAllReset,
+                _ => SetupText.AdminImported,
+            };
+            var languageChanged = !failed.Contains(SettingsDomain.InterfaceLanguage) &&
+                !string.Equals(target.InterfaceLanguage, current.InterfaceLanguage, StringComparison.OrdinalIgnoreCase);
+            StatusMessage = failed.Count > 0
+                ? SetupText.AdminPartlyApplied(failed.Select(SetupText.SettingsDomainName))
+                : languageChanged ? SetupText.AdminWithRestart(done) : done;
+        }
+        finally
+        {
+            ClearPending();
+        }
     }
 
     /// <summary>Everything registered, as it is in force now.</summary>
@@ -321,94 +397,161 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
                 : new SquadSharingChoices(squad.IsEnabled, squad.SharesLoadout, squad.SharesQuests, squad.SharesReadyCheck),
             Layout = _sources.Layout?.Entries ?? SetupSettingsSnapshot.Default.Layout,
             MapDefaults = maps,
+            InterfaceLanguage = _sources.InterfaceLanguage is { } language ? language.Get() : null,
+            CaptureShortcut = _sources.CaptureShortcut is not { } shortcut || shortcut.Get(),
         }.Normalized();
     }
 
     /// <summary>Writes every group that differs, each through the service its pages listen to.</summary>
-    private async Task ApplyAsync(SetupSettingsSnapshot target)
+    /// <returns>[#935] The groups whose write failed. One locked file no longer stops the groups after it,
+    /// and a failure is said on the status line rather than lost to the dispatcher.</returns>
+    private async Task<IReadOnlyList<SettingsDomain>> ApplyAsync(SetupSettingsSnapshot target, SetupSettingsSnapshot current)
     {
-        var current = await CaptureCurrentAsync().ConfigureAwait(true);
         var token = CancellationToken.None;
-        if (target.Appearance != current.Appearance)
-        {
-            await _preferences.UpdateAsync(target.Appearance, token).ConfigureAwait(true);
-        }
+        var failed = new List<SettingsDomain>();
 
-        if (_notifications is not null && target.Notifications != current.Notifications)
+        async Task Write(SettingsDomain domain, bool differs, Func<Task> write)
         {
-            // One write of the whole record (#888). The per-switch calls this replaced never set
-            // quiet hours, so an import or reset listed quiet-hours changes and applied none.
-            await _notifications.ReplaceAsync(target.Notifications, token).ConfigureAwait(true);
-        }
-
-        if (target.ScreenshotRetention != current.ScreenshotRetention)
-        {
-            await _retention.SaveAsync(target.ScreenshotRetention, token).ConfigureAwait(true);
-        }
-
-        if (_sources.InterfaceScale is { } scale && !target.InterfaceScale.Equals(current.InterfaceScale))
-        {
-            scale.Set(target.InterfaceScale);
-        }
-
-        if (target.Network != current.Network)
-        {
-            _sources.Network?.Set(target.Network);
-        }
-
-        if (_sources.FeatureFlags is { } flags)
-        {
-            foreach (var state in flags.States)
+            if (!differs)
             {
-                var wanted = target.FeatureFlags.TryGetValue(state.Flag.Key, out var chosen) ? chosen : (bool?)null;
-                var now = current.FeatureFlags.TryGetValue(state.Flag.Key, out var held) ? held : (bool?)null;
-                if (wanted == now)
-                {
-                    continue;
-                }
+                return;
+            }
 
-                if (wanted is { } isOn)
-                {
-                    flags.Set(state.Flag, isOn);
-                }
-                else
-                {
-                    flags.Reset(state.Flag);
-                }
+            try
+            {
+                await write().ConfigureAwait(true);
+            }
+            catch (Exception exception) when (IsStoreProblem(exception))
+            {
+                CrashLog.Write("warning/Settings", $"Settings group {domain} was not saved: {exception.GetType().Name}: {exception.Message}");
+                failed.Add(domain);
             }
         }
 
-        if (_sources.Horizons is { } horizons && target.Horizons != current.Horizons)
+        Task Sync(Action write)
         {
-            await horizons.UpdateAsync(target.Horizons, token).ConfigureAwait(true);
+            write();
+            return Task.CompletedTask;
         }
 
-        if (_sources.SquadSharing is { } group && target.SquadSharing != current.SquadSharing)
+        await Write(SettingsDomain.Appearance, target.Appearance != current.Appearance, () => _preferences.UpdateAsync(target.Appearance, token)).ConfigureAwait(true);
+
+        // One write of the whole record (#888). The per-switch calls this replaced never set
+        // quiet hours, so an import or reset listed quiet-hours changes and applied none.
+        await Write(
+                SettingsDomain.Notifications,
+                _notifications is not null && target.Notifications != current.Notifications,
+                () => _notifications!.ReplaceAsync(target.Notifications, token))
+            .ConfigureAwait(true);
+
+        await Write(
+                SettingsDomain.ScreenshotTidying,
+                target.ScreenshotRetention != current.ScreenshotRetention,
+                () => _retention.SaveAsync(target.ScreenshotRetention, token))
+            .ConfigureAwait(true);
+
+        await Write(
+                SettingsDomain.InterfaceScale,
+                _sources.InterfaceScale is not null && !target.InterfaceScale.Equals(current.InterfaceScale),
+                () => Sync(() => _sources.InterfaceScale!.Value.Set(target.InterfaceScale)))
+            .ConfigureAwait(true);
+
+        await Write(SettingsDomain.Network, _sources.Network is not null && target.Network != current.Network, () => Sync(() => _sources.Network!.Set(target.Network))).ConfigureAwait(true);
+
+        if (_sources.FeatureFlags is { } flags)
         {
-            // The four switches only. The relay address, name and key stay exactly as they are.
-            var stored = await group.GetAsync(token).ConfigureAwait(true);
-            await group.SaveAsync(
-                    stored with
+            await Write(SettingsDomain.FeatureFlags, true, () => Sync(() =>
+            {
+                foreach (var state in flags.States)
+                {
+                    var wanted = target.FeatureFlags.TryGetValue(state.Flag.Key, out var chosen) ? chosen : (bool?)null;
+                    var now = current.FeatureFlags.TryGetValue(state.Flag.Key, out var held) ? held : (bool?)null;
+                    if (wanted == now)
                     {
-                        IsEnabled = target.SquadSharing.IsEnabled,
-                        SharesLoadout = target.SquadSharing.SharesLoadout,
-                        SharesQuests = target.SquadSharing.SharesQuests,
-                        SharesReadyCheck = target.SquadSharing.SharesReadyCheck, // [#961]
-                    },
-                    token)
+                        continue;
+                    }
+
+                    if (wanted is { } isOn)
+                    {
+                        flags.Set(state.Flag, isOn);
+                    }
+                    else
+                    {
+                        flags.Reset(state.Flag);
+                    }
+                }
+            })).ConfigureAwait(true);
+        }
+
+        await Write(
+                SettingsDomain.Horizons,
+                _sources.Horizons is not null && target.Horizons != current.Horizons,
+                () => _sources.Horizons!.UpdateAsync(target.Horizons, token))
+            .ConfigureAwait(true);
+
+        if (_sources.SquadSharing is { } group)
+        {
+            await Write(SettingsDomain.SquadSharing, target.SquadSharing != current.SquadSharing, async () =>
+            {
+                // The four switches only. The relay address, name and key stay exactly as they are.
+                var stored = await group.GetAsync(token).ConfigureAwait(true);
+                await group.SaveAsync(
+                        stored with
+                        {
+                            IsEnabled = target.SquadSharing.IsEnabled,
+                            SharesLoadout = target.SquadSharing.SharesLoadout,
+                            SharesQuests = target.SquadSharing.SharesQuests,
+                            SharesReadyCheck = target.SquadSharing.SharesReadyCheck, // [#961]
+                        },
+                        token)
+                    .ConfigureAwait(true);
+            }).ConfigureAwait(true);
+        }
+
+        if (_sources.Layout is { } layout)
+        {
+            await Write(
+                    SettingsDomain.Layout,
+                    SetupSettingsDiff.Compare(current with { Layout = target.Layout }, current).Count > 0,
+                    () => Sync(() => layout.Replace(target.Layout)))
                 .ConfigureAwait(true);
         }
 
-        if (_sources.Layout is { } layout && SetupSettingsDiff.Compare(current with { Layout = target.Layout }, current).Count > 0)
+        if (_sources.MapDefaults is { } maps)
         {
-            layout.Replace(target.Layout);
+            await Write(
+                    SettingsDomain.MapDefaults,
+                    SetupSettingsDiff.Compare(current with { MapDefaults = target.MapDefaults }, current).Count > 0,
+                    () => maps.ReplaceAllAsync(target.MapDefaults, token))
+                .ConfigureAwait(true);
         }
 
-        if (_sources.MapDefaults is { } maps && SetupSettingsDiff.Compare(current with { MapDefaults = target.MapDefaults }, current).Count > 0)
+        if (_sources.InterfaceLanguage is { } language)
         {
-            await maps.ReplaceAllAsync(target.MapDefaults, token).ConfigureAwait(true);
+            await Write(
+                    SettingsDomain.InterfaceLanguage,
+                    !string.Equals(target.InterfaceLanguage, current.InterfaceLanguage, StringComparison.OrdinalIgnoreCase),
+                    () => Sync(() => language.Set(target.InterfaceLanguage)))
+                .ConfigureAwait(true);
         }
+
+        if (_sources.CaptureShortcut is { } shortcut)
+        {
+            await Write(
+                    SettingsDomain.CaptureShortcut,
+                    target.CaptureShortcut != current.CaptureShortcut,
+                    () => Sync(() => shortcut.Set(target.CaptureShortcut)))
+                .ConfigureAwait(true);
+        }
+
+        return failed;
     }
+
+    private static bool IsStoreProblem(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or InvalidDataException;
+
+    private static bool IsFileProblem(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException;
 
     /// <summary><paramref name="snapshot"/> with one registered group put back to its default.</summary>
     internal static SetupSettingsSnapshot WithDefault(SetupSettingsSnapshot snapshot, SettingsDomain domain)
@@ -426,6 +569,8 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             SettingsDomain.SquadSharing => snapshot with { SquadSharing = defaults.SquadSharing },
             SettingsDomain.Layout => snapshot with { Layout = defaults.Layout },
             SettingsDomain.MapDefaults => snapshot with { MapDefaults = defaults.MapDefaults },
+            SettingsDomain.InterfaceLanguage => snapshot with { InterfaceLanguage = defaults.InterfaceLanguage },
+            SettingsDomain.CaptureShortcut => snapshot with { CaptureShortcut = defaults.CaptureShortcut },
             _ => throw new ArgumentOutOfRangeException(nameof(domain), domain, "Every registered group needs a default here."),
         };
     }
@@ -445,10 +590,12 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
         SquadSharing = _sources.SquadSharing is null ? current.SquadSharing : target.SquadSharing,
         Layout = _sources.Layout is null ? current.Layout : target.Layout,
         MapDefaults = _sources.MapDefaults is null ? current.MapDefaults : target.MapDefaults,
+        InterfaceLanguage = _sources.InterfaceLanguage is null ? current.InterfaceLanguage : target.InterfaceLanguage,
+        CaptureShortcut = _sources.CaptureShortcut is null ? current.CaptureShortcut : target.CaptureShortcut,
     };
 
     private void SetOrClearPending(
-        SetupSettingsPendingKind kind,
+        PendingRequest request,
         SetupSettingsSnapshot target,
         SetupSettingsSnapshot current,
         string label,
@@ -463,8 +610,8 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             return;
         }
 
-        _pendingKind = kind;
-        _pendingTarget = target;
+        _pendingKind = request.Kind;
+        _pendingRequest = request;
         PendingDiff = [.. diff.Select(SetupSettingsDiffRow.From)];
         PendingLabel = label;
         StatusMessage = string.Empty;
@@ -475,7 +622,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
     private void ClearPending()
     {
         _pendingKind = SetupSettingsPendingKind.None;
-        _pendingTarget = null;
+        _pendingRequest = null;
         PendingDiff = [];
         PendingLabel = string.Empty;
         OnPropertyChanged(nameof(HasPendingChange));
@@ -483,4 +630,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
     }
 
     private static bool IsResettable(V2SetupSection section) => SettingsRegistry.HasSettings(section);
+
+    /// <summary>What the preview asked for, so Confirm can build it again from what is in force then.</summary>
+    private sealed record PendingRequest(SetupSettingsPendingKind Kind, V2SetupSection Section, string? ImportText);
 }

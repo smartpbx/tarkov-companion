@@ -169,6 +169,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         LearnMode = learnMode ?? new();
         _state = LearnMode.Page(TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutKeys.PageHideout);
         Upgrades = new(itemRepository, prerequisites, _state);
+        TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutReplaced.Reread(LearnMode.Layout, Upgrades.RereadPageState);
         _barters = barters;
         _traders = traders;
         _requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));

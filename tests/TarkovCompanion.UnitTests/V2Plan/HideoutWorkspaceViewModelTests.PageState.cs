@@ -40,6 +40,27 @@ public sealed partial class HideoutWorkspaceViewModelTests
         Assert.True(restarted.Upgrades.Scopes.Single(scope => scope.Count == 10).IsSelected);
     }
 
+    /// <summary>[#935] Reset everything replaced the layout: the shopping scope is back to its default at once.</summary>
+    [Fact]
+    public void A_reset_layout_puts_the_shopping_scope_back_without_a_restart()
+    {
+        using var file = new LayoutFile();
+        var layout = file.Restart();
+        var viewModel = new HideoutWorkspaceViewModel(
+            new FakeRequirementCatalog(),
+            new FakePlayerProfileService(TestProfile(
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, int>(StringComparer.Ordinal))),
+            new FakeItemRepository(),
+            learnMode: new LearnModeSetting(layout));
+        viewModel.Upgrades.Scopes.Single(scope => scope.Count == 10).SelectCommand.Execute(null);
+
+        layout.Replace(new Dictionary<string, string>());
+
+        Assert.True(viewModel.Upgrades.Scopes.Single(scope => scope.Count == 5).IsSelected);
+        Assert.False(viewModel.Upgrades.Scopes.Single(scope => scope.Count == 10).IsSelected);
+    }
+
     private static HideoutWorkspaceViewModel Hideout(FakeRequirementCatalog requirements, LayoutFile file) => new(
         requirements,
         new FakePlayerProfileService(TestProfile(

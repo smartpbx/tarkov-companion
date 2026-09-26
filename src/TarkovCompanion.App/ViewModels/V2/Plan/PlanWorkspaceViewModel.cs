@@ -733,6 +733,15 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             _selectedTrader = new(rememberedTrader, rememberedTrader);
         }
 
+        // [#935] A reset or an import replaced the layout: show the chip and trader it holds now.
+        TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutReplaced.Reread(LearnMode.Layout, () =>
+        {
+            Filter = _state.Enum("filter", PlanQuestFilter.Active);
+            var trader = _state.Get("trader") is { Length: > 0 } stored ? stored : null;
+            SelectedTrader = Traders.FirstOrDefault(option => option.TraderId == trader)
+                ?? (trader is null ? AllTraders : new(trader, trader));
+        });
+
         AttachSquadQuests(squadQuests);
         AttachSession(raidHistory, raidEnds, hideoutRequirements);
         _allergies = allergies;

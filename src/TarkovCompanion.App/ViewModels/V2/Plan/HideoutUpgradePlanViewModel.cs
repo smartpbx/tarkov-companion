@@ -143,6 +143,17 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         LowerTargetCommand = new DelegateCommand(() => MoveTarget(-1));
     }
 
+    /// <summary>[#935] A reset or an import replaced the layout: select the scope it holds now.</summary>
+    internal void RereadPageState()
+    {
+        var scope = _state?.Int("scope", 5) ?? 5;
+        var wanted = Scopes.FirstOrDefault(chip => chip.Count == scope) ?? Scopes[1];
+        if (!wanted.IsSelected)
+        {
+            SelectScope(wanted);
+        }
+    }
+
     public IReadOnlyList<HideoutScopeChipViewModel> Scopes { get; }
 
     public ICommand RaiseTargetCommand { get; }

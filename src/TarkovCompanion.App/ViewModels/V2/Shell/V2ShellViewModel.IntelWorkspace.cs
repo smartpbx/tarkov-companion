@@ -595,6 +595,12 @@ public sealed partial class V2ShellViewModel
         _intelPage = new(layout, WorkspaceLayoutKeys.PageIntel);
         _intelKindFilter = _intelPage.Enum("kind", V2IntelKindFilter.All);
         _intelSort = _intelPage.Enum("sort", V2IntelSort.Relevance);
+        // [#935] A reset or an import replaced the layout: show the chip and sort it holds now.
+        WorkspaceLayoutReplaced.Reread(layout, () =>
+        {
+            SelectIntelSort(_intelPage.Enum("sort", V2IntelSort.Relevance));
+            SelectIntelKindFilter(_intelPage.Enum("kind", V2IntelKindFilter.All));
+        });
     }
 
     /// <summary>[#902 P8] A remembered kind chip hid every hit: one click shows them all.</summary>

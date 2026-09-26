@@ -45,6 +45,32 @@ public sealed class IntelPageFiltersRememberedTests : IDisposable
         Assert.False(after.Sorts.Single(sort => sort.Sort == IntelTradeSort.Profit).IsSelected);
     }
 
+    /// <summary>[#935] Reset everything replaced the layout: both pages show their defaults at once.</summary>
+    [Fact]
+    public async Task Ammo_and_Crafts_follow_a_reset_layout_without_a_restart()
+    {
+        // Pages built with no UI context re-read inline; with one, the re-read is posted to it.
+        SynchronizationContext.SetSynchronizationContext(null);
+        var layout = _file.Restart();
+        var learn = new LearnModeSetting(layout);
+        var ammo = Ammo(learn);
+        var crafts = new CraftsBartersWorkspaceViewModel(new NoTrades(), _ => { }, learn);
+        await crafts.LoadTask;
+        ammo.ArmorFilters.Single(chip => chip.Key == "class-4").SelectCommand.Execute(null);
+        ammo.Sorts.Single(chip => chip.Key == "sort-damage").SelectCommand.Execute(null);
+        crafts.ReadyNowOnly = true;
+        crafts.Sorts.Single(sort => sort.Sort == IntelTradeSort.Name).SelectCommand.Execute(null);
+
+        layout.Replace(new Dictionary<string, string>());
+
+        Assert.Equal(0, ammo.ArmorClass);
+        Assert.Equal(AmmoSort.Rank, ammo.Sort);
+        Assert.True(ammo.ArmorFilters.Single(chip => chip.Key == "class-any").IsSelected);
+        Assert.False(crafts.ReadyNowOnly);
+        Assert.True(crafts.Sorts.Single(sort => sort.Sort == IntelTradeSort.Profit).IsSelected);
+        Assert.Empty(layout.Entries);
+    }
+
     [Fact]
     public void Learn_mode_is_one_switch_shared_by_every_page_that_reads_it()
     {

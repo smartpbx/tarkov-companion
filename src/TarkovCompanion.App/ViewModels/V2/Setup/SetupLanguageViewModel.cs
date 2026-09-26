@@ -41,6 +41,8 @@ public sealed class SetupLanguageViewModel : BindableViewModel
             () => Choose(choice.CultureName)))];
         CultureNames = [.. offered.Select(choice => choice.CultureName)];
         MarkCurrent(Chosen(UiCulturePreference.ReadFile(configDirectory), _running));
+        // [#935] Reset everything and Import write the language too; show what they chose.
+        UiCulturePreference.Changed += (_, _) => MarkCurrent(Chosen(UiCulturePreference.ReadFile(_configDirectory), _running));
     }
 
     public string Heading => SetupText.LanguageHeading;

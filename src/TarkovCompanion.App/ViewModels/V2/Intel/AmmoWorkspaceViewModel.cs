@@ -118,6 +118,12 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         _state = LearnMode.Page(WorkspaceLayoutKeys.PageAmmo);
         _armorClass = _state.Int("class", 0, 0, 6);
         _sort = _state.Enum("sort", AmmoSort.Rank);
+        // [#935] A reset or an import replaced the layout: show the class and sort it holds now.
+        WorkspaceLayoutReplaced.Reread(LearnMode.Layout, () =>
+        {
+            ArmorClass = _state.Int("class", 0, 0, 6);
+            Sort = _state.Enum("sort", AmmoSort.Rank);
+        });
         ArmorFilters =
         [
             .. Enumerable.Range(0, 7).Select(armorClass => new AmmoChipViewModel(

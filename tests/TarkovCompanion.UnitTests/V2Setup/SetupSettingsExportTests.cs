@@ -125,7 +125,34 @@ public sealed class SetupSettingsExportTests
         var result = SetupSettingsExport.Validate("{\"schemaVersion\": 99, \"theme\": \"Light\"}");
 
         Assert.False(result.IsValid);
-        Assert.Contains("newer", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(SetupSettingsImportError.Newer, result.Error);
+    }
+
+    /// <summary>[#935] Two map keys differing only in case threw from ToDictionary, and Preview import did nothing.</summary>
+    [Fact]
+    public void Map_default_keys_that_differ_only_in_case_read_as_one_with_the_later_value()
+    {
+        var result = SetupSettingsExport.Validate("""{ "schemaVersion": 2, "mapDefaults": { "customs": "a", "Customs": "b" } }""");
+
+        Assert.True(result.IsValid);
+        Assert.Equal("b", Assert.Single(result.Snapshot!.MapDefaults).Value);
+    }
+
+    /// <summary>[#935] The interface language and the Capture shortcut travel in the file.</summary>
+    [Fact]
+    public void The_interface_language_and_the_capture_shortcut_round_trip()
+    {
+        var snapshot = SetupSettingsSnapshot.Default with { InterfaceLanguage = "de", CaptureShortcut = false };
+
+        var result = SetupSettingsExport.Validate(SetupSettingsExport.ToJson(snapshot));
+
+        Assert.Equal("de", result.Snapshot!.InterfaceLanguage);
+        Assert.False(result.Snapshot.CaptureShortcut);
+        // A file from before them leaves both as they are.
+        var current = SetupSettingsSnapshot.Default with { InterfaceLanguage = "fr", CaptureShortcut = false };
+        var older = SetupSettingsExport.Validate("""{ "schemaVersion": 2, "theme": "Light" }""", current).Snapshot!;
+        Assert.Equal("fr", older.InterfaceLanguage);
+        Assert.False(older.CaptureShortcut);
     }
 
     [Fact]

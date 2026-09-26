@@ -146,6 +146,12 @@ public sealed partial class CraftsBartersWorkspaceViewModel : BindableViewModel
             .Select(sort => new IntelTradeSortViewModel(sort, SelectSort))
             .ToArray();
         Sorts.Single(sort => sort.Sort == _sort).IsSelected = true;
+        // [#935] A reset or an import replaced the layout: show the switch and sort it holds now.
+        TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutReplaced.Reread(LearnMode.Layout, () =>
+        {
+            ReadyNowOnly = _state.Bool("ready-now", false);
+            SelectSort(_state.Enum("sort", IntelTradeSort.Profit));
+        });
         LoadTask = LoadAsync();
     }
 

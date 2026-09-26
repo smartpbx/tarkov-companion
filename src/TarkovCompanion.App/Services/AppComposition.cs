@@ -1204,6 +1204,7 @@ public static class AppComposition
                 SquadSharing = provider.GetRequiredService<IGroupSettingsStore>(),
                 Layout = provider.GetRequiredService<IWorkspaceLayoutStore>(),
                 MapDefaults = provider.GetRequiredService<IMapVariantPreferenceStore>(),
+                InterfaceLanguage = SetupInterfaceLanguage.Source(paths.Config),
             }));
         // [#292 task 3] The database's migration state and verified backup, read from the same
         // SqliteMigrationRunner that already makes and verifies one before a destructive migration.
