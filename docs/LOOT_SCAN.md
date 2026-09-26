@@ -141,6 +141,10 @@ as row and column; a no-fit verdict is withheld when carried coverage is incompl
 
 ## Changing the answer
 
+A cell nobody could name offers its lookalikes as "It is:". A pick names the cell and decides
+the frame again, is kept with the frame, and teaches the matcher the icon (see
+`docs/RECOGNITION.md`, "Learning from corrections").
+
 The selected item can be pinned, wishlisted, or given an "always take" or "always leave" rule,
 and the raid phase and risk are picked in the header. Each writes where the scan reads, then the
 retained frame is decided again. No second screenshot is needed and the selection is kept.

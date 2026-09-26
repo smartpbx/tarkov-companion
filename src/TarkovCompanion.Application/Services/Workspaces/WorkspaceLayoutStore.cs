@@ -100,6 +100,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[#712 0-10] Sound cues and speech as one JSON value; see SoundSettingsStore. Missing is off.</summary>
     public const string SoundSettings = "sound.settings";
 
+    /// <summary>[#712 1-12] "off" when a correction must not keep its icon crop. Missing is on (decision 6).</summary>
+    public const string LearnIconCrops = "recognition.learn-icon-crops";
+
     /// <summary>[#902 P8] One page's remembered filters, chips and sorts; see <see cref="PageState"/>.</summary>
     public const string PageIntel = "page.intel";
     public const string PageAmmo = "page.ammo";

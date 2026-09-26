@@ -1,5 +1,7 @@
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.Core.Domain.Recognition.Learning;
 
 namespace TarkovCompanion.Infrastructure.Recognition;
 
@@ -7,13 +9,16 @@ public sealed class CanonicalItemResolverCache : IInvalidatableProjection, IAsyn
 {
     private readonly IRecognitionCatalogRepository _repository;
     private readonly OcrTextNormalizer _normalizer;
+    private readonly ICorrectionMemoryStore? _learned;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private FuzzyCanonicalItemResolver? _resolver;
 
     public CanonicalItemResolverCache(
         IRecognitionCatalogRepository repository,
-        OcrTextNormalizer? normalizer = null)
+        OcrTextNormalizer? normalizer = null,
+        ICorrectionMemoryStore? learned = null)
     {
+        _learned = learned;
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _normalizer = normalizer ?? new OcrTextNormalizer();
     }
@@ -42,7 +47,7 @@ public sealed class CanonicalItemResolverCache : IInvalidatableProjection, IAsyn
             if (_resolver is null)
             {
                 var catalog = await _repository.LoadAsync(cancellationToken).ConfigureAwait(false);
-                _resolver = new(catalog, _normalizer);
+                _resolver = new(await WithLearnedAliasesAsync(catalog, cancellationToken).ConfigureAwait(false), _normalizer);
             }
 
             return _resolver;
@@ -51,6 +56,44 @@ public sealed class CanonicalItemResolverCache : IInvalidatableProjection, IAsyn
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// #712 1-12: a reading the player picked as the same other item twice becomes one more name
+    /// for that item, so the next read of it lands there. Nothing learned is not an error.
+    /// </summary>
+    private async Task<IReadOnlyList<CanonicalItemReference>> WithLearnedAliasesAsync(
+        IReadOnlyList<CanonicalItemReference> catalog,
+        CancellationToken cancellationToken)
+    {
+        if (_learned is null)
+        {
+            return catalog;
+        }
+
+        IReadOnlyList<LearnedTextAlias> aliases;
+        try
+        {
+            aliases = await _learned.ListActiveAliasesAsync(LearnedTextAlias.ItemNameKind, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return catalog;
+        }
+
+        if (aliases.Count == 0)
+        {
+            return catalog;
+        }
+
+        var byItem = aliases
+            .GroupBy(alias => alias.ItemId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(alias => alias.NormalizedText).ToArray(), StringComparer.Ordinal);
+        return catalog
+            .Select(item => byItem.TryGetValue(item.Id, out var learned)
+                ? item with { Aliases = [.. item.Aliases ?? [], .. learned] }
+                : item)
+            .ToArray();
     }
 
     public ValueTask DisposeAsync()

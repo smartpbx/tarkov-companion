@@ -51,8 +51,13 @@ internal static class FleaScanDemo
                 currency == "RUB" ? null : new DataProvenance("render catalog currency", now.AddMinutes(-10)),
                 condition);
 
+        // #712 1-12: --flea-correct says the screen was for the first alternate, on two frames, so
+        // the reading becomes a learned name and Setup's count shows it.
+        var correct = Environment.GetCommandLineArgs().Contains("--flea-correct");
+        foreach (var hash in correct ? new[] { 'd', 'c' } : ['c'])
+        {
         var analysis = new CaptureAnalysis(
-            new string('c', 64),
+            new string(hash, 64),
             RecognizedContext.Flea,
             false,
             true,
@@ -60,7 +65,7 @@ internal static class FleaScanDemo
             new Confidence(0.9),
             Identified:
             [
-                new(item.Id, item.Name, new Confidence(0.88), item.ShortName),
+                new(item.Id, item.Name, new Confidence(0.88), $"ocr-fuzzy; observed={item.ShortName.ToLowerInvariant()}; matched={item.Name}"),
                 .. search.Result.Where(hit => hit.Item.Id != item.Id).Take(2)
                     .Select(hit => new CaptureIdentifiedItem(hit.Item.Id, hit.Item.Name, new Confidence(0.52), hit.Item.ShortName)),
             ],
@@ -99,6 +104,21 @@ internal static class FleaScanDemo
             new CaptureCorrection(CaptureReviewAction.UseDetected, ScanIntent.Flea, RecognizedContext.Flea, 0, now, "render-preview"));
         drain(services.GetRequiredService<ICaptureResultHandoff>().AcceptAsync(request, CancellationToken.None).AsTask());
         pump(80);
+        if (correct && analysis.Identified.Count > 1)
+        {
+            var corrected = services.GetRequiredService<FleaCaptureHandoff>().CorrectItemAsync(analysis.Identified[1].CanonicalId, CancellationToken.None);
+            drain(corrected);
+            pump(80);
+            Console.WriteLine($"[flea-correct] {analysis.Identified[1].DisplayName}: {corrected.Result}");
+        }
+        }
+
+        if (correct)
+        {
+            var counts = services.GetRequiredService<TarkovCompanion.Infrastructure.Recognition.CorrectionMemory>().CountAsync(CancellationToken.None);
+            drain(counts);
+            Console.WriteLine($"[flea-correct] learned: {counts.Result}");
+        }
     }
 
     private static int AgeMinutes()

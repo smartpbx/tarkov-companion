@@ -1,0 +1,28 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupLearnedView"
+             x:DataType="vm:SetupLearnedViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#712 1-12] What the player taught by correcting a read (decision 6): kept on this PC, on by
+       default, counted here and deletable here. -->
+  <StackPanel Classes="v2-field" AutomationProperties.AutomationId="v2-setup-learned">
+    <TextBlock Classes="v2-label" Text="{Binding Heading}" />
+    <TextBlock Classes="v2-body" Text="{Binding CountsLabel}" AutomationProperties.AutomationId="v2-setup-learned-counts" />
+    <CheckBox IsChecked="{Binding KeepsIconCrops, Mode=TwoWay}"
+              AutomationProperties.AutomationId="v2-setup-learned-keep-crops"
+              Content="{Binding KeepCropsLabel}" />
+    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding KeepCropsNote}" />
+    <WrapPanel ItemSpacing="6" LineSpacing="6">
+      <Button Classes="v2-target" Content="{Binding DeleteAllLabel}" Command="{Binding DeleteAllCommand}"
+              IsEnabled="{Binding HasAnything}"
+              AutomationProperties.AutomationId="v2-setup-learned-delete-all" />
+      <Button Classes="v2-target" Content="{Binding ClearIconsLabel}" Command="{Binding ClearIconsCommand}"
+              IsEnabled="{Binding HasAnything}"
+              AutomationProperties.AutomationId="v2-setup-learned-clear-icons" />
+      <Button Classes="v2-target" Content="{Binding ClearNamesLabel}" Command="{Binding ClearNamesCommand}"
+              IsEnabled="{Binding HasAnything}"
+              AutomationProperties.AutomationId="v2-setup-learned-clear-names" />
+    </WrapPanel>
+    <TextBlock Classes="v2-label" Text="{Binding Status}" />
+  </StackPanel>
+</UserControl>

@@ -375,6 +375,31 @@ policies on the labelled cells and on composed cells side by side.
 These are menu screens. They do not settle hover or selection highlights over a raid container,
 freshly looted found-in-raid state, or which panel is the container on the in-raid loot screen.
 
+### Learning from corrections (#712 1-12, 2026-09-26)
+
+A refused cell offers its lookalikes as "It is:" buttons (Loot decision, Intel › Stash), and a
+flea screen offers the other items its name could be. A pick names the cell or the screen, is
+kept with the frame's content hash (`learned_frame_corrections`), and, while the frame's pixels
+are still held (`RecentIconCrops`, refused cells only, in memory), keeps that cell's icon squares
+as a learned reference. Setup › Game & Capture turns crop keeping off (on by default, decision 6)
+and deletes everything learned. A flea reading picked as the same item twice becomes one more
+name for it in the name reader.
+
+`LearnedIconMatchPolicy` decides, and only for a cell the catalog art refused, so a name the
+catalog gave never changes: the learned crop must score at least 0.90, stand 0.04 clear of any
+other item's learned crop, and the item's own catalog art must still score 0.60 or more.
+Measured by `LearnedReferenceStudyTests` on the 360 labelled real stash cells, leave one frame
+out, every cell the catalog refused on the other frames "corrected" to its label:
+
+- Catalog alone names 162 right, 0 wrong (45%). With the learned crops: 218 right, 0 wrong (61%);
+  keeping only the first correction of each item, 216 at 0.93 and 218 at 0.90.
+- Stress, with every crop of the cell's own item removed so any name is wrong: 0 wrong at every
+  floor from 0.97 to 0.75. Without the catalog guard, other items' crops first reach 0.85 on 6
+  cells and name 32 wrongly at 0.75; the floor of 0.90 leaves 0.05 over the last clean one.
+
+One stash, menu screens, the same items seen again across overlapping frames: a ceiling for
+a player re-photographing a stash, not a figure for raid containers.
+
 ### What is not built, and the pixels it is waiting for (2026-09-19)
 
 Two things #273 asks for, and the limb and gear-slot reading #305 asks for, are not built. Each

@@ -157,9 +157,21 @@ public sealed class FleaScanViewModel : BindableViewModel
         FleaScanResult scan,
         CultureInfo? culture = null,
         bool offline = false,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<string, Task>? correctItem = null)
     {
         Scan = scan ?? throw new ArgumentNullException(nameof(scan));
+        // #712 1-12: the other items the name could be read as, one tap each to say which it was.
+        IdentityChoices = correctItem is null || scan.ItemName is null
+            ? []
+            : [.. scan.Alternates
+                .DistinctBy(item => item.CanonicalId, StringComparer.Ordinal)
+                .Take(3)
+                .Select((item, index) => new IdentityChoiceViewModel(
+                    item.CanonicalId,
+                    item.DisplayName,
+                    $"v2-flea-it-is-{index.ToString(CultureInfo.InvariantCulture)}",
+                    () => correctItem(item.CanonicalId)))];
         var format = culture ?? CultureInfo.CurrentCulture;
         _culture = format;
         _clock = timeProvider ?? TimeProvider.System;
@@ -205,6 +217,14 @@ public sealed class FleaScanViewModel : BindableViewModel
     }
 
     public FleaScanResult Scan { get; }
+
+    public IReadOnlyList<IdentityChoiceViewModel> IdentityChoices { get; }
+
+    public bool HasIdentityChoices => IdentityChoices.Count > 0;
+
+    public string IdentityChoicesLabel => LearnText.FleaItIs;
+
+    public string IdentityChoicesTip => LearnText.FleaItIsTip;
 
     public string Heading { get; }
 

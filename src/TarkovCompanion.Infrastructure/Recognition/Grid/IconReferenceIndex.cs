@@ -5,6 +5,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.Core.Domain.Recognition.Learning;
 
 namespace TarkovCompanion.Infrastructure.Recognition.Grid;
 
@@ -42,9 +43,17 @@ public sealed record IconReference(IconContentEvidence Evidence, ItemDefinition 
 /// compared (see the builder), so they are built a whole shape at a time, and
 /// <see cref="WarmAsync"/> builds them all in the background once the icon index is refreshed,
 /// before a scan has to wait for them (about 46 MB for the 5,320 icons of 2026-09).
+/// <para>
+/// #712 1-12: the player's own corrected crops (<see cref="ICorrectionMemoryStore"/>) are held
+/// beside the catalog art, by shape, and consulted only for a cell the catalog refused (see
+/// <see cref="LearnedIconMatchPolicy"/>). A new crop or a Delete all calls
+/// <see cref="RefreshLearnedAsync"/>, which swaps only the learned crops: dropping the whole
+/// snapshot would throw away every catalog descriptor (#826) for one small picture.
+/// </para>
 /// </remarks>
-public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository items)
+public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository items, ICorrectionMemoryStore? learned = null)
 {
+    private readonly ICorrectionMemoryStore? _learned = learned;
     private readonly IIconEvidenceCache _cache = cache ?? throw new ArgumentNullException(nameof(cache));
     private readonly IItemRepository _items = items ?? throw new ArgumentNullException(nameof(items));
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -83,7 +92,7 @@ public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository
                 }
             }
 
-            var built = new Snapshot(_cache, references);
+            var built = new Snapshot(_cache, references, await ReadLearnedAsync(definitions, cancellationToken).ConfigureAwait(false));
             // An empty index is not worth keeping: on a fresh install the icons arrive minutes
             // after the first scan could, and a kept empty answer would outlive them.
             if (references.Count > 0)
@@ -97,6 +106,62 @@ public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// The player's corrected crops, described. A learned crop of an item the catalog no longer
+    /// holds is left out, and a store that cannot be read teaches nothing rather than failing a scan.
+    /// </summary>
+    private async Task<IReadOnlyList<LearnedIcon>> ReadLearnedAsync(
+        Dictionary<string, ItemDefinition?> definitions,
+        CancellationToken cancellationToken)
+    {
+        if (_learned is null)
+        {
+            return [];
+        }
+
+        IReadOnlyList<LearnedIconReference> stored;
+        try
+        {
+            stored = await _learned.ListIconsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return [];
+        }
+
+        var learned = new List<LearnedIcon>(stored.Count);
+        foreach (var reference in stored)
+        {
+            if (!definitions.TryGetValue(reference.ItemId, out var definition))
+            {
+                definition = await _items.GetAsync(reference.ItemId, cancellationToken).ConfigureAwait(false);
+                definitions[reference.ItemId] = definition;
+            }
+
+            if (definition is not null &&
+                Snapshot.Describe(reference.Png, new ItemDimensions(reference.WidthCells, reference.HeightCells)) is { } descriptor)
+            {
+                learned.Add(new(reference.ItemId, descriptor));
+            }
+        }
+
+        return learned;
+    }
+
+    /// <summary>Reads the player's crops again into the kept snapshot, leaving the catalog's descriptors as they are.</summary>
+    public async Task RefreshLearnedAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _snapshot) is not { } held)
+        {
+            return;
+        }
+
+        var definitions = held.References
+            .GroupBy(reference => reference.Definition.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => (ItemDefinition?)group.First().Definition, StringComparer.Ordinal);
+        held.SetLearned(await ReadLearnedAsync(definitions, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>Drops the kept answer, so the next scan sees icons stored since.</summary>
@@ -122,11 +187,13 @@ public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository
         private readonly ConcurrentDictionary<IconEvidenceKey, IconPixelDescriptor?> _descriptors = new();
         private readonly ConcurrentDictionary<(int Width, int Height), Lazy<Task<IconPixelDescriptor?[]>>> _shapeDescriptors = new();
         private readonly Dictionary<(int Width, int Height), IconReference[]> _byShape;
+        private Dictionary<(int Width, int Height), LearnedIcon[]> _learnedByShape = [];
 
-        internal Snapshot(IIconEvidenceCache cache, IReadOnlyList<IconReference> references)
+        internal Snapshot(IIconEvidenceCache cache, IReadOnlyList<IconReference> references, IReadOnlyList<LearnedIcon>? learned = null)
         {
             _cache = cache;
             References = references;
+            SetLearned(learned ?? []);
             _byShape = references
                 .GroupBy(reference => (reference.Definition.Dimensions.Width, reference.Definition.Dimensions.Height))
                 .ToDictionary(group => group.Key, group => group.ToArray());
@@ -142,6 +209,19 @@ public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository
         /// warm-up never takes every core from the game running beside it.
         /// </summary>
         public static int DecodeParallelism => Math.Max(1, Environment.ProcessorCount / 2);
+
+        /// <summary>The player's corrected crops of this footprint shape, as they were seen.</summary>
+        public IReadOnlyList<LearnedIcon> LearnedOfShape(int widthCells, int heightCells) =>
+            Volatile.Read(ref _learnedByShape).TryGetValue((widthCells, heightCells), out var learned) ? learned : [];
+
+        /// <summary>How many corrected crops the snapshot holds.</summary>
+        public int LearnedCount => Volatile.Read(ref _learnedByShape).Values.Sum(shape => shape.Length);
+
+        internal void SetLearned(IReadOnlyList<LearnedIcon> learned) => Volatile.Write(
+            ref _learnedByShape,
+            learned
+                .GroupBy(icon => (icon.Descriptor.WidthCells, icon.Descriptor.HeightCells))
+                .ToDictionary(group => group.Key, group => group.ToArray()));
 
         /// <summary>References drawn at exactly this many cells, unrotated.</summary>
         public IReadOnlyList<IconReference> OfShape(int widthCells, int heightCells) =>
@@ -240,7 +320,7 @@ public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository
             return descriptor;
         }
 
-        private static IconPixelDescriptor? Describe(ReadOnlyMemory<byte> content, ItemDimensions dimensions)
+        internal static IconPixelDescriptor? Describe(ReadOnlyMemory<byte> content, ItemDimensions dimensions)
         {
             // The cache already bounded these bytes and their decoded size when it stored them.
             using var decoded = SKBitmap.Decode(content.Span);
@@ -265,3 +345,6 @@ public sealed class IconReferenceIndex(IIconEvidenceCache cache, IItemRepository
         }
     }
 }
+
+/// <summary>One of the player's corrected crops, described for comparison.</summary>
+public sealed record LearnedIcon(string ItemId, IconPixelDescriptor Descriptor);

@@ -6,6 +6,7 @@
              xmlns:v2="using:TarkovCompanion.App.Views.V2"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
+             xmlns:v2vm="using:TarkovCompanion.App.ViewModels.V2"
              xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
              xmlns:shellVm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Resources>
@@ -545,6 +546,23 @@
                       IsVisible="{Binding SelectedItemHasLoadoutLink}"
                       Command="{Binding SelectedItemOpenLoadoutCommand}"
                       AutomationProperties.AutomationId="v2-stash-open-selected-loadout" />
+              <!-- #712 1-12: an unnamed tile is named from its own lookalikes; the icon is remembered. -->
+              <WrapPanel ItemSpacing="6" LineSpacing="6" IsVisible="{Binding HasSelectedItemIdentityChoices}">
+                <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding IdentityChoicesLabel}" />
+                <ItemsControl ItemsSource="{Binding SelectedItemIdentityChoices}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="v2vm:IdentityChoiceViewModel">
+                      <Button Classes="v2-outline" Content="{Binding Label}" Command="{Binding ChooseCommand}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </WrapPanel>
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Classes="v2-field-input" Watermark="{x:Static l:IntelText.StashCorrectedItemId}"
                          Text="{Binding IdentityCorrection}"

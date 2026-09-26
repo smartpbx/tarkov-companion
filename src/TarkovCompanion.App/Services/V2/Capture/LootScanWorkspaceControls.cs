@@ -72,6 +72,9 @@ public sealed class LootScanWorkspaceControls(
                 _ => null,
             }));
 
+    public Task ConfirmIdentityAsync(TarkovCompanion.Core.Abstractions.V2.GridCellAddress anchor, string itemId) =>
+        _handoff.CorrectCellAsync(anchor, itemId, CancellationToken.None);
+
     private async Task WriteAsync(Func<ProfileProgress, ProfileProgress> change)
     {
         var expected = _profiles.Current;

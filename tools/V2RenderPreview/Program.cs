@@ -2614,6 +2614,13 @@ internal static class Program
             if (shell is not null && StringOption(args, "--flea-scan-demo") is { } fleaScanItem)
             {
                 FleaScanDemo.Run(services, DrainUntilComplete, Pump, fleaScanItem, StringOption(args, "--loot-scan-flea-rates"));
+                // #712 1-12: --then-setup shows Setup › Game & Capture's learned counts after the picks.
+                if (args.Contains("--then-setup") && shell.SetupWorkspace is { } learnedSetup)
+                {
+                    shell.Router.NavigateToAddress("setup");
+                    learnedSetup.Select(V2SetupSection.GameCapture);
+                    Pump(40);
+                }
             }
 
             // Package 37: the same workspace over a picture the shipped recognizer actually read.
@@ -2625,12 +2632,17 @@ internal static class Program
                     StringOption(args, "--icon-cache"),
                     StringOption(args, "--loot-scan-now"),
                     StringOption(args, "--loot-scan-flea-rates"),
-                    StringOption(args, "--loot-scan-phase"));
+                    StringOption(args, "--loot-scan-phase"),
+                    args.Contains("--loot-learn-demo"));
                 DrainUntilComplete(scan);
                 shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
                     scan.Result.Result,
                     controls: scan.Result.Controls,
-                    openWiki: _ => Task.CompletedTask));
+                    openWiki: _ => Task.CompletedTask,
+                    // #712 1-12: --loot-select-refused shows the first cell nobody named, with "It is:".
+                    select: args.Contains("--loot-select-refused")
+                        ? scan.Result.Result.Decisions.FirstOrDefault(decision => decision.Item.Value is null && decision.Item.Candidates.Count > 0)?.SourceAnchor
+                        : null));
                 Pump(20);
             }
 
