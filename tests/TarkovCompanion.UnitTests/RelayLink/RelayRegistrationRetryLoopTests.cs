@@ -25,6 +25,9 @@ public sealed class RelayRegistrationRetryLoopTests
 
         foreach (var elapsed in new[] { 30, 60, 120, 240, 300, 300 })
         {
+            // The attempt after a fired delay runs on a pool thread. Advancing before that run has
+            // parked in its next delay would start the delay late and shift the whole schedule.
+            await UntilAsync(() => clock.ScheduledTimerCount == 1);
             clock.Advance(TimeSpan.FromSeconds(elapsed - 1));
             await DrainAsync();
             var before = attempts.Count;
@@ -89,11 +92,16 @@ public sealed class RelayRegistrationRetryLoopTests
         Assert.Equal(Now, clock.GetUtcNow());
     }
 
+    /// <remarks>
+    /// Bounded by wall time, not by yields: on a busy CI runner the pool thread that runs the
+    /// next attempt was not scheduled within 100 yields (#958's linux run, 2026-09-26).
+    /// </remarks>
     private static async Task UntilAsync(Func<bool> predicate)
     {
-        for (var turn = 0; turn < 100 && !predicate(); turn++)
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!predicate() && DateTime.UtcNow < deadline)
         {
-            await Task.Yield();
+            await Task.Delay(1);
         }
 
         Assert.True(predicate());
