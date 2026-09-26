@@ -368,6 +368,7 @@ public sealed partial class WindowsEftLogWatcher(
             // without showing it (#892).
             DateTimeOffset? lastStamp = null;
             var stretch = 0;
+            var firstOfFile = replayed.Count;
             for (var index = first; index < read.Count; index++)
             {
                 var line = read[index];
@@ -399,6 +400,7 @@ public sealed partial class WindowsEftLogWatcher(
                 Notify(line, observedUtc, mode);
             }
 
+            RaidReplayDecision.CountFromEnd(replayed, firstOfFile, stretch);
             logger?.LogInformation(
                 "Replayed {Lines} line(s) of {File} at startup ({Mode}).",
                 read.Count - first,

@@ -238,6 +238,77 @@ public sealed class RaidsAfterTransitAndClockStepTests
         Assert.Equal(Local("2026-09-22 23:01:44"), verdict.LastSeenUtc);
     }
 
+    /// <summary>
+    /// #937: backend's last notification, the Shoreline end, comes before the step, and only
+    /// keepalives follow it. The offline Lab raid after the step has no id and no notification.
+    /// Rebased on backend's last notification rather than on backend's end, the Shoreline end moved
+    /// into the post-step stretch, sorted four hours after the Lab start, and closed it.
+    /// </summary>
+    [Fact]
+    public void AFileWhoseLastNotificationCameBeforeTheStepKeepsItBeforeTheStep()
+    {
+        var files = new (string File, string[] Lines)[]
+        {
+            ("application_000.log",
+            [
+                ProfileStatus("2026-09-23 02:20:00.000", "Shoreline", "SHORE1"),
+                App("2026-09-23 02:21:40.000", "GameStarted:99.52(99.52) real:115.89(115.89) diff:16.37"),
+                // The step: 02:36 on the fast clock, then 22:40 on the right one.
+                ProfileReload("2026-09-23 02:36:00.000"),
+                .. OfflineLab("2026-09-22 22:44:00.000", "2026-09-22 22:44:02.000", "2026-09-22 22:44:20.000", "2026-09-22 22:44:30.000", "2026-09-22 22:45:00.000"),
+            ]),
+            ("backend_000.log",
+            [
+                Notification("2026-09-23 02:19:58.000", "userConfirmed", "Busy", "Shoreline", "SHORE1"),
+                Notification("2026-09-23 02:35:00.000", "userMatchOver", "Free", "Shoreline", "SHORE1"),
+                // Stamped after the step, and nothing the raid tracking reads.
+                $"2026-09-22 22:41:00.000|1.1.5.1.47510|Info|backend|---> Request HTTPS, id [101]: URL: https://example.invalid/client/game/keepalive",
+                $"2026-09-22 22:50:00.000|1.1.5.1.47510|Info|backend|---> Request HTTPS, id [102]: URL: https://example.invalid/client/game/keepalive",
+            ]),
+        };
+
+        var verdict = RaidReplayDecision.Decide(ReplayLikeTheWatcher(files), gameIsRunning: true, Local("2026-09-22 22:52:00"));
+
+        Assert.True(verdict.IsLive, verdict.Reason);
+        Assert.Equal("the-lab", verdict.Start?.MapId);
+        Assert.Equal(Local("2026-09-22 22:45:00"), verdict.LastSeenUtc);
+    }
+
+    /// <summary>What WindowsEftLogWatcher.ReplayAsync does: stretches counted over every line, evidence kept, rebased on the file's end.</summary>
+    private static List<ReplayedRaidLine> ReplayLikeTheWatcher(IEnumerable<(string File, string[] Lines)> files)
+    {
+        var parser = new EftLogParser();
+        var replayed = new List<ReplayedRaidLine>();
+        foreach (var (file, lines) in files)
+        {
+            var firstOfFile = replayed.Count;
+            var stretch = 0;
+            DateTimeOffset? lastStamp = null;
+            foreach (var line in lines)
+            {
+                var written = RaidReplayDecision.WrittenUtc(line, Zone);
+                if (written is { } stamp)
+                {
+                    if (lastStamp is { } before && RaidReplayDecision.IsClockStep(before, stamp))
+                    {
+                        stretch++;
+                    }
+
+                    lastStamp = stamp;
+                }
+
+                if (parser.ParseLine(line, DateTimeOffset.UnixEpoch) is { } evidence)
+                {
+                    replayed.Add(new(evidence, written, replayed.Count) { Source = file, Stretch = stretch });
+                }
+            }
+
+            RaidReplayDecision.CountFromEnd(replayed, firstOfFile, stretch);
+        }
+
+        return replayed;
+    }
+
     /// <summary>A companion restarted during an offline Lab raid: the scene preset is the only thing that names the map.</summary>
     [Fact]
     public void AReplayDuringAnOfflineRaidResumesItOnTheMapItsSceneLoaded()

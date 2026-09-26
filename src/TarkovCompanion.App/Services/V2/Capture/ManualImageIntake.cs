@@ -205,6 +205,7 @@ public sealed class ManualImageIntake(
 
                 return new(
                     input,
+                    image,
                     new MemoryCaptureSource(
                         image,
                         origin == ManualImageOrigin.Paste && input.Image is not null
@@ -262,19 +263,48 @@ public sealed class ManualImageIntake(
 
                 var item = current;
                 var correlationId = CaptureCorrelationId.New();
-                var receipt = await _sessions.EnqueueAsync(
+                // #937: the last picture is the one that closes the session, so a transient refusal
+                // of it is retried once. A refused source is zeroed, so the retry needs a copy.
+                var spare = isLast ? Copy(item.Image) : null;
+                CaptureQueueReceipt receipt;
+                try
+                {
+                    receipt = await EnqueueAsync(item.Source, correlationId).ConfigureAwait(false);
+                    item.HandedOff = true;
+                    if (spare is not null
+                        && receipt.Disposition == CaptureQueueDisposition.Rejected
+                        && IsTransient(receipt.Code))
+                    {
+                        await WaitForRoomAsync(item.PixelBytes, cancellationToken).ConfigureAwait(false);
+                        if (!cancellationToken.IsCancellationRequested)
+                        {
+                            var retry = new MemoryCaptureSource(spare, item.Source.SourceKind);
+                            spare = null;
+                            correlationId = CaptureCorrelationId.New();
+                            receipt = await EnqueueAsync(retry, correlationId).ConfigureAwait(false);
+                        }
+                    }
+                }
+                finally
+                {
+                    if (spare is not null)
+                    {
+                        Discard(item.Input with { Image = spare });
+                    }
+                }
+
+                ValueTask<CaptureQueueReceipt> EnqueueAsync(MemoryCaptureSource source, CaptureCorrelationId id) =>
+                    _sessions.EnqueueAsync(
                         new(
                             CaptureDeliveryKind.Batch,
-                            item.Source,
+                            source,
                             context,
                             _timeProvider.GetUtcNow(),
-                            correlationId,
+                            id,
                             sessionId,
                             endSessionAfterReview: isLast,
                             batchId),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                item.HandedOff = true;
+                        cancellationToken);
                 if (receipt.Disposition == CaptureQueueDisposition.Accepted)
                 {
                     accepted++;
@@ -306,7 +336,14 @@ public sealed class ManualImageIntake(
                     Publish(new(item.Input.Id, ShellText.CaptureRowNotQueued(receipt.Code), true, correlationId));
                     current = null;
                     cancelled += CancelEverythingLeft();
-                    _sessions.Cancel(sessionId, "manual-batch-admission-failed");
+                    // #937: the last picture still refused after its retry fails alone. The pictures
+                    // already accepted keep their reviews, and the session ends once those finish.
+                    if (!(isLast && accepted > 0 && IsTransient(receipt.Code)
+                        && _sessions.EndWhenIdle(sessionId, "manual-batch-last-not-admitted")))
+                    {
+                        _sessions.Cancel(sessionId, "manual-batch-admission-failed");
+                    }
+
                     break;
                 }
 
@@ -351,6 +388,9 @@ public sealed class ManualImageIntake(
     internal static TimeSpan BudgetWait { get; } = TimeSpan.FromMinutes(5);
 
     private const string PixelBudgetExceeded = "decoded_pixel_budget_exceeded";
+
+    /// <summary>A copy of a picture's pixels in an array of its own, which is what a capture lease needs.</summary>
+    private static CapturedImage Copy(CapturedImage image) => image with { Pixels = image.Pixels.ToArray() };
 
     private static bool IsTransient(string? code) =>
         code is PixelBudgetExceeded or "capture_queue_full";
@@ -430,9 +470,11 @@ public sealed class ManualImageIntake(
         };
     }
 
-    private sealed class PreparedImage(ManualImageInput input, MemoryCaptureSource source, long pixelBytes)
+    private sealed class PreparedImage(ManualImageInput input, CapturedImage image, MemoryCaptureSource source, long pixelBytes)
     {
         public ManualImageInput Input { get; } = input;
+
+        public CapturedImage Image { get; } = image;
 
         public MemoryCaptureSource Source { get; } = source;
 

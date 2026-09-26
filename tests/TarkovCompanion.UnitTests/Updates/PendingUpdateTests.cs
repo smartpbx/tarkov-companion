@@ -128,7 +128,7 @@ public sealed class PendingUpdateTests
             return null;
         }));
         Assert.False(logRead, "no log is read for a build that is not waiting");
-        gateway.ApplyAndRestart();
+        Assert.Throws<UpdateNotDownloadedException>(gateway.ApplyAndRestart);
         Assert.Empty(harness.Locator.Recorded.Started);
     }
 

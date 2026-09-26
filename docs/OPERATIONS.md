@@ -56,7 +56,8 @@ allowed: from the feed if it still lists one, otherwise from the copy of the run
 `%LOCALAPPDATA%\TarkovCompanion\Updates\previous\` before each update (the relay keeps only the
 newest package). It then stays on that build until one newer than the feed's newest at the time is
 published; `Updates\update-state.json` holds that pin and what was last applied (version, feed
-host, SHA256, time), which Setup shows under "This build".
+host, SHA256, time), which Setup shows under "This build". Fetching the older build empties the
+updater's `packages\` folder, so a newer build already downloaded has to be downloaded again (#937).
 
 ## The group relay
 
