@@ -1,0 +1,18 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SituationDiagnosticsView"
+             x:DataType="vm:SituationDiagnosticsViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#712 0-2] Developer mode only: the situation every V3 surface reads, with each fact's reason (ADR 0022). -->
+  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-situation">
+    <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+    <ItemsControl ItemsSource="{Binding Lines}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="x:String">
+          <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding TransitionsText}" TextWrapping="Wrap" />
+  </StackPanel>
+</UserControl>

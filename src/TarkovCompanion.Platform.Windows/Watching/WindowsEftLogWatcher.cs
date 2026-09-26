@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Situations;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -458,6 +459,11 @@ public sealed partial class WindowsEftLogWatcher(
         if (mode == LogReadMode.Full && LoadTimeParser.ParseLine(line, observedUtc) is { } loadTime)
         {
             observer.Observe(loadTime);
+        }
+
+        if (mode == LogReadMode.Full && RaidPhaseMarkerParser.ParseLine(line, observedUtc) is { } phase)
+        {
+            observer.Observe(phase);
         }
     }
 

@@ -610,6 +610,9 @@
             <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
               <setup:V2SetupLootTimingView DataContext="{Binding Admin.LootScan}" />
             </Panel>
+            <Panel IsVisible="{Binding HasSituation}">
+              <setup:V2SituationDiagnosticsView DataContext="{Binding Situation}" />
+            </Panel>
             <StackPanel Classes="v2-field">
               <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
               <TextBlock Classes="v2-body" Text="{Binding CompanionLogPath.Text}" TextWrapping="Wrap" />

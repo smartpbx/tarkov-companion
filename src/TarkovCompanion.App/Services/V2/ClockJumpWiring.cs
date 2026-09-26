@@ -33,6 +33,7 @@ internal static class ClockJumpWiring
         var marks = services.GetService<IRaidMarkStore>();
         var group = services.GetService<GroupSessionService>();
         var logger = services.GetService<ILogger<WallClockJumpDetector>>();
+        var situation = services.GetService<TarkovCompanion.Application.Services.Situations.SituationService>();
         detector.Jumped += jump => _ = RebaseAsync(jump);
         if (services.GetService<RelayClockOffsetTracker>() is { } relayClock)
         {
@@ -53,6 +54,7 @@ internal static class ClockJumpWiring
                 }
 
                 group?.ClockJumped();
+                situation?.RebaseClock(jump);
                 await marksMoved.ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)

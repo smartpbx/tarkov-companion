@@ -102,6 +102,7 @@ public sealed partial class RaidCockpitViewModel
         if (route is null || _map.RenderModel is not { } model)
         {
             _objectiveRoute = null;
+            PublishSituationPlan(null);
             _rebuildRequest.Request();
             return;
         }
@@ -143,6 +144,7 @@ public sealed partial class RaidCockpitViewModel
         }
 
         _objectiveRoute = result;
+        PublishSituationPlan(result);
         _rebuildRequest.Request();
     }
 
