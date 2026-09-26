@@ -81,6 +81,11 @@
     <Style Selector="Border.v2-raid-chip TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
+    <!-- [#921] The strip's traffic chip: a chip's colours, the strip's control height and padding. -->
+    <Style Selector="Border.v2-raid-chip.v2-strip-chip">
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Chip.Inset}" />
+    </Style>
     <Style Selector="Border.v2-raid-chip.v2-raid-muted">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
     </Style>
@@ -154,6 +159,13 @@
       <Setter Property="Padding" Value="10,4" />
       <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
     </Style>
+    <!-- [#921] A bar floating over the map (Draw, Route, Inspect, Replay) is a toolbar like the
+         strip under it: its buttons take the strip's type and side padding, not a card's. -->
+    <Style Selector="Border.v2-raid-viewgroup Button.v2-raid-viewcontrol, Border.v2-raid-viewgroup ToggleButton.v2-raid-viewcontrol">
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    </Style>
     <!-- The floating groups fade out a few seconds after the pointer leaves the map when
          "Auto-hide" is on (#388). Purely visual: they stay hit-testable and stay in the
          automation tree, so a keyboard or a screen reader never loses them. -->
@@ -210,49 +222,24 @@
       <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
-    <!-- Follow is the one view switch pressed mid-raid, so it stays on the strip; it is sized
-         like the two menu buttons beside it rather than like the small switches inside them. -->
-    <Style Selector="ToggleButton.v2-raid-strip-toggle">
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <!-- Follow is the one view switch pressed mid-raid, so it stays on the strip. [#921] With its
+         zoom it is one Border.v2-segmented, the same control height as the menu buttons beside it. -->
+    <!-- [#919] The Draw bar's width choices draw their own stroke, lit like a checked icon. -->
+    <Style Selector="ToggleButton.v2-raid-draw-width Rectangle">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
-    <!-- [#286] The Draw switch's pencil lights the way Follow's word does when it is on. -->
-    <Style Selector="ToggleButton.v2-raid-draw-toggle:checked Path.v2-icon">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
+    <Style Selector="ToggleButton.v2-raid-draw-width:checked Rectangle">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
-    <!-- [#286] The map's mode group: four icons in one outlined group, narrower than the strip's
-         word buttons so Navigate / Inspect / Route / Draw still leave the strip one row at 1920. -->
-    <Style Selector="Border.v2-raid-mode-group">
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="1" />
-    </Style>
-    <Style Selector="ToggleButton.v2-raid-mode">
-      <Setter Property="Padding" Value="6,4" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-    </Style>
-    <Style Selector="ToggleButton.v2-raid-mode:checked Path.v2-icon">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
-    </Style>
+    <!-- [#286] The map's mode group: four icons in one segmented control, narrower than the strip's
+         word buttons so Navigate / Inspect / Route / Draw still leave the strip one row at 1920.
+         [#921] Its look is the shared Border.v2-segmented (V2PrimitiveStyles), the same as
+         2D / Stack / 3D and the floor ladder, lit icon and all. -->
     <Style Selector="Button.v2-raid-follow-step">
       <Setter Property="MinWidth" Value="32" />
       <Setter Property="Padding" Value="4" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-    </Style>
-    <!-- [#574] A small phase switch inside the Layers menu: the small control size from the
-         tokens, as a style rather than inline on each of the four. -->
-    <Style Selector="ToggleButton.v2-raid-phase-choice">
-      <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Small.Height}" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Control.Small.Inset}" />
-      <Setter Property="HorizontalAlignment" Value="Stretch" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
     </Style>
   </UserControl.Styles>
 
@@ -357,6 +344,32 @@
                       Click="DrawSettingsClicked"
                       AutomationProperties.AutomationId="v2-raid-draw-settings"
                       ToolTip.Tip="{x:Static l:RaidText.DrawScopeTip}" />
+              <!-- [#919] "Being able to choose the line size would be good": thin, medium, thick,
+                   each drawn as the stroke it makes, for the next line; remembered. -->
+              <Border Classes="v2-segmented"
+                      AutomationProperties.AccessibilityView="Control"
+                      AutomationProperties.AutomationId="v2-raid-draw-width"
+                      AutomationProperties.Name="{x:Static l:RaidText.LineWidth}"
+                      ToolTip.Tip="{x:Static l:RaidText.LineWidth}">
+                <ItemsControl ItemsSource="{Binding DrawWidthChoices}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DrawWidthChoiceViewModel">
+                      <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon v2-raid-draw-width"
+                                    IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                    Command="{Binding SelectCommand}"
+                                    AutomationProperties.AutomationId="{Binding AutomationId}"
+                                    AutomationProperties.Name="{Binding Label}"
+                                    ToolTip.Tip="{Binding Label}">
+                        <Rectangle Width="16" Height="{Binding Width}" RadiusX="1" RadiusY="1"
+                                   VerticalAlignment="Center" IsHitTestVisible="False" />
+                      </prim:SelectionToggleButton>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Border>
               <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.ClearMine}"
                       Command="{Binding ClearMyDrawingsCommand}" IsEnabled="{Binding HasOwnDrawings}"
                       AutomationProperties.AutomationId="v2-raid-draw-clear"
@@ -491,7 +504,7 @@
              StripSecondRow, rather than the star column squeezing the floor switches to nothing. -->
         <StackPanel>
         <Grid x:Name="ControlStrip" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto"
-              ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}">
+              ColumnSpacing="{DynamicResource V2.Control.Spacing}">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                       AutomationProperties.HelpText="{Binding TimeLeftDetail}">
             <!-- [#266] Only while a raid clock runs: the state words are already in the top bar
@@ -534,7 +547,7 @@
                The phase switch and the heat legend are a press away in the Layers menu, under
                "Modelled traffic" — the strip is one row and has no room for both. -->
           <!-- [#307] One line at 100% text, wrapping only at larger text: see TrafficChipWidthConverter. -->
-          <Border Grid.Column="2" x:Name="TrafficChip" Classes="v2-raid-chip" VerticalAlignment="Center"
+          <Border Grid.Column="2" x:Name="TrafficChip" Classes="v2-raid-chip v2-strip-chip" VerticalAlignment="Center"
                   IsVisible="{Binding ShowsTrafficBanner}"
                   BorderBrush="{DynamicResource V2.Brush.Warning}"
                   ToolTip.Tip="{Binding TrafficBannerTooltip}"
@@ -550,15 +563,15 @@
                the presentation WrapPanel to add a second strip row at 1920x1080. Keep the common
                toggle at its original width and put the two step targets behind the adjacent,
                state-labelled selector. The commands and automation IDs stay directly reachable. -->
-          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="{DynamicResource V2.Control.Spacing}" VerticalAlignment="Center">
             <!-- [#286] Navigate / Inspect / Route / Draw: icons with tooltips, so the strip keeps its
                  one row at 1920 (#838). The draw-mode flag (#855) still hides the pencil. -->
-            <Border Classes="v2-raid-mode-group" VerticalAlignment="Center"
+            <Border Classes="v2-segmented"
                     AutomationProperties.AccessibilityView="Control"
                     AutomationProperties.AutomationId="v2-raid-modes"
                     AutomationProperties.Name="{x:Static l:RaidText.ModeGroup}">
-              <StackPanel Orientation="Horizontal" Spacing="1">
-                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode"
+              <StackPanel Orientation="Horizontal">
+                <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon"
                               IsChecked="{Binding IsNavigateMode, Mode=OneWay}"
                               Command="{Binding NavigateModeCommand}"
                               AutomationProperties.AutomationId="v2-raid-mode-navigate"
@@ -566,7 +579,7 @@
                               ToolTip.Tip="{x:Static l:RaidText.ModeNavigate}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Move}" />
                 </prim:SelectionToggleButton>
-                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode"
+                <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon"
                               IsChecked="{Binding IsInspectMode, Mode=OneWay}"
                               Command="{Binding InspectModeCommand}"
                               AutomationProperties.AutomationId="v2-raid-mode-inspect"
@@ -574,7 +587,7 @@
                               ToolTip.Tip="{x:Static l:RaidText.ModeInspect}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Search}" />
                 </prim:SelectionToggleButton>
-                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode"
+                <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon"
                               IsChecked="{Binding IsRouteMode, Mode=OneWay}"
                               Command="{Binding RouteModeCommand}"
                               AutomationProperties.AutomationId="v2-raid-mode-route"
@@ -582,7 +595,7 @@
                               ToolTip.Tip="{x:Static l:RaidText.ModeRoute}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Route}" />
                 </prim:SelectionToggleButton>
-                <prim:SelectionToggleButton Classes="v2-target v2-raid-mode v2-raid-draw-toggle"
+                <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon"
                               IsVisible="{Binding IsDrawAvailable}"
                               IsChecked="{Binding IsDrawMode, Mode=OneWay}"
                               Command="{Binding ToggleDrawCommand}"
@@ -593,13 +606,17 @@
                 </prim:SelectionToggleButton>
               </StackPanel>
             </Border>
-            <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="{x:Static l:RaidText.Follow}"
+            <!-- [#921] Follow and its zoom are one segmented control: the zoom is Follow's, and two
+                 loose buttons of different widths were what the issue's screenshot pointed at. -->
+            <Border Classes="v2-segmented">
+            <StackPanel Orientation="Horizontal">
+            <ToggleButton Classes="v2-segmented-item" Content="{x:Static l:RaidText.Follow}"
                           IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
                           Command="{Binding ToggleFollowCommand}"
                           AutomationProperties.AutomationId="v2-raid-follow"
                           AutomationProperties.Name="{Binding FollowLabel}"
                           ToolTip.Tip="{x:Static l:RaidText.FollowTip}" />
-            <Button Classes="v2-target v2-raid-follow-step" Content="{Binding FollowZoomLabel}"
+            <Button Classes="v2-segmented-item" Content="{Binding FollowZoomLabel}"
                     AutomationProperties.AutomationId="v2-raid-follow-zoom"
                     AutomationProperties.Name="{Binding FollowLabel}"
                     ToolTip.Tip="{x:Static l:RaidText.FollowZoomTip}">
@@ -622,6 +639,8 @@
                 </Flyout>
               </Button.Flyout>
             </Button>
+            </StackPanel>
+            </Border>
           </StackPanel>
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
@@ -632,7 +651,7 @@
                   AutomationProperties.AutomationId="v2-raid-layers"
                   AutomationProperties.Name="{Binding LayersMenuLabel}"
                   ToolTip.Tip="{x:Static l:RaidText.LayersTip}">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="{DynamicResource V2.Control.Gap}">
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.List}" />
               <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding LayersMenuLabel}"
                          TextWrapping="Wrap" />
@@ -677,33 +696,74 @@
                                   DataContext="{Binding #MapCard.DataContext}" x:DataType="vm:RaidCockpitViewModel"
                                   ToolTip.Tip="{x:Static l:RaidText.SpawnRadiusTip}">
                               <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.SpawnRadius}" VerticalAlignment="Center" />
-                              <ItemsControl Grid.Column="1" ItemsSource="{Binding SpawnRadiusChoices}"
-                                            AutomationProperties.AccessibilityView="Control"
-                                            AutomationProperties.Name="{x:Static l:RaidText.SpawnRadius}">
-                                <ItemsControl.ItemsPanel>
-                                  <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                  <DataTemplate x:DataType="vm:SpawnRadiusChoiceViewModel">
-                                    <prim:SelectionToggleButton Classes="v2-raid-viewcontrol v2-raid-phase-choice"
-                                                  IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
-                                                  Content="{Binding Label}"
-                                                  AutomationProperties.AutomationId="{Binding AutomationId}" />
-                                  </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                              </ItemsControl>
+                              <!-- [#921] One segmented control, like the strip's. -->
+                              <Border Grid.Column="1" Classes="v2-segmented" HorizontalAlignment="Stretch">
+                                <ItemsControl ItemsSource="{Binding SpawnRadiusChoices}"
+                                              AutomationProperties.AccessibilityView="Control"
+                                              AutomationProperties.Name="{x:Static l:RaidText.SpawnRadius}">
+                                  <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                                  </ItemsControl.ItemsPanel>
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SpawnRadiusChoiceViewModel">
+                                      <prim:SelectionToggleButton Classes="v2-segmented-item" HorizontalAlignment="Stretch"
+                                                    IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
+                                                    Content="{Binding Label}"
+                                                    AutomationProperties.AutomationId="{Binding AutomationId}" />
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </Border>
                             </Grid>
                           </Panel>
-                          <!-- [#902 P4] Under the Loot header, a summary of the filters that opens the loot
-                               card, the one place they are chosen, instead of a second copy of its chips. -->
+                          <!-- [#922] "The option to change the loot value is buried in the sidebar too
+                               instead of on the actual high loot toggle." The minimum value and its
+                               basis, right under the High-value loot switch. The same view model as the
+                               loot card's choices, so the two always show one value. Indented to the
+                               switch's label column (row padding 8, tick column 20, gap 8). -->
                           <ContentControl Content="{Binding Loot}" IsVisible="{Binding HasLoot}">
                             <ContentControl.ContentTemplate>
                               <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
-                                <Button Classes="v2-menu-row"
-                                        Content="{Binding CompactFilterLabel, Converter={x:Static raid:RaidLootFilterEditConverter.Instance}}"
-                                        Command="{Binding #MapCard.((vm:RaidCockpitViewModel)DataContext).OpenLootCardCommand}"
-                                        AutomationProperties.AutomationId="v2-raid-layers-loot-edit"
-                                        ToolTip.Tip="{x:Static l:RaidText.LootFilterEditTip}" />
+                                <StackPanel Spacing="{DynamicResource V2.Space.Sm.Gap}" Margin="36,4,14,0"
+                                            AutomationProperties.AutomationId="v2-raid-layers-loot-value">
+                                  <Border Classes="v2-segmented" HorizontalAlignment="Left"
+                                          AutomationProperties.AccessibilityView="Control"
+                                          AutomationProperties.Name="{Binding ValueThresholdLabel}"
+                                          ToolTip.Tip="{Binding ValueThresholdLabel}">
+                                    <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
+                                      <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                      </ItemsControl.ItemsPanel>
+                                      <ItemsControl.ItemTemplate>
+                                        <!-- No AutomationId: shared with the loot card's own choices. -->
+                                        <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                                          <prim:SelectionToggleButton Classes="v2-segmented-item"
+                                                        IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                        AutomationProperties.Name="{Binding Label}"
+                                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                  </Border>
+                                  <Border Classes="v2-segmented" HorizontalAlignment="Left"
+                                          AutomationProperties.AccessibilityView="Control"
+                                          AutomationProperties.Name="{Binding ValueBasisLabel}"
+                                          ToolTip.Tip="{Binding ValueBasisLabel}">
+                                    <ItemsControl ItemsSource="{Binding CompactValueBasisChoices}">
+                                      <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                      </ItemsControl.ItemsPanel>
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                                          <prim:SelectionToggleButton Classes="v2-segmented-item"
+                                                        IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                        AutomationProperties.Name="{Binding Label}"
+                                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                  </Border>
+                                </StackPanel>
                               </DataTemplate>
                             </ContentControl.ContentTemplate>
                           </ContentControl>
@@ -724,21 +784,24 @@
                               AutomationProperties.Name="{x:Static l:RaidText.TrafficPhaseAndLegend}">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" ToolTip.Tip="{Binding TrafficPhaseTip}">
                       <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.Phase}" VerticalAlignment="Center" />
-                      <ItemsControl Grid.Column="1" ItemsSource="{Binding TrafficPhases}"
-                                    AutomationProperties.AccessibilityView="Control"
-                                    AutomationProperties.Name="{x:Static l:RaidText.TrafficRaidPhase}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
-                            <prim:SelectionToggleButton Classes="v2-raid-viewcontrol v2-raid-phase-choice"
-                                          IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
-                                          Content="{Binding Label}"
-                                          AutomationProperties.AutomationId="{Binding AutomationId}" />
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
+                      <!-- [#921] One segmented control, like the strip's. -->
+                      <Border Grid.Column="1" Classes="v2-segmented" HorizontalAlignment="Stretch">
+                        <ItemsControl ItemsSource="{Binding TrafficPhases}"
+                                      AutomationProperties.AccessibilityView="Control"
+                                      AutomationProperties.Name="{x:Static l:RaidText.TrafficRaidPhase}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
+                              <prim:SelectionToggleButton Classes="v2-segmented-item" HorizontalAlignment="Stretch"
+                                            IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
+                                            Content="{Binding Label}"
+                                            AutomationProperties.AutomationId="{Binding AutomationId}" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Border>
                     </Grid>
                     <Border Height="8" CornerRadius="4" AutomationProperties.AutomationId="v2-raid-traffic-legend">
                       <Border.Background>
@@ -803,7 +866,7 @@
                   AutomationProperties.AutomationId="v2-raid-view-menu"
                   AutomationProperties.Name="{x:Static l:RaidText.MapView}"
                   ToolTip.Tip="{x:Static l:RaidText.MapViewTip}">
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <StackPanel Classes="v2-icon-label">
               <TextBlock VerticalAlignment="Center" Text="{x:Static l:RaidText.View}" />
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
             </StackPanel>

@@ -20,8 +20,29 @@
   <Style Selector="Button.v2-target:pointerover /template/ ContentPresenter#PART_ContentPresenter,
                    ToggleButton.v2-target:pointerover /template/ ContentPresenter#PART_ContentPresenter,
                    ToggleButton.v2-segment:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                   ToggleButton.v2-raid-viewcontrol:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                   ToggleButton.v2-raid-viewcontrol:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segmented-item:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   Button.v2-segmented-item:pointerover /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
+  <!-- [#921] A choice inside Border.v2-segmented (V2PrimitiveStyles) is clear until chosen or
+       hovered: the group's own outline is the control's edge. The 1 DIP transparent border keeps
+       the chosen one's action outline from moving its label. -->
+  <Style Selector="ToggleButton.v2-segmented-item, Button.v2-segmented-item">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <!-- [#921] A choice that is not available (3D on a map with no floors) stays inside the group's
+       outline, dimmed, rather than drawing Fluent's grey disabled fill as a block of its own. -->
+  <Style Selector="ToggleButton.v2-segmented-item:disabled /template/ ContentPresenter#PART_ContentPresenter,
+                   Button.v2-segmented-item:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="ToggleButton.v2-segmented-item:disabled, Button.v2-segmented-item:disabled">
+    <Setter Property="Opacity" Value="0.6" />
   </Style>
   <Style Selector="Border.v2-pane">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -138,7 +159,10 @@
                    ToggleButton.v2-icon-btn:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
                    ToggleButton.v2-raid-viewcontrol:checked /template/ ContentPresenter#PART_ContentPresenter,
                    ToggleButton.v2-raid-viewcontrol:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                   ToggleButton.v2-raid-viewcontrol:checked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                   ToggleButton.v2-raid-viewcontrol:checked:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segmented-item:checked /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segmented-item:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segmented-item:checked:pressed /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />

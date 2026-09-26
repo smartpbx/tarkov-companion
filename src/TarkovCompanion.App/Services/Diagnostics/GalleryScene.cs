@@ -484,7 +484,10 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         var bounds = raid.Renderer!.Scene.Bounds;
         MapScenePoint At(double fx, double fy) => new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy));
         raid.SetInteractionMode(MapInteractionMode.Draw);
+        // [#919] One thin line and one thick, so the capture shows the width choice drawn.
+        raid.ChooseDrawingWidth(TarkovCompanion.Application.Services.Maps.RaidDrawingWidths.Thin);
         raid.AddDrawing([.. Enumerable.Range(0, 240).Select(step => At(0.25 + (step / 240.0 * 0.4), 0.45 + (0.08 * Math.Sin(step / 18.0))))]);
+        raid.ChooseDrawingWidth(TarkovCompanion.Application.Services.Maps.RaidDrawingWidths.Thick);
         raid.AddDrawing([.. Enumerable.Range(0, 180).Select(step =>
             At(0.6 + (0.07 * Math.Cos(step / 180.0 * 2 * Math.PI)), 0.3 + (0.1 * Math.Sin(step / 180.0 * 2 * Math.PI))))]);
         await WaitForAsync(() => raid.HasOwnDrawings && raid.IsDrawMode, StepTimeout, "two lines and Draw mode", cancellationToken)

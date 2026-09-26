@@ -18,7 +18,7 @@
     "motion": ["full", "reduced"],
     "density": ["compact", "standard", "comfortable"],
     "target": ["desktop", "touch"],
-    "control": ["small", "inset", "large", "gap"],
+    "control": ["small", "inset", "large", "gap", "segment", "chip", "spacing"],
     "iconSize": ["small", "default", "large", "grid"]
   },
   "variants": {

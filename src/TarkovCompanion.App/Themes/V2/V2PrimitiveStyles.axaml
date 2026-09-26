@@ -301,6 +301,53 @@
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
   </Style>
 
+  <!-- [#921] A segmented control: one outlined group, its choices inside at Segment.Height, so the
+       group is exactly Desktop tall like the buttons beside it. The chosen one is a raised pill
+       with the action outline, the same selected look as every other V2 toggle. A choice that is
+       only an icon is square. "The sizing and spacing is all inconsistent": the mode group was a
+       taller bordered box, 2D/Stack/3D square-cornered segments and the floor arrows loose
+       squares; all three are this now. Each choice says so with v2-segmented-item: a flyout
+       opened from inside the group is its logical descendant, and must not be restyled. -->
+  <Style Selector="Border.v2-segmented">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ToggleButton.v2-segmented-item, Button.v2-segmented-item">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Segment.Height}" />
+    <Setter Property="Height" Value="{DynamicResource V2.Control.Segment.Height}" />
+    <Setter Property="MinWidth" Value="{DynamicResource V2.Control.Segment.Height}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Segment.Inset}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ToggleButton.v2-segmented-item.v2-segment-icon, Button.v2-segmented-item.v2-segment-icon">
+    <Setter Property="Width" Value="{DynamicResource V2.Control.Segment.Height}" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="ToggleButton.v2-segmented-item:checked Path.v2-icon">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
+  <!-- [#921] A chip that sits on a toolbar beside buttons (the Raid strip's traffic chip, the map's
+       off-plan chip): not pressable, but the buttons' height, so the row keeps one baseline, and
+       label type, which is what keeps the strip one row at 1920 in raid. -->
+  <Style Selector="Border.v2-strip-chip">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Chip.Inset}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Border.v2-strip-chip > TextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
+  </Style>
+
   <!-- A stroked outline icon from V2Icons.axaml, drawn on a 24 grid. Decorative only.
        [#574] Three sizes, one stroke (see V2.IconSize in the tokens). The Path keeps Stretch=None,
        so the grid's own margins survive and a chevron is not blown up to the size of a gear; the

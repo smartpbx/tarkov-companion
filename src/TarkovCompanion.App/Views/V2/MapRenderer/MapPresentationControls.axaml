@@ -22,24 +22,10 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
+    <!-- [#921] Height and padding from Border.v2-strip-chip, so it lines up with the buttons. -->
     <Style Selector="Border.v2-map-chip">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="8,2" />
-    </Style>
-    <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
-      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
-      <Setter Property="BorderThickness" Value="1" />
-    </Style>
-    <Style Selector="Button.v2-map-floor-summary">
-      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="10,0" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <!-- [#838] A host short of room (the Raid strip in raid at 1920) sets v2-compact: the segment
          says "2D / Stack / 3D", and the full words are its tooltip and accessible name. -->
@@ -55,14 +41,17 @@
   </UserControl.Styles>
 
   <StackPanel Spacing="8">
-    <WrapPanel ItemSpacing="8" LineSpacing="8">
+    <WrapPanel ItemSpacing="{DynamicResource V2.Control.Spacing}" LineSpacing="{DynamicResource V2.Control.Spacing}">
+    <!-- [#921] One segmented control (V2PrimitiveStyles' Border.v2-segmented), not three
+         square-cornered buttons butted together. -->
+    <Border Classes="v2-segmented">
     <ItemsControl ItemsSource="{Binding Modes}" AutomationProperties.Name="{Binding PresentationLabel}">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="0" /></ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:MapSceneRendererModeViewModel">
-          <ToggleButton Classes="v2-segment" IsChecked="{Binding IsSelected, Mode=OneWay}" IsEnabled="{Binding IsAvailable}"
+          <ToggleButton Classes="v2-segmented-item" IsChecked="{Binding IsSelected, Mode=OneWay}" IsEnabled="{Binding IsAvailable}"
                         AutomationProperties.AutomationId="{Binding AutomationId}"
                         AutomationProperties.Name="{Binding Label}"
                         AutomationProperties.HelpText="{Binding UnavailableReason}"
@@ -76,6 +65,7 @@
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
+    </Border>
     <!-- V2 rough package 39: a floor ladder, not a drop-down. A building is read top floor
          first, and on Interchange or Labs the floor you want is one press away rather than
          behind an opened list. The up/down pair steps the ladder without aiming at a name.
@@ -84,20 +74,22 @@
          arrows stay out here, so a floor is still one press away in either direction; the
          named rungs and everything the ladder had to say are behind the one button that
          already had to be there to say which floor you are on. -->
-    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFloorFilters}"
-                AutomationProperties.AccessibilityView="Control"
-                AutomationProperties.Name="{Binding FloorLabel}">
-      <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorDownCommand}"
+    <!-- [#921] Down, the floor, up: one segmented control, so the ladder reads as one thing. -->
+    <Border Classes="v2-segmented" IsVisible="{Binding HasFloorFilters}"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.Name="{Binding FloorLabel}">
+    <StackPanel Orientation="Horizontal" Spacing="0">
+      <Button Classes="v2-segmented-item v2-segment-icon" Command="{Binding FloorDownCommand}"
               IsEnabled="{Binding CanGoDownAFloor}"
               AutomationProperties.AutomationId="v2-map-floor-down"
               AutomationProperties.Name="{Binding FloorDownLabel}" ToolTip.Tip="{Binding FloorDownLabel}">
         <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronDown}" />
       </Button>
-      <Button Classes="v2-target v2-map-floor-summary"
+      <Button Classes="v2-segmented-item"
               AutomationProperties.AutomationId="v2-map-floor-position"
               AutomationProperties.Name="{Binding FloorSummaryLabel}"
               ToolTip.Tip="{Binding FloorLabel}">
-        <StackPanel Orientation="Horizontal" Spacing="6">
+        <StackPanel Classes="v2-icon-label">
           <TextBlock VerticalAlignment="Center" Text="{Binding FloorSummaryLabel}" />
           <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronDown}" />
         </StackPanel>
@@ -144,19 +136,20 @@
           </Flyout>
         </Button.Flyout>
       </Button>
-      <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorUpCommand}"
+      <Button Classes="v2-segmented-item v2-segment-icon" Command="{Binding FloorUpCommand}"
               IsEnabled="{Binding CanGoUpAFloor}"
               AutomationProperties.AutomationId="v2-map-floor-up"
               AutomationProperties.Name="{Binding FloorUpLabel}" ToolTip.Tip="{Binding FloorUpLabel}">
         <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
       </Button>
     </StackPanel>
+    </Border>
     <!-- V2 rough package 20: a small chip, not the four-sentence paragraph this used to paint
          across the plan. The full wording is the tooltip and the accessible name, so a screen
          reader and a hovering player still get all of it.
          [Package 46] And each chip names its own condition rather than counting the sentences
          behind it. "2 map notes" was a number about the notice, not about the map. -->
-    <Border Classes="v2-map-chip" VerticalAlignment="Center" IsVisible="{Binding HasDenseSceneChip}"
+    <Border Classes="v2-map-chip v2-strip-chip" VerticalAlignment="Center" IsVisible="{Binding HasDenseSceneChip}"
             ToolTip.Tip="{Binding DenseSceneNotice}"
             AutomationProperties.AutomationId="v2-map-live-polite"
             AutomationProperties.AccessibilityView="Control"

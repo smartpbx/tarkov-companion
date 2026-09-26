@@ -245,8 +245,8 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="10,4" />
-      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     </Style>
     <Style Selector="Button.loot-choice.on">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />

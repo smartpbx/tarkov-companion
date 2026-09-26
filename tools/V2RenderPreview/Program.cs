@@ -1503,8 +1503,10 @@ internal static class Program
                     drawRenderer.FitPlanCommand.Execute(null);
                     Pump(20);
                     raid.SetInteractionMode(TarkovCompanion.App.ViewModels.V2.Raid.MapInteractionMode.Draw);
+                    raid.ChooseDrawingWidth(TarkovCompanion.Application.Services.Maps.RaidDrawingWidths.Thin);
                     raid.AddDrawing([.. Enumerable.Range(0, 240).Select(step =>
                         At(0.25 + (step / 240.0 * 0.4), 0.45 + (0.08 * Math.Sin(step / 18.0))))]);
+                    raid.ChooseDrawingWidth(TarkovCompanion.Application.Services.Maps.RaidDrawingWidths.Thick);
                     raid.AddDrawing([.. Enumerable.Range(0, 180).Select(step =>
                         At(0.6 + (0.07 * Math.Cos(step / 180.0 * 2 * Math.PI)), 0.3 + (0.1 * Math.Sin(step / 180.0 * 2 * Math.PI))))]);
                     Pump(80);

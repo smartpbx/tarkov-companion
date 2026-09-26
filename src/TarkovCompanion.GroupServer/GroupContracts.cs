@@ -157,6 +157,7 @@ public sealed record GroupMemberState(
                 string.IsNullOrWhiteSpace(drawing.Id) || drawing.Id.Length > 64 ||
                 string.IsNullOrWhiteSpace(drawing.MapId) || drawing.MapId.Length > 64 ||
                 drawing.Floor is { Length: > 64 } ||
+                drawing.Width is < MinimumDrawingWidth or > MaximumDrawingWidth ||
                 drawing.Points is not { Count: >= 4 } points ||
                 points.Count % 2 != 0 ||
                 points.Count > MaximumDrawingPoints * 2 ||
@@ -336,6 +337,11 @@ public sealed record GroupMemberState(
     /// <summary>[#286] The most points in one shared line.</summary>
     public const int MaximumDrawingPoints = 200;
 
+    /// <summary>[#919] The bounds of a shared line's width in pixels (the client's RaidDrawingWidths).</summary>
+    public const int MinimumDrawingWidth = 1;
+
+    public const int MaximumDrawingWidth = 12;
+
     /// <summary>
     /// [#286] Lines this member drew on their companion's map for the squad.
     /// </summary>
@@ -358,6 +364,11 @@ public sealed record GroupDrawingState(
     [JsonPropertyName("floor")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Floor { get; init; }
+
+    /// <summary>[#919] The line's width in pixels, 1 to 12; absent from a client that predates it.</summary>
+    [JsonPropertyName("width")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Width { get; init; }
 }
 
 /// <summary>[#780] One open objective a member is working on.</summary>

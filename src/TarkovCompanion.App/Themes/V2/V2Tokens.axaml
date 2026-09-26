@@ -71,6 +71,18 @@
   <x:Double x:Key="V2.Control.Large.Height">40</x:Double>
   <Thickness x:Key="V2.Control.Large.Inset">20,8</Thickness>
   <x:Double x:Key="V2.Control.Gap">8</x:Double>
+  <!-- [#921] A choice inside a segmented group (Navigate/Inspect/Route/Draw, 2D/Stack/3D, the
+       floor ladder): the group's 1 DIP outline above and below brings it to Desktop, so a group
+       and a lone button beside it share one height and one baseline. An icon-only choice is as
+       wide as it is tall; a worded one is a little tighter than a lone button, because the group's
+       outline already sets it apart, and that is what keeps the Raid strip one row in raid. -->
+  <x:Double x:Key="V2.Control.Segment.Height">30</x:Double>
+  <Thickness x:Key="V2.Control.Segment.Inset">10,4</Thickness>
+  <!-- [#921] A chip on a toolbar (the Raid strip's traffic chip, the map's off-plan chip): the
+       buttons' height, label type and a narrower side inset, because it states and is not pressed. -->
+  <Thickness x:Key="V2.Control.Chip.Inset">8,4</Thickness>
+  <!-- [#921] The space between two controls on a toolbar or a map strip. -->
+  <x:Double x:Key="V2.Control.Spacing">8</x:Double>
 
   <!-- [#574] Three icon sizes and one stroke weight. The geometry in V2Icons.axaml is drawn on a
        24 grid, and a Path with Stretch=None ignores Width and Height when it draws, so a view

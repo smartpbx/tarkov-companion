@@ -23,6 +23,10 @@ public static partial class RaidText
     public static string DoneDrawingTip => UiText.Get("Raid.DoneDrawingTip");
     public static string DrawingFor(string scope) => UiText.Format("Raid.DrawingFor", scope);
     public static string DrawOnTheMap => UiText.Get("Raid.DrawOnTheMap");
+    public static string LineWidth => UiText.Get("Raid.LineWidth");
+    public static string LineThin => UiText.Get("Raid.LineThin");
+    public static string LineMedium => UiText.Get("Raid.LineMedium");
+    public static string LineThick => UiText.Get("Raid.LineThick");
     public static string MyDrawing => UiText.Get("Raid.MyDrawing");
     public static string MemberDrawing(string member) => UiText.Format("Raid.MemberDrawing", member);
     public static string DrawnBy(string member) => UiText.Format("Raid.DrawnBy", member);
@@ -100,8 +104,6 @@ public static partial class RaidText
     public static string DrawingTools => UiText.Get("Raid.DrawingTools");
     public static string DrawingToolsTip => UiText.Get("Raid.DrawingToolsTip");
     public static string DrawingToolsRestart => UiText.Get("Raid.DrawingToolsRestart");
-    public static string LootFilterEdit(string summary) => UiText.Format("Raid.LootFilterEdit", summary);
-    public static string LootFilterEditTip => UiText.Get("Raid.LootFilterEditTip");
     public static string LayerMyMarks => UiText.Get("Raid.LayerMyMarks");
     public static string MemberPath(string member) => UiText.Format("Raid.MemberPath", member);
     public static string RaidOn(string date) => UiText.Format("Raid.RaidOn", date);

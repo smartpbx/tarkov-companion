@@ -118,6 +118,7 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.RaidRouteSquad, false, "Setup.Settings.Layout.RouteSquad"),
         new(WorkspaceLayoutKeys.RaidMarkScope, false, "Setup.Settings.Layout.MarkScope"),
         new(WorkspaceLayoutKeys.RaidFollowFloor, false, "Setup.Settings.Layout.FollowFloor"),
+        new(WorkspaceLayoutKeys.RaidDrawWidth, false, "Setup.Settings.Layout.DrawWidth"),
         new(WorkspaceLayoutKeys.LootAutoReturnSeconds, false, "Setup.Settings.Layout.LootReturn", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.PlanLearnMode, false, "Setup.Settings.Layout.LearnMode", V2SetupSection.ProfileProgress),

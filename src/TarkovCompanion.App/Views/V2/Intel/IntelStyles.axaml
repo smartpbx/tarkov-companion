@@ -177,7 +177,8 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
-      <Setter Property="Padding" Value="16,8" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     </Style>
     <!-- A verdict or a rating: the word is always drawn, the tone only backs it up. -->
     <Style Selector="TextBlock.v2-intel-good">
