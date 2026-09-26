@@ -1347,6 +1347,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         _rebuildCancellation?.Cancel();
         _rebuildCancellation?.Dispose();
+        // [#963] Both tick every second through the interface thread; left running, they outlive
+        // the cockpit (every test that built one kept posting to the dispatcher for the whole run).
+        _nowHost?.Panel?.Dispose();
+        _markClock?.Dispose();
+        _markClock = null;
         // Retired, not disposed: the tablet publisher may be half way through encoding one of
         // these on a pool thread, and closing the window is no better a moment to free it.
         if (_backgroundImage is { } last)
