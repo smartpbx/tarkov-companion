@@ -640,6 +640,7 @@ public static class AppComposition
             return questLog;
         });
         services.AddSingleton<IEftLogObserver, EftLogObservers>();
+        TarkovCompanion.App.Services.V2.SituationComposition.Add(services); // [#712 0-2] ADR 0022
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
         services.AddSingleton<TesseractOcrEngine>();

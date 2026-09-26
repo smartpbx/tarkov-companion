@@ -27,6 +27,11 @@ public interface IEftLogObserver
 
     /// <summary>How long matchmaking took, ahead of the raid it belongs to.</summary>
     void Observe(LoadTimeObservation loadTime);
+
+    /// <summary>[#712 0-2] Matching, matched, map loaded or game started, for the situation (ADR 0022).</summary>
+    void Observe(RaidPhaseMarker marker)
+    {
+    }
 }
 
 /// <summary>Routes each kind of observation to the service that keeps it.</summary>
@@ -45,8 +50,12 @@ public sealed class EftLogObservers(
     QuestLogProgressService? quests = null,
     // Optional for the same reason. Without it the observations still reach the services that
     // keep them; what is lost is the raid they belonged to.
-    IRaidActivityRecorder? raid = null) : IEftLogObserver
+    IRaidActivityRecorder? raid = null,
+    // [#712 0-2] Optional like the rest; without it nothing tells matching from loading.
+    Situations.SituationService? situation = null) : IEftLogObserver
 {
+    public void Observe(RaidPhaseMarker marker) => situation?.Observe(marker);
+
     public void Observe(GroupObservation observation) => squad.Apply(observation);
 
     public void Observe(FleaSaleObservation sale)

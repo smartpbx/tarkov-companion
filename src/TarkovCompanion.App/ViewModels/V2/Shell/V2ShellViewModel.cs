@@ -213,7 +213,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #314: the after-update banner and its player-facing change list.
         ReleaseExperienceViewModel? releaseExperience = null,
         SetupFeatureFlagsViewModel? featureFlags = null, // #314: Setup › Diagnostics' feature flags.
-        LearnModeSetting? learnMode = null)
+        LearnModeSetting? learnMode = null,
+        TarkovCompanion.Application.Services.Situations.SituationService? situation = null) // [#712 0-2] ADR 0022
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -250,6 +251,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // [#314] The language picker writes where composition read the language from.
         if (TarkovCompanion.App.Localization.UiCulturePreference.ConfigDirectory is { } configDirectory) { SetupWorkspace?.AttachLanguage(new SetupLanguageViewModel(configDirectory, IsDeveloperMode)); }
         if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
+        if (situation is not null) { raidCockpit?.AttachSituation(situation); if (IsDeveloperMode) { SetupWorkspace?.AttachSituation(new SituationDiagnosticsViewModel(situation, clock, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))); } } // [#712 0-2]
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
