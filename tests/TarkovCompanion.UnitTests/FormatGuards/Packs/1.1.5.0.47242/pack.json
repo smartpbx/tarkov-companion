@@ -1,0 +1,68 @@
+{
+  "gameVersion": "1.1.5.0.47242",
+  "about": "Shapes measured on build 1.1.5.0.47242 (2026-09-11, docs/research/EFT_LOG_FACTS.md). Synthetic or redacted values only.",
+  "logLines": [
+    {
+      "name": "output.profile-status.shoreline",
+      "file": "output",
+      "line": "2026-01-01 20:00:00.000|1.1.5.0.47242|Info|output|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: [REDACTED], Status: Busy, RaidMode: Online, Ip: [REDACTED], Port: 17009, Location: Shoreline, Sid: [REDACTED], GameMode: deathmatch, shortId: [REDACTED]'",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid",
+          "map": "shoreline"
+        }
+      },
+      "note": "The shape EftLogParserRealLinesTests pins, with its redactions."
+    },
+    {
+      "name": "application.location-loaded",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.0.47242|Info|application|LocationLoaded:18 real:24.73 diff:6.72",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "LoadingRaid"
+        },
+        "phase": "LocationLoaded"
+      }
+    },
+    {
+      "name": "application.game-started",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.0.47242|Info|application|GameStarted:75.58(75.58) real:88.64(88.64) diff:13.05",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid"
+        },
+        "phase": "GameStarted"
+      }
+    },
+    {
+      "name": "application.matching-completed",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.0.47242|Info|application|MatchingCompleted:18.36 real:25.02 diff:6.66",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "phase": "MatchingCompleted",
+        "loadTimeSeconds": 25.02
+      }
+    }
+  ],
+  "screenshotNames": [],
+  "logFiles": [
+    {
+      "name": "file.application",
+      "folder": "log_2026.09.10_12-00-00_1.1.5.0.47242",
+      "file": "2026.09.10_12-00-00_1.1.5.0.47242 application_000.log",
+      "version": "1.1.5.0.47242",
+      "readMode": "Full",
+      "kind": "Application"
+    }
+  ]
+}

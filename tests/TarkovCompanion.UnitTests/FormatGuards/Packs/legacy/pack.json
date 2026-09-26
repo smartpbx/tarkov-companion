@@ -1,0 +1,37 @@
+{
+  "gameVersion": "1.1.0.1.46911",
+  "about": "Shapes from builds before 1.1.5 (EFT_LOG_FACTS.md). The screenshot names' exact build is not recorded.",
+  "logLines": [
+    {
+      "name": "output.narrate-game-stopped",
+      "file": "output",
+      "line": "2026-01-01 20:00:00.000|1.1.0.1.46911|Info|output|[Narrate] Game Stopped",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "PostRaid"
+        }
+      },
+      "note": "Only seen on this older build; kept as a raid-end signal."
+    }
+  ],
+  "screenshotNames": [
+    {
+      "name": "in-raid.no-game-time",
+      "file": "2024-02-08[20-26]_-185.0, 5.0, -412.7_0.0, -0.8, 0.1, -0.6 (0).png",
+      "kind": "InRaid",
+      "x": -185.0,
+      "y": 5.0,
+      "z": -412.7,
+      "duplicate": 0,
+      "note": "Older builds wrote no in-game time after the quaternion (EFT_LOG_FACTS.md)."
+    },
+    {
+      "name": "outside-raid.no-clock",
+      "file": "2024-02-08[22-19] (0).png",
+      "kind": "OutsideRaid"
+    }
+  ],
+  "logFiles": []
+}

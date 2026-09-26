@@ -62,7 +62,8 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
         ISituationPlaces? places = null,
         LatestScanResultPublisher? scans = null,
         ILogger<SituationService>? logger = null,
-        TimeSpan? refresh = null)
+        TimeSpan? refresh = null,
+        FormatGuards.FormatHealthMonitor? formatHealth = null)
     {
         _runtime = runtime;
         _time = time ?? TimeProvider.System;
@@ -87,6 +88,12 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
             _scans.Published += ScanPublished;
         }
 
+        FormatHealth = formatHealth;
+        if (FormatHealth is not null)
+        {
+            FormatHealth.Changed += FormatHealthChanged;
+        }
+
         var period = refresh ?? DefaultRefresh;
         if (period > TimeSpan.Zero)
         {
@@ -100,6 +107,9 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
     public event EventHandler<SituationChangedEventArgs>? Changed;
 
     public Situation Current { get; private set; }
+
+    /// <summary>[#712 0-3] The format guard this situation's FormatHealth fact is read from, where there is one.</summary>
+    public FormatGuards.FormatHealthMonitor? FormatHealth { get; }
 
     /// <summary>The newest phase changes with their "because", newest last.</summary>
     public IReadOnlyList<SituationTransition> Transitions
@@ -164,6 +174,11 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
             _scans.Published -= ScanPublished;
         }
 
+        if (FormatHealth is not null)
+        {
+            FormatHealth.Changed -= FormatHealthChanged;
+        }
+
         lock (_notificationGate)
         {
             foreach (var observer in _observers.ToArray())
@@ -185,6 +200,8 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
     }
 
     private void PlacesChanged(object? sender, EventArgs e) => Refresh();
+
+    private void FormatHealthChanged(object? sender, EventArgs e) => Refresh();
 
     private void ScanPublished(ScanOutcome outcome) => Observe(outcome);
 
@@ -266,6 +283,11 @@ public sealed class SituationService : IObservable<Situation>, IDisposable
     {
         var previous = Current;
         var candidate = _folder.Fold(_time.GetUtcNow(), previous.Version);
+        if (FormatHealth is { } formatHealth)
+        {
+            candidate = candidate with { FormatHealth = FormatGuards.FormatHealthFact.From(formatHealth.Current) };
+        }
+
         var signature = Signature(candidate);
         if (string.Equals(signature, _signature, StringComparison.Ordinal))
         {

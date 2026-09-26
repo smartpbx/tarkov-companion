@@ -218,6 +218,10 @@ public sealed record Situation(
     public SituationObjective? Then { get; init; }
 
     public SituationScan? LastScan { get; init; }
+
+    /// <summary>[#712 0-3] Whether the game's logs and screenshot names are still in shapes the companion reads.</summary>
+    /// <remarks>Degraded means every other fact here may be missing or wrong; its "because" says which source and why.</remarks>
+    public SituationFact<FormatHealthStatus>? FormatHealth { get; init; }
 }
 
 /// <summary>A phase change and the evidence for it, as the transition log keeps it.</summary>

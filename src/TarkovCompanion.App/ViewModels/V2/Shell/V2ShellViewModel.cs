@@ -252,6 +252,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (TarkovCompanion.App.Localization.UiCulturePreference.ConfigDirectory is { } configDirectory) { SetupWorkspace?.AttachLanguage(new SetupLanguageViewModel(configDirectory, IsDeveloperMode)); }
         if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
         if (situation is not null) { raidCockpit?.AttachSituation(situation); if (IsDeveloperMode) { SetupWorkspace?.AttachSituation(new SituationDiagnosticsViewModel(situation, clock, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))); } } // [#712 0-2]
+        if (situation?.FormatHealth is { } formatHealth) { SetupWorkspace?.AttachFormatHealth(new FormatHealthReadinessViewModel(formatHealth, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))); } // [#712 0-3]
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
