@@ -1001,8 +1001,11 @@
 
     <Border Grid.Column="2" x:Name="ContextPanel" Classes="v2-raid-panel"
             Width="{Binding ContextPanelWidth}" IsVisible="{Binding ShowsContextPanel}">
+      <Panel>
+      <!-- [#712 0-9] While the log says matching or loading, the brief stands in for the cards. -->
+      <raid:PreRaidBriefView DataContext="{Binding PreRaidBrief}" IsVisible="{Binding IsShown}" />
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
-      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">
+      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding !PreRaidBrief.IsShown}">
         <prim:StagedStack Spacing="12" Margin="16,12,16,16">
           <TextBlock Classes="v2-heading-2" Text="{x:Static l:RaidText.RaidPlan}" AutomationProperties.HeadingLevel="2" />
 
@@ -1969,6 +1972,7 @@
           </Border>
         </prim:StagedStack>
       </ScrollViewer>
+      </Panel>
     </Border>
   </Grid>
 </UserControl>

@@ -641,6 +641,7 @@ public static class AppComposition
         });
         services.AddSingleton<IEftLogObserver, EftLogObservers>();
         TarkovCompanion.App.Services.V2.SituationComposition.Add(services); // [#712 0-2] ADR 0022
+        TarkovCompanion.App.Services.V2.PreRaidBriefComposition.Add(services); // [#712 0-9]
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
         services.AddSingleton<TesseractOcrEngine>();
@@ -870,7 +871,7 @@ public static class AppComposition
         services.AddSingleton<MainWindowViewModel>();
         // V2 Raid cockpit (package 2): built from the V1 map/raid page a MainWindowViewModel
         // singleton already owns, not from its own copies of them.
-        services.AddSingleton(provider => new RaidCockpitViewModel(
+        services.AddSingleton(provider => TarkovCompanion.App.Services.V2.PreRaidBriefComposition.Attach(provider, new RaidCockpitViewModel( // [#712 0-9]
             provider.GetRequiredService<MainWindowViewModel>().Map,
             provider.GetRequiredService<MainWindowViewModel>().Raid,
             provider.GetRequiredService<IRuntimeStateStore>(),
@@ -894,7 +895,7 @@ public static class AppComposition
             squadQuests: provider.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>(),
             // [Issue 796] Never passed until now, so the panel width, cards, Follow zoom, loot
             // threshold and layer choices all worked for the session and were forgotten after it.
-            layout: provider.GetService<IWorkspaceLayoutStore>()));
+            layout: provider.GetService<IWorkspaceLayoutStore>())));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
