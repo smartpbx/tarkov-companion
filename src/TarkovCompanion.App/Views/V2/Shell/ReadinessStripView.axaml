@@ -13,7 +13,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="14,4,8,4" />
+      <Setter Property="Padding" Value="12,1,4,1" />
     </Style>
     <Style Selector="TextBlock.rs-label">
       <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
@@ -44,7 +44,8 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="10,3,10,3" />
+      <Setter Property="Padding" Value="10,2,10,2" />
+      <Setter Property="MinHeight" Value="28" />
       <Setter Property="Margin" Value="8,0,0,0" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
@@ -69,7 +70,7 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:ReadinessStripItemViewModel">
-            <StackPanel Orientation="Horizontal" MinHeight="36"
+            <StackPanel Orientation="Horizontal" MinHeight="34"
                         AutomationProperties.AutomationId="{Binding AutomationId}"
                         AutomationProperties.Name="{Binding AutomationName}">
               <TextBlock Classes="rs-sep" Text="·" IsVisible="{Binding HasSeparator}"
