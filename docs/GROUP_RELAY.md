@@ -271,6 +271,42 @@ that currently have members and are not registered, and adopting one keeps the f
 in it. Anything still on that list after you have adopted your own is somebody you did not
 invite.
 
+## The relay owner's room controls (#920)
+
+The relay owner can clear what a room shows and who is in it. "Owner" means the operator's
+`X-Admin-Key`, or a live owner session of the **legacy** tenant — the desktop that claimed the
+relay with the admin key (`/admin/relay/claim`) and keeps it by key possession. A squadmate's
+desktop owns its own tenant and nothing else, so its session is refused, and a group key opens
+none of this. Every route is under `/admin/`, so a refused one counts against the wrong-key
+limiter; each action is idempotent, logged with the room's first eight characters and never a key,
+and ends held exchanges so squadmates see it on their next one.
+
+    GET  /v2/companion/relay/admin-status                   -> {"relayOwner": true|false}   (any desktop session)
+    GET  /admin/owner/rooms                                  -> rooms, member names, counts, last activity
+    POST /admin/owner/rooms/{room}/drawings/clear[?member=]  -> {"cleared": n}
+    POST /admin/owner/rooms/{room}/marks/clear               -> {"cleared": n}   waypoints and pings
+    POST /admin/owner/rooms/{room}/members/remove?member=    -> {"cleared": 0|1}
+    POST /admin/owner/rooms/{room}/reset                     -> {"cleared": n}
+
+`{room}` is the 32-character room hash. What each one does to clients, old ones included:
+
+- **Clearing drawings** takes the lines off the stored state and remembers their ids
+  (`GroupRoomModeration`). A client keeps publishing a line until it expires on its own machine;
+  the relay drops the cleared ids on the way in, so squadmates stop seeing them on their next
+  exchange and they do not come back. A new line has a new id and shows. The drawer still sees
+  their own lines locally until those expire.
+- **Removing a member** forgets them and refuses their publishes with **409**
+  `removed-by-owner` (not 403, so the limiter does not count it). A current desktop says
+  "Removed by the relay owner. Turn sharing off and on to rejoin."; an older one shows "Server
+  answered 409". Leaving (`DELETE /state/{name}`, which turning sharing off sends) lifts it, and
+  so does 30 minutes. It is a kick, not a ban.
+- **Reset** clears marks and lines, forgets every member and any removals. Members are back on
+  their next exchange, without the lines they had drawn.
+
+The desktop shows these under Team › Devices as **Relay admin**, only when `admin-status` says
+`relayOwner: true`, and asks once before each action. A relay from before #920 answers 404 and
+the panel stays hidden. Revoking a paired tablet stays where it was, on the device's own row.
+
 ## Landmarks for the second screen
 
 `GET /landmarks` returns every map's recognisable places in world coordinates, keyed by the

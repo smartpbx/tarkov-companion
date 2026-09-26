@@ -300,6 +300,35 @@ public sealed class GroupMarks
         return cleared;
     }
 
+    /// <summary>
+    /// [#920] Takes every waypoint and ping off a room that stays in use, for the relay owner.
+    /// Unlike <see cref="ClearRoom"/> the room is not retired: the group goes on marking.
+    /// </summary>
+    public int ClearAll(string room)
+    {
+        if (!_rooms.TryGetValue(room, out var entry))
+        {
+            return 0;
+        }
+
+        int waypoints;
+        int pings;
+        lock (entry)
+        {
+            waypoints = entry.Waypoints.Count;
+            pings = entry.Pings.Count;
+            entry.Waypoints.Clear();
+            entry.Pings.Clear();
+        }
+
+        if (waypoints > 0)
+        {
+            Save();
+        }
+
+        return waypoints + pings;
+    }
+
     /// <summary>Forgets every mark a room has, for a room an operator removed.</summary>
     public void ClearRoom(string room)
     {

@@ -6,7 +6,8 @@
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet"
-             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
+             xmlns:team="using:TarkovCompanion.App.Views.V2.Team">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a card row (as on Raid). -->
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
@@ -667,6 +668,10 @@
                   <TextBlock Classes="v2-label" TextWrapping="Wrap" TextAlignment="Center"
                              Text="{x:Static l:TeamText.PairHint}" />
                 </StackPanel>
+
+                <!-- [#920] Only the relay owner's desktop is shown this. -->
+                <team:RelayAdminPanelView DataContext="{Binding Pairing.RelayAdmin}"
+                                          IsVisible="{Binding IsRelayOwner, FallbackValue=False}" />
               </StackPanel>
             </Grid>
           </ScrollViewer>

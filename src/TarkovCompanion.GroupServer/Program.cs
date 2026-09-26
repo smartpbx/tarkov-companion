@@ -23,6 +23,8 @@ builder.Services.AddSingleton<GroupRooms>();
 // v2r-fast-positions (package 31): what has changed in each room, so POST /state can hold its
 // answer until there is something new in it instead of making a caller wait for its own tick.
 builder.Services.AddSingleton<GroupRoomChanges>();
+// [#920] What the relay owner removed from a room or cleared off it, kept off later publishes.
+builder.Services.AddSingleton<GroupRoomModeration>();
 // StateDirectory=tarkov-group gives the unit /var/lib/tarkov-group, which is outside the tree
 // the updater replaces with `rm -rf /opt/tarkov-group` — so a plan survives the update that
 // used to destroy it. Falls back to memory-only where the directory is not configured, which
@@ -184,6 +186,7 @@ var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 // v2r-fast-positions (package 31).
 var roomChanges = app.Services.GetRequiredService<GroupRoomChanges>();
+var moderation = app.Services.GetRequiredService<GroupRoomModeration>();
 var registry = app.Services.GetRequiredService<GroupRoomRegistry>();
 var timeProvider = app.Services.GetRequiredService<TimeProvider>();
 // [#317] What a wrong key costs. See the middleware below.
@@ -337,6 +340,7 @@ _ = Task.Run(async () =>
             rooms.Sweep();
             // #886: marks too, which nothing ever aged or removed while the relay ran.
             marks.Sweep();
+            moderation.Sweep();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -421,7 +425,10 @@ app.MapCompanionPairingMailboxRoutes();
 //
 // v2r-fast-positions (package 31): the handler lives in RelayRoomStateRoutes so a test can drive
 // the route this relay actually serves. It also takes an optional hold — see that file.
-app.MapGroupRoomState(rooms, marks, roomChanges);
+app.MapGroupRoomState(rooms, marks, roomChanges, moderation);
+
+// [#920] The relay owner's room controls. See RelayOwnerAdminRoutes for who counts as the owner.
+app.MapRelayOwnerAdmin(relayDesktops, rooms, marks, roomChanges, moderation, registry);
 
 // Reading the room without joining it.
 //
@@ -664,6 +671,8 @@ app.MapDelete("/state/{name}", Results<Ok, UnauthorizedHttpResult> (
 
     var room = GroupKey.RoomFor(key);
     rooms.Remove(room, name);
+    // [#920] Leaving is how a member the relay owner removed comes back.
+    moderation.Left(room, name);
     // v2r-fast-positions (package 31): somebody leaving is what the others were waiting for.
     roomChanges.Record(room, null);
     return TypedResults.Ok();
@@ -876,6 +885,7 @@ app.MapDelete("/admin/rooms/{room}", Results<Ok, NotFound, UnauthorizedHttpResul
     }
 
     rooms.Clear(room);
+    moderation.Forget(room);
     // #886: and its marks, which otherwise stayed in memory and in marks.json for a week.
     marks.ClearRoom(room);
     return TypedResults.Ok();

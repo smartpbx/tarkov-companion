@@ -59,6 +59,9 @@ public enum GroupStatus
 
     /// <summary>[#292] Squad sharing is switched off in Setup › Data &amp; Privacy.</summary>
     SwitchedOff,
+
+    /// <summary>[#920] The relay owner removed this member; turning sharing off and on rejoins.</summary>
+    RemovedByOwner,
 }
 
 /// <summary>[#314] What group settings still need before sharing can start.</summary>

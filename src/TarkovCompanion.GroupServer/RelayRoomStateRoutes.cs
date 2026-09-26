@@ -22,11 +22,15 @@ public static class RelayRoomStateRoutes
     /// <summary>The revision the caller already has, from the answer it got last time.</summary>
     public const string SinceQuery = "since";
 
+    /// <summary>The body a removed member's publish is refused with (409).</summary>
+    public const string RemovedByOwner = "removed-by-owner";
+
     public static RouteHandlerBuilder MapGroupRoomState(
         this IEndpointRouteBuilder app,
         GroupRooms rooms,
         GroupMarks marks,
-        GroupRoomChanges changes)
+        GroupRoomChanges changes,
+        GroupRoomModeration? moderation = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(rooms);
@@ -35,7 +39,7 @@ public static class RelayRoomStateRoutes
         return app.MapPost(
             "/state",
             (GroupMemberState state, HttpRequest request, CancellationToken cancellationToken) =>
-                PublishAndReadAsync(rooms, marks, changes, state, request, cancellationToken));
+                PublishAndReadAsync(rooms, marks, changes, moderation, state, request, cancellationToken));
     }
 
     /// <summary>Publishes one member and answers with the room, holding it back where asked to.</summary>
@@ -43,6 +47,31 @@ public static class RelayRoomStateRoutes
         GroupRooms rooms,
         GroupMarks marks,
         GroupRoomChanges changes,
+        GroupMemberState state,
+        HttpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await PublishAndReadAsync(rooms, marks, changes, null, state, request, cancellationToken)
+            .ConfigureAwait(false);
+        return result.Result switch
+        {
+            Ok<GroupRoomState> ok => ok,
+            BadRequest<string> bad => bad,
+            _ => TypedResults.Unauthorized(),
+        };
+    }
+
+    /// <summary>
+    /// The same, with what the relay owner took out of the room (#920) applied: a removed member is
+    /// refused with 409 <see cref="RemovedByOwner"/>, and lines the owner cleared are dropped from
+    /// the state before it is stored. 409 rather than 403 so the wrong-key limiter does not count
+    /// it, and so an older client reads it as a relay answering, not a key being refused.
+    /// </summary>
+    public static async Task<Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadRequest<string>, Conflict<string>>> PublishAndReadAsync(
+        GroupRooms rooms,
+        GroupMarks marks,
+        GroupRoomChanges changes,
+        GroupRoomModeration? moderation,
         GroupMemberState state,
         HttpRequest request,
         CancellationToken cancellationToken)
@@ -71,6 +100,16 @@ public static class RelayRoomStateRoutes
         }
 
         var room = GroupKey.RoomFor(key);
+        if (moderation is not null)
+        {
+            if (moderation.IsRemoved(room, state.Name))
+            {
+                return TypedResults.Conflict(RemovedByOwner);
+            }
+
+            state = moderation.Filter(room, state);
+        }
+
         // Keyed by the display name within the room, so a member who reconnects replaces their own
         // entry rather than appearing twice. Two people choosing the same name is their problem to
         // notice, and is better than a server that hands out identities.

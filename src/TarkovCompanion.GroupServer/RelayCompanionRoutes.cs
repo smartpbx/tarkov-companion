@@ -1035,7 +1035,7 @@ public static class RelayCompanionRoutes
     /// credential is good. What comes back is the pair, so that everything a handler then touches
     /// — hub, map, tickets, device list — is the authenticated desktop's and no other's.
     /// </remarks>
-    private static async ValueTask<(RelayTenant Tenant, RelayPrincipal Principal)?> AuthenticateAsync(
+    internal static async ValueTask<(RelayTenant Tenant, RelayPrincipal Principal)?> AuthenticateAsync(
         HttpRequest request,
         RelayTenantDirectory directory,
         CancellationToken cancellationToken)

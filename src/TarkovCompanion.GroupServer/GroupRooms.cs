@@ -258,6 +258,72 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         return counts;
     }
 
+    /// <summary>[#920] One live member as the relay owner's admin panel lists it.</summary>
+    public sealed record AdminMember(string Name, DateTimeOffset LastSeenUtc, int Drawings);
+
+    /// <summary>
+    /// [#920] Every room's live members, by name, for the relay owner. The one read here that
+    /// names people: <see cref="Occupancy"/> stays counts-only for the operator's web page.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<AdminMember>> AdminSnapshot()
+    {
+        var now = timeProvider.GetUtcNow();
+        var result = new Dictionary<string, IReadOnlyList<AdminMember>>(StringComparer.Ordinal);
+        foreach (var (room, members) in _rooms)
+        {
+            var live = members
+                .Where(pair => now - pair.Value.PublishedUtc <= MemberLifetime)
+                .Select(pair => new AdminMember(pair.Key, pair.Value.PublishedUtc, pair.Value.State.Drawings?.Count ?? 0))
+                .OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            if (live.Length > 0)
+            {
+                result[room] = live;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Whether a member is in a room right now.</summary>
+    public bool Holds(string room, string memberKey) =>
+        _rooms.TryGetValue(room, out var members) && members.ContainsKey(memberKey);
+
+    /// <summary>
+    /// [#920] Takes the lines off one member's stored state, or every member's, and says which
+    /// ids went so the publishes that follow can keep them off (<see cref="GroupRoomModeration"/>).
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> TakeDrawings(string room, string? memberKey)
+    {
+        var taken = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        if (!_rooms.TryGetValue(room, out var members))
+        {
+            return taken;
+        }
+
+        foreach (var (key, entry) in members)
+        {
+            if (memberKey is not null && !string.Equals(key, memberKey, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (entry.State.Drawings is not { Count: > 0 } drawings)
+            {
+                continue;
+            }
+
+            // Replaced only if nobody published in between; a publish that won the race is
+            // filtered on its way in by the ids recorded from this one anyway.
+            if (members.TryUpdate(key, entry with { State = entry.State with { Drawings = null } }, entry))
+            {
+                taken[key] = [.. drawings.Select(drawing => drawing.Id)];
+            }
+        }
+
+        return taken;
+    }
+
     /// <summary>Forgets every member of a room, for when it stops being allowed.</summary>
     public void Clear(string room) => _rooms.TryRemove(room, out _);
 
