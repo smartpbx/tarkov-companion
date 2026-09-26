@@ -13,6 +13,7 @@ using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.Services.V2.Capture;
 
@@ -79,6 +80,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly CaptureReanalysis? _reanalysis;
     private readonly UnsupportedScreenHandoff? _unsupported;
     private readonly IScreenshotRetentionStore? _tidyStore;
+    private readonly UnrecognisedScreenTray? _unrecognised;
 
     // [#902 P8] The Loot Scan's verdict chip, kept across re-decisions, new scans and restarts.
     private readonly PageState _lootPage;
@@ -105,9 +107,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
         CaptureReanalysis? reanalysis = null,
         UnsupportedScreenHandoff? unsupported = null,
         IScreenshotRetentionStore? tidyStore = null,
-        IWorkspaceLayoutStore? layout = null)
+        IWorkspaceLayoutStore? layout = null,
+        // [#712 1-1] The screenshots no detector was sure of, each with "Read as…".
+        UnrecognisedScreenTray? unrecognised = null)
     {
         _lootPage = new(layout, WorkspaceLayoutKeys.PageLoot);
+        _unrecognised = unrecognised;
         _reanalysis = reanalysis;
         _unsupported = unsupported;
         _tidyStore = tidyStore;
@@ -172,7 +177,43 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _shell.ManualImageBatchRequested += OnManualImageBatchRequested;
         _shell.ManualImageBatchCancelRequested += OnManualImageBatchCancelRequested;
         _shell.CaptureCandidateChosen += OnCaptureCandidateChosen;
+        if (_unrecognised is not null)
+        {
+            _unrecognised.Changed += OnUnrecognisedChanged;
+            OnUnrecognisedChanged(this, EventArgs.Empty);
+        }
+
         Push();
+    }
+
+    /// <summary>The tray's rows, each with the same retention chip and Read as… a result has.</summary>
+    private void OnUnrecognisedChanged(object? sender, EventArgs e)
+    {
+        if (_unrecognised is null || Volatile.Read(ref _disposed))
+        {
+            return;
+        }
+
+        var rows = _unrecognised.Items
+            .Select(item =>
+            {
+                var time = LocalTime.Time(item.ObservedUtc);
+                var best = item.Guesses.FirstOrDefault();
+                var label = best is null
+                    ? ShellText.UnrecognisedNoGuess(time)
+                    : ShellText.UnrecognisedRow(time, $"{ScreenKinds.Describe(best.Kind)} {best.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture)}");
+                var detail = item.Guesses.Count == 0
+                    ? item.Because
+                    : $"{item.Because} · " + string.Join(", ", item.Guesses.Select(guess =>
+                        $"{ScreenKinds.Describe(guess.Kind)} {guess.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture)}"));
+                return new V2UnrecognisedScreenViewModel(
+                    item.ArtifactId,
+                    label,
+                    detail,
+                    BuildSource(item.ArtifactId, ScanIntent.Auto, null));
+            })
+            .ToArray();
+        _shell.ShowUnrecognisedScreens(rows);
     }
 
     /// <summary>
@@ -589,10 +630,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
     /// Decides whether a finished decode needs the player, or can be resolved where it stands.
     /// </summary>
     /// <remarks>
-    /// The two cases that need asking are the two the player can actually answer: the recognizer
-    /// read a different screen than the one that was armed, and the recognizer could not place the
-    /// screen at all. Anything else — agreement, or a detected context with no disagreement flag —
-    /// is resolved without interrupting, which is what the previous pass did for everything.
+    /// [#712 1-1] Nothing is asked any more. Agreement is handed on; a frame nobody could place ends
+    /// quietly and is listed in the unrecognised tray; a disagreement with an armed intent is
+    /// settled as described below. The capture panel's attention card is therefore never raised.
     /// </remarks>
     private void OnReviewRequested(object? sender, CaptureReviewRequestedEventArgs eventArgs)
     {
@@ -629,35 +669,23 @@ public sealed class V2ShellCaptureBridge : IDisposable
             return;
         }
 
-        // A screenshot the game wrote (the watched folder) never asks "what is this?": the player
-        // presses the game's own key in a raid and cannot answer a prompt on a second screen, and
-        // with a Loot or Stash capture armed every position screenshot asked (2026-09-24, "this is
-        // unusable"). Unreadable ones are dropped quietly; a disagreement follows what was seen.
-        if (IsWatchedFile(review.SessionId, review.ArtifactId))
-        {
-            _captureSessions.TryReview(
-                review.SessionId,
-                review.ArtifactId,
-                review.DecodeRevision,
-                kind == V2CaptureAttentionKind.UnknownContext ? CaptureReviewAction.Cancel : CaptureReviewAction.UseDetected,
-                "system-watched-file");
-            return;
-        }
-
-        lock (_gate)
-        {
-            _attention = new V2CaptureAttention(
-                kind.Value,
-                review.SessionId,
-                review.ArtifactId,
-                review.DecodeRevision,
-                review.RequestedIntent,
-                new StateRevision(_intentRevision),
-                _settingDevice,
-                kind == V2CaptureAttentionKind.IntentMismatch ? review.DetectedContext : null);
-        }
-
-        Push();
+        // [#712 1-1] Nothing asks "what is this?" any more, for any capture. A screenshot the
+        // game wrote could never be answered on a second screen mid-raid (#816, 2026-09-24), and
+        // a picked image is no different now that nothing has to be armed first. An unplaced
+        // frame ends quietly and waits in the unrecognised tray with "Read as…"; a disagreement
+        // with an armed intent follows what was seen for a game file and what the player chose
+        // (Read as…, a guided scan) for anything they handed over themselves.
+        var action = kind == V2CaptureAttentionKind.UnknownContext
+            ? CaptureReviewAction.Cancel
+            : IsWatchedFile(review.SessionId, review.ArtifactId)
+                ? CaptureReviewAction.UseDetected
+                : CaptureReviewAction.UseArmedIntent;
+        _captureSessions.TryReview(
+            review.SessionId,
+            review.ArtifactId,
+            review.DecodeRevision,
+            action,
+            kind == V2CaptureAttentionKind.UnknownContext ? "system-unrecognised" : "system-disagreement");
     }
 
     /// <summary>Shows what one capture was read as, and opens that item's Intel page.</summary>
@@ -1060,6 +1088,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
                     },
                     CancellationToken.None)
                 .ConfigureAwait(true);
+            if (outcome is { Started: true })
+            {
+                // Answered: the row leaves the tray.
+                _unrecognised?.Remove(artifactId);
+            }
+
             if (outcome is { Started: true, Rereading: { } rereading } && intent == ScanIntent.Stash)
             {
                 // The Stash page loads when it is opened, so it is opened once the snapshot is in.
@@ -1169,6 +1203,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
         if (_unsupported is not null)
         {
             _unsupported.ScreenRead -= OnUnsupportedScreenRead;
+        }
+
+        if (_unrecognised is not null)
+        {
+            _unrecognised.Changed -= OnUnrecognisedChanged;
         }
 
         lock (_gate)

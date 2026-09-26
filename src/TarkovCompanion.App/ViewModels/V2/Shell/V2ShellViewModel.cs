@@ -1149,7 +1149,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public string LootScanEmptyTitle => V2ShellText.Get("V2.Shell.LootScan.EmptyTitle");
     public string LootScanActionLabel => V2ShellText.Get("V2.Shell.LootScan.Scan");
 
-    /// <summary>Opens the capture dialog with Loot decision selected; the player still presses Arm.</summary>
+    /// <summary>Opens the capture dialog; the next screenshot is read by the detectors (#712 1-1).</summary>
     public ICommand ScanLootCommand { get; }
     public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
     public ReleaseExperienceViewModel? ReleaseExperience { get; }
@@ -1658,7 +1658,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
     /// <summary>
     /// Opens the shared capture dialog with the workspace's requested intent pre-selected. It
-    /// still asks the player to press Arm — this never starts a capture session on its own.
+    /// never starts a capture session on its own; since #712 1-1 nothing needs arming either.
     /// </summary>
     private void StashScanRequested(object? sender, ScanIntent intent)
     {

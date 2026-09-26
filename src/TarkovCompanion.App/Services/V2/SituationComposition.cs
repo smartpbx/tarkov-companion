@@ -31,6 +31,11 @@ internal static class SituationComposition
         services.AddSingleton(provider => new FormatHealthMonitor(
             provider.GetService<TimeProvider>(),
             provider.GetService<ILogger<FormatHealthMonitor>>()));
+        // [#712 1-1] Every screenshot's routing decision: the tray lists the unsure ones and the
+        // situation says which detector placed the rest.
+        services.AddSingleton<Application.Services.CaptureSessions.ScreenRoutingLog>();
+        services.AddSingleton(provider => new Capture.UnrecognisedScreenTray(
+            provider.GetRequiredService<Application.Services.CaptureSessions.ScreenRoutingLog>()));
         services.AddSingleton(provider => new SituationService(
             provider.GetRequiredService<IRuntimeStateStore>(),
             provider.GetService<TimeProvider>(),
@@ -38,6 +43,7 @@ internal static class SituationComposition
             // Registered only where recognition is (Windows); elsewhere LAST SCAN stays empty.
             provider.GetService<LatestScanResultPublisher>(),
             provider.GetService<ILogger<SituationService>>(),
-            formatHealth: provider.GetRequiredService<FormatHealthMonitor>()));
+            formatHealth: provider.GetRequiredService<FormatHealthMonitor>(),
+            routing: provider.GetRequiredService<Application.Services.CaptureSessions.ScreenRoutingLog>()));
     }
 }

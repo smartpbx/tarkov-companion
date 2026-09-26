@@ -91,33 +91,19 @@ public sealed class CaptureRecognitionPipelineTests
     }
 
     /// <summary>
-    /// [#893] An unarmed in-raid container screen with a measured lattice reaches the floor intake
-    /// acts on. Fails on main, where only an armed intent lifted a weak reading and the frame ended
-    /// "below threshold, no change".
+    /// [#712 1-1] An unarmed frame's lattice is measured where the loot or stash detector needs it:
+    /// container words in raid are loot, out of raid the stash panel; never for the HEALTH tab.
     /// </summary>
     [Theory]
-    [InlineData(ScanContext.Container, true, true, RecognitionThresholds.Ambiguous)]
-    [InlineData(ScanContext.Container, false, true, 0.3)]
-    [InlineData(ScanContext.Container, true, false, 0.3)]
-    [InlineData(ScanContext.FleaListings, true, true, 0.3)]
-    public void AnUnarmedInRaidContainerWithAMeasuredLatticeIsActedOn(
-        ScanContext detected,
-        bool inRaid,
-        bool latticeMeasured,
-        double expected)
+    [InlineData(0.7, true, false, InventoryGridSurface.VisibleLoot)]
+    [InlineData(0.7, false, false, InventoryGridSurface.Stash)]
+    [InlineData(0.3, true, false, null)]
+    [InlineData(1.0, false, true, null)]
+    public void AnUnarmedFrameIsMeasuredForTheGridItsDetectorReads(double container, bool inRaid, bool healthTab, InventoryGridSurface? expected)
     {
-        var placed = CaptureRecognitionPipeline.PlaceUnarmedInRaidContainer(
-            RecognizedContext.Grid,
-            false,
-            new(0.3),
-            latticeMeasured,
-            ScanIntent.Auto,
-            detected,
-            inRaid);
+        var scores = new Dictionary<ScanContext, double> { [ScanContext.Container] = container };
 
-        Assert.Equal(RecognizedContext.Grid, placed.Context);
-        Assert.False(placed.IsAmbiguous);
-        Assert.Equal(expected, placed.Confidence.Value);
+        Assert.Equal(expected, CaptureRecognitionPipeline.UnarmedGridSurface(scores, inRaid, healthTab));
     }
 
         [Fact]

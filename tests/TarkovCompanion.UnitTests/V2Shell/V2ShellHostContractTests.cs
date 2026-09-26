@@ -167,7 +167,7 @@ public sealed class V2ShellHostContractTests
 
         foreach (var binding in new[]
         {
-            "CaptureIntents", "CaptureProgressItems", "CaptureAttentionActions", "CaptureReviewActions",
+            "UnrecognisedScreens", "CaptureProgressItems", "CaptureAttentionActions", "CaptureReviewActions",
             "CaptureReference", "ProfileContextLabel", "LocalTimeLabel", "RaidContextLabel", "PlanContextLabel",
             "TeamContextLabel", "DeviceContextLabel", "SelectionContextLabel",
             "IntelHomeNeededNow", "IntelHomePinned", "IntelHomeRecent", "IntelHomeHighestValue",
@@ -177,8 +177,8 @@ public sealed class V2ShellHostContractTests
             Assert.Contains($"{{Binding {binding}}}", shell, StringComparison.Ordinal);
         }
 
-        Assert.Contains("Mode=TwoWay", shell, StringComparison.Ordinal);
-        Assert.Contains("v2-shell-capture-arm", shell, StringComparison.Ordinal);
+        // #712 1-1: nothing is armed; the unrecognised tray sits where the intent picker was.
+        Assert.Contains("v2-shell-unrecognised", shell, StringComparison.Ordinal);
         Assert.Contains("v2-shell-capture-attention", shell, StringComparison.Ordinal);
         Assert.Contains("v2-shell-capture-review", shell, StringComparison.Ordinal);
         Assert.Contains("v2-shell-persistence-retry", shell, StringComparison.Ordinal);

@@ -992,7 +992,10 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                             session.Context,
                             pixels.Image,
                             queued.Submission.CorrelationId,
-                            0),
+                            0)
+                        {
+                            NameCarriesPosition = queued.Submission.Source is ScreenshotFileCaptureSource { NameCarriesPosition: true },
+                        },
                         cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -1645,7 +1648,10 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                                 session.Context,
                                 pixels.Image,
                                 artifact.CorrelationId,
-                                revision),
+                                revision)
+                            {
+                                NameCarriesPosition = queued.Submission.Source is ScreenshotFileCaptureSource { NameCarriesPosition: true },
+                            },
                             token)
                         .ConfigureAwait(false);
                 },

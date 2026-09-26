@@ -61,6 +61,11 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
     private DateTimeOffset? _endUtc;
     private ScanOutcome? _scan;
     private long _scanSequence = -1;
+    private CaptureSessions.ScreenRoutingRecord? _routed;
+    private long _routedSequence = -1;
+
+    /// <summary>A detector's answer this close to a scan's is about the same screenshot.</summary>
+    private static readonly TimeSpan SameScreenshot = TimeSpan.FromSeconds(30);
     private SituationPlan? _plan;
 
     public void Observe(ApplicationRuntimeSnapshot runtime)
@@ -108,6 +113,23 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
         _scanSequence = ++_sequence;
     }
 
+    /// <summary>
+    /// [#712 1-1] Which detector placed a screenshot. Unsure frames and world-view frames change
+    /// nothing: the first are in the unrecognised tray, the second already moved YOU.
+    /// </summary>
+    public void Observe(CaptureSessions.ScreenRoutingRecord routed)
+    {
+        ArgumentNullException.ThrowIfNull(routed);
+        if (routed.Routing.Outcome is not (CaptureSessions.ScreenRoutingOutcome.Routed or CaptureSessions.ScreenRoutingOutcome.Chosen)
+            || routed.Routing.Kind is null)
+        {
+            return;
+        }
+
+        _routed = routed;
+        _routedSequence = ++_sequence;
+    }
+
     public void SetPlan(SituationPlan? plan) => _plan = plan;
 
     /// <summary>How a raid ended, from the one-tap question or a photographed summary screen.</summary>
@@ -130,6 +152,11 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
         if (_scan is { } scan)
         {
             _scan = scan with { ObservedUtc = scan.ObservedUtc + jump };
+        }
+
+        if (_routed is { } routed)
+        {
+            _routed = routed with { ObservedUtc = routed.ObservedUtc + jump };
         }
     }
 
@@ -216,6 +243,14 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
         {
             return Fact(SituationPhase.Matching, new Confidence(0.85), SituationSource.GameLog, groupStart,
                 $"Your group started matching at {Clock(groupStart)}.");
+        }
+
+        if (_routed is { Routing.Kind: { } screen } routedScreen && _routedSequence > _endSequence
+            && _routedSequence > _scanSequence && IsBetweenRaidScreen(screen)
+            && nowUtc - routedScreen.ObservedUtc < ScreenHolds)
+        {
+            return Fact(SituationPhase.Screen, routedScreen.Routing.Confidence, SituationSource.Screenshot, routedScreen.ObservedUtc,
+                $"Your screenshot at {Clock(routedScreen.ObservedUtc)} showed {DescribeScreen(screen)} ({routedScreen.Routing.Because}).");
         }
 
         if (_scan is { } scan && _scanSequence > _endSequence && IsBetweenRaidScreen(scan.Context)
@@ -414,7 +449,28 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
 
     private SituationScan? LastScan(SituationPhase phase)
     {
-        if (_scan is not { } scan || (phase == SituationPhase.InRaid && _scanSequence < _raidStartSequence))
+        var routed = _routed is { Routing.Kind: not null } candidate
+            && !(phase == SituationPhase.InRaid && _routedSequence < _raidStartSequence)
+                ? candidate
+                : null;
+        var scan = _scan is { } read && !(phase == SituationPhase.InRaid && _scanSequence < _raidStartSequence)
+            ? read
+            : null;
+        var sameShot = routed is not null && scan is not null
+            && (routed.ObservedUtc - scan.ObservedUtc).Duration() <= SameScreenshot;
+        if (routed is not null && (scan is null || (_routedSequence > _scanSequence && !sameShot)))
+        {
+            var kind = routed.Routing.Kind!.Value;
+            return new(
+                CaptureSessions.ScreenKinds.ToScanContext(kind),
+                null,
+                0,
+                null,
+                routed.ObservedUtc,
+                $"Your screenshot at {Clock(routed.ObservedUtc)} was {DescribeScreen(kind)} ({routed.Routing.Because}).");
+        }
+
+        if (scan is null)
         {
             return null;
         }
@@ -427,8 +483,33 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
             count,
             scan.Recommendation?.Action.ToString(),
             scan.ObservedUtc,
-            $"Your screenshot at {Clock(scan.ObservedUtc)} ({DescribeScreen(scan.Context)}).");
+            sameShot
+                ? $"Your screenshot at {Clock(scan.ObservedUtc)} was {DescribeScreen(routed!.Routing.Kind!.Value)} ({routed.Routing.Because})."
+                : $"Your screenshot at {Clock(scan.ObservedUtc)} ({DescribeScreen(scan.Context)}).");
     }
+
+    /// <summary>The screens that decide the phase between raids; loot, health and extracts do not.</summary>
+    private static bool IsBetweenRaidScreen(CaptureSessions.ScreenKind kind) =>
+        kind is CaptureSessions.ScreenKind.Flea or CaptureSessions.ScreenKind.Tasks or CaptureSessions.ScreenKind.Item
+            or CaptureSessions.ScreenKind.Stash or CaptureSessions.ScreenKind.Trader or CaptureSessions.ScreenKind.Hideout
+            or CaptureSessions.ScreenKind.Messenger;
+
+    private static string DescribeScreen(CaptureSessions.ScreenKind kind) => kind switch
+    {
+        CaptureSessions.ScreenKind.Loot => "an open container",
+        CaptureSessions.ScreenKind.Stash => "your stash",
+        CaptureSessions.ScreenKind.Item => "an item",
+        CaptureSessions.ScreenKind.Flea => "the flea market",
+        CaptureSessions.ScreenKind.Tasks => "the TASKS screen",
+        CaptureSessions.ScreenKind.ExtractList => "the extract list",
+        CaptureSessions.ScreenKind.Health => "the HEALTH tab",
+        CaptureSessions.ScreenKind.Trader => "a trader",
+        CaptureSessions.ScreenKind.Hideout => "the hideout",
+        CaptureSessions.ScreenKind.GearTab => "the GEAR tab",
+        CaptureSessions.ScreenKind.PostRaidSummary => "the raid summary",
+        CaptureSessions.ScreenKind.Messenger => "the messenger",
+        _ => "the game world",
+    };
 
     private static bool IsBetweenRaidScreen(ScanContext context) =>
         context is ScanContext.FleaListings or ScanContext.QuestTasks or ScanContext.SingleItem;

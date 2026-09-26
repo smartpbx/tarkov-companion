@@ -26,7 +26,15 @@ public sealed record ContextDetection(
     double EstimatedUiScale,
     string Evidence,
     PixelRect? AnchorBounds,
-    IReadOnlyList<ContextAnchorMatch> Anchors);
+    IReadOnlyList<ContextAnchorMatch> Anchors)
+{
+    /// <summary>
+    /// [#712 1-1] Every context's anchor score, not only the winner's. The screen detectors each
+    /// read their own, so a frame two of them claim is seen as a tie instead of the runner-up
+    /// being dropped here.
+    /// </summary>
+    public IReadOnlyDictionary<ScanContext, double> Scores { get; init; } = new Dictionary<ScanContext, double>();
+}
 
 public sealed class RecognitionAnchorCatalog
 {
@@ -73,8 +81,11 @@ public sealed class RecognitionAnchorCatalog
 
 public sealed class ScanContextDetector
 {
-    private const double DetectionThreshold = 0.55;
-    private const double MinimumLead = 0.10;
+    /// <summary>The anchor score a screen must reach to be placed at all.</summary>
+    public const double DetectionThreshold = 0.55;
+
+    /// <summary>How far ahead of the runner-up the placed screen must be.</summary>
+    public const double MinimumLead = 0.10;
     private readonly RecognitionAnchorCatalog _anchors;
     private readonly OcrTextNormalizer _normalizer;
 
@@ -109,6 +120,7 @@ public sealed class ScanContextDetector
             .ToArray();
         var best = scored[0];
         var runnerUp = scored[1];
+        var scores = scored.ToDictionary(result => result.Context, result => result.Score);
         if (best.Score < DetectionThreshold || best.Score - runnerUp.Score < MinimumLead)
         {
             return new(
@@ -118,7 +130,10 @@ public sealed class ScanContextDetector
                 $"no-unique-context; best={best.Context}:{best.Score:F2}; next={runnerUp.Context}:{runnerUp.Score:F2}; "
                 + DescribeMiss(normalized),
                 null,
-                []);
+                [])
+            {
+                Scores = scores,
+            };
         }
 
         var bounds = Union(best.Matches.Select(match => match.Bounds).ToArray());
@@ -129,7 +144,10 @@ public sealed class ScanContextDetector
             estimatedScale,
             $"ocr-anchors; score={best.Score:F2}; provenance={provenance}; resolution={image.Width}x{image.Height}",
             bounds,
-            best.Matches);
+            best.Matches)
+        {
+            Scores = scores,
+        };
     }
 
     /// <summary>

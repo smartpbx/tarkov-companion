@@ -578,6 +578,21 @@ still resolves silently. The unplaceable case deliberately offers *as armed* rat
 selected*: the frame was taken under the intent that was armed when the shutter fired, and the
 coordinator has no action that re-analyses one artifact as a different intent.
 
+**Since #712 1-1 nothing is armed and nothing is asked.** Every unarmed frame is offered to every
+`IScreenDetector` (loot, stash, item, flea, TASKS, extract list, health, the position fallback,
+and trader/hideout/gear/post-raid/messenger stubs that never claim a frame yet).
+`ScreenDetectorRunner` places it only at the anchor detector's own 0.55 with its 0.10 lead, and
+two detectors both at 0.55 or above is "could not tell". The loot detector keeps #893's lift to
+0.70 for a container placed by its words with its lattice measured in raid; the stash detector
+needs the stash lattice and saves nothing unless a guided scan is collecting. An unsure frame
+ends quietly and is listed in the capture panel's "Not recognised" tray with Read as…; a frame
+whose name carries a position and that no screen detector claimed is the world view and is not
+listed. `ScreenRoutingLog` carries each decision to the tray and to the situation's LAST SCAN and
+Screen "because". The attention prompts described above are no longer raised. Measured
+2026-09-26 on the owner's 309 real screenshots without OCR (only lattices and names are real on
+Linux): 304 position fallback, 5 unsure, loot lattice found in 84 and stash lattice in 88. What
+the anchors add on Windows is not measured yet.
+
 **Nothing read a single item.** `CaptureAnalysis` carried a context and a confidence but no
 identity, and the pixels are released the moment analysis returns, so what a frame showed could
 not be recovered afterwards. It now carries `Identified`: the ranked catalog matches, pixel-free.

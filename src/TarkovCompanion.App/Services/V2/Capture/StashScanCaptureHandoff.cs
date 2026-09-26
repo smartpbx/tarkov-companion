@@ -86,6 +86,28 @@ public sealed class StashScanCaptureHandoff(
         return CaptureHandoffResult.Accepted;
     }
 
+    /// <summary>
+    /// [#712 1-1] A stash frame nobody armed: one more frame of a guided scan that is collecting,
+    /// otherwise nothing is saved.
+    /// </summary>
+    /// <remarks>
+    /// The one-frame path saves a snapshot and makes it current, which is right when the player
+    /// asked for it (Read as Stash) and wrong for a frame taken for another reason: it would
+    /// replace the full stash they last scanned with one scroll position of it. Merging such
+    /// frames into the observed inventory is package 1-11's.
+    /// </remarks>
+    public ValueTask<CaptureHandoffResult> AcceptSeenAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (guidedScan is { Current.IsCollecting: true })
+        {
+            return AcceptAsync(request, cancellationToken);
+        }
+
+        _logger.LogInformation("A stash screen was recognised with no stash scan running; nothing was saved.");
+        return ValueTask.FromResult(CaptureHandoffResult.Accepted);
+    }
+
     private async Task CompleteAsync(CaptureHandoffRequest request, ProfileRecord profile, CancellationToken cancellationToken)
     {
         var scope = new InventoryProfileScope(

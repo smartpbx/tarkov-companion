@@ -1072,7 +1072,6 @@
                        AutomationProperties.HeadingLevel="1" Text="{Binding CaptureHeading}" />
             <TextBlock Classes="v2-body" Text="{Binding CaptureGuidance}" />
             <TextBlock Classes="v2-label" Text="{Binding CaptureWatchingStatus}" />
-            <TextBlock Classes="v2-label" Text="{Binding CaptureArmedStatus}" />
             <!-- [#902 P9] The shortcut's switch sits on its status line: it was palette-only. -->
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
               <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding CaptureShortcutStatus}" />
@@ -1082,24 +1081,22 @@
                             AutomationProperties.AutomationId="v2-shell-capture-shortcut"
                             AutomationProperties.Name="{Binding CaptureShortcutSwitchLabel}" />
             </Grid>
-            <TextBlock Classes="v2-heading-3" Text="{Binding CaptureIntentHeading}" />
-            <ItemsControl ItemsSource="{Binding CaptureIntents}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:V2CaptureIntentViewModel">
-                  <RadioButton Classes="v2-target" GroupName="v2-capture-intent"
-                               AutomationProperties.AutomationId="{Binding AutomationId}"
-                               AutomationProperties.Name="{Binding Label}"
-                               Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                               IsEnabled="{Binding IsSupported}" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <Button Classes="v2-target" HorizontalAlignment="Left"
-                    AutomationProperties.AutomationId="v2-shell-capture-arm"
-                    Content="{Binding CaptureArmLabel}" Command="{Binding ArmCaptureCommand}" />
+            <!-- [#712 1-1] Nothing is armed any more: every screenshot goes to every detector.
+                 What none of them was sure of waits here, quietly, with Read as. -->
+            <StackPanel Classes="v2-stack" IsVisible="{Binding HasUnrecognisedScreens}"
+                        AutomationProperties.AutomationId="v2-shell-unrecognised">
+              <TextBlock Classes="v2-heading-3" Text="{Binding UnrecognisedHeading}" />
+              <ItemsControl ItemsSource="{Binding UnrecognisedScreens}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2UnrecognisedScreenViewModel">
+                    <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="{Binding AutomationId}">
+                      <TextBlock Classes="v2-body" Text="{Binding Label}" ToolTip.Tip="{Binding Detail}" />
+                      <local:ScanSourceStrip DataContext="{Binding Source}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
             <!-- [f920 capture] A picture the player already has: paste, drop or choose. -->
             <Border Classes="v2-card" AutomationProperties.AutomationId="v2-shell-capture-manual">
               <StackPanel Classes="v2-stack">
