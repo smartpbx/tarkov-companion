@@ -26,6 +26,8 @@ Recommendation actions use this deterministic precedence:
 
 Specialized advice is explanatory and does not silently defeat a stronger personal need or an explicit override.
 
+Plan's session strip (#712 2-3, `SessionPlanner`) turns "You said 2 h" into raids in order: raid one is the next-raid suggestion, each later raid is the same choice with about four objectives per earlier raid taken off, and spare slots become hideout loot runs. Slots are the time left over about 30 minutes a raid, or the player's own median raid plus 7 minutes once three raids are recorded; a raid ending re-reads the board and the history, so the plan follows each recap. Everything in it is labelled an estimate. `HandInReminders` lists active quests whose recorded objectives are all done, or whose only open objectives are hand-overs the recorded stash covers, on Plan and as a line in the after-raid recap.
+
 ## Event intelligence
 
 Events are generic definitions with applicable canonical item IDs, kept locally because no feed

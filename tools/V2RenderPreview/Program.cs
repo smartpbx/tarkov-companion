@@ -432,6 +432,11 @@ internal static class Program
             if (IntOption(args, "--seed-active-quests", 0) is var questCount and > 0)
             {
                 DrainUntilComplete(SeedActiveQuestsAsync(services, questCount));
+                if (args.Contains("--session-demo"))
+                {
+                    SessionPlanDemo.Seed(services, DrainUntilComplete);
+                }
+
                 DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
             }
 

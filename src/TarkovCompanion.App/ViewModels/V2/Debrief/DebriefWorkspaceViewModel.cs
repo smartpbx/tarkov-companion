@@ -277,8 +277,11 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         IRaidContextSource? raidContext = null,
         IRaidEndSignal? raidEnds = null,
         IMapDataService? maps = null,
-        Action<Action>? dispatch = null)
+        Action<Action>? dispatch = null,
+        // [#712 2-3] The recap's hand-in line reads the player's own quest board.
+        IQuestReadService? questRead = null)
     {
+        _questRead = questRead;
         _lootScans = lootScans;
         _raidContext = raidContext;
         _raidHistoryService = raidHistoryService ?? throw new ArgumentNullException(nameof(raidHistoryService));
