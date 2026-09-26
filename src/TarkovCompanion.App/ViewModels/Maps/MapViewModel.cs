@@ -4894,22 +4894,26 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     /// has not taken a screenshot yet still gets the exits their side can use, without
     /// distances, which is more than the "None observed" it replaces.
     /// </remarks>
+    /// <summary>[#712 0-4] The same exits as <see cref="ExtractPanel"/>, as numbers: the Now panel's nearest offered exit.</summary>
+    internal IReadOnlyList<NearbyExtract> NearbyExits { get; private set; } = [];
+
     private void UpdateExtractPanel()
     {
         if (_mapFeatures.Count == 0 && _mapExtracts.Count == 0 && _activeExtracts.Count == 0)
         {
+            NearbyExits = [];
             ExtractPanel = [];
             return;
         }
 
         var offered = _activeExtracts.Select(extract => extract.Name).ToArray();
-        ExtractPanel = ExtractProximity
-            .Near(
-                _mapFeatures,
-                _playerPosition?.Position,
-                _side,
-                offered,
-                definitions: _mapExtracts)
+        NearbyExits = ExtractProximity.Near(
+            _mapFeatures,
+            _playerPosition?.Position,
+            _side,
+            offered,
+            definitions: _mapExtracts);
+        ExtractPanel = NearbyExits
             .Select(exit => new ExtractPanelViewModel(
                 exit.Name,
                 ExtractProximity.DescribeLocation(exit),

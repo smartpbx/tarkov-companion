@@ -1129,7 +1129,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// the "Not in raid" it replaced, pushed the off-plan chip onto a second line, and took 32
     /// pixels of height from the map (Windows gallery: 0.741 of the window against a 0.75 floor).
     /// </remarks>
-    public bool ShowsStripPhase => ShowsPhaseInStrip(_raid.Clock);
+    public bool ShowsStripPhase => ShowsPhaseInStrip(_raid.Clock) && !ShowsNowPanel; // [#712 0-4] one clock: NOW's
 
     internal static bool ShowsPhaseInStrip(string clock) => clock.Length > 0;
 
