@@ -5,6 +5,7 @@ using TarkovCompanion.Application.Services.Strategy.Prior;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Situations;
 
@@ -135,6 +136,17 @@ public sealed record NowPanelState
 
     public IReadOnlyList<NowSquadRow> Squad { get; init; } = [];
 
+    /// <summary>
+    /// [#403] Where SQUAD's rows came from: squadmates' companions, or, with none sharing, the
+    /// game's own party list (the same fallback the pre-raid brief makes).
+    /// </summary>
+    public string SquadSource { get; init; } = NowText.SquadSource;
+
+    /// <summary>The party list's own "because" (how many ready, as of when), behind SQUAD's source label.</summary>
+    public string SquadBecause { get; init; } = string.Empty;
+
+    public bool HasSquadBecause => SquadBecause.Length > 0;
+
     /// <summary>One line for SQUAD while a fresh verdict has the room: "Geo 90 m E · Riley 60 m N".</summary>
     public string SquadLine { get; init; } = string.Empty;
 
@@ -191,7 +203,7 @@ public sealed record NowPanelState
 
     public IReadOnlyList<NowLootRow> VerdictRows => IsVerdictFocus && Verdict is { } verdict ? verdict.Rows : [];
 
-    /// <summary>The newest phase change's own reason: the "because" strip (ADR 0022's transitions).</summary>
+    /// <summary>The phase fact's own reason, from the situation itself: the "because" strip (ADR 0022).</summary>
     public string Because { get; init; } = string.Empty;
 
     public bool HasBecause => Because.Length > 0;
@@ -200,8 +212,7 @@ public sealed record NowPanelState
         Situation situation,
         DateTimeOffset nowUtc,
         IReadOnlyList<NowExit>? exits = null,
-        NowLootVerdict? verdict = null,
-        string? because = null)
+        NowLootVerdict? verdict = null)
     {
         ArgumentNullException.ThrowIfNull(situation);
         var phase = situation.Phase.Value;
@@ -215,13 +226,22 @@ public sealed record NowPanelState
             : null;
         var focus = inRaid && shownVerdict is not null && nowUtc - shownVerdict.ReceivedUtc < VerdictFocus;
 
+        // [#403] Companions' own shares first; with none, the game's party list, as the brief does.
+        var party = situation.Squad.Count == 0 && situation.Party is { Members.Count: > 0 } game ? game : null;
+        var squad = party is null
+            ? situation.Squad.Select(member => Row(member, situation.Map?.Value, nowUtc)).ToArray()
+            : party.Members.Select(member => Row(member, phase)).ToArray();
+
         var state = new NowPanelState
         {
             Phase = phase,
-            Because = because ?? string.Empty,
+            // Nothing read yet has nothing to explain; NOW's own line already says so.
+            Because = situation.Phase.Source == SituationSource.None ? string.Empty : situation.Phase.Because,
             ShowsYou = inRaid,
-            ShowsSquad = situation.Squad.Count > 0 || inRaid,
-            Squad = [.. situation.Squad.Select(member => Row(member, situation.Map?.Value, nowUtc))],
+            ShowsSquad = squad.Length > 0 || inRaid,
+            Squad = squad,
+            SquadSource = party is null ? NowText.SquadSource : NowText.SquadFromGame,
+            SquadBecause = party?.Because ?? string.Empty,
             ShowsNext = !focus && phase is SituationPhase.InRaid or SituationPhase.Matching or SituationPhase.Loading,
             ShowsScan = true,
             IsVerdictFocus = focus,
@@ -260,12 +280,23 @@ public sealed record NowPanelState
         var phase = situation.Phase.Value;
         if (phase != SituationPhase.InRaid)
         {
-            var headline = phase == SituationPhase.Loading && situation.Map?.Value is { } map
-                ? NowText.LoadingMap(MapDisplayName.FromId(map))
-                : NowText.Phase(phase);
-            var detail = phase == SituationPhase.Screen
-                ? NowText.ScreenLine(ScreenWord(situation.LastScan?.Kind))
-                : NowText.PhaseLine(phase, situation.Outcome?.Source == SituationSource.Screenshot);
+            var map = situation.Map?.Value is { } mapId ? MapDisplayName.FromId(mapId) : null;
+            var spawning = phase == SituationPhase.Loading &&
+                situation.Stages.Any(stage => stage.Kind is RaidPhaseMarkerKind.Spawning or RaidPhaseMarkerKind.Spawned);
+            var headline = phase switch
+            {
+                SituationPhase.Loading when spawning => map is null ? NowText.Spawning : NowText.SpawningMap(map),
+                SituationPhase.Loading when map is not null => NowText.LoadingMap(map),
+                _ => NowText.Phase(phase),
+            };
+            var detail = phase switch
+            {
+                SituationPhase.Screen => NowText.ScreenLine(ScreenWord(situation.LastScan?.Kind)),
+                // [#403] Matching and loading say when each step happened, from the game's own log lines.
+                SituationPhase.Matching or SituationPhase.Loading when StageLine(situation.Stages) is { Length: > 0 } stages => stages,
+                SituationPhase.Matching => string.Empty,
+                _ => NowText.PhaseLine(phase, situation.Outcome?.Source == SituationSource.Screenshot),
+            };
             return state with { NowHeadline = headline, NowDetail = detail };
         }
 
@@ -315,6 +346,31 @@ public sealed record NowPanelState
         }
 
         return state;
+    }
+
+    /// <summary>
+    /// "Ready 14:02 · raid found 14:05 · map loaded 14:06": each step once, at its first line, in the
+    /// order a raid goes through them. Queue steps G/H/I only say "matching", which the headline does.
+    /// </summary>
+    /// <remarks>
+    /// Clock times rather than "N s ago", so the line does not change every second: the tablet's payload
+    /// is sent on change only (TabletNowPanelBuilder).
+    /// </remarks>
+    internal static string StageLine(IReadOnlyList<RaidPhaseMarker> stages)
+    {
+        RaidPhaseMarkerKind[] order =
+        [
+            RaidPhaseMarkerKind.MatchingStarted,
+            RaidPhaseMarkerKind.MatchingCompleted,
+            RaidPhaseMarkerKind.LocationLoaded,
+            RaidPhaseMarkerKind.Spawning,
+            RaidPhaseMarkerKind.Spawned,
+        ];
+        var parts = order
+            .Select(kind => stages.FirstOrDefault(stage => stage.Kind == kind))
+            .OfType<RaidPhaseMarker>()
+            .Select(stage => NowText.Stage(stage.Kind, LocalTime.ShortTime(stage.ObservedUtc)));
+        return string.Join(" · ", parts);
     }
 
     private static NowPanelState WithYou(NowPanelState state, SituationYou? you, DateTimeOffset nowUtc, NowExit? exit)
@@ -428,6 +484,19 @@ public sealed record NowPanelState
             CanPing: member.State == SquadMemberState.InRaid && placed && member.MapId is not null,
             IsAway: member.State is not SquadMemberState.InRaid,
             Signature: $"{member.State}|{member.AreaName}");
+    }
+
+    /// <summary>
+    /// [#403] A party member the game's log named, with nobody's companion sharing: a name and, before
+    /// the raid, whether they pressed Ready. No position, age or Ping: the log carries none.
+    /// </summary>
+    private static NowSquadRow Row(SituationPartyMember member, SituationPhase phase)
+    {
+        var beforeRaid = phase is SituationPhase.Unknown or SituationPhase.Menu or SituationPhase.Screen or SituationPhase.Matching;
+        var where = beforeRaid && member.IsReady is { } ready
+            ? ready ? NowText.PartyReady : NowText.PartyNotReady
+            : NowText.PartyMember;
+        return new(member.Name, where, where, string.Empty, CanPing: false, IsAway: false, Signature: $"party|{where}");
     }
 
     private static string JoinSquad(IReadOnlyList<NowSquadRow> rows) =>

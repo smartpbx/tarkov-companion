@@ -142,11 +142,17 @@ public sealed class NowPanelHostTests
     }
 
     [Fact]
-    public void The_last_phase_change_reason_is_the_because_line()
+    public void The_phase_facts_own_reason_is_the_because_line()
     {
         using var scope = NowPanelStateTests.English();
-        var state = NowPanelState.Project(NowPanelStateTests.Out(SituationPhase.Menu), DateTimeOffset.UnixEpoch, because: "The last raid ended at 14:02.");
+        var menu = NowPanelStateTests.Out(SituationPhase.Menu) with
+        {
+            Phase = new(SituationPhase.Menu, new(0.9), SituationSource.GameLog, DateTimeOffset.UnixEpoch, "The last raid ended at 14:02."),
+        };
 
-        Assert.Equal("The last raid ended at 14:02.", state.Because);
+        Assert.Equal("The last raid ended at 14:02.", NowPanelState.Project(menu, DateTimeOffset.UnixEpoch).Because);
+
+        // Nothing read yet: NOW already says "Waiting for the game", and a second line would repeat it.
+        Assert.False(NowPanelState.Project(Situation.Initial, DateTimeOffset.UnixEpoch).HasBecause);
     }
 }

@@ -142,7 +142,7 @@ public sealed class TabletNowPanelBrowserTests : RealBrowserTestHarness
                     ],
                     now.AddSeconds(-5));
                 var latePanel = TabletNowPanelBuilder.Build(
-                    NowPanelState.Project(late, now, [new NowExit("ZB-1011", 310, "W", IsOffered: true)], verdict, "The game started the raid."),
+                    NowPanelState.Project(late, now, [new NowExit("ZB-1011", 310, "W", IsOffered: true)], verdict),
                     late);
                 Assert.True(await desktop.Bridge.PublishMapSurfaceAsync(TabletMapSurfaceJson.Serialize(Surface(now) with { Now = latePanel }), artwork: null));
             }
