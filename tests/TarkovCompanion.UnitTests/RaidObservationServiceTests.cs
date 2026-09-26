@@ -130,6 +130,44 @@ public sealed class RaidObservationServiceTests
     }
 
     [Fact]
+    public async Task APositionFromTheNameGetsAPositionTimelineApplied()
+    {
+        // #712 0-12: the squad's number, file seen to position applied, recorded as its own kind.
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        var timeline = new CaptureStageTimeline();
+        using var harness = new Harness(new("eft", null, screenshotRoot, new Confidence(0.8)), stageTimeline: timeline);
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "shot.png"));
+
+        await harness.RunUntilAsync(_ => timeline.Recent.Any(summary => summary.Kind == CaptureTimelineKinds.Position));
+
+        var position = Assert.Single(timeline.Recent, summary => summary.Kind == CaptureTimelineKinds.Position);
+        Assert.Equal([CaptureTimelineKinds.Applied], position.Milestones.Select(milestone => milestone.Stage));
+    }
+
+    [Fact]
+    public async Task ATasksScreenshotGetsATimelineFromSettledToShown()
+    {
+        // #712 0-12: TASKS is answered only by the always-on reader, so it times itself there.
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        var timeline = new CaptureStageTimeline();
+        using var harness = new Harness(
+            new("eft", null, screenshotRoot, new Confidence(0.8)),
+            imageLoader: new StubImageLoader(),
+            scanUseCase: new TaskScreenshotScanUseCase(),
+            stageTimeline: timeline);
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "tasks-1.png"));
+
+        harness.Service.Start();
+        await UntilAsync(() => timeline.Recent.Any(summary => summary.Kind == "Tasks"));
+
+        var tasks = Assert.Single(timeline.Recent, summary => summary.Kind == "Tasks");
+        Assert.Equal(
+            [CaptureTimelineKinds.Settled, CaptureTimelineKinds.Decoded, CaptureTimelineKinds.Recognised, CaptureTimelineKinds.Shown],
+            tasks.Milestones.Select(milestone => milestone.Stage));
+        Assert.True(tasks.Milestones.Zip(tasks.Milestones.Skip(1)).All(pair => pair.First.ElapsedMilliseconds <= pair.Second.ElapsedMilliseconds));
+    }
+
+    [Fact]
     public async Task DisappearingScreenshotSourceRediscoveryPreservesTheHealthyLogWatcher()
     {
         var screenshotRoot = Path.Combine("eft", "Screenshots");
@@ -232,7 +270,8 @@ public sealed class RaidObservationServiceTests
             IScanUseCase? scanUseCase = null,
             ICaptureSessionService? captureSessions = null,
             ICaptureContextSource? captureContext = null,
-            QuestScreenshotBurstCollector? questScreenshotBursts = null)
+            QuestScreenshotBurstCollector? questScreenshotBursts = null,
+            ICaptureStageTimeline? stageTimeline = null)
         {
             var options = new RuntimeOptions(
                 demoMode,
@@ -263,7 +302,8 @@ public sealed class RaidObservationServiceTests
                 scanUseCase: scanUseCase,
                 captureSessions: captureSessions,
                 captureContext: captureContext,
-                questScreenshotBursts: questScreenshotBursts);
+                questScreenshotBursts: questScreenshotBursts,
+                stageTimeline: stageTimeline);
         }
 
         public SquadStateService Squad { get; } = new();

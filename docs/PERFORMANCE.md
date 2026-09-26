@@ -146,6 +146,19 @@ A failing budget is a prompt to run the harness and find out why, not to raise t
 
 One real frame's grid build, first scan of a session, against the 5,320-icon corpus on dev: 56-61 s before (every cell decoded every reference of its shape itself, queued on the cache's exclusive lease), 0.3-1.3 s after (one shared decode per shape); later scans 22-303 ms, identity accuracy on the labelled frames unchanged. The app now describes every reference in the background after the icon index refreshes (1.4-1.6 s, about 46 MB). Re-measure with `RealLootScanTimingTests`.
 
+## Screenshot stage timeline and the settle probe (#712 0-12)
+
+Every screenshot now has a timeline on one monotonic clock, measured from the moment its name was seen: `settled`, `dequeued`, `decoded` (file read and decode together), `classified` (context OCR), `recognised`, `shown`; a filename position has `applied` and, once an exchange carries it, `published` (request sent to the relay). The capture pipeline records Loot, Stash, Flea, Ammo, Keys, QuestItems, ExtractsAndMap, HealthAndCharacter, Item and Unread; the always-on reader records Tasks and Extracts. `CaptureStageTimeline` keeps the last 256 and Setup › Updates & Diagnostics shows p50 / p95 per kind; the log has one `Screenshot <kind> ... timing` line per timeline.
+
+The settle wait was the watcher's second probe, a whole poll after the first: 1 s outside a raid (stash, flea, trader, TASKS), 250 ms in one with the group on. A settling file is now probed again after 100 ms (duty cycle still applies, fast probing ends 10 s after a file first appears); the same two-probe fingerprint, whole image envelope and re-probe are still required. `RealScreenshotSettleTimingTests` (`TARKOV_SETTLE_FRAMES=<folder>`), 11 real frames (52 MB) written in 256 KB pieces, dev, same build:
+
+| Name seen to settled | Before p50 / p95 | After p50 / p95 |
+| --- | --- | --- |
+| Idle poll (1 s) | 1,001 / 1,002 ms | 100 / 101 ms |
+| Attentive poll (250 ms) | 250 / 258 ms | 101 / 102 ms |
+
+Read and decode on the same frames: 51 / 72 ms. Classifying and recognising need Windows OCR and are read from Setup on the player's PC.
+
 ## Known slow, not fixed here
 
 - **A real change to the plan recreates all of it.** Moving one marker recreates every marker, line

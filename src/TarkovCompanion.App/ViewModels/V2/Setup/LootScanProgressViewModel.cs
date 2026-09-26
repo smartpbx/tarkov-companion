@@ -72,6 +72,19 @@ public sealed class LootScanProgressViewModel : BindableViewModel
             return;
         }
 
+        if (progress.Summary is { IsLoot: false })
+        {
+            // #712 0-12: the screenshot was something else. Its line goes, rather than a stale
+            // "Scanning" waiting out the quiet timer, and a Loot scan in progress is left alone.
+            if (_current == progress.CorrelationId)
+            {
+                Text = string.Empty;
+                IsScanning = false;
+            }
+
+            return;
+        }
+
         Text = LootScanStageText.Progress(progress);
         IsScanning = progress.Summary is null;
         HideAfter(IsScanning ? QuietAfter : DoneShownFor);

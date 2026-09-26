@@ -104,6 +104,7 @@ public sealed class CaptureRecognitionPipeline(
             var ocrStopwatch = System.Diagnostics.Stopwatch.StartNew();
             var coordinated = await _ocr.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
             stageTimeline?.Mark(request.CorrelationId, "context_ocr", ocrStopwatch.Elapsed);
+            stageTimeline?.Reached(request.CorrelationId, Application.Services.CaptureSessions.CaptureTimelineKinds.Classified);
             // #287: the HEALTH tab draws the stash beside the body, so its anchors say Container.
             // It is placed first, and never measured as a grid nobody asked about.
             if (HealthScreenClassifier.Classify(coordinated.FullFrame) is { IsHealthTab: true } health)

@@ -21,7 +21,9 @@ public sealed class CompositeCaptureResultHandoff(
     IntelCaptureHandoff intel,
     FleaCaptureHandoff? flea = null,
     // #287: extracts, map and character screens say "not supported yet" instead of nothing.
-    UnsupportedScreenHandoff? unsupported = null) : ICaptureResultHandoff
+    UnsupportedScreenHandoff? unsupported = null,
+    // #712 0-12: a Loot capture that is one named item counts as an Item in the timing table.
+    ICaptureStageTimeline? stageTimeline = null) : ICaptureResultHandoff
 {
     private readonly LootScanCaptureHandoff _lootScan = lootScan ?? throw new ArgumentNullException(nameof(lootScan));
     private readonly StashScanCaptureHandoff _stashScan = stashScan ?? throw new ArgumentNullException(nameof(stashScan));
@@ -46,6 +48,11 @@ public sealed class CompositeCaptureResultHandoff(
         if (!isLootGrid)
         {
             NonLootIntentHandled?.Invoke(this, request.EffectiveIntent);
+        }
+
+        if (request.EffectiveIntent == ScanIntent.Loot && !isLootGrid)
+        {
+            stageTimeline?.Classify(request.CorrelationId, CaptureTimelineKinds.Item);
         }
 
         return request.EffectiveIntent switch

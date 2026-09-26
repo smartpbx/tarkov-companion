@@ -59,7 +59,8 @@ public sealed class RaidObservationService : IAsyncDisposable
     // report how long the file took to stop growing before its pixels were worth reading. Removed
     // once consumed; a name whose settled sighting never arrives (deleted mid-write, a watch
     // session restarting) would otherwise leak one entry, so this is capped defensively.
-    private readonly Dictionary<string, DateTimeOffset> _nameSeenAt = [];
+    // #712 0-12: with the monotonic moment too, which every milestone after it is measured from.
+    private readonly Dictionary<string, (DateTimeOffset Utc, long Timestamp)> _nameSeenAt = [];
     private const int MaximumTrackedNames = 64;
     private Task? _worker;
     private EftPaths? _watching;
@@ -461,12 +462,15 @@ public sealed class RaidObservationService : IAsyncDisposable
                         // reading - the "settle wait" stage nothing downstream can see, since the
                         // capture pipeline only ever learns about a screenshot once it is settled.
                         var settledAt = _timeProvider.GetUtcNow();
+                        var settledTimestamp = _timeProvider.GetTimestamp();
                         TimeSpan? settleWait = null;
+                        var seenTimestamp = settledTimestamp;
                         lock (_screenshotScanGate)
                         {
                             if (_nameSeenAt.Remove(path, out var nameSeenAt))
                             {
-                                settleWait = settledAt - nameSeenAt;
+                                settleWait = _timeProvider.GetElapsedTime(nameSeenAt.Timestamp, settledTimestamp);
+                                seenTimestamp = nameSeenAt.Timestamp;
                             }
                         }
 
@@ -480,7 +484,11 @@ public sealed class RaidObservationService : IAsyncDisposable
                         //
                         // Only the pixels wait here. The position left on the sighting below,
                         // one to two seconds earlier.
-                        await QueueScreenshotScanAsync(path, sourceGeneration, source.Token, settledAt, settleWait)
+                        await QueueScreenshotScanAsync(
+                                path,
+                                sourceGeneration,
+                                source.Token,
+                                new(settledAt, settleWait, seenTimestamp, settledTimestamp))
                             .ConfigureAwait(false);
                         continue;
                     }
@@ -493,6 +501,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                     //
                     // Remembered whether or not it parses, because the ones that do not are
                     // exactly the ones somebody needs to see.
+                    var nameSeenTimestamp = _timeProvider.GetTimestamp();
                     RememberScreenshotName(Path.GetFileName(path));
                     _formatHealth?.ObserveScreenshotName(Path.GetFileName(path));
 
@@ -504,7 +513,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                             _nameSeenAt.Clear();
                         }
 
-                        _nameSeenAt[path] = _timeProvider.GetUtcNow();
+                        _nameSeenAt[path] = (_timeProvider.GetUtcNow(), nameSeenTimestamp);
                     }
 
                     // So: place the player, then read the picture.
@@ -518,6 +527,15 @@ public sealed class RaidObservationService : IAsyncDisposable
                             "Read a filename position on sight at {Taken:O}; exact coordinates are not logged.",
                             position.Timestamp);
                         await _coordinator.ApplyPositionAsync(position, source.Token).ConfigureAwait(false);
+                        // #712 0-12: the squad's number. The relay send is added to it by the
+                        // group session once an exchange carries this position.
+                        if (_stageTimeline is { } timeline)
+                        {
+                            var positionId = CaptureCorrelationId.New();
+                            timeline.Begin(positionId, _timeProvider.GetUtcNow(), nameSeenTimestamp, CaptureTimelineKinds.Position);
+                            timeline.Reached(positionId, CaptureTimelineKinds.Applied);
+                            timeline.Complete(positionId, _timeProvider.GetUtcNow());
+                        }
                     }
                     else
                     {
@@ -716,8 +734,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         long sourceGeneration,
         long scanOrdinal,
         CancellationToken cancellationToken,
-        DateTimeOffset? fileSeenUtc = null,
-        TimeSpan? settleWait = null)
+        ScreenshotTiming? timing = null)
     {
         if (_imageLoader is null)
         {
@@ -748,9 +765,14 @@ public sealed class RaidObservationService : IAsyncDisposable
                 // #572: minted here rather than left to EnqueueAsync so the scan's timeline can
                 // begin under the same id the whole pipeline correlates by.
                 var correlationId = CaptureCorrelationId.New();
-                var timedFileSeenUtc = fileSeenUtc ?? _timeProvider.GetUtcNow();
-                _stageTimeline?.Begin(correlationId, timedFileSeenUtc);
-                if (settleWait is { } wait)
+                var timedFileSeenUtc = timing?.SettledUtc ?? _timeProvider.GetUtcNow();
+                _stageTimeline?.Begin(correlationId, timedFileSeenUtc, timing?.SeenTimestamp, null);
+                if (timing is { } settled)
+                {
+                    _stageTimeline?.Reached(correlationId, CaptureTimelineKinds.Settled, settled.SettledTimestamp);
+                }
+
+                if (timing?.SettleWait is { } wait)
                 {
                     _stageTimeline?.Mark(correlationId, "settle_wait", wait);
                 }
@@ -805,6 +827,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         try
         {
             var image = await loader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+            var decodedTimestamp = _timeProvider.GetTimestamp();
             if (image is null)
             {
                 _logger.LogInformation(
@@ -839,7 +862,9 @@ public sealed class RaidObservationService : IAsyncDisposable
                 _questScreenshotBursts?.Observe(path, outcome.ObservedUtc, raidActive);
             }
 
+            var readTimestamp = _timeProvider.GetTimestamp();
             PublishScreenshotOutcome(sourceGeneration, scanOrdinal, outcome);
+            RecordAlwaysOnTiming(outcome.Context, timing, decodedTimestamp, readTimestamp);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -849,6 +874,43 @@ public sealed class RaidObservationService : IAsyncDisposable
                 MaskScreenshotName(Path.GetFileName(path)));
         }
     }
+
+    /// <summary>
+    /// #712 0-12: the kinds only the always-on reader answers (the TASKS screen, the extract list)
+    /// get a timeline of their own, so every kind has one.
+    /// </summary>
+    /// <remarks>
+    /// The capture pipeline reads every screenshot as well, under its own timeline; recording the
+    /// always-on reader for everything would count each loot or stash frame twice.
+    /// </remarks>
+    private void RecordAlwaysOnTiming(ScanContext context, ScreenshotTiming? timing, long decodedTimestamp, long readTimestamp)
+    {
+        var kind = context switch
+        {
+            ScanContext.QuestTasks => "Tasks",
+            ScanContext.ExtractList => "Extracts",
+            _ => null,
+        };
+        if (_stageTimeline is not { } timeline || kind is null || timing is not { } settled)
+        {
+            return;
+        }
+
+        var id = CaptureCorrelationId.New();
+        timeline.Begin(id, settled.SettledUtc, settled.SeenTimestamp, kind);
+        timeline.Reached(id, CaptureTimelineKinds.Settled, settled.SettledTimestamp);
+        timeline.Reached(id, CaptureTimelineKinds.Decoded, decodedTimestamp);
+        timeline.Reached(id, CaptureTimelineKinds.Recognised, readTimestamp);
+        timeline.Reached(id, CaptureTimelineKinds.Shown);
+        timeline.Complete(id, _timeProvider.GetUtcNow());
+    }
+
+    /// <summary>When a settled screenshot's name was seen and when its file settled, on both clocks.</summary>
+    private readonly record struct ScreenshotTiming(
+        DateTimeOffset SettledUtc,
+        TimeSpan? SettleWait,
+        long SeenTimestamp,
+        long SettledTimestamp);
 
     /// <summary>
     /// Carries the game's own display onto the raid, with how long each bar has ever been.
@@ -1022,8 +1084,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         string path,
         long sourceGeneration,
         CancellationToken cancellationToken,
-        DateTimeOffset? fileSeenUtc = null,
-        TimeSpan? settleWait = null)
+        ScreenshotTiming? timing = null)
     {
         lock (_screenshotScanGate)
         {
@@ -1045,8 +1106,7 @@ public sealed class RaidObservationService : IAsyncDisposable
             sourceGeneration,
             scanOrdinal,
             cancellationToken,
-            fileSeenUtc ?? _timeProvider.GetUtcNow(),
-            settleWait);
+            timing);
         lock (_screenshotScanGate)
         {
             _screenshotScans.Add(scan);

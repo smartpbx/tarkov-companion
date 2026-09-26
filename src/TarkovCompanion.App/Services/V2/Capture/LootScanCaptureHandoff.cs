@@ -147,6 +147,7 @@ public sealed class LootScanCaptureHandoff(
             // V2ShellCaptureBridge.ShowLootScanResult - the total below therefore covers first
             // paint's dispatch too, not only evaluation. Only here, never from ReevaluateLastAsync:
             // re-deciding the same frame for a pin or a phase change is not a scan's latency.
+            _stageTimeline?.Reached(request.CorrelationId, CaptureTimelineKinds.Shown);
             _stageTimeline?.Complete(request.CorrelationId, _timeProvider.GetUtcNow());
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

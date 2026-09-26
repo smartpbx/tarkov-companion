@@ -15,5 +15,21 @@
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
+    <!-- [#712 0-12] Every kind of screenshot, p50 / p95 per milestone since the file appeared. -->
+    <Panel DataContext="{Binding Screenshots}">
+      <StackPanel Classes="v2-field" x:DataType="vm:ScreenshotTimingViewModel"
+                  AutomationProperties.AutomationId="v2-setup-screenshot-timing">
+        <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+        <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding Hint}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-body" Text="{Binding Empty}" IsVisible="{Binding !HasRows}" />
+        <ItemsControl ItemsSource="{Binding Rows}" IsVisible="{Binding HasRows}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Panel>
   </StackPanel>
 </UserControl>

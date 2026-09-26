@@ -568,6 +568,29 @@ internal static class Program
             {
                 var timeline = services.GetRequiredService<TarkovCompanion.Application.Services.CaptureSessions.ICaptureStageTimeline>();
                 var seen = DateTimeOffset.UtcNow.AddSeconds(-20);
+                // [#712 0-12] Before the loot scan below, which stays the last one. A few of every kind, so the per-kind p50/p95 lines have something to say.
+                foreach (var (kind, milestones) in new (string, (string, double)[])[]
+                {
+                    ("Position", [("applied", 4), ("published", 61)]),
+                    ("Loot", [("settled", 102), ("dequeued", 103), ("decoded", 160), ("classified", 310), ("recognised", 450), ("shown", 520)]),
+                    ("Stash", [("settled", 101), ("dequeued", 102), ("decoded", 158), ("classified", 305), ("recognised", 690), ("shown", 760)]),
+                    ("Tasks", [("settled", 100), ("decoded", 150), ("recognised", 420), ("shown", 421)]),
+                })
+                {
+                    for (var repeat = 0; repeat < 3; repeat++)
+                    {
+                        var id = TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New();
+                        var seenAt = TimeProvider.System.GetTimestamp();
+                        timeline.Begin(id, seen, seenAt, kind);
+                        foreach (var (milestone, ms) in milestones)
+                        {
+                            timeline.Reached(id, milestone, seenAt + (long)((ms + (repeat * 17)) * TimeProvider.System.TimestampFrequency / 1000));
+                        }
+
+                        timeline.Complete(id, seen);
+                    }
+                }
+
                 var done = TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New();
                 timeline.Begin(done, seen);
                 foreach (var (stage, ms) in new[] { ("settle_wait", 310d), ("context_ocr", 142d), ("grid_and_icon_matching", 118d), ("grid_reconstruct", 21d), ("profile_lookup", 9d), ("recommendation", 34d), ("decide", 6d) })

@@ -29,6 +29,14 @@ namespace TarkovCompanion.Platform.Windows.Watching;
 /// for both made the position wait on the picture: two probes a second apart before a marker
 /// could move, for a number already on disk.
 ///
+/// While a file is settling, the next look comes a tenth of a second later rather than a whole
+/// poll later (#712 0-12). The second probe was the settle wait: a full interval, one second
+/// outside a raid, where a stash, flea or trader screenshot is taken, for a file the game had
+/// usually finished writing within milliseconds. What makes a file readable is unchanged: the
+/// same fingerprint on two probes, a whole image envelope (PNG IEND, JPEG EOI) at the length the
+/// listing saw, and the same fingerprint again after opening it. Only the gap between the two
+/// probes is shorter, and the duty cycle still bounds it.
+///
 /// Screenshots already on disk when watching starts are not replayed, with one exception: a
 /// file named for the couple of minutes before startup is still worth reporting, because the
 /// alternative is losing the shot the player took while the companion was restarting. Once the
@@ -46,9 +54,25 @@ public sealed class WindowsScreenshotWatcher(
     // gets exactly the one-second poll it always had.
     IScreenshotWatchPacer? pacer = null,
     TimeSpan? attentivePollInterval = null,
-    ILogger<WindowsScreenshotWatcher>? logger = null)
+    ILogger<WindowsScreenshotWatcher>? logger = null,
+    // #712 0-12: the gap between probes while a file settles.
+    TimeSpan? settleProbeInterval = null)
     : IScreenshotWatcher
 {
+    /// <summary>How soon a file that is settling is looked at again.</summary>
+    /// <remarks>
+    /// A tenth of a second: the game writes a 4-7 MB PNG in one go, so by the second look it has
+    /// nearly always finished, and a file still growing only costs another tenth.
+    /// </remarks>
+    private static readonly TimeSpan DefaultSettleProbeInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>How long a file keeps the fast probe before it waits on the ordinary poll.</summary>
+    /// <remarks>
+    /// A cloud placeholder or an oversized file never settles; without this bound one such file
+    /// would keep the watcher listing ten times a second for as long as it sat there.
+    /// </remarks>
+    private static readonly TimeSpan SettleProbeWindow = TimeSpan.FromSeconds(10);
+
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(1);
 
     /// <summary>How often the folder is looked at while somebody is waiting for a screenshot.</summary>
@@ -95,6 +119,9 @@ public sealed class WindowsScreenshotWatcher(
     };
 
     private readonly TimeSpan _pollInterval = pollInterval ?? DefaultPollInterval;
+    private readonly TimeSpan _settleProbeInterval = settleProbeInterval is { } probe && probe > TimeSpan.Zero
+        ? probe
+        : DefaultSettleProbeInterval;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly TimeSpan _attentivePollInterval = Shorter(
         attentivePollInterval ?? DefaultAttentivePollInterval,
@@ -206,7 +233,11 @@ public sealed class WindowsScreenshotWatcher(
                     // A file still growing changes fingerprint between probes and starts the
                     // stability count again. Whether its name has been reported does not start
                     // again with it: the coordinates were complete the first time.
-                    state = new(candidate.Fingerprint, 1) { NameAnnounced = announced };
+                    state = new(candidate.Fingerprint, 1)
+                    {
+                        NameAnnounced = announced,
+                        FirstSeenUtc = tracked ? state!.FirstSeenUtc : now,
+                    };
                     settling[candidate.Path] = state;
                     if (!announced)
                     {
@@ -258,7 +289,8 @@ public sealed class WindowsScreenshotWatcher(
 
             watchState.Initialized = true;
             PruneTracking(seen, settling, present);
-            if (!await WaitAsync(NextInterval(), cancellationToken).ConfigureAwait(false))
+            var settlingSoon = settling.Values.Any(state => now - state.FirstSeenUtc < SettleProbeWindow);
+            if (!await WaitAsync(NextInterval(settlingSoon), cancellationToken).ConfigureAwait(false))
             {
                 yield break;
             }
@@ -276,10 +308,11 @@ public sealed class WindowsScreenshotWatcher(
     /// player can photograph anything. Re-checking mid-wait would mean waking four times a
     /// second for the whole time the game is not running, to be ready a second earlier once.
     /// </remarks>
-    private TimeSpan NextInterval()
+    private TimeSpan NextInterval(bool settling)
     {
+        var paced = pacer?.Current == ScreenshotWatchPace.Attentive ? _attentivePollInterval : _pollInterval;
         var wanted = IntervalFor(
-            pacer?.Current == ScreenshotWatchPace.Attentive ? _attentivePollInterval : _pollInterval,
+            settling ? Shorter(_settleProbeInterval, paced) : paced,
             new TimeSpan(_listingCostTicks));
         Interlocked.Exchange(ref _pollIntervalTicks, wanted.Ticks);
         return wanted;
@@ -603,6 +636,9 @@ public sealed class WindowsScreenshotWatcher(
     {
         /// <summary>Whether this path's name has already been reported on sight.</summary>
         public bool NameAnnounced { get; init; }
+
+        /// <summary>When this path was first seen settling, for the fast-probe window.</summary>
+        public DateTimeOffset FirstSeenUtc { get; init; }
     }
 
     private sealed record SeenFile(long Length, DateTimeOffset LastObservedUtc);
