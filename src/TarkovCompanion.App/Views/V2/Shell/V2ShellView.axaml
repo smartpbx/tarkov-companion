@@ -883,26 +883,35 @@
                          AutomationProperties.AutomationId="v2-shell-page-heading"
                          AutomationProperties.HeadingLevel="1" Text="{Binding CurrentHeading}" />
 
-              <Border Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
-                      AutomationProperties.AccessibilityView="Control"
-                      AutomationProperties.AutomationId="v2-shell-sections"
-                      AutomationProperties.LandmarkType="Navigation"
-                      AutomationProperties.Name="{Binding SectionRegionName}">
-                <ItemsControl ItemsSource="{Binding SectionItems}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:V2ShellSectionViewModel">
-                      <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
-                              AutomationProperties.AutomationId="{Binding AutomationId}"
-                              AutomationProperties.Name="{Binding Label}"
-                              AutomationProperties.ItemStatus="{Binding SelectionDescription}"
-                              Content="{Binding Label}" Command="{Binding NavigateCommand}" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </Border>
+              <!-- [#712 1-13] The readiness strip sits in the tab row, right of the Raid page's two
+                   tabs (the left margin clears them), so the map keeps its height: the page gallery
+                   holds the Raid map to 75% of the window. -->
+              <Panel>
+                <Border Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
+                        AutomationProperties.AccessibilityView="Control"
+                        AutomationProperties.AutomationId="v2-shell-sections"
+                        AutomationProperties.LandmarkType="Navigation"
+                        AutomationProperties.Name="{Binding SectionRegionName}">
+                  <ItemsControl ItemsSource="{Binding SectionItems}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2ShellSectionViewModel">
+                        <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                                AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Label}"
+                                AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                                Content="{Binding Label}" Command="{Binding NavigateCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+                <Panel Margin="220,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       IsVisible="{Binding ShowsReadinessStrip}">
+                  <shellViews:ReadinessStripView DataContext="{Binding ReadinessStrip}" />
+                </Panel>
+              </Panel>
 
               <Border Classes="v2-card" IsVisible="{Binding ShowsReadinessTarget}">
                 <StackPanel Classes="v2-stack">

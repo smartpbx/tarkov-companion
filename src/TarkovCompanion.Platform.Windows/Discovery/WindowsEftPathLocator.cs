@@ -421,14 +421,35 @@ public sealed class SystemEftPathProbe : IEftPathProbe
         ".png", ".jpg", ".jpeg",
     };
 
+    private readonly Func<EftDiscoveryEnvironment>? _environment;
+
+    public SystemEftPathProbe()
+    {
+    }
+
+    /// <summary>
+    /// [#712 1-13] Guesses from the environment given rather than from Windows: a fixture tree
+    /// stands in for a machine, and the rest of this probe (existence, newest write) is the real
+    /// file system.
+    /// </summary>
+    public SystemEftPathProbe(Func<EftDiscoveryEnvironment> environment)
+    {
+        _environment = environment ?? throw new ArgumentNullException(nameof(environment));
+    }
+
     public EftPathCandidates GetCandidates()
     {
+        if (_environment is not null)
+        {
+            return EftPathCandidateBuilder.Build(_environment());
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             return new([], [], []);
         }
 
-        return GetWindowsCandidates();
+        return EftPathCandidateBuilder.Build(WindowsEnvironment());
     }
 
     public bool DirectoryExists(string path) => Directory.Exists(path);
@@ -470,75 +491,70 @@ public sealed class SystemEftPathProbe : IEftPathProbe
 
 
     [SupportedOSPlatform("windows")]
-    private static EftPathCandidates GetWindowsCandidates()
+    private static EftDiscoveryEnvironment WindowsEnvironment()
     {
-        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var localLow = Directory.GetParent(localAppData)?.FullName is { } appData
-            ? Path.Combine(appData, "LocalLow")
-            : localAppData;
         var systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
-        var installRoots = RunningGameRoots()
-            .Concat(RegistryInstallRoots())
-            .Concat(new[]
-            {
-                // The launcher's own default is "Battlestate Games\\Escape from Tarkov" on the
-                // system drive. Only the abbreviated "EFT" folder was listed here, which does
-                // not exist on an ordinary install.
-                Path.Combine(systemDrive, "Battlestate Games", "Escape from Tarkov"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Battlestate Games", "Escape from Tarkov"),
-                Path.Combine(systemDrive, "Battlestate Games", "EFT"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Battlestate Games", "EFT"),
-            })
-            .ToArray();
+        return new(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            systemDrive,
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            FixedDrives(),
+            OneDriveRoots().ToArray(),
+            RegistryInstallRoots().ToArray(),
+            SteamRoots().ToArray(),
+            RunningGameRoots().ToArray());
+    }
 
-        // Every folder a personal Documents or Pictures could be, because the one the API
-        // reports is only right when nothing has moved it.
-        //
-        // OneDrive redirects Documents on the machine this was written against and does not on
-        // the machine of the first person to install it, and those two cases produce different
-        // paths from the same call. Worse, a machine can have both at once: OneDrive owns the
-        // known folder while the game, configured earlier, still writes into the original. So
-        // both are offered and the one holding the newest screenshot wins.
-        var personalRoots = new[]
+    /// <summary>Every fixed, ready drive: the launcher lets a player install the game to any of them.</summary>
+    private static string[] FixedDrives()
+    {
+        try
+        {
+            return DriveInfo.GetDrives()
+                .Where(drive => drive.DriveType == DriveType.Fixed && drive.IsReady)
+                .Select(drive => drive.RootDirectory.FullName)
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Steam's own folder, which holds its library list.</summary>
+    [SupportedOSPlatform("windows")]
+    private static IEnumerable<string> SteamRoots()
+    {
+        var found = new List<string>();
+        try
+        {
+            using (var user = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
             {
-                documents,
-                pictures,
-                Path.Combine(profile, "Documents"),
-                Path.Combine(profile, "Pictures"),
-                Path.Combine(profile, "OneDrive", "Documents"),
-                Path.Combine(profile, "OneDrive", "Pictures"),
+                if (user?.GetValue("SteamPath") is string steamPath && !string.IsNullOrWhiteSpace(steamPath))
+                {
+                    found.Add(steamPath.Replace('/', '\\'));
+                }
             }
-            .Concat(OneDriveRoots().SelectMany(root => new[]
+
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
-                Path.Combine(root, "Documents"),
-                Path.Combine(root, "Pictures"),
-            }))
-            .Where(root => !string.IsNullOrWhiteSpace(root))
-            .ToArray();
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var key = baseKey.OpenSubKey(@"SOFTWARE\Valve\Steam") ?? baseKey.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam");
+                if (key?.GetValue("InstallPath") is string installPath && !string.IsNullOrWhiteSpace(installPath))
+                {
+                    found.Add(installPath);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            // No readable Steam key: the per-drive SteamLibrary guesses still stand.
+        }
 
-        // The game writes its logs inside its own install directory, one folder per launch.
-        // Looking only under LocalLow and Documents found nothing on a real installation, so
-        // raid tracking never started at all. Install-relative paths come first because that
-        // is where the logs actually are.
-        var logRoots = installRoots
-            .Select(root => Path.Combine(root, "Logs"))
-            .Append(Path.Combine(localLow, "Battlestate Games", "EscapeFromTarkov", "Logs"))
-            .Concat(personalRoots.Select(root => Path.Combine(root, "Escape from Tarkov", "Logs")))
-            .ToArray();
-
-        // The game keeps its logs inside its own install directory, so its screenshots are
-        // looked for there first too. The explicit Screenshots folders come before the bare
-        // game folders, so that where nothing has an image in it the more specific guess wins
-        // rather than the folder that merely contains it.
-        var screenshotRoots = installRoots
-            .Select(root => Path.Combine(root, "Screenshots"))
-            .Concat(personalRoots.Select(root => Path.Combine(root, "Escape from Tarkov", "Screenshots")))
-            .Concat(personalRoots.Select(root => Path.Combine(root, "Escape from Tarkov")))
-            .ToArray();
-        return new(installRoots, logRoots, screenshotRoots);
+        return found;
     }
 
     /// <summary>
@@ -609,17 +625,28 @@ public sealed class SystemEftPathProbe : IEftPathProbe
         }
     }
 
+    /// <summary>Escape from Tarkov's Steam app id, which names its uninstall key.</summary>
+    private const string SteamAppId = "3932890";
+
     [SupportedOSPlatform("windows")]
     private static IEnumerable<string> RegistryInstallRoots()
     {
-        const string uninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\EscapeFromTarkov";
+        // The launcher's own key, then Steam's ("Steam App <id>") for the Steam release.
+        string[] uninstallKeys =
+        [
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\EscapeFromTarkov",
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App " + SteamAppId,
+        ];
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
         {
             using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
-            using var key = baseKey.OpenSubKey(uninstallKey);
-            if (key?.GetValue("InstallLocation") is string path && !string.IsNullOrWhiteSpace(path))
+            foreach (var uninstallKey in uninstallKeys)
             {
-                yield return path;
+                using var key = baseKey.OpenSubKey(uninstallKey);
+                if (key?.GetValue("InstallLocation") is string path && !string.IsNullOrWhiteSpace(path))
+                {
+                    yield return path;
+                }
             }
         }
     }
