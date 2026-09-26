@@ -279,6 +279,9 @@ public sealed partial class RaidCockpitViewModel
         RecordPlannedRouteAsync(extract).Observe("raid", "save planned route");
     }
 
+    /// <summary>Whether a chosen route is saved to the raid; false in galleries and fixtures.</summary>
+    internal bool RecordsPlannedRoutes => _raidHistory is not null;
+
     private async Task RecordPlannedRouteAsync(string extract)
     {
         if (_raidHistory is null || _stateStore.Current.Raid.RaidId is not { } raidId ||
