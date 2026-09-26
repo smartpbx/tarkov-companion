@@ -25,6 +25,15 @@ using TarkovCompanion.UnitTests.V2Shell;
 
 namespace TarkovCompanion.UnitTests.StashScan;
 
+/// <remarks>
+/// In the headless collection because one test here starts a headless session. The semaphore in
+/// <see cref="HeadlessSessions"/> keeps sessions apart but not the rest of the suite: a session's
+/// start clears Avalonia's UI-thread dispatcher, and until its platform is set up, the first thread
+/// in the process to touch <c>Dispatcher.UIThread</c> becomes the UI thread. The view models under
+/// test elsewhere touch it from pool threads, so a parallel class could claim it, and the session
+/// then failed with "a different thread owns it" from <c>DefaultRenderLoop.Add</c>.
+/// </remarks>
+[Collection(TarkovCompanion.UnitTests.V2MapRenderer.AvaloniaHeadlessCollection.Name)]
 public sealed partial class StashScanWorkspaceViewModelTests
 {
     private static readonly Guid ProfileId = Guid.Parse("30000000-0000-0000-0000-000000000001");
