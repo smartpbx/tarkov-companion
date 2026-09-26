@@ -43,6 +43,8 @@ Game logs and screenshot filenames are independent, evidence-based inputs to the
 
 What to bring, build and keep is decided in `Application/Services/Planning` and answered in the records of `Core/Domain/Planning`, not in the Plan view models that present it. `QuestRequirementPlanner` turns objectives and holdings into Bring / Hand in / Find in raid requirements; `HideoutPlanner` gives each station's next level, what can be started now and what is short across all of them; `KeepListPlanner` (fed by `KeepListService`) computes the Keep list. They take one snapshot and are deterministic for it: no clock, no catalog reads, ordered by id rather than by a display name. `AcquisitionChainPlanner` compares buying, crafting and bartering through a depth-limited, cycle-safe item graph built from the active profile and synced catalog. The view models add names and words. Typed local event rules are parsed in Application, preserve their definition provenance, and feed recommendation pricing and next-raid map availability. Prerequisite graphs and route bundles are not part of this yet (#307 says which exist elsewhere and which do not).
 
+The Ask box (#712 T8, Ctrl+K with a question typed) is `Application/Services/Ask`: `AskGrammar` reads a small fixed set of question shapes, `RulesAnswerSource` answers from the same services the pages use (item card, quest board, hideout tables, crafts and barters, the Raid map's exits) with each fact's source, and anything outside the grammar or the catalog is answered "can't answer" with the closest names. `IAnswerSource` is the seam for an optional local model behind `IAskSettings` (off, none ships; no cloud).
+
 ## The group relay
 
 `TarkovCompanion.GroupServer` is a second executable, an ASP.NET minimal-API application that

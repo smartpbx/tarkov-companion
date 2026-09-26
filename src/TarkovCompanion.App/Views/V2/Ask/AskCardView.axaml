@@ -1,0 +1,70 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Ask.AskCardView"
+             x:DataType="ask:AskViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ask="using:TarkovCompanion.App.ViewModels.V2.Ask"
+             AutomationProperties.AutomationId="v2-ask-card"
+             AutomationProperties.Name="{Binding HeadingLabel}">
+  <!-- [#712 2-5] One answer card above the palette's commands: what was asked about, a few lines
+       from the app's own data, where each fact came from, and links into the page with the rest.
+       An unanswered question says so and offers the closest names; it never shows a guess. -->
+  <UserControl.Styles>
+    <Style Selector="Border.ask-card">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="18,14,18,14" />
+    </Style>
+    <Style Selector="TextBlock.ask-eyebrow">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+  </UserControl.Styles>
+  <Border Classes="ask-card">
+    <StackPanel Spacing="8">
+      <TextBlock Classes="ask-eyebrow" Text="{Binding IntentLabel}" />
+      <TextBlock Classes="v2-label" IsVisible="{Binding IsAsking}" Text="{Binding AskingLabel}" />
+      <StackPanel Spacing="8" IsVisible="{Binding HasAnswer}">
+        <TextBlock Classes="v2-heading-3" IsVisible="{Binding HasTitle}" Text="{Binding Title}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-ask-title" />
+        <TextBlock Classes="v2-body" IsVisible="{Binding IsUnanswered}" Text="{Binding Unanswered}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-ask-unanswered" />
+        <ItemsControl ItemsSource="{Binding Lines}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="v2-body" Text="{Binding}" TextWrapping="Wrap" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasClosestLine}" Text="{Binding ClosestLine}" TextWrapping="Wrap" />
+        <ItemsControl ItemsSource="{Binding Suggestions}" IsVisible="{Binding HasSuggestions}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="ask:AskSuggestionViewModel">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-ask-suggestion"
+                      AutomationProperties.Name="{Binding Label}" Content="{Binding Label}" Command="{Binding AskCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <ItemsControl ItemsSource="{Binding Links}" IsVisible="{Binding HasLinks}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="ask:AskLinkViewModel">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}" Content="{Binding Label}" Command="{Binding OpenCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasSourceLine}" Text="{Binding SourceLine}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-ask-source" />
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</UserControl>

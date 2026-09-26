@@ -214,7 +214,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         ReleaseExperienceViewModel? releaseExperience = null,
         SetupFeatureFlagsViewModel? featureFlags = null, // #314: Setup › Diagnostics' feature flags.
         LearnModeSetting? learnMode = null,
-        TarkovCompanion.Application.Services.Situations.SituationService? situation = null) // [#712 0-2] ADR 0022
+        TarkovCompanion.Application.Services.Situations.SituationService? situation = null, // [#712 0-2] ADR 0022
+        TarkovCompanion.App.ViewModels.V2.Ask.AskViewModel? ask = null) // [#712 2-5] the palette's Ask mode
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -253,6 +254,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
         if (situation is not null) { raidCockpit?.AttachSituation(situation); if (IsDeveloperMode) { SetupWorkspace?.AttachSituation(new SituationDiagnosticsViewModel(situation, clock, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))); } } // [#712 0-2]
         if (situation is not null) { WireNowPanel(); } // [#712 0-4]
+        if (ask is not null) { AttachAsk(ask); } // [#712 2-5]
         WireReadinessStrip(situation?.FormatHealth); // [#712 1-13]
         if (situation?.FormatHealth is { } formatHealth) { SetupWorkspace?.AttachFormatHealth(new FormatHealthReadinessViewModel(formatHealth, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))); } // [#712 0-3]
         if (selfTest is not null && SetupWorkspace is not null)
@@ -890,6 +892,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             if (SetProperty(ref _paletteQuery, value))
             {
+                Ask?.SetQuery(value); // [#712 2-5]
                 OnPropertyChanged(nameof(FilteredCommandItems));
                 OnPropertyChanged(nameof(HasFilteredCommandItems));
                 OnPropertyChanged(nameof(HasNoFilteredCommandItems));

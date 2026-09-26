@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             xmlns:askViews="using:TarkovCompanion.App.Views.V2.Ask"
              xmlns:local="using:TarkovCompanion.App.Views.V2.Shell"
              xmlns:stashVm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
              xmlns:stashViews="using:TarkovCompanion.App.Views.V2.StashScan"
@@ -1262,6 +1263,11 @@
             <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding IsDeveloperMode}"
                     AutomationProperties.AutomationId="v2-shell-palette-open-address"
                     Content="{Binding OpenAddressLabel}" Command="{Binding PaletteAddressCommand}" />
+            <!-- [#712 2-5] A typed question gets an answer card above the commands. -->
+            <TextBlock Classes="v2-label" IsVisible="{Binding Ask.ShowsHint, FallbackValue=False}" Text="{Binding Ask.HintLabel, FallbackValue=''}" />
+            <Panel IsVisible="{Binding Ask.IsShowing, FallbackValue=False}">
+              <askViews:AskCardView DataContext="{Binding Ask}" />
+            </Panel>
             <TextBlock Classes="v2-label" IsVisible="{Binding HasNoFilteredCommandItems}" Text="{Binding PaletteEmpty}" />
             <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasFilteredCommandItems}">
               <ItemsControl ItemsSource="{Binding FilteredCommandItems}">
