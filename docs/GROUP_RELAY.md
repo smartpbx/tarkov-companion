@@ -643,6 +643,12 @@ sharing a `routeId`, each with its `routeStep`, drawn on the desktop as one dash
 Its `color` is a palette colour when the player chose one (anything else means the kind's own), and
 the map surface carries it back on each object; the surface also carries the last Stash scan and
 flea screen (`stash`, `flea`: at most 30 rows of 140 characters) for read-only review (#290).
+With the desktop's `now-panel` flag on it also carries `now`, the Raid page's Now panel in the
+desktop's words (`TabletNowPanel`, `version` 1): the clock and every age go as the stamp they are
+counted from, so it changes only when what it says changes. The tablet shows it beside the map
+(under it on a phone), with a Ping per squad row sent as an ordinary tablet ping at that
+squadmate's shared spot. The relay measures only that one top-level value and refuses a surface
+whose `now` is over 96 KiB (`RelayNowPanelBound`); older pages never read it (#712 0-11).
 
 ## Which version everything speaks
 

@@ -14,6 +14,7 @@ using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views;
@@ -92,6 +93,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                         tabletPublisher.ShowLootResult(TabletLootResultBuilder.From(result));
                     // #290: and the last flea screen and Stash scan, for review on the tablet.
                     TabletCaptureReviewWiring.Attach(services, captureBridge, tabletPublisher);
+                    // #712 0-11: and the Raid page's Now panel, while the now-panel flag shows it.
+                    TabletNowPanelWiring.Attach(services.GetRequiredService<RaidCockpitViewModel>().NowHost, tabletPublisher.ShowNow);
                     // One-time, best-effort: gives #269's profile context something real to
                     // report without a v1/v2 profile migration UI. See the bootstrap's own remarks.
                     _ = services.GetRequiredService<LegacyProfileContextBootstrap>()
