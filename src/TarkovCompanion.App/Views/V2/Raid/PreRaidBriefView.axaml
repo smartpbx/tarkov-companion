@@ -1,0 +1,107 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Raid.PreRaidBriefView"
+             x:DataType="vm:PreRaidBriefViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Raid"
+             xmlns:l="using:TarkovCompanion.App.Localization"
+             AutomationProperties.AutomationId="v2-raid-preraid-brief"
+             AutomationProperties.Name="{x:Static l:RaidText.BriefName}">
+  <!-- [#712 0-9] One screen, never a scroll: every list is capped in PreRaidBriefBuilder and every
+       row that could run long is trimmed to its lines here (docs/design/v3/v3-preraid-brief.png). -->
+  <UserControl.Styles>
+    <Style Selector="Border.brief-section">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="0,1,0,0" />
+      <Setter Property="Padding" Value="0,12,0,12" />
+    </Style>
+    <Style Selector="TextBlock.brief-kicker">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.brief-title">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading1.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading1.LineHeight}" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="MaxLines" Value="2" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="*,Auto" Margin="16,12,16,12">
+    <StackPanel Grid.Row="0" Spacing="0">
+      <StackPanel Spacing="4" Margin="0,0,0,14">
+        <TextBlock Classes="brief-kicker" Text="{Binding Current.Kicker}" />
+        <TextBlock Classes="brief-title" Text="{Binding Current.Title}" AutomationProperties.HeadingLevel="2" />
+        <TextBlock Classes="v2-label" Text="{Binding Current.Bosses}" IsVisible="{Binding Current.HasBosses}"
+                   MaxLines="2" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="v2-brief-bosses" />
+      </StackPanel>
+
+      <Border Classes="brief-section">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.BriefQuestsHere}" />
+          <ItemsControl ItemsSource="{Binding Current.Quests}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="8" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:PreRaidBriefQuestRow">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Task}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="v2-label" Text="{Binding Objectives}" IsVisible="{Binding HasObjectives}"
+                             MaxLines="1" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="v2-label" Text="{Binding Needs}" IsVisible="{Binding HasNeeds}"
+                             Foreground="{DynamicResource V2.Brush.Warning}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="v2-label" Text="{Binding Current.QuestsNote}" IsVisible="{Binding Current.HasQuestsNote}" />
+          <TextBlock Classes="v2-label" Text="{Binding Current.Route}" IsVisible="{Binding Current.HasRoute}"
+                     Foreground="{DynamicResource V2.Brush.Warning}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+          <Border IsVisible="{Binding Current.CanStillLeave}" HorizontalAlignment="Left" Padding="10,4"
+                  CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource V2.Brush.Warning}">
+            <TextBlock Classes="v2-label" Foreground="{DynamicResource V2.Brush.Warning}" Text="{x:Static l:RaidText.BriefCanStillLeave}" />
+          </Border>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="brief-section">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="v2-heading-3" Text="{Binding Current.ExtractsHeading}" />
+          <TextBlock Classes="v2-body" Text="{Binding Current.Extracts}" MaxLines="2" TextTrimming="CharacterEllipsis"
+                     AutomationProperties.AutomationId="v2-brief-extracts" />
+          <ItemsControl ItemsSource="{Binding Current.ExtractRequirements}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Classes="v2-label" Text="{Binding}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.BriefOfferedHint}" Opacity="0.8" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="brief-section" IsVisible="{Binding Current.HasSquad}">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.BriefSquad}" />
+          <TextBlock Classes="v2-body" Text="{Binding Current.SquadLine}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.BriefSquadFrom}" Opacity="0.8" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="brief-section" IsVisible="{Binding Current.HasLoot}">
+        <TextBlock Classes="v2-label" Text="{Binding Current.Loot}" />
+      </Border>
+    </StackPanel>
+
+    <Border Grid.Row="1" Classes="brief-section" Padding="0,10,0,0">
+      <TextBlock Classes="v2-label" Text="{Binding Current.Because}" Opacity="0.8" MaxLines="2" TextTrimming="CharacterEllipsis"
+                 AutomationProperties.AutomationId="v2-brief-because" />
+    </Border>
+  </Grid>
+</UserControl>
