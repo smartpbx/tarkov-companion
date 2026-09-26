@@ -254,6 +254,12 @@ public sealed partial class NowPanelGlanceTests
             }
         }
 
+        // [#712 0-6] The leave-by time is modelled from a walking pace and the last screenshot.
+        if (state.IsLate && state.HasNowNote && Shows(state.NowNote) && !Shows(NowText.LeaveEstimate))
+        {
+            yield return $"the leave line '{state.NowNote}' is an estimate, and '{NowText.LeaveEstimate}' is not on screen";
+        }
+
         if (state.HasNext && Shows(state.NextLabel[..Math.Min(12, state.NextLabel.Length)]) && !Shows(NowText.NextOnRoute))
         {
             yield return $"NEXT '{state.NextLabel}' is a planned stop, and '{NowText.NextOnRoute}' is not on screen";

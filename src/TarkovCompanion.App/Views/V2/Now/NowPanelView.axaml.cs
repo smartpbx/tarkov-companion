@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
@@ -16,6 +18,9 @@ public sealed partial class NowPanelView : UserControl
     private Size _foldedFor;
     private bool _refold = true;
     private bool _folding;
+    private Control? _heldRow;
+    private Control? _waypointRow;
+    private long _waypointAt;
 
     public NowPanelView() => AvaloniaXamlLoader.Load(this);
 
@@ -119,6 +124,57 @@ public sealed partial class NowPanelView : UserControl
         {
             Refold();
         }
+    }
+
+    /// <summary>[#712 0-5] A tap on a SQUAD row pings that squadmate's spot, unless it ended a hold.</summary>
+    private void SquadRowClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: NowSquadRowViewModel row } control)
+        {
+            if (ReferenceEquals(_heldRow, control))
+            {
+                _heldRow = null; // the release of a hold that already placed a waypoint
+                return;
+            }
+
+            row.PingCommand.Execute(null);
+        }
+    }
+
+    /// <summary>A hold (touch, pen or mouse) places a waypoint; the release that follows is not a ping.</summary>
+    private void SquadRowHolding(object? sender, HoldingRoutedEventArgs e)
+    {
+        if (e.HoldingState == HoldingState.Started && sender is Control control)
+        {
+            _heldRow = control;
+            PlaceWaypoint(control);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>A right-click (or the platform's own context gesture) places a waypoint.</summary>
+    private void SquadRowContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is Control control)
+        {
+            PlaceWaypoint(control);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>One waypoint per gesture: a touch hold raises both Holding and ContextRequested.</summary>
+    private void PlaceWaypoint(Control control)
+    {
+        var now = Environment.TickCount64;
+        if (control.DataContext is not NowSquadRowViewModel row ||
+            (ReferenceEquals(_waypointRow, control) && now - _waypointAt < 1000))
+        {
+            return;
+        }
+
+        _waypointRow = control;
+        _waypointAt = now;
+        row.WaypointCommand.Execute(null);
     }
 
     private void Refold()

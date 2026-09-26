@@ -79,6 +79,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[#919] The width in pixels of the next line drawn on the Raid map ("2", "4" or "7").</summary>
     public const string RaidDrawWidth = "raid.draw-width";
 
+    /// <summary>[#712 0-6] Whole minutes the Now panel's late-raid line adds to the walk to the exit. Missing is 2.</summary>
+    public const string RaidLeaveMargin = "raid.leave-margin";
+
     /// <summary>[#902 P3] "off" when the map stops following the player's floor.</summary>
     public const string RaidFollowFloor = "raid.follow-floor";
 

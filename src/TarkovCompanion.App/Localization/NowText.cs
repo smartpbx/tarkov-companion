@@ -29,6 +29,14 @@ public static class NowText
     public static string LeaveBy(string exit, string time, int walk, int margin) => UiText.Format("Now.LeaveBy", exit, time, walk, margin);
     public static string LeaveNow(string exit, int walk) => UiText.Format("Now.LeaveNow", exit, walk);
 
+    /// <summary>[#712 0-6] The leave line is worked out (walk pace, last screenshot), so it says so.</summary>
+    public static string LeaveEstimate => UiText.Get("Now.LeaveEstimate");
+    public static string MarginLabel => UiText.Get("Now.Margin.Label");
+    public static string MarginValue(int minutes) => UiText.Format("Now.Margin.Value", minutes);
+    public static string MarginLess => UiText.Get("Now.Margin.Less");
+    public static string MarginMore => UiText.Get("Now.Margin.More");
+    public static string MarginTip => UiText.Get("Now.Margin.Tip");
+
     public static string Phase(SituationPhase phase) => UiText.Get(phase switch
     {
         SituationPhase.Menu => "Now.Phase.Menu",
@@ -68,6 +76,16 @@ public static class NowText
     public static string ExitUnconfirmed => UiText.Get("Now.You.ExitUnconfirmed");
     public static string Wrong => UiText.Get("Now.You.Wrong");
     public static string WrongDetail => UiText.Get("Now.You.WrongDetail");
+    public static string WrongSide(SituationSide side) => side switch
+    {
+        SituationSide.Pmc => UiText.Format("Now.You.WrongSide", RaidText.Pmc),
+        SituationSide.Scav => UiText.Format("Now.You.WrongSide", RaidText.Scav),
+        _ => UiText.Get("Now.You.WrongSideUnknown"),
+    };
+
+    public static string WrongExits => UiText.Get("Now.You.WrongExits");
+    public static string WrongSideTip => UiText.Get("Now.You.WrongSideTip");
+    public static string WrongExitsTip => UiText.Get("Now.You.WrongExitsTip");
 
     /// <summary>"12 s" or "3 min": an age without "ago", for a squad row's right-hand column.</summary>
     public static string Age(TimeSpan age) => age < TimeSpan.FromMinutes(1)

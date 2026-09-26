@@ -97,6 +97,7 @@ public sealed partial class RaidCockpitViewModel
         _lootFilter = _lootValueFilter.Apply(_lootFilter);
         _followZoom.Reload();
         _drawWidth.Reload();
+        ReloadLeaveMargin(); // [#712 0-6]
         RaiseDrawingWidth();
         _objectiveRouteMaps = null;
         Cards.Reload();
