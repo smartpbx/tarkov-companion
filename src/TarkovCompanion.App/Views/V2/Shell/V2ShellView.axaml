@@ -878,6 +878,11 @@
                 </ItemsControl>
               </Border>
 
+              <!-- [#712 1-13] What still needs the player before a raid, on the Raid page only. -->
+              <Panel IsVisible="{Binding ShowsReadinessStrip}">
+                <shellViews:ReadinessStripView DataContext="{Binding ReadinessStrip}" />
+              </Panel>
+
               <Border Classes="v2-card" IsVisible="{Binding ShowsReadinessTarget}">
                 <StackPanel Classes="v2-stack">
                   <TextBlock Classes="v2-heading-3" Focusable="True"

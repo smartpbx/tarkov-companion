@@ -1,0 +1,92 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Shell.ReadinessStripView"
+             x:DataType="vm:ReadinessStripViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             AutomationProperties.AutomationId="v3-readiness-strip"
+             AutomationProperties.Name="{Binding Name}">
+  <!-- [#712 1-13] One slim line, not a wizard and not a modal: what is ready, and a button beside
+       whatever is not. It leaves as soon as nothing required needs the player. -->
+  <UserControl.Styles>
+    <Style Selector="Border.rs-strip">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14,4,8,4" />
+    </Style>
+    <Style Selector="TextBlock.rs-label">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.rs-state">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.rs-state.rs-ready">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style Selector="TextBlock.rs-state.rs-attention">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.rs-sep">
+      <Setter Property="Margin" Value="6,0,6,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.rs-fix">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="10,3,10,3" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.rs-fix:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.rs-details">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="Padding" Value="8,3,8,3" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border Classes="rs-strip">
+    <Grid ColumnDefinitions="*,Auto">
+      <ItemsControl Grid.Column="0" ItemsSource="{Binding Items}" VerticalAlignment="Center">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ReadinessStripItemViewModel">
+            <StackPanel Orientation="Horizontal" MinHeight="36"
+                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                        AutomationProperties.Name="{Binding AutomationName}">
+              <TextBlock Classes="rs-sep" Text="·" IsVisible="{Binding HasSeparator}"
+                         AutomationProperties.AccessibilityView="Raw" />
+              <TextBlock Classes="rs-label" Text="{Binding Label}" />
+              <TextBlock Classes="rs-state" Classes.rs-ready="{Binding IsReady}" Classes.rs-attention="{Binding IsAttention}"
+                         Margin="6,0,0,0" Text="{Binding State}" />
+              <Button Classes="v2-target rs-fix" IsVisible="{Binding HasFix}"
+                      Content="{Binding FixLabel}" Command="{Binding FixCommand}"
+                      AutomationProperties.Name="{Binding FixLabel}" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Button Grid.Column="1" Classes="v2-target rs-details"
+              AutomationProperties.AutomationId="v3-readiness-details"
+              Content="{Binding DetailsLabel}" Command="{Binding DetailsCommand}" />
+    </Grid>
+  </Border>
+</UserControl>

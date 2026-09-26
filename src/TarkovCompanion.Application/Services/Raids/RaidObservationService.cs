@@ -220,6 +220,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                 Publish(EftObservationState.Idle with
                 {
                     Detail = $"Could not look for the game folders: {exception.Message}",
+                    Searched = true,
                 });
                 await DelayAsync(RediscoveryDelay, cancellationToken).ConfigureAwait(false);
                 continue;
@@ -235,7 +236,10 @@ public sealed class RaidObservationService : IAsyncDisposable
                     null,
                     null,
                     paths.Confidence,
-                    "Escape from Tarkov was not found. Raid tracking starts on its own once the game is installed."));
+                    "Escape from Tarkov was not found. Raid tracking starts on its own once the game is installed.")
+                {
+                    Searched = true,
+                });
                 await DelayAsync(RediscoveryDelay, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -1026,7 +1030,10 @@ public sealed class RaidObservationService : IAsyncDisposable
             paths.LogRoot,
             paths.ScreenshotRoot,
             paths.Confidence,
-            detail));
+            detail)
+        {
+            Searched = true,
+        });
     }
 
     private async Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)

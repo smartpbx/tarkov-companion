@@ -237,6 +237,12 @@ public sealed record EftObservationState(
 {
     public bool IsObserving => IsWatchingLogs || IsWatchingScreenshots;
 
+    /// <summary>
+    /// [#712 1-13] Discovery has answered at least once for this state: a folder not being
+    /// watched was looked for and not found, rather than not looked for yet.
+    /// </summary>
+    public bool Searched { get; init; }
+
     public static EftObservationState Unsupported { get; } = new(
         false,
         false,
