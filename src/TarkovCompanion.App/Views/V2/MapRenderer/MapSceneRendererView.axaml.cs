@@ -34,6 +34,13 @@ public sealed partial class MapSceneRendererView : UserControl
     private bool _pressSelects;
     /// <summary>[#286] A line is being drawn: the pointer's path so far, in viewport pixels.</summary>
     private List<Point>? _ink;
+    /// <summary>
+    /// #938: the same path as scene points, each converted with the camera of the moment it was
+    /// drawn. Converting the whole stroke on release used the camera it ended on, so a wheel zoom,
+    /// a Follow recentre or a tablet pan mid-stroke moved or scaled the line that was saved and
+    /// sent to the squad, while the pixel preview still looked right to the one drawing it.
+    /// </summary>
+    private readonly List<MapScenePoint> _inkScene = [];
     /// <summary>[#286] Space is held, so a left-drag pans even in Draw mode.</summary>
     private bool _spaceHeld;
     private TopLevel? _keyboardSource;
@@ -328,6 +335,8 @@ public sealed partial class MapSceneRendererView : UserControl
         if (current.Properties.IsLeftButtonPressed && IsDrawing && !_spaceHeld)
         {
             _ink = [eventArgs.GetPosition(PlanViewport)];
+            _inkScene.Clear();
+            CaptureInkPoint(_ink[0]);
             if (DrawingInk is not null)
             {
                 DrawingInk.Points = [.. _ink];
@@ -367,6 +376,7 @@ public sealed partial class MapSceneRendererView : UserControl
             if (Math.Abs(at.X - last.X) >= InkStep || Math.Abs(at.Y - last.Y) >= InkStep)
             {
                 ink.Add(at);
+                CaptureInkPoint(at);
                 if (DrawingInk is not null)
                 {
                     DrawingInk.Points = [.. ink];
@@ -443,10 +453,13 @@ public sealed partial class MapSceneRendererView : UserControl
             // Cleared before the capture is released: giving it back raises CaptureLost, which
             // would otherwise drop the line that is being finished here.
             _ink = null;
-            ink.Add(eventArgs.GetPosition(PlanViewport));
+            var released = eventArgs.GetPosition(PlanViewport);
+            ink.Add(released);
+            CaptureInkPoint(released);
+            List<MapScenePoint> points = [.. _inkScene];
             eventArgs.Pointer.Capture(null);
             EndInk();
-            FinishStroke(ink);
+            FinishStroke(points);
             eventArgs.Handled = true;
             return;
         }
@@ -553,23 +566,19 @@ public sealed partial class MapSceneRendererView : UserControl
         eventArgs.Handled = true;
     }
 
-    /// <summary>[#286] Turns the drawn pixels into scene points and hands them to the host.</summary>
-    private void FinishStroke(IReadOnlyList<Point> ink)
+    /// <summary>[#286] One drawn pixel as a scene point, with the camera as it is now (#938).</summary>
+    private void CaptureInkPoint(Point pixel)
     {
-        if (ink.Count < 2 || DataContext is not MapSceneRendererViewModel renderer)
+        if (DataContext is MapSceneRendererViewModel renderer &&
+            renderer.TryScenePointAt(pixel.X, pixel.Y, out var point))
         {
-            return;
+            _inkScene.Add(point);
         }
+    }
 
-        var points = new List<MapScenePoint>(ink.Count);
-        foreach (var pixel in ink)
-        {
-            if (renderer.TryScenePointAt(pixel.X, pixel.Y, out var point))
-            {
-                points.Add(point);
-            }
-        }
-
+    /// <summary>[#286] Hands the stroke's scene points to the host.</summary>
+    private void FinishStroke(IReadOnlyList<MapScenePoint> points)
+    {
         if (points.Count >= 2)
         {
             StrokeDrawn?.Invoke(this, points);
@@ -579,6 +588,7 @@ public sealed partial class MapSceneRendererView : UserControl
     private void EndInk()
     {
         _ink = null;
+        _inkScene.Clear();
         if (DrawingInk is not null)
         {
             DrawingInk.IsVisible = false;

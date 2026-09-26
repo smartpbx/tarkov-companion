@@ -45,6 +45,26 @@ public sealed class TrafficPhaseClockTests
         Assert.Equal(RaidPhase.Early, RaidCockpitViewModel.ClockPhase(scav, "customs", clockSetByHand: true, Now));
     }
 
+    /// <summary>
+    /// #938: a twenty-minute Factory raid is phased by its own length. Against a fixed forty, 19:00
+    /// left read as mid one minute in, and a raid counted from its start never reached late.
+    /// </summary>
+    [Fact]
+    public void A_short_raid_is_phased_by_its_own_length()
+    {
+        var factory = TimeSpan.FromMinutes(20);
+        var justStarted = InRaid(started: null) with { RaidClock = TimeSpan.FromMinutes(19), RaidClockReadUtc = Now };
+        var halfway = InRaid(started: null) with { RaidClock = TimeSpan.FromMinutes(10), RaidClockReadUtc = Now };
+        var nearlyOver = InRaid(started: null) with { RaidClock = TimeSpan.FromMinutes(4), RaidClockReadUtc = Now };
+
+        Assert.Equal(RaidPhase.Early, RaidCockpitViewModel.ClockPhase(justStarted, "customs", false, Now, factory));
+        Assert.Equal(RaidPhase.Mid, RaidCockpitViewModel.ClockPhase(halfway, "customs", false, Now, factory));
+        Assert.Equal(RaidPhase.Late, RaidCockpitViewModel.ClockPhase(nearlyOver, "customs", false, Now, factory));
+        Assert.Equal(RaidPhase.Late, RaidCockpitViewModel.ClockPhase(InRaid(Now.AddMinutes(-16)), "customs", false, Now, factory));
+        // No length in the catalog: the nominal forty, as before.
+        Assert.Equal(RaidPhase.Mid, RaidCockpitViewModel.ClockPhase(justStarted, "customs", false, Now, raidLength: null));
+    }
+
     [Fact]
     public void Nothing_to_go_on_or_another_map_is_no_clock_phase()
     {

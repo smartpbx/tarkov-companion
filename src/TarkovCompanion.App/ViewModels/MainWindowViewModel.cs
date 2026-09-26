@@ -896,7 +896,7 @@ public sealed class RaidPageViewModel : PageViewModel
     /// The catalog states a PMC length and, where it knows one, a scav length. A scav raid is
     /// the shorter of the two and using the PMC length for it would promise time nobody has.
     /// </remarks>
-    private TimeSpan? LengthFor(RaidSnapshot raid)
+    internal TimeSpan? LengthFor(RaidSnapshot raid)
     {
         if (raid.MapId is not { Length: > 0 } mapId || _maps is null)
         {
