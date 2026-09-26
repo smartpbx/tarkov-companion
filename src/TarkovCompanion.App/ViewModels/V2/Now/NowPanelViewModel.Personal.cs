@@ -77,7 +77,7 @@ public sealed partial class NowPanelViewModel
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // The history is a refinement: without it the panel keeps the careful pace and the plain nearest exit.
-            System.Diagnostics.Trace.TraceWarning($"Now panel: reading your pace and exits failed: {exception.Message}");
+            TarkovCompanion.App.Services.Diagnostics.WorkspaceFault.Record("now panel", "read your pace and exits", exception);
         }
     }
 }
