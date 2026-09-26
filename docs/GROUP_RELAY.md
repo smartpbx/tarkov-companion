@@ -582,7 +582,9 @@ reviewed asset served to anybody who asked would be a redistribution its licence
 Why not a sealed frame, when everything else after pairing is one? A relay payload root is bounded
 at 64 KiB and a rasterized plan is megabytes. The relay holds this one opaquely: it never parses
 the scene and never learns which map it is. The artwork is uploaded only when its content hash
-changes.
+changes. The desktop posts a new map's scene before its picture, so for the length of that upload the
+relay holds the new scene and the old picture; a tablet keeps a picture only when its ETag is the
+hash the scene names, and asks again on the next revision (#925).
 
 Whether the desktop is there is the relay's to say, not the map's age (2026-09-20, #407): every
 answer to a map read, found or not, carries `X-Relay-Owner-Seen-Ms`, the time since the owner last

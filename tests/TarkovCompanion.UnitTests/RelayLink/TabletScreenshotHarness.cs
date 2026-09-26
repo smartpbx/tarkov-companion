@@ -301,7 +301,7 @@ public sealed class TabletScreenshotHarness : RealBrowserTestHarness
     /// repository) — a grid, not a photograph, precisely so a pin's tip lands on a countable line
     /// rather than somewhere on a satellite photo nobody can measure from a screenshot.
     /// </summary>
-    private static byte[] SynthesizePng(int width, int height)
+    internal static byte[] SynthesizePng(int width, int height)
     {
         var stride = 1 + (width * 3);
         var raw = new byte[height * stride];
