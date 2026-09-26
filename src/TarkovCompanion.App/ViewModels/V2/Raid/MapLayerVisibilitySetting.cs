@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -130,6 +131,52 @@ internal sealed class MapLayerVisibilitySetting
         {
             Set(layerId, isVisible);
         }
+    }
+
+    /// <summary>
+    /// Applies one view change the renderer asked for, shows it, and remembers it when it is the
+    /// player's. This is the Raid map's whole handling of a layer switch, in one place, so the
+    /// tests exercise the order the cockpit uses rather than a copy of it.
+    /// </summary>
+    /// <remarks>
+    /// [#933] "Turning on things like the rare loot spawns dont seem to persist, it turns off every
+    /// raid still." Whose change this is has to be read before the scene is presented: presenting
+    /// it is what sends Loot focus's next step, and the renderer had cleared its "this is Loot
+    /// focus" flag by the time that nested step returned. Every step but the last was then saved
+    /// as the player's own choice, so one press of Loot focus switched Spawns, Keys, Quests,
+    /// Traffic and the rest off for good, on every map and after a restart.
+    /// </remarks>
+    public MapSceneViewChangeResult ApplyChange(MapSceneRendererViewModel renderer, MapSceneViewChange change)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(change);
+        var isLootFocus = renderer.IsDispatchingLootFocus;
+        var result = MapSceneViewReducer.Apply(renderer.Scene, change);
+        if (result.Status is MapSceneViewChangeStatus.Applied or MapSceneViewChangeStatus.Unchanged)
+        {
+            renderer.Present(result.Scene);
+        }
+
+        Record(change, result.Status, isLootFocus);
+        return result;
+    }
+
+    /// <summary>
+    /// The layer states one scene build asks for: the view's own, with every remembered choice laid
+    /// over them. [#902] While Loot focus is on, the layers it hid stay hidden through each
+    /// rebuild: only a layer the view does not have yet takes its remembered choice.
+    /// </summary>
+    public IReadOnlyList<MapSceneLayerState> Compose(IReadOnlyList<MapSceneLayerState> current, bool isLootFocused)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        var remembered = Apply(current);
+        if (!isLootFocused)
+        {
+            return remembered;
+        }
+
+        var held = current.Select(state => state.LayerId).ToHashSet();
+        return [.. current, .. remembered.Where(state => !held.Contains(state.LayerId))];
     }
 
     /// <summary>

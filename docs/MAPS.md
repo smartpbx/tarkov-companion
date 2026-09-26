@@ -150,7 +150,8 @@ which drives the same renderer) is remembered by layer id in `workspace-layout.j
 never touched keeps its map default, such as Switches on for Labs, Reserve and Interchange (#796).
 Every row is always switchable; an empty layer says "none on this map" (#902). Loot focus steps are
 not saved, and a second press restores the layers it changed. Stored choices for the removed V1
-layers (companion-markers, routes, risk-traffic, filters) are dropped on read.
+layers (companion-markers, routes, risk-traffic, filters) are dropped on read. A tablet in Control
+switches only the layers it flipped itself; its map moves never re-apply an older layer list (#933).
 
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential

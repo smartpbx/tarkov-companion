@@ -1728,6 +1728,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
+        // [#933] Restored rather than cleared: a host that presents the change at once sends the
+        // next step from inside this one, and clearing the flag when that nested step returned
+        // told the host the rest of this step was the player's own choice.
+        var wasDispatching = _dispatchingLootFocus;
         _dispatchingLootFocus = true;
         try
         {
@@ -1738,7 +1742,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
         finally
         {
-            _dispatchingLootFocus = false;
+            _dispatchingLootFocus = wasDispatching;
         }
     }
 
