@@ -37,8 +37,11 @@ Three rules apply whenever this data is read:
    though it were the player's own. Where the source cannot distinguish the two, neither is
    shown.
 3. **Opened deliberately.** Log files carrying this data are read only when a feature needs
-   them, never incidentally. Map and lifecycle detection reads `application` and `output`
-   only, and does not open `backend` or `push-notifications`.
+   them, never incidentally. `application`, `output` and `backend` are read in full (`backend`
+   for the exact raid start and end and the player's own party); `push-notifications` only for
+   lines carrying a quest or flea marker, which go to those two parsers and nothing else. The
+   other files, `inventory` and `player` among them, are not opened (`EftLogFiles`). A flea
+   payment message names the buyer, a player never met, and that field is never read.
 
 ## Prohibited implementation
 
@@ -61,6 +64,10 @@ times, coverage, confidence and calibration, and model version remain available 
 evidence and its validation are unchanged by progressive disclosure. Active consent and sharing
 state, security state, destructive effects, failures, and decision-changing uncertainty remain
 visible rather than being deferred to details.
+
+Sound (#712 0-10) is output only and off by default: earcons and a spoken loot verdict through
+Windows' own media player and speech synthesiser. Nothing opens a microphone or captures game
+audio, and the extract-deadline cue is a tone, never a spoken time that could pass for the game's.
 
 ## Enforcement
 

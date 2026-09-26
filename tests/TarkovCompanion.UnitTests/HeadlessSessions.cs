@@ -23,6 +23,13 @@ namespace TarkovCompanion.UnitTests;
 /// most classes apart, but a class without it (StashScanWorkspaceViewModelTests, #866's first
 /// Linux run) ran in parallel with them. So the session itself is the single owner now, whatever
 /// collection the test is in.
+///
+/// That is not enough on its own, so every class that starts a session still belongs in
+/// <c>AvaloniaHeadlessCollection</c> (no parallelization). A session's start resets Avalonia's
+/// UI-thread dispatcher to none, and until the platform is set up the first thread in the process
+/// to touch <c>Dispatcher.UIThread</c> becomes the UI thread. Any parallel test whose view model
+/// posts to the dispatcher can be that thread. The Stash scan test still failed this way on
+/// 2026-09-25 and 2026-09-26, with the semaphore in place, until its class joined the collection.
 /// </remarks>
 internal sealed class HeadlessSessions : IDisposable
 {

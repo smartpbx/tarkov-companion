@@ -108,6 +108,28 @@ internal static class Program
 
         if (parser.ParseLine(line, observedUtc) is { } evidence)
         {
+            // Counted by the game's own raid id, which the confirmation and the end share. The
+            // state-machine counts below read the files one after another rather than
+            // interleaved, so each raid is seen once per file that mentions it (#403: 163
+            // "started" for 53 raids).
+            if (evidence.RaidKey is { Length: > 0 } raidKey)
+            {
+                if (evidence.StartsNewRaid)
+                {
+                    report.ConfirmedRaidKeys.Add(raidKey);
+                }
+                else if (evidence.SuggestedState == RaidLifecycleState.PostRaid)
+                {
+                    report.EndedRaidKeys.Add(raidKey);
+                    // EftLogParser's own summary names the status in words; matching the same
+                    // word keeps this count in lockstep with what the parser calls a transfer.
+                    if (evidence.Summary.Contains("Transfer", StringComparison.Ordinal))
+                    {
+                        report.TransferRaidKeys.Add(raidKey);
+                    }
+                }
+            }
+
             var previous = state.Current;
             var current = state.Apply(evidence);
             if (current.RaidId is not null && current.RaidId != previous.RaidId)
@@ -118,19 +140,13 @@ internal static class Program
             if (previous.State == RaidLifecycleState.InRaid && current.State != RaidLifecycleState.InRaid)
             {
                 report.RaidsEnded++;
-                // EftLogParser's own summary names the status in words when it applies; see its
-                // "userMatchOver when transferred" case. Matching the same word here means this
-                // count moves in lockstep with what the parser itself considers a transfer.
-                if (evidence.Summary.Contains("Transfer", StringComparison.Ordinal))
-                {
-                    report.RunThroughEnds++;
-                }
             }
         }
 
         if (FleaSaleParser.ParseLine(line, observedUtc) is { } sale)
         {
             report.SaleOfferIds.Add(sale.OfferId);
+            report.SaleKeys.Add(sale.SaleKey);
             if (sale.HandbookItemId is { Length: > 0 } itemId)
             {
                 report.SoldItemIds.Add(itemId);
@@ -145,6 +161,13 @@ internal static class Program
         // docs/research/EFT_LOG_FACTS.md: "Queue time | application | MatchingCompleted:...".
         // Restricted to application, the one file the note names, so a coincidental match
         // elsewhere cannot inflate the count.
+        // One per raid, offline and transit raids included, which is why it is counted at all:
+        // those write no userConfirmed (#892).
+        if (isApplication && line.Contains("scene preset path:", StringComparison.Ordinal))
+        {
+            report.ScenePresets++;
+        }
+
         if (isApplication && LoadTimeParser.ParseLine(line, observedUtc) is { } loadTime)
         {
             report.LoadTimesSeconds.Add(loadTime.RealSeconds);
@@ -180,9 +203,11 @@ internal static class Program
     private static void Print(Report report)
     {
         Console.WriteLine("Raid outcome (survived/died/run-through) and duration:");
-        Console.WriteLine($"  Raids started: {report.RaidsStarted}");
-        Console.WriteLine($"  Raids ended:   {report.RaidsEnded}");
-        Console.WriteLine($"  Ended with status Transfer (the only proof of a scav run this note relies on): {report.RunThroughEnds}");
+        Console.WriteLine($"  Raids confirmed (distinct shortId): {report.ConfirmedRaidKeys.Count}");
+        Console.WriteLine($"  Raids ended (distinct shortId):     {report.EndedRaidKeys.Count}");
+        Console.WriteLine($"  Ended with status Transfer (scav only; some are transits): {report.TransferRaidKeys.Count}");
+        Console.WriteLine($"  Scene presets (application; one per raid, offline included): {report.ScenePresets}");
+        Console.WriteLine($"  State-machine starts/ends, files read in turn (inflated): {report.RaidsStarted} / {report.RaidsEnded}");
         Console.WriteLine($"  \"ExitStatus\" lines: {report.ExitStatusLines} (of which {report.ExitStatusStackFrameLines} also carry \"TimeSpan\", the stack-frame signature the note found)");
         Console.WriteLine();
 
@@ -190,7 +215,7 @@ internal static class Program
         Console.WriteLine($"  \"SavageLockTime\" lines: {report.ScavLockTimeLines} (of which {report.ScavLockTimeWithOwnProfileIdLines} also carry the player's own lowercase \"profileid\" marker)");
         Console.WriteLine();
 
-        Console.WriteLine("Quest completion (from ChatMessageReceived, distinct notifications):");
+        Console.WriteLine("Quest completion (new_message or ChatMessageReceived, distinct notifications):");
         foreach (var stateValue in Enum.GetValues<RecordedTaskState>())
         {
             if (stateValue is RecordedTaskState.Unknown or RecordedTaskState.NotStarted)
@@ -203,8 +228,9 @@ internal static class Program
 
         Console.WriteLine();
 
-        Console.WriteLine("Flea sales (RagfairOfferSold, distinct offers):");
-        Console.WriteLine($"  Sales: {report.SaleOfferIds.Count}");
+        Console.WriteLine("Flea sales (RagfairOfferSold, distinct events; one offer can sell in parts):");
+        Console.WriteLine($"  Sales: {report.SaleKeys.Count}");
+        Console.WriteLine($"  Offers: {report.SaleOfferIds.Count}");
         Console.WriteLine($"  Distinct items resolved to a handbook id: {report.SoldItemIds.Count}");
         Console.WriteLine();
 
@@ -280,7 +306,15 @@ internal static class Program
 
         public int RaidsEnded { get; set; }
 
-        public int RunThroughEnds { get; set; }
+        public HashSet<string> ConfirmedRaidKeys { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> EndedRaidKeys { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> TransferRaidKeys { get; } = new(StringComparer.Ordinal);
+
+        public int ScenePresets { get; set; }
+
+        public HashSet<string> SaleKeys { get; } = new(StringComparer.Ordinal);
 
         public int ExitStatusLines { get; set; }
 

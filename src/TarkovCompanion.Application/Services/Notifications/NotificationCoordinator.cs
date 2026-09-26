@@ -298,7 +298,7 @@ public sealed class NotificationCoordinator
         var items = 0;
         foreach (var sale in inputs.FleaSales)
         {
-            if (string.IsNullOrWhiteSpace(sale.OfferId) || !_seenSaleIds.Add(sale.OfferId))
+            if (string.IsNullOrWhiteSpace(sale.SaleId) || !_seenSaleIds.Add(sale.SaleId))
             {
                 continue;
             }
