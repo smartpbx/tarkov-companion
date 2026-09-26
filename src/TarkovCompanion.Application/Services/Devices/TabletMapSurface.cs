@@ -158,7 +158,9 @@ public sealed record TabletMapSurface(
     IReadOnlyList<TabletMapChoice>? Maps = null,
     // #290: the last Stash scan and flea screen the desktop read, for review on the tablet.
     TabletCaptureReview? Stash = null,
-    TabletCaptureReview? Flea = null);
+    TabletCaptureReview? Flea = null,
+    // #712 0-11: the desktop's Now panel, while its now-panel flag is on. Older pages never read it.
+    TabletNowPanel? Now = null);
 
 /// <summary>One thing a capture read, as the tablet's review card shows it: the desktop's own words.</summary>
 /// <param name="Tag">The verdict or group word, e.g. "Sell" or "Good buy".</param>

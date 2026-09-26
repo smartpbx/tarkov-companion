@@ -115,6 +115,39 @@ public sealed class SquadStateServiceTests
         Assert.Equal(SquadSnapshot.Empty, snapshot);
     }
 
+    /// <summary>
+    /// [#403] The not-ready line names only the account; it has to land on the member the ready
+    /// line named, or the party card goes on showing them ready.
+    /// </summary>
+    [Fact]
+    public void AnAccountOnlyNotReadyUnreadiesTheMemberAndKeepsTheirName()
+    {
+        var service = new SquadStateService();
+        service.Apply(Updated(Member(accountId: 9001, nickname: "Kestrel") with { IsReady = true, Level = 30 }));
+
+        service.Apply(new GroupObservation(
+            GroupObservationKind.MemberUpdated,
+            "groupMatchRaidNotReady",
+            Observed,
+            new GroupMember(null, 9001, null, null, null, null, false, null, [])));
+
+        var member = Assert.Single(service.Current.Members);
+        Assert.Equal("Kestrel", member.Nickname);
+        Assert.Equal(30, member.Level);
+        Assert.False(member.IsReady);
+    }
+
+    /// <summary>An account never named before is not added as a nameless row.</summary>
+    [Fact]
+    public void ANotReadyForSomebodyNeverSeenAddsNoRow()
+    {
+        var service = new SquadStateService();
+
+        service.Apply(Updated(new GroupMember(null, 9001, null, null, null, null, false, null, [])));
+
+        Assert.Empty(service.Current.Members);
+    }
+
     private static GroupObservation Updated(GroupMember member) => new(
         GroupObservationKind.MemberUpdated,
         "groupMatchUserReady",

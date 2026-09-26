@@ -666,6 +666,32 @@
         </Grid>
       </Border>
 
+      <!-- [#712 decision 4] The profile followed the game's mode: one line with Undo, over the
+           page like the What's new banner, below it so both can show. -->
+      <Border Grid.Row="3" Classes="v2-surface-banner" IsVisible="{Binding ProfileFollow.IsVisible, FallbackValue=False}"
+              HorizontalAlignment="Right" VerticalAlignment="Top" ZIndex="10"
+              Margin="0,64,16,0" MaxWidth="560" CornerRadius="6"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-profile-follow-banner"
+              AutomationProperties.Name="{Binding ProfileFollow.Line}">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+          <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap"
+                     Text="{Binding ProfileFollow.Line}" />
+          <Button Grid.Column="1" Classes="v2-target v2-banner-action"
+                  AutomationProperties.AutomationId="v2-profile-follow-action"
+                  IsVisible="{Binding ProfileFollow.HasAction, FallbackValue=False}"
+                  Content="{Binding ProfileFollow.ActionLabel}"
+                  Command="{Binding ProfileFollow.ActionCommand}" />
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-topbar-plain"
+                  AutomationProperties.AutomationId="v2-profile-follow-dismiss"
+                  AutomationProperties.Name="{Binding ProfileFollow.DismissName}"
+                  ToolTip.Tip="{x:Static l:ShellText.Dismiss}"
+                  Command="{Binding ProfileFollow.DismissCommand}">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+          </Button>
+        </Grid>
+      </Border>
+
       <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
         <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
         <!-- [V2 rough package 46] The rail's width is the player's choice now: labelled, icons
@@ -857,26 +883,35 @@
                          AutomationProperties.AutomationId="v2-shell-page-heading"
                          AutomationProperties.HeadingLevel="1" Text="{Binding CurrentHeading}" />
 
-              <Border Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
-                      AutomationProperties.AccessibilityView="Control"
-                      AutomationProperties.AutomationId="v2-shell-sections"
-                      AutomationProperties.LandmarkType="Navigation"
-                      AutomationProperties.Name="{Binding SectionRegionName}">
-                <ItemsControl ItemsSource="{Binding SectionItems}">
-                  <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-                  </ItemsControl.ItemsPanel>
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:V2ShellSectionViewModel">
-                      <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
-                              AutomationProperties.AutomationId="{Binding AutomationId}"
-                              AutomationProperties.Name="{Binding Label}"
-                              AutomationProperties.ItemStatus="{Binding SelectionDescription}"
-                              Content="{Binding Label}" Command="{Binding NavigateCommand}" />
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </Border>
+              <!-- [#712 1-13] The readiness strip sits in the tab row, right of the Raid page's two
+                   tabs (the left margin clears them), so the map keeps its height: the page gallery
+                   holds the Raid map to 75% of the window. -->
+              <Panel>
+                <Border Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
+                        AutomationProperties.AccessibilityView="Control"
+                        AutomationProperties.AutomationId="v2-shell-sections"
+                        AutomationProperties.LandmarkType="Navigation"
+                        AutomationProperties.Name="{Binding SectionRegionName}">
+                  <ItemsControl ItemsSource="{Binding SectionItems}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2ShellSectionViewModel">
+                        <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                                AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Label}"
+                                AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                                Content="{Binding Label}" Command="{Binding NavigateCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+                <Panel Margin="220,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                       IsVisible="{Binding ShowsReadinessStrip}">
+                  <shellViews:ReadinessStripView DataContext="{Binding ReadinessStrip}" />
+                </Panel>
+              </Panel>
 
               <Border Classes="v2-card" IsVisible="{Binding ShowsReadinessTarget}">
                 <StackPanel Classes="v2-stack">

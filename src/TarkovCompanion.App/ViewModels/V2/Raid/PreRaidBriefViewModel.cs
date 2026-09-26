@@ -33,6 +33,6 @@ public sealed class PreRaidBriefViewModel : BindableViewModel
         a.IsShown == b.IsShown && a.Kicker == b.Kicker && a.Title == b.Title && a.Bosses == b.Bosses &&
         a.Quests.SequenceEqual(b.Quests) && a.QuestsNote == b.QuestsNote && a.Route == b.Route &&
         a.CanStillLeave == b.CanStillLeave && a.ExtractsHeading == b.ExtractsHeading && a.Extracts == b.Extracts &&
-        a.ExtractRequirements.SequenceEqual(b.ExtractRequirements) && a.Squad.SequenceEqual(b.Squad) &&
+        a.ExtractRequirements.SequenceEqual(b.ExtractRequirements) && a.Squad.SequenceEqual(b.Squad) && a.SquadFrom == b.SquadFrom &&
         a.Loot == b.Loot && a.Because == b.Because;
 }

@@ -535,8 +535,10 @@
       "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|Session mode: PvpSeason",
       "header": "Recognised",
       "notification": "Neutral",
-      "expect": {},
-      "note": "#403 re-measure (6 sessions, 2026-09-22..25): once per session, 6 of 6, all PvpSeason. The only line naming the mode and season; not read yet."
+      "expect": {
+        "sessionMode": "Seasonal"
+      },
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): once per session, 6 of 6, all PvpSeason. The only line naming the mode and season; the active profile follows it (#712 decision 4)."
     },
     {
       "name": "application.network-game-matching",
@@ -544,7 +546,9 @@
       "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameMatching G",
       "header": "Recognised",
       "notification": "Neutral",
-      "expect": {},
+      "expect": {
+        "phase": "MatchingStep"
+      },
       "note": "#403 re-measure (6 sessions, 2026-09-22..25): G, H and I once each per online raid (55 each), between Matching with group id and MatchingCompleted."
     },
     {
@@ -565,7 +569,8 @@
       "expect": {
         "eftLog": {
           "state": "InRaid"
-        }
+        },
+        "phase": "Spawning"
       },
       "note": "Read as in-raid through the \"gamespawn\" marker, about 20 s before GameStarted."
     },
@@ -578,7 +583,8 @@
       "expect": {
         "eftLog": {
           "state": "InRaid"
-        }
+        },
+        "phase": "Spawned"
       },
       "note": "Also matches \"gamespawn\"."
     },
@@ -675,8 +681,12 @@
       "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchRaidNotReady [{\"type\":\"groupMatchRaidNotReady\",\"eventId\":\"e0000000000000000000000b\",\"aid\":1000001}]",
       "header": "Recognised",
       "notification": "Recognised",
-      "expect": {},
-      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 161 of them. Only an account id, no extendedProfile, so the group parser reads nothing and a member who un-readies stays ready. Follow-up."
+      "expect": {
+        "group": {
+          "kind": "MemberUpdated"
+        }
+      },
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 161 of them. Only an account id, no extendedProfile: read as that member not ready, keyed to their earlier ready line."
     },
     {
       "name": "backend.group-invite-accept",
@@ -684,8 +694,13 @@
       "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchInviteAccept [{\"type\":\"groupMatchInviteAccept\",\"eventId\":\"e0000000000000000000000b\",\"_id\":\"p0000000000000000000000c\",\"aid\":1000002,\"Info\":{\"Nickname\":\"PLAYER_C\",\"Side\":\"Bear\",\"Level\":20},\"PlayerVisualRepresentation\":{\"Info\":{\"Nickname\":\"PLAYER_C\"}},\"isLeader\":false,\"isReady\":false}]",
       "header": "Recognised",
       "notification": "Recognised",
-      "expect": {},
-      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 7. The member is at the top level, not under extendedProfile, so the group parser reads nothing until that member's first RaidReady. Follow-up."
+      "expect": {
+        "group": {
+          "kind": "MemberUpdated",
+          "nickname": "PLAYER_C"
+        }
+      },
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 7. The member is at the top level, not under extendedProfile; read from there."
     },
     {
       "name": "backend.group-invite-decline",

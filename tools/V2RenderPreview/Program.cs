@@ -418,6 +418,14 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#712 decision 4] The game says PvpSeason: the profile line with Undo (or Create) over the page.
+            if (args.Contains("--profile-follow-demo"))
+            {
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.Application.Services.Profiles.ProfileModeFollower>()
+                    .ObserveAsync(new("PvpSeason", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Seasonal, DateTimeOffset.UtcNow), CancellationToken.None));
+                Pump(20);
+            }
+
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to
             // plan. --seed-active-quests marks that many available quests active through the same
             // command service the page itself uses, then reloads the page.
@@ -2238,6 +2246,7 @@ internal static class Program
             }
 
             NowPanelDemo.Apply(services, shell, args, Pump); // [#712 0-4]
+            ReadinessStripDemo.Apply(shell, StringOption(args, "--readiness-demo"), Pump); // [#712 1-13]
 
             // [Issue 701] Exercise the same choices exposed beside the gem and in Layers. This
             // runs before --loot-preset so the resulting frame and object count use the choice.

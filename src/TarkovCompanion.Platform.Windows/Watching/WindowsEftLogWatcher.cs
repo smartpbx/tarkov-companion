@@ -471,6 +471,11 @@ public sealed partial class WindowsEftLogWatcher(
         {
             observer.Observe(phase);
         }
+
+        if (mode == LogReadMode.Full && SessionModeParser.ParseLine(line, observedUtc) is { } session)
+        {
+            observer.Observe(session);
+        }
     }
 
 

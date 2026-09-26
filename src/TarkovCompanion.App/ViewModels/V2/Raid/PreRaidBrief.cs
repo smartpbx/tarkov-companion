@@ -73,6 +73,9 @@ public sealed record PreRaidBrief(
     public bool HasLoot => Loot.Length > 0;
 
     public string SquadLine => string.Join(" · ", Squad);
+
+    /// <summary>Where the squad line came from: squadmates' companions, or the game's own party list (#403).</summary>
+    public string SquadFrom { get; init; } = RaidText.BriefSquadFrom;
 }
 
 /// <summary>Builds the brief from the situation and the Raid map's own lists (#712 0-9).</summary>
@@ -158,12 +161,26 @@ public static class PreRaidBriefBuilder
             .Take(MaximumSquad)
             .Select(member => RaidText.BriefSquadMember(member.Name, RaidText.BriefSquadState(member.State)))
             .ToArray();
+        // [#403] Without companions to share a state, the game's own party list still says who has
+        // pressed Ready, which is the one thing worth knowing while the queue can still be left.
+        var fromGame = squad.Length == 0 && situation.Party is { Members.Count: > 0 };
+        if (fromGame)
+        {
+            squad = situation.Party!.Members
+                .Take(MaximumSquad)
+                .Select(member => member.IsReady is { } ready
+                    ? RaidText.BriefSquadMember(member.Name, ready ? RaidText.BriefPartyReady : RaidText.BriefPartyNotReady)
+                    : member.Name)
+                .ToArray();
+        }
 
         var loot = inputs.LootSpots is > 0 and var spots ? RaidText.BriefLoot(spots, inputs.LootSpotsCapped) : string.Empty;
 
         return new PreRaidBrief(
             true,
-            (situation.Phase.Value == SituationPhase.Matching ? RaidText.BriefWhileMatching : RaidText.BriefWhileLoading)
+            (situation.Phase.Value == SituationPhase.Matching ? RaidText.BriefWhileMatching
+                : IsSpawning(situation) ? RaidText.BriefWhileSpawning
+                : RaidText.BriefWhileLoading)
                 .ToUpper(System.Globalization.CultureInfo.CurrentCulture),
             title,
             bosses,
@@ -178,6 +195,15 @@ public static class PreRaidBriefBuilder
             requirements,
             squad,
             loot,
-            situation.Phase.Because);
+            situation.Phase.Because)
+        {
+            SquadFrom = fromGame ? RaidText.BriefSquadFromGame : RaidText.BriefSquadFrom,
+        };
     }
+
+    /// <summary>[#403] The game wrote GameSpawn: the player is being put on the map, seconds from moving.</summary>
+    private static bool IsSpawning(Situation situation) =>
+        situation.Phase.Value == SituationPhase.Loading &&
+        situation.Stages.Any(stage => stage.Kind is TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.Spawning
+            or TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.Spawned);
 }

@@ -33,7 +33,7 @@ public sealed record RelayMapSurfaceResult(bool Accepted, string? Code)
 /// [V2 rough package 24, #407] Artwork does not fit the sealed frame transport — a relay payload
 /// root is bounded at 64 KiB and a rasterized map plan is megabytes — so the reviewed picture
 /// travels as its own authenticated resource, which is the route the issue names first. The relay
-/// holds it opaquely: it never parses the surface, never knows which map it is, and hands it only
+/// holds it opaquely: it never parses the surface (it only measures its Now block, RelayNowPanelBound), never knows which map it is, and hands it only
 /// to a session it has just authenticated against its own registry, so a revoked device reads
 /// nothing (its credential no longer authenticates at all).
 ///
@@ -130,7 +130,7 @@ public sealed class RelayMapSurfaceStore
             return RelayMapSurfaceResult.Reject("not-authorized");
         }
 
-        if (surfaceJson.Length is 0 or > MaximumSurfaceBytes)
+        if (surfaceJson.Length is 0 or > MaximumSurfaceBytes || !RelayNowPanelBound.Fits(surfaceJson))
         {
             return RelayMapSurfaceResult.Reject("surface-rejected");
         }
