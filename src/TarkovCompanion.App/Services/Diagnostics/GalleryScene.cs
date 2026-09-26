@@ -70,6 +70,12 @@ public enum GallerySceneKind
 
     /// <summary>[#914] A PMC raid one minute old, the first screenshot near the player: the spawn lines.</summary>
     SpawnLines,
+
+    /// <summary>
+    /// [#881] An update waiting: the dot on the rail's gear and the words above it. No map; "gear"
+    /// then answers whether the gear and its dot are drawn whole (<see cref="GalleryUpdateWaitingScene"/>).
+    /// </summary>
+    UpdateWaiting,
 }
 
 public static class GallerySceneKinds
@@ -78,7 +84,7 @@ public static class GallerySceneKinds
         // By name only: Enum.TryParse also takes "7", which is whichever scene happens to be seventh.
         !int.TryParse(value, out _) && Enum.TryParse<GallerySceneKind>(value, ignoreCase: true, out var kind) && Enum.IsDefined(kind)
             ? kind
-            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw, page, empty, loading, degraded, error, inspect, routestops or spawnlines, not '{value}'.");
+            : throw new ArgumentException($"--gallery-scene must be one of map, route, squad, marks, inraid, draw, page, empty, loading, degraded, error, inspect, routestops, spawnlines or updatewaiting, not '{value}'.");
 }
 
 /// <summary>
@@ -150,6 +156,12 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         if (scene == GallerySceneKind.Page)
         {
             await RunPageAsync(readiness, cancellationToken).ConfigureAwait(true);
+            return;
+        }
+
+        if (scene == GallerySceneKind.UpdateWaiting)
+        {
+            await GalleryUpdateWaitingScene.RunAsync(main, readiness, cancellationToken).ConfigureAwait(true);
             return;
         }
 

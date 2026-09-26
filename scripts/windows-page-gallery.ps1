@@ -1323,6 +1323,8 @@ function Set-V2PreviewState {
         # [#881] A remembered window, to launch through the placement restore a player gets.
         window = Get-InteractionProperty -Object $Seed -Name "window"
         captureShortcutEnabled = $true
+        # [#881] "labels" or "icons": the rail the gear is measured in. Absent is the default.
+        navigationRail = Get-InteractionProperty -Object $Seed -Name "navigationRail"
     }
     $Json = $State | ConvertTo-Json -Depth 4
     [System.IO.File]::WriteAllText(
@@ -1862,6 +1864,35 @@ $Shots.Add([pscustomobject]@{
         expectedAutomationIds = @("v2-shell-navigation-rail"); expectedHeading = "Plan"
         expectedBounds = $RailBottomOnScreen }) }
 })
+# [#881 reopened] "It also didn't fix the sidebar settings being cut off on the icon." The shots
+# above measure the gear's button, which was whole; the glyph inside it and its update dot were
+# not. In the 60 px icons-only rail the button was given 60 of the 68 px it asked for and clipped
+# its content, and the dot sat 3 px outside a clipping 24 px box. A clean runner never has a build
+# waiting, so no capture had shown the dot at all. The "updatewaiting" scene puts it there, and
+# the "gear" condition has the packaged app measure the drawn glyph and dot (RailGearFit) on the
+# runner's own display scaling: inside every clipping ancestor, 2 px inside the button, the button
+# inside the rail. Gating: it is the player's bug.
+foreach ($GearRail in @("labels", "icons")) {
+    $UpdateCardId = if ($GearRail -eq "labels") { "v2-shell-update-ready-restart" } else { "v2-shell-update-ready-restart-icon" }
+    foreach ($RailSize in @(
+        [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080; bounds = $RailBottomBounds },
+        [pscustomobject]@{ suffix = "1920x1009"; width = 1920; height = 1009; bounds = $RailBottomOnScreen })) {
+        $Shots.Add([pscustomobject]@{
+            name = "v2-a-rail-gear-update-$GearRail-$($RailSize.suffix)"
+            args = @("--ui-shell", "v2-a"); shellMode = "v2-a"
+            width = $RailSize.width; height = $RailSize.height
+            galleryScene = "updatewaiting"
+            seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/plan"; navigationRail = $GearRail }
+            captureBeforeInteraction = $true
+            interaction = [pscustomobject]@{ steps = @(
+                [pscustomobject]@{ action = "ready"; condition = "gear"; description = "the gear and its update dot drawn whole ($GearRail rail)" },
+                [pscustomobject]@{
+                    action = "assert"; description = "Variant A $GearRail rail gear with an update waiting at $($RailSize.width)x$($RailSize.height)"
+                    expectedAutomationIds = @("v2-shell-navigation-rail", $UpdateCardId); expectedHeading = "Plan"
+                    expectedBounds = $RailSize.bounds }) }
+        })
+    }
+}
 # [#606] The raid map's extract and transit markers, on a real map, photographed on Windows.
 # Headless renders (tools/V2RenderPreview) showed the redone markers as correct twice while the
 # owner's Windows screen showed a glyph spilling out of its disc and a dark disc behind an extract,
@@ -2360,7 +2391,7 @@ foreach ($Shot in $Shots) {
         $LaunchArguments = @($Shot.args)
         $GalleryScene = [string](Get-InteractionProperty -Object $Shot -Name "galleryScene" -Default "")
         if ($GalleryScene.Length -gt 0) {
-            if ($GalleryScene -notin @("map", "page")) { Backup-SceneState }
+            if ($GalleryScene -notin @("map", "page", "updatewaiting")) { Backup-SceneState }
             $ChannelRoot = Join-Path $env:TEMP ("tc-gallery-channel-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
             $ChannelToken = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
             $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN = $ChannelToken

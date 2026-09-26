@@ -85,7 +85,11 @@
              on the button, in NoticeDescription. -->
         <!-- [#881] 11 px with a ring in the rail's own colour, over the gear's corner rather
              than inside it: at 8 px, in the icon's stroke colour family, it read as part of the gear. -->
-        <Ellipse Width="11" Height="11" Margin="0,0,-3,-3"
+        <!-- [#881 reopened] Inside the 24 px box, not 3 px past it: the ContentControl that
+             hosts this template clips to its bounds (Avalonia 12 templated controls do), so the
+             -3 margin cut the dot's ring flat on its right and bottom. The ring still separates
+             it from the gear's corner tooth it sits over. -->
+        <Ellipse Width="11" Height="11"
                  HorizontalAlignment="Right" VerticalAlignment="Bottom"
                  IsVisible="{Binding HasNotice}"
                  Fill="{DynamicResource V2.Brush.Info}"
@@ -297,11 +301,15 @@
     <Style Selector="Button.v2-nav-launcher:pointerover">
       <Setter Property="Opacity" Value="1" />
     </Style>
+    <!-- [#881 reopened] No right margin. 12 + 10 + 24 + 10 + 12 is 68 px and the icons-only
+         rail is 60, so the button was arranged 8 px narrower than it asked for and its content
+         clipped: the gear lost its right-hand teeth and the update dot became a sliver. Left
+         aligned, a right margin only takes width away; 12 + 44 = 56 fits. -->
     <Style Selector="Button.v2-rail-gear">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="Margin" Value="12,12,12,16" />
+      <Setter Property="Margin" Value="12,12,0,16" />
       <Setter Property="Padding" Value="10" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
