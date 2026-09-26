@@ -109,7 +109,7 @@ public sealed class RollbackTests
 
             // No pin until it is really handed over.
             Assert.Null(state.Store.Read().Pin);
-            gateway.ApplyAndRestart();
+            ((IUpdateRollback)gateway).ApplyAndRestart();
 
             var apply = Assert.Single(harness.Locator.Recorded.Started);
             Assert.Equal(staged, apply.Arguments[apply.Arguments.ToList().IndexOf("--package") + 1]);
@@ -177,7 +177,7 @@ public sealed class RollbackTests
 
             var fetched = await gateway.DownloadPreviousAsync(offer, null, CancellationToken.None);
             Assert.True(fetched.CanApply, fetched.Status);
-            gateway.ApplyAndRestart();
+            ((IUpdateRollback)gateway).ApplyAndRestart();
             var apply = Assert.Single(updated.Locator.Recorded.Started);
             Assert.Equal(Path.Combine(updated.Packages, keptName), apply.Arguments[apply.Arguments.ToList().IndexOf("--package") + 1]);
             Assert.Equal("kept copy on this PC", state.Store.Read().Applied?.FeedHost);
@@ -201,7 +201,61 @@ public sealed class RollbackTests
 
         Assert.False(fetched.CanApply);
         Assert.StartsWith("Refused", fetched.Status, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(((IUpdateRollback)gateway).ApplyAndRestart);
+        Assert.Empty(harness.Locator.Recorded.Started);
+        Assert.Null(state.Store.Read().Pin);
+    }
+
+    /// <summary>
+    /// #937: a newer build was downloaded ("Update ready · Restart"), then going back was tried and
+    /// its fetch failed. The updater empties packages\ when it downloads, so the newer package is
+    /// gone; Restart used to return quietly and leave Setup on "Installing…". Now it says so, and
+    /// downloading again applies the newer build, not the older one.
+    /// </summary>
+    [Fact]
+    public async Task AFailedFetchOfTheOlderBuildNeverLeavesRestartDoingNothing()
+    {
+        using var state = new TemporaryState();
+        Directory.CreateDirectory(state.Store.KeptFolder);
+        var keptName = $"{Pack}-1.0.100-full.nupkg";
+        await File.WriteAllBytesAsync(Path.Combine(state.Store.KeptFolder, keptName), RandomNumberGenerator.GetBytes(1024));
+        state.Store.Write(new UpdateState(Kept: new("1.0.100", keptName, new string('E', 64), 1024)));
+        using var harness = new RoughChannelHarness(installedVersion: "1.0.200");
+        harness.Publish("1.0.300");
+        var gateway = GatewayOver(harness, state.Store);
+        Assert.True((await gateway.CheckAsync(CancellationToken.None)).CanDownload);
+        Assert.True((await gateway.DownloadAsync(CancellationToken.None)).CanApply);
+
+        var offer = await gateway.FindPreviousAsync(CancellationToken.None);
+        Assert.Equal("1.0.100", offer.Previous?.Version);
+        Assert.False((await gateway.DownloadPreviousAsync(offer, null, CancellationToken.None)).CanApply);
+        Assert.Empty(Directory.GetFiles(harness.Packages, "*.nupkg"));
+
+        Assert.Throws<UpdateNotDownloadedException>(gateway.ApplyAndRestart);
+        Assert.Empty(harness.Locator.Recorded.Started);
+
+        Assert.True((await gateway.DownloadAsync(CancellationToken.None)).CanApply);
         gateway.ApplyAndRestart();
+        var apply = Assert.Single(harness.Locator.Recorded.Started);
+        var package = apply.Arguments[apply.Arguments.ToList().IndexOf("--package") + 1];
+        Assert.Equal($"{Pack}-1.0.300-full.nupkg", Path.GetFileName(package));
+        Assert.False(state.Store.Read().Applied?.WentBack);
+        Assert.Null(state.Store.Read().Pin);
+    }
+
+    /// <summary>#937: an older build fetched and not applied is not what "Update now" installs.</summary>
+    [Fact]
+    public async Task AFetchedOlderBuildIsNotWhatTheForwardRestartApplies()
+    {
+        using var state = new TemporaryState();
+        using var harness = new RoughChannelHarness(installedVersion: "1.0.200");
+        harness.PublishAll("1.0.100", "1.0.200");
+        var gateway = GatewayOver(harness, state.Store);
+
+        var offer = await gateway.FindPreviousAsync(CancellationToken.None);
+        Assert.True((await gateway.DownloadPreviousAsync(offer, null, CancellationToken.None)).CanApply);
+
+        Assert.Throws<UpdateNotDownloadedException>(gateway.ApplyAndRestart);
         Assert.Empty(harness.Locator.Recorded.Started);
         Assert.Null(state.Store.Read().Pin);
     }

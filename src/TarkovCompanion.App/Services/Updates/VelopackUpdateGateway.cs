@@ -293,8 +293,6 @@ public sealed partial class VelopackUpdateGateway
         try
         {
             _verified = null;
-            _applyManager = null;
-            _pendingPin = null;
             // Off the calling thread (#888): this copies and hashes a ~100 MB package, and the caller
             // is the Setup button on the UI thread, which froze for seconds on a busy disk. Awaited,
             // so the kept copy still exists before the download can delete the package it copies.
@@ -329,15 +327,25 @@ public sealed partial class VelopackUpdateGateway
     /// is not on disk, the updater does not refuse: it runs anyway and applies whatever package
     /// it finds. So a refused or interrupted download must never get this far, whatever a
     /// caller's buttons happen to allow.
+    ///
+    /// Throws rather than returning quietly when nothing is verified (#937): the caller has
+    /// already said "Installing…", and a quiet return left it saying so for hours with no button.
+    /// Going back has its own verified build and its own apply, <see cref="IUpdateRollback.ApplyAndRestart"/>.
     /// </remarks>
+    /// <exception cref="UpdateNotDownloadedException">No downloaded, verified build is waiting.</exception>
     public void ApplyAndRestart()
     {
-        if (_verified is not { } update || (_applyManager ?? _manager.Value) is not { } manager)
+        if (_verified is not { } update || _manager.Value is not { } manager)
         {
-            return;
+            throw new UpdateNotDownloadedException(SetupText.UpdateDownloadAgain);
         }
 
-        RecordApply(update);
+        Apply(update, manager, wentBack: false);
+    }
+
+    private void Apply(VelopackAsset update, UpdateManager manager, bool wentBack)
+    {
+        RecordApply(update, wentBack);
         _logger?.LogInformation("Applying version {Version} and restarting.", update.Version);
         if (HandOver is not { } handOver)
         {

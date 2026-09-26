@@ -2556,6 +2556,13 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             UpdateStatus = SetupText.SettingsUpdateInstalling;
             _updates.ApplyAndRestart();
         }
+        catch (UpdateNotDownloadedException exception)
+        {
+            // #937: the package is gone (fetching an older build empties packages\), so the same
+            // button downloads it again instead of restarting into nothing.
+            UpdateStatus = SetupText.SettingsUpdateStartFailed(exception.Message);
+            CanDownloadUpdate = true;
+        }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             UpdateStatus = SetupText.SettingsUpdateStartFailed(exception.Message);

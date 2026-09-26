@@ -715,4 +715,10 @@ public interface ICaptureSessionService : IAsyncDisposable
         string origin);
 
     bool Cancel(CaptureSessionId sessionId, string origin);
+
+    /// <summary>
+    /// Ends the session once the captures it already admitted have finished, without cancelling
+    /// them. False when the session is unknown, already over, or being cancelled.
+    /// </summary>
+    bool EndWhenIdle(CaptureSessionId sessionId, string origin) => false;
 }

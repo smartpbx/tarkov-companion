@@ -248,6 +248,32 @@ public sealed class RaidFollowsTheRealRaidTests
     }
 
     /// <summary>
+    /// #937: Lighthouse is never reported over, and the next thing the game writes is the scene for
+    /// The Lab. The state goes InRaid, LoadingRaid, InRaid, and the Lighthouse row stayed open.
+    /// </summary>
+    [Fact]
+    public async Task ARaidDisplacedByASceneForAnotherMapIsClosedAtItsLastActivity()
+    {
+        var parser = new EftLogParser();
+        var history = new MemoryRaidHistory();
+        var coordinator = Coordinator(history);
+
+        var first = await coordinator.ApplyEvidenceAsync(Read(parser, Confirmed("19:37:06", "Lighthouse", "CX86JJ", Scav), Launch1936), default);
+        await coordinator.ApplyEvidenceAsync(Read(parser, GameStarted("19:39:00"), Launch1936), default);
+        var loading = await coordinator.ApplyEvidenceAsync(
+            Read(parser, "2026-09-20 20:10:00.000|1.1.5.1.47510|Info|application|scene preset path:maps/laboratory_preset.bundle rcid:laboratory.ScenesPreset.asset", Launch1936),
+            default);
+        Assert.Equal(RaidLifecycleState.LoadingRaid, loading.State);
+        var second = await coordinator.ApplyEvidenceAsync(Read(parser, GameStarted("20:11:00"), Launch1936), default);
+        Assert.NotEqual(first.RaidId, second.RaidId);
+
+        var row = Assert.Single(history.Rows, raid => raid.Id == first.RaidId);
+        Assert.Equal(RaidClosure.NotReportedOutcome, row.Outcome);
+        Assert.NotNull(row.EndedUtc);
+        Assert.True(row.EndedUtc <= Local("20:10:00"), $"ended {row.EndedUtc}");
+    }
+
+    /// <summary>
     /// What the player saw: Lighthouse, a look at Shoreline by hand, Lighthouse again, and a map
     /// that stayed on Shoreline because "lighthouse" was the map id it had already followed.
     /// </summary>

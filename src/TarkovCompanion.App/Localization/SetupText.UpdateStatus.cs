@@ -17,6 +17,7 @@ public static partial class SetupText
     public static string UpdateUpToDate => UiText.Get("Setup.UpdateStatus.UpToDate");
     public static string UpdateAvailable(object? version) => UiText.Format("Setup.UpdateStatus.Available", version);
     public static string UpdateCheckFirst => UiText.Get("Setup.UpdateStatus.CheckFirst");
+    public static string UpdateDownloadAgain => UiText.Get("Setup.UpdateStatus.DownloadAgain");
     public static string UpdateReady(object? version) => UiText.Format("Setup.UpdateStatus.Ready", version);
     public static string UpdateRefused => UiText.Get("Setup.UpdateStatus.Refused");
     public static string UpdateCouldNotDownload(object? detail) => UiText.Format("Setup.UpdateStatus.CouldNotDownload", detail);

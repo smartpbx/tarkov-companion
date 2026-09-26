@@ -128,7 +128,7 @@ public sealed class RoughChannelUpdateTests
             && entry.Message.Contains(actual, StringComparison.Ordinal));
         Assert.Empty(Directory.GetFiles(harness.Packages, "*.nupkg*"));
 
-        gateway.ApplyAndRestart();
+        Assert.Throws<UpdateNotDownloadedException>(gateway.ApplyAndRestart);
 
         Assert.Empty(harness.Locator.Recorded.Started);
         Assert.Null(harness.Locator.Recorded.ExitCode);
@@ -219,7 +219,7 @@ public sealed class RoughChannelUpdateTests
         Assert.False(result.CanApply);
         Assert.Contains("folder", result.Status, StringComparison.Ordinal);
         Assert.Equal("Check for updates first.", (await gateway.DownloadAsync(CancellationToken.None)).Status);
-        gateway.ApplyAndRestart();
+        Assert.Throws<UpdateNotDownloadedException>(gateway.ApplyAndRestart);
 
         Assert.Equal("https", gateway.Channel.Feed.Scheme);
         Assert.EndsWith("-Setup.exe", gateway.Channel.Installer.AbsoluteUri, StringComparison.Ordinal);
