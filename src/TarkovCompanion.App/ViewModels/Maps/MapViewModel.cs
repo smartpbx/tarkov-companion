@@ -1444,6 +1444,8 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
     private bool _prefersDrawing;
+    /// <summary>#938: the map whose drawing is on screen only because the floor stack needs it.</summary>
+    private string? _stackDrawingLocationId;
     private bool _autoSelectsFloor = true;
     private bool _isLoadingVariant;
     private string? _flooredPositionFilename;
@@ -2681,9 +2683,61 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // The player's own choice: whatever the stack had borrowed on this map is theirs now.
+        if (IsStackDrawingOn(_stackDrawingLocationId, location.Id))
+        {
+            _stackDrawingLocationId = null;
+        }
+
         await _selectionService.ChooseArtworkAsync(location.Id, !PrefersDrawing, _lifetime.Token).ConfigureAwait(true);
         await LoadVariantAsync(variant, persist: false).ConfigureAwait(true);
     }
+
+    /// <summary>The map on which the drawing is shown for the floor stack alone, if any.</summary>
+    public string? StackDrawingLocationId => _stackDrawingLocationId;
+
+    /// <summary>
+    /// #938: shows the drawing the floor stack's plates need, for this session only.
+    /// </summary>
+    /// <remarks>
+    /// Stack used to go through <see cref="ToggleArtworkAsync"/>, which saves the answer as the
+    /// map's artwork. Close the app, or press 2D on another map, and Customs opened flat on the
+    /// drawing from then on with nothing saying why. The saved choice is the player's; the stack
+    /// only borrows the drawing until 2D, a restart, or a choice of their own.
+    /// </remarks>
+    public async Task ShowDrawingForStackAsync()
+    {
+        if (!HasArtworkChoice || PrefersDrawing || SelectedLocation is not { } location || SelectedVariant is not { } variant)
+        {
+            return;
+        }
+
+        _stackDrawingLocationId = location.Id;
+        await LoadVariantAsync(variant, persist: false).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// #938: gives back the drawing the stack borrowed. The map on screen reloads its saved
+    /// artwork; a borrow left on another map is simply dropped.
+    /// </summary>
+    public async Task EndStackDrawingAsync()
+    {
+        if (_stackDrawingLocationId is not { } borrowedOn)
+        {
+            return;
+        }
+
+        _stackDrawingLocationId = null;
+        if (SelectedLocation is { } location && IsStackDrawingOn(borrowedOn, location.Id) && SelectedVariant is { } variant)
+        {
+            await LoadVariantAsync(variant, persist: false).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>Whether the stack's borrowed drawing belongs to this map.</summary>
+    internal static bool IsStackDrawingOn(string? stackDrawingLocationId, string locationId) =>
+        stackDrawingLocationId is not null &&
+        string.Equals(stackDrawingLocationId, locationId, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Asks the view to scale the whole map into the panel and centre it.</summary>
     /// <remarks>
@@ -3184,7 +3238,8 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
             // the choice is offered per map and only where there is actually a choice.
             HasArtworkChoice = variant.TilePath is not null && variant.SvgPath is not null;
             PrefersDrawing = HasArtworkChoice &&
-                await _selectionService.PrefersDrawingAsync(location.Id, cancellationToken).ConfigureAwait(true);
+                (IsStackDrawingOn(_stackDrawingLocationId, location.Id) ||
+                 await _selectionService.PrefersDrawingAsync(location.Id, cancellationToken).ConfigureAwait(true));
             // Which way round this map was left, which is a fact about the map and the shape of
             // the screen rather than about this raid.
             RotationDegrees = await _selectionService

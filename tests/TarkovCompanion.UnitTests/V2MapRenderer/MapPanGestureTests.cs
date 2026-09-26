@@ -189,6 +189,53 @@ public sealed class MapPanGestureTests
     }
 
     /// <summary>
+    /// #938: the camera moves mid-stroke (a wheel zoom, Follow, a tablet pan). Each point is where
+    /// it was drawn on the map then; converting the whole stroke with the camera it ended on moved
+    /// its start to wherever that pixel pointed after the zoom.
+    /// </summary>
+    [Fact]
+    public void A_stroke_keeps_where_it_was_drawn_when_the_camera_moves_mid_stroke()
+    {
+        Run(0, (window, view, renderer) =>
+        {
+            var plan = view.FindControl<Border>("PlanViewport")!;
+            Point InWindow(double x, double y) => plan.TranslatePoint(new Point(x, y), window)!.Value;
+            for (var step = 0; step < 3; step++)
+            {
+                renderer.RequestZoom(1);
+            }
+
+            var strokes = new List<IReadOnlyList<MapScenePoint>>();
+            view.StrokeDrawn += (_, points) => strokes.Add(points);
+            view.IsDrawing = true;
+
+            var from = new Point(300, 300);
+            var middle = new Point(420, 330);
+            var to = new Point(520, 380);
+            Assert.True(renderer.TryScenePointAt(from.X, from.Y, out var start));
+            Assert.True(renderer.TryScenePointAt(middle.X, middle.Y, out var passed));
+            window.MouseDown(InWindow(from.X, from.Y), MouseButton.Left);
+            window.MouseMove(InWindow(middle.X, middle.Y));
+            var before = renderer.Scene.View.Camera;
+            renderer.RequestZoom(1);
+            Dispatcher.UIThread.RunJobs();
+            Assert.NotEqual(before, renderer.Scene.View.Camera);
+            Assert.True(renderer.TryScenePointAt(to.X, to.Y, out var end));
+            window.MouseMove(InWindow(to.X, to.Y));
+            window.MouseUp(InWindow(to.X, to.Y), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+
+            var stroke = Assert.Single(strokes);
+            Assert.Equal(start.X, stroke[0].X, 3);
+            Assert.Equal(start.Y, stroke[0].Y, 3);
+            Assert.Equal(passed.X, stroke[1].X, 3);
+            Assert.Equal(passed.Y, stroke[1].Y, 3);
+            Assert.Equal(end.X, stroke[^1].X, 3);
+            Assert.Equal(end.Y, stroke[^1].Y, 3);
+        });
+    }
+
+    /// <summary>
     /// [#286] Inspect and Route modes: a plain click is handed to the host at the scene point under
     /// it and selects nothing; a left-drag still pans and is not a click; Escape asks to leave.
     /// </summary>

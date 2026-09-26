@@ -17,17 +17,25 @@ namespace TarkovCompanion.App.ViewModels.V2.Raid;
 /// So only what a right-click does something to is hit: our own marks and lines (their menus),
 /// the group's pings and waypoints (removal), and an objective's pin when hand-done is kept (#571).
 /// An objective's area is not its pin; a press inside a quest zone pings it.
+///
+/// #938: only the player's own objective pins. A squadmate's pin carries the same
+/// <c>quest:{objectiveId}:…</c> id, and taking the press for it pinged nothing and toggled an
+/// objective the player does not have, or quietly un-marked one they had marked done by hand.
 /// </remarks>
 public sealed partial class RaidCockpitViewModel
 {
     private bool TakesRightClick(MapSceneObject item) =>
-        TakesRightClick(item, _groupSession is not null, _handDone is not null, id => OwnDrawing(id) is not null);
+        TakesRightClick(item, _groupSession is not null, _handDone is not null, id => OwnDrawing(id) is not null, IsSquadObjective);
+
+    /// <summary>#938: whether this scene object is one of a squadmate's objective pins or zones.</summary>
+    private bool IsSquadObjective(MapSceneObjectId id) => _squadScene.Objects.Any(item => item.Id == id);
 
     internal static bool TakesRightClick(
         MapSceneObject item,
         bool hasGroup,
         bool keepsHandDone,
-        Func<MapSceneObjectId, bool> isOwnDrawing)
+        Func<MapSceneObjectId, bool> isOwnDrawing,
+        Func<MapSceneObjectId, bool>? isSquadObjective = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(isOwnDrawing);
@@ -46,6 +54,7 @@ public sealed partial class RaidCockpitViewModel
 
         return keepsHandDone &&
             item.Geometry.Kind == MapSceneGeometryKind.Point &&
-            TryParseObjectiveId(id, out _);
+            TryParseObjectiveId(id, out _) &&
+            isSquadObjective?.Invoke(id) != true;
     }
 }

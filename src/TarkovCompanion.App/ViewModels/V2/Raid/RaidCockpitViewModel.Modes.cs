@@ -321,11 +321,32 @@ public sealed partial class RaidCockpitViewModel
 
         Dispatch(() =>
         {
-            if (_plannedRoute.RouteId == routeId && _routePlacements.Remove((routeId, step)))
+            if (_plannedRoute.RouteId == routeId && TakePlacement(_routePlacements, (routeId, step), placement))
             {
                 _plannedRoute.Bind(step, mark.Id);
             }
         });
+    }
+
+    /// <summary>
+    /// Removes a stop's pending placement only if it is still this one, and says whether it was.
+    /// </summary>
+    /// <remarks>
+    /// #938: Undo frees a step number and the next click reuses it, under the same route id. A
+    /// bind that removed whatever sat under (route, step) took the new click's entry, bound the
+    /// undone mark (deleted a moment later, so the stop left the route), and the new mark was never
+    /// bound: a waypoint on the map, shared with the squad, that Undo and Clear no longer knew.
+    /// </remarks>
+    internal static bool TakePlacement<T>(IDictionary<(Guid Route, int Step), T> placements, (Guid Route, int Step) key, T placement)
+        where T : class
+    {
+        if (!placements.TryGetValue(key, out var stored) || !ReferenceEquals(stored, placement))
+        {
+            return false;
+        }
+
+        placements.Remove(key);
+        return true;
     }
 
     /// <summary>A stop removed some other way (the Marks card, "This raid" ending) leaves the route.</summary>

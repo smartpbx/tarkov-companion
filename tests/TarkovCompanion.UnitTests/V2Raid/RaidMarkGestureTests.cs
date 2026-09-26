@@ -208,6 +208,36 @@ public sealed class RaidMarkGestureTests
         Assert.Equal("quest:obj-1:pin", pin.Value);
     }
 
+    /// <summary>
+    /// #938: a squadmate's objective pin carries the same <c>quest:{objectiveId}:…</c> id as one of
+    /// ours. On the old rule it took the press, so the ping never went out and the press toggled an
+    /// objective the player does not have (or un-marked one they had marked done by hand).
+    /// </summary>
+    [Fact]
+    public void A_right_click_on_a_squadmates_objective_pin_pings_and_our_own_pin_still_takes_it()
+    {
+        var reference = new MapSceneLayer(new("quests"), "Quests", 5, true);
+        var provenance = new DataProvenance("test", NowUtc);
+        MapSceneObject Pin(string id, double x, double y) =>
+            new(new(id), reference.Id, MapSceneObjectKind.QuestObjective, MapSceneTruthKind.StaticReference, id, null, MapSceneGeometry.At(new(x, y)), [], provenance);
+        var renderer = RendererWithScene(
+            [reference],
+            [Pin("quest:mine-1:0:spot", 40, 40), Pin("quest:squad-7:0:spot", 150, 100)]);
+        var squad = new HashSet<string>(StringComparer.Ordinal) { "quest:squad-7:0:spot" };
+        renderer.Targets = item => RaidCockpitViewModel.TakesRightClick(
+            item, hasGroup: true, keepsHandDone: true, _ => false, id => squad.Contains(id.Value));
+
+        var onSquadPin = renderer.Viewport(new(150, 100));
+        Assert.True(renderer.TryHitObjectAt(onSquadPin.X, onSquadPin.Y, out var drawn));
+        Assert.Equal("quest:squad-7:0:spot", drawn.Value);
+        Assert.False(renderer.TryHitRightClickTargetAt(onSquadPin.X, onSquadPin.Y, out var taken), $"The press was taken by {taken.Value}.");
+        Assert.True(renderer.TryScenePointAt(onSquadPin.X, onSquadPin.Y, out _));
+
+        var onOwnPin = renderer.Viewport(new(40, 40));
+        Assert.True(renderer.TryHitRightClickTargetAt(onOwnPin.X, onOwnPin.Y, out var own));
+        Assert.Equal("quest:mine-1:0:spot", own.Value);
+    }
+
     [Fact]
     public void Only_marks_lines_group_marks_and_objective_pins_take_a_right_click()
     {

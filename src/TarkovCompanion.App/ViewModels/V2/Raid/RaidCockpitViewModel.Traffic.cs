@@ -182,8 +182,8 @@ public sealed partial class RaidCockpitViewModel
 
     /// <summary>Which third of the raid the clock says this is; the start of one when there is no raid.</summary>
     /// <remarks>
-    /// Planning happens before the raid, so "early" is the default rather than a guess. Thirds of a
-    /// nominal forty minutes: the model has three phases and no finer claim to make.
+    /// Planning happens before the raid, so "early" is the default rather than a guess. Thirds of
+    /// the raid (13 and 27 of forty minutes): the model has three phases and no finer claim to make.
     /// </remarks>
     private RaidPhase CurrentPriorPhase(string mapId, DateTimeOffset nowUtc)
     {
@@ -191,7 +191,7 @@ public sealed partial class RaidCockpitViewModel
         // over what was read. The raw snapshot left the card saying "from the raid clock" while
         // weighting a raid with 8:00 left as early.
         var raid = _raid.Corrections.Apply(_stateStore.Current.Raid);
-        var phase = ClockPhase(raid, mapId, _raid.Corrections.IsManual(RaidCorrectionField.Clock), nowUtc);
+        var phase = ClockPhase(raid, mapId, _raid.Corrections.IsManual(RaidCorrectionField.Clock), nowUtc, _raid.LengthFor(raid));
         _priorPhaseFromClock = phase is not null;
         return phase ?? RaidPhase.Early;
     }
@@ -201,11 +201,15 @@ public sealed partial class RaidCockpitViewModel
     /// </summary>
     /// <remarks>
     /// #889. A clock read off a screenshot or set by hand wins, as it does for the strip
-    /// (<see cref="RaidTimer.Resolve"/>): time left against the nominal forty. Otherwise the count
+    /// (<see cref="RaidTimer.Resolve"/>): time left against the raid's length. Otherwise the count
     /// from the start, except a scav's, whose start is when it joined a raid already running
     /// (<see cref="RaidTimer.CanCountFromStart"/>) unless the player set it by hand.
+    ///
+    /// #938: the length is this map's, for this side, from the catalog. Against a fixed forty, a
+    /// Factory clock read at 19:00 left was weighted mid-raid one minute in, and a twenty-minute
+    /// raid counted from its start never reached late. Forty only when the catalog has no length.
     /// </remarks>
-    internal static RaidPhase? ClockPhase(RaidSnapshot raid, string mapId, bool clockSetByHand, DateTimeOffset nowUtc)
+    internal static RaidPhase? ClockPhase(RaidSnapshot raid, string mapId, bool clockSetByHand, DateTimeOffset nowUtc, TimeSpan? raidLength = null)
     {
         ArgumentNullException.ThrowIfNull(raid);
         if (raid.State != RaidLifecycleState.InRaid ||
@@ -214,11 +218,12 @@ public sealed partial class RaidCockpitViewModel
             return null;
         }
 
+        var lengthMinutes = raidLength is { TotalMinutes: > 0 } length ? length.TotalMinutes : NominalRaidMinutes;
         double elapsedMinutes;
         if (raid.RaidClock is { } clock && raid.RaidClockReadUtc is { } readUtc)
         {
             var left = RaidTimer.Resolve((clock, readUtc), null, null, nowUtc).Remaining ?? TimeSpan.Zero;
-            elapsedMinutes = NominalRaidMinutes - left.TotalMinutes;
+            elapsedMinutes = lengthMinutes - left.TotalMinutes;
         }
         else if (raid.StartedUtc is { } started && (clockSetByHand || !IsScav(raid.Side)))
         {
@@ -229,10 +234,10 @@ public sealed partial class RaidCockpitViewModel
             return null;
         }
 
-        return elapsedMinutes switch
+        return (elapsedMinutes / lengthMinutes) switch
         {
-            < 13 => RaidPhase.Early,
-            < 27 => RaidPhase.Mid,
+            < 13 / NominalRaidMinutes => RaidPhase.Early,
+            < 27 / NominalRaidMinutes => RaidPhase.Mid,
             _ => RaidPhase.Late,
         };
     }
