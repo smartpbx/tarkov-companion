@@ -354,7 +354,7 @@ public sealed class MapPresentationService
                 labels.Add(new(
                     MapOverlayKind.Labels,
                     point,
-                    label.Text,
+                    MapPlaceNameText.For(label.Text),
                     label.RotationDegrees,
                     label.SizePercent,
                     label.MinimumHeight,

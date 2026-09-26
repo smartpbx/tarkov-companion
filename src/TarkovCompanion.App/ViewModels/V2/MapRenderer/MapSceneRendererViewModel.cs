@@ -1,7 +1,9 @@
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Media;
+using System.Runtime.InteropServices;
 using TarkovCompanion.Application.Services.LootSpawns;
+using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.LootSpawns;
@@ -300,6 +302,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererLabelViewModel> LabelObjects => _labelObjects;
 
     private readonly ReconciledList<MapSceneRendererLabelViewModel> _labelObjects = [];
+
+    // [#931] Place-name layout, kept between passes so a zoom step allocates nothing.
+    private readonly MapLabelPlacer _labelPlacer = new();
+    private readonly List<MapLabelDisc> _labelDiscs = [];
+    private MapLabelRank[] _labelRanks = [];
+    private int[] _labelOrder = [];
+    private MapLabelBox[] _labelBoxes = [];
+    private bool[] _labelShown = [];
+    private double _labelsPlacedZoom = double.NaN;
+    private double _labelsPlacedBearing = double.NaN;
 
     public bool HasLabelObjects => LabelObjects.Count > 0;
     public IReadOnlyList<MapSceneRendererListItemViewModel> ListItems { get; private set; } = [];
@@ -788,6 +800,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 label.UpdateCamera(_scene.View.Camera);
             }
 
+            PlaceLabels(force: false);
             ShowRevealedLoot();
         }
 
@@ -2086,11 +2099,110 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             SelectedLootEntry = null;
         }
+        PlaceLabels(force: true);
         // Built here rather than only on a scene change: the plates are positioned in the same
         // projected rectangle the markers are, so a resized card has to move both together.
         BuildFloorStack();
         return visibleObjects;
     }
+
+    /// <summary>
+    /// [#931] Decides which place names are written at this zoom; see <see cref="MapLabelPlacer"/>.
+    /// </summary>
+    /// <remarks>
+    /// Redone when the names or markers change and when the zoom or the bearing does, never on a
+    /// pan: moving the plan moves every name and marker together, so nothing new collides. The
+    /// buffers are kept between passes and only grow, so a wheel step allocates nothing.
+    /// </remarks>
+    private void PlaceLabels(bool force)
+    {
+        var camera = _scene.View.Camera;
+        if (!force && camera.Zoom.Equals(_labelsPlacedZoom) && camera.BearingDegrees.Equals(_labelsPlacedBearing))
+        {
+            return;
+        }
+
+        _labelsPlacedZoom = camera.Zoom;
+        _labelsPlacedBearing = camera.BearingDegrees;
+        var labels = _labelObjects;
+        var count = labels.Count;
+        if (count == 0)
+        {
+            return;
+        }
+
+        if (force || _labelOrder.Length != count)
+        {
+            var ranks = new MapLabelRank[count];
+            var sizes = new double[count];
+            var texts = new string[count];
+            for (var index = 0; index < count; index++)
+            {
+                ranks[index] = labels[index].Rank;
+                sizes[index] = labels[index].SceneObject.PlaceNameSize ?? double.MaxValue;
+                texts[index] = labels[index].Text;
+            }
+
+            _labelRanks = ranks;
+            _labelOrder = MapLabelPlacer.PriorityOrder(ranks, sizes, texts);
+            _labelBoxes = new MapLabelBox[count];
+            _labelShown = new bool[count];
+        }
+
+        // The plan is turned by -bearing and then scaled by the zoom (see the CameraSurface
+        // transform); the names and markers are turned back upright on top of that, so on screen
+        // their rectangles are axis-aligned at the turned-and-scaled centre.
+        var radians = -camera.BearingDegrees * Math.PI / 180;
+        var cos = Math.Cos(radians) * camera.Zoom;
+        var sin = Math.Sin(radians) * camera.Zoom;
+        for (var index = 0; index < count; index++)
+        {
+            var label = labels[index];
+            _labelBoxes[index] = new(
+                (label.CenterX * cos) - (label.CenterY * sin),
+                (label.CenterX * sin) + (label.CenterY * cos),
+                label.ScreenWidth,
+                MapSceneRendererLabelViewModel.ScreenHeight);
+        }
+
+        _labelDiscs.Clear();
+        var markers = SpatialObjects;
+        for (var slot = 0; slot < markers.Count; slot++)
+        {
+            var marker = markers[slot];
+            if (!BlocksPlaceNames(marker))
+            {
+                continue;
+            }
+
+            var scale = marker.MarkerScale;
+            var x = marker.AnchorLeft + (MarkerExtent / 2);
+            var y = marker.AnchorTop + (MarkerExtent / 2);
+            _labelDiscs.Add(new(
+                (x * cos) - (y * sin) + (marker.PinOffsetX * scale),
+                (x * sin) + (y * cos) + (marker.PinOffsetY * scale),
+                LabelClearRadius * scale));
+        }
+
+        _labelPlacer.Place(_labelBoxes, _labelRanks, _labelOrder, CollectionsMarshal.AsSpan(_labelDiscs), _labelShown);
+        for (var index = 0; index < count; index++)
+        {
+            labels[index].SetShown(_labelShown[index]);
+        }
+    }
+
+    /// <summary>
+    /// [#931] Whether a place name has to keep clear of this marker: the extracts, the player, a
+    /// squadmate, an objective, a switch. Loot and spawn areas are left out: at a deep zoom they
+    /// are hundreds of marks, and every name on the plan would give way to them.
+    /// </summary>
+    private static bool BlocksPlaceNames(MapSceneRendererObjectViewModel marker) =>
+        !marker.IsRankedLoot &&
+        marker.SceneObject?.Kind is not (MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer or
+            MapSceneObjectKind.SpawnArea);
+
+    /// <summary>The clearance a name keeps round a marker's centre, in marker DIPs: its disc and a little.</summary>
+    private const double LabelClearRadius = 15;
 
     private IReadOnlyList<MapSceneRendererObjectViewModel> BuildPointMarkers(IReadOnlyList<MapSceneObject> visibleObjects)
     {
@@ -4255,8 +4367,12 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
     private const double HalfWidth = 110;
     private const double HalfHeight = 9;
 
+    /// <summary>[#931] The drawn text's height on screen with its halo, in screen pixels.</summary>
+    internal const double ScreenHeight = 21;
+
     private double _inverseZoom;
     private double _uprightDegrees;
+    private bool _isShown = true;
 
     public MapSceneRendererLabelViewModel(
         MapSceneObject sceneObject,
@@ -4271,10 +4387,65 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
         SceneObject = sceneObject;
         Style = style;
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
+        CenterX = anchor.X;
+        CenterY = anchor.Y;
         AnchorLeft = anchor.X - HalfWidth;
         AnchorTop = anchor.Y - HalfHeight;
         _inverseZoom = 1 / camera.Zoom;
         _uprightDegrees = camera.BearingDegrees;
+        Rank = MapLabelPlacer.RankFor(sceneObject.PlaceNameSize);
+        ScreenWidth = Math.Min(HalfWidth * 2, EstimateTextWidth(sceneObject.Label) + (2 * HaloAllowance));
+    }
+
+    /// <summary>The name's centre on the plan, in canvas units.</summary>
+    internal double CenterX { get; }
+
+    internal double CenterY { get; }
+
+    /// <summary>[#931] Which names give way to this one, and which it gives way to.</summary>
+    internal MapLabelRank Rank { get; }
+
+    /// <summary>[#931] How wide the text reads on screen with its halo, in screen pixels.</summary>
+    internal double ScreenWidth { get; }
+
+    /// <summary>
+    /// [#931] Whether the name is written at the current zoom; false when a more important name
+    /// or a marker already holds its place. See <see cref="MapLabelPlacer"/>.
+    /// </summary>
+    public bool IsShown => _isShown;
+
+    internal void SetShown(bool shown) => SetProperty(ref _isShown, shown, nameof(IsShown));
+
+    private const double HaloAllowance = 3;
+
+    /// <summary>
+    /// The width 12px semibold text takes, a little generous rather than short.
+    /// </summary>
+    /// <remarks>
+    /// An estimate rather than a measurement: the view model has no font, the tests have no
+    /// renderer, and a layout is redone on every zoom step. Erring wide only means a name gives
+    /// way a step earlier than it had to; erring narrow is what drew one over another. Capitals
+    /// and Cyrillic are wider than lower case, which is why "ЗАКРЫТО НА РЕМОНТ" measured at the
+    /// average of "Mantis" came out half its real width.
+    /// </remarks>
+    internal static double EstimateTextWidth(string text)
+    {
+        var width = 0.0;
+        foreach (var character in text)
+        {
+            width += character switch
+            {
+                ' ' => 3.4,
+                '.' or ',' or '\'' or ':' or ';' or '!' or '|' or 'i' or 'l' or 'j' or 'I' => 3.6,
+                'f' or 't' or 'r' or '-' or '(' or ')' or '/' => 4.6,
+                'm' or 'w' or 'M' or 'W' or 'Ш' or 'Щ' or 'Ж' or 'Ю' or 'Ы' or 'Ф' => 10.5,
+                _ when char.IsUpper(character) || char.IsDigit(character) || character is '&' => 8.2,
+                _ when character is >= '\u0400' and <= '\u04FF' => 7.6,
+                _ => 6.9,
+            };
+        }
+
+        return width;
     }
 
     public MapSceneObject SceneObject { get; }

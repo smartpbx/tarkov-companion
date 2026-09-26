@@ -493,6 +493,18 @@ public sealed record MapSceneObject
 
     public MapSwitch? MapSwitch { get; }
 
+    /// <summary>
+    /// [#931] How large the catalog asked for a place name to be drawn, in its own percent; null
+    /// for anything that is not one of the catalog's place names.
+    /// </summary>
+    /// <remarks>
+    /// The only signal the catalog gives of which names matter: Interchange writes its areas at
+    /// 100 and 80 and its forty-odd mall shops at 65, and when they cannot all be read the shops
+    /// are the ones to give way. A squadmate's name or a spawn line's distance is a label too, and
+    /// carries none, which is what keeps it drawn whatever else is there.
+    /// </remarks>
+    public double? PlaceNameSize { get; init; }
+
     public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
 
     /// <summary>
@@ -523,6 +535,7 @@ public sealed record MapSceneObject
             SameSwitch(MapSwitch, other.MapSwitch) &&
             string.Equals(Label, other.Label, StringComparison.Ordinal) &&
             string.Equals(Detail, other.Detail, StringComparison.Ordinal) &&
+            Nullable.Equals(PlaceNameSize, other.PlaceNameSize) &&
             Geometry.HasSamePointsAs(other.Geometry) &&
             FloorIds.SequenceEqual(other.FloorIds, StringComparer.Ordinal) &&
             Equals(Estimate, other.Estimate) &&
