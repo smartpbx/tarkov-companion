@@ -1347,6 +1347,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         _rebuildCancellation?.Cancel();
         _rebuildCancellation?.Dispose();
+        // [#963] Both tick every second through the interface thread; left running, they outlive
+        // the cockpit (every test that built one kept posting to the dispatcher for the whole run).
+        _nowHost?.Panel?.Dispose();
+        _markClock?.Dispose();
+        _markClock = null;
         // Retired, not disposed: the tablet publisher may be half way through encoding one of
         // these on a pool thread, and closing the window is no better a moment to free it.
         if (_backgroundImage is { } last)
@@ -3008,7 +3013,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         IReadOnlyList<MapSceneLegacyElement> legacyElements,
         IReadOnlyList<MapSceneLayer> layers,
         IReadOnlyList<MapSceneObject> objects,
-        MapSceneRendererViewModel? existing)
+        MapSceneRendererViewModel? existing,
+        bool fillsViewport = false,
+        Func<MapSceneObject, bool>? fitsTo = null)
     {
         var sameMap = existing is not null &&
             string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
@@ -3043,7 +3050,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             nextChangeId: Guid.NewGuid,
             reviewedAssetResolver: ResolveBackgroundImage,
             showsDetailsPanel: false,
-            fillsViewport: false,
+            fillsViewport: fillsViewport,
+            fitsTo: fitsTo,
             pictureLease: LeasePicture,
             styleResolver: ObjectiveRouteStyle);
     }
@@ -3998,7 +4006,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             position => model.TryMapPosition(position, out var point) && double.IsFinite(point.X) && double.IsFinite(point.Y)
                 ? new MapScenePoint(point.X, point.Y)
                 : null);
-        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing);
+        // [#961] Team's column is tall and narrow: the map covers it, and the view frames the
+        // squad's plan (its waypoints, pings and squadmates) rather than the map's middle.
+        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing, fillsViewport: true,
+            fitsTo: item => item.Kind is MapSceneObjectKind.Waypoint or MapSceneObjectKind.Ping or MapSceneObjectKind.TeammateLastKnown);
     }
 
     /// <summary>

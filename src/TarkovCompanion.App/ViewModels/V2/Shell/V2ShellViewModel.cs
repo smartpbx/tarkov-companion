@@ -902,6 +902,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 OnPropertyChanged(nameof(FilteredCommandItems));
                 OnPropertyChanged(nameof(HasFilteredCommandItems));
                 OnPropertyChanged(nameof(HasNoFilteredCommandItems));
+                OnPropertyChanged(nameof(ShowsNoCommandMatches)); // [#960]
             }
         }
     }
