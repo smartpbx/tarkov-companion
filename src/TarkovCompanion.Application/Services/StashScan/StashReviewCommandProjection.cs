@@ -20,6 +20,18 @@ public sealed record StashReviewCommandState(
         new HashSet<Guid>(),
         []);
 
+    /// <summary>
+    /// #712 1-12: item key to the item the player said it was ("unknown" clears a name). The
+    /// newest correction of a tile wins. Applied back onto the snapshot by
+    /// <see cref="StashReviewCorrections.Apply"/>; the recognition evidence itself is never rewritten.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> CorrectedIdentities { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Item key to the count the player said the stack holds.</summary>
+    public IReadOnlyDictionary<string, int> CorrectedQuantities { get; init; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
     public StashReviewCommand? LatestUndoable => ActiveCommands
         .Where(IsUndoable)
         .OrderBy(command => command.CreatedUtc)
@@ -56,6 +68,8 @@ public static class StashReviewCommandProjection
         var ignored = new HashSet<string>(StringComparer.Ordinal);
         var rescans = new HashSet<string>(StringComparer.Ordinal);
         var merged = new HashSet<Guid>();
+        var identities = new Dictionary<string, string>(StringComparer.Ordinal);
+        var quantities = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var command in active)
         {
@@ -76,6 +90,20 @@ public static class StashReviewCommandProjection
                 case StashReviewActionKind.Rescan:
                     rescans.Add(command.TargetItemKeys[0]);
                     break;
+                case StashReviewActionKind.CorrectItemIdentity when !string.IsNullOrWhiteSpace(command.CorrectedItemId):
+                    foreach (var target in command.TargetItemKeys)
+                    {
+                        identities[target] = command.CorrectedItemId.Trim();
+                    }
+
+                    break;
+                case StashReviewActionKind.CorrectQuantity when command.CorrectedQuantity is > 0:
+                    foreach (var target in command.TargetItemKeys)
+                    {
+                        quantities[target] = command.CorrectedQuantity.Value;
+                    }
+
+                    break;
                 case StashReviewActionKind.MergeEntries when
                     string.Equals(command.OriginIdentifier, SnapshotMergeOrigin, StringComparison.Ordinal):
                     foreach (var target in command.TargetItemKeys)
@@ -90,7 +118,11 @@ public static class StashReviewCommandProjection
             }
         }
 
-        return new(pinned, ignored, rescans, merged, active);
+        return new(pinned, ignored, rescans, merged, active)
+        {
+            CorrectedIdentities = identities,
+            CorrectedQuantities = quantities,
+        };
     }
 
     public static StashReviewCommand Undo(

@@ -140,6 +140,10 @@
             <Panel IsVisible="{Binding Admin.HasLootScan, FallbackValue=False}">
               <setup:V2SetupLootReturnView DataContext="{Binding Admin.LootScan}" />
             </Panel>
+            <!-- [#712 1-12] Icons and names learned from corrections: count, switch, Delete all. -->
+            <Panel IsVisible="{Binding Admin.HasLearned, FallbackValue=False}">
+              <setup:V2SetupLearnedView DataContext="{Binding Admin.Learned}" />
+            </Panel>
           </StackPanel>
         </Border>
 

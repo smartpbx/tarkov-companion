@@ -3853,6 +3853,7 @@
   "Setup.Settings.Layout.LootReturn": "Loot Scan · return to map",
   "Setup.Settings.Layout.LootTabletOnly": "Loot Scan · tablet only",
   "Setup.Settings.Layout.Sound": "Notifications · Sound",
+  "Setup.Settings.Layout.LearnIconCrops": "Game & Capture · Keep icon crops",
   "Setup.Settings.Layout.LearnMode": "Plan · Learn",
   "Setup.Settings.Layout.RaidCard": "Raid · {0} card",
   "Setup.Settings.Layout.SpawnRadius": "Raid · spawn radius on {0}",
@@ -4659,5 +4660,18 @@
   "Now.Scan.ExtractList": "the extract list",
   "Now.More": "More: extracts · objectives · marks · spawns · traffic · corrections",
   "Now.MoreTip": "Every Raid plan card",
-  "Now.Back": "Back to Now"
+  "Now.Back": "Back to Now",
+  "Learn.ItIs": "It is:",
+  "Learn.ItIsTip": "Names this cell; the companion remembers the icon.",
+  "Learn.FleaItIs": "Not this item? It is:",
+  "Learn.FleaItIsTip": "Picked twice, the companion reads this name that way from then on.",
+  "Learn.Heading": "Learned from your corrections",
+  "Learn.Counts": "Icons {0} · names {1}",
+  "Learn.KeepCrops": "Keep icon crops",
+  "Learn.KeepCropsNote": "Only the item's squares. Stays on this PC; never in a report or export.",
+  "Learn.DeleteAll": "Delete all",
+  "Learn.ClearIcons": "Clear icons",
+  "Learn.ClearNames": "Clear names",
+  "Learn.Deleted": "Deleted.",
+  "Learn.DeleteFailed": "Could not delete: {0}"
 }

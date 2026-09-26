@@ -102,8 +102,11 @@ public sealed class GridPixelReconstructionBuilder(
     IconCandidateSeparator? separator = null,
     ContainerGridDetector? gridDetector = null,
     ContainerGridSegmenter? segmenter = null,
-    IconReferenceIndex? referenceIndex = null)
+    IconReferenceIndex? referenceIndex = null,
+    // #712 1-12: where a refused cell's icon squares wait, in memory, for the player to say what it was.
+    RecentIconCrops? recentCrops = null)
 {
+    private readonly RecentIconCrops? _recentCrops = recentCrops;
     private static readonly ProducerIdentity Producer = new("Tarkov Companion grid recognizer", "grid-recognition-1");
 
     private readonly IconReferenceIndex _references = referenceIndex ?? new(
@@ -571,6 +574,11 @@ public sealed class GridPixelReconstructionBuilder(
             : null;
 
         EvidencedValue<RecognizedItem> itemField;
+        if (match.Identified is null)
+        {
+            _recentCrops?.Put(IconCropKey.For(observedUtc, bounds), cropped);
+        }
+
         if (match.Identified is { } identified)
         {
             // A named item carries the score that named it. The decision service will not act on
@@ -585,7 +593,10 @@ public sealed class GridPixelReconstructionBuilder(
             itemField = new EvidencedValue<RecognizedItem>(
                 "grid.cell.item",
                 BuildRecognizedItem(identified, footprint, quantity, scored),
-                new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "grid.cell.item.separated"),
+                new ResultStatus(
+                    ResultCompleteness.Complete,
+                    FreshnessState.Current,
+                    match.Learned ? "grid.cell.item.learned" : "grid.cell.item.separated"),
                 scored,
                 bounds);
         }
@@ -667,14 +678,25 @@ public sealed class GridPixelReconstructionBuilder(
             await ScoreAsync(described, shaped).ConfigureAwait(false);
         }
 
-        if (footprint.Width != footprint.Height && references.OfShape(footprint.Height, footprint.Width) is { Count: > 0 } turned)
+        var rotatedQueries = new List<IconPixelDescriptor>(2);
+        if (footprint.Width != footprint.Height &&
+            (references.OfShape(footprint.Height, footprint.Width).Count > 0 ||
+             references.LearnedOfShape(footprint.Height, footprint.Width).Count > 0))
         {
             foreach (var clockwise in new[] { true, false })
             {
                 if (IconPixelDescriptor.Create(Rotate(cropped, clockwise), footprint.Height, footprint.Width) is { } rotated)
                 {
-                    await ScoreAsync(rotated, turned).ConfigureAwait(false);
+                    rotatedQueries.Add(rotated);
                 }
+            }
+        }
+
+        if (references.OfShape(footprint.Height, footprint.Width) is { Count: > 0 } turned)
+        {
+            foreach (var rotated in rotatedQueries)
+            {
+                await ScoreAsync(rotated, turned).ConfigureAwait(false);
             }
         }
 
@@ -722,6 +744,14 @@ public sealed class GridPixelReconstructionBuilder(
             return new(ranked[0].Reference, ranked[0].Score, []);
         }
 
+        // #712 1-12: only a refused cell asks the player's own corrected crops, so nothing the
+        // catalog named can change. LearnedIconMatchPolicy holds the floor, margin and lookalike
+        // rule measured on the real stash frames.
+        if (LearnedMatch(described, rotatedQueries, footprint, references, scores) is { } learned)
+        {
+            return learned;
+        }
+
         return new(
             null,
             0,
@@ -732,6 +762,47 @@ public sealed class GridPixelReconstructionBuilder(
                 .ToArray());
     }
 
+    private static IconMatch? LearnedMatch(
+        IconPixelDescriptor? described,
+        IReadOnlyList<IconPixelDescriptor> rotatedQueries,
+        Footprint footprint,
+        IconReferenceIndex.Snapshot references,
+        Dictionary<string, (IconReference Reference, double Score)> scores)
+    {
+        var learnedScores = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (described is not null)
+        {
+            Score(described, references.LearnedOfShape(footprint.Width, footprint.Height));
+        }
+
+        foreach (var rotated in rotatedQueries)
+        {
+            Score(rotated, references.LearnedOfShape(footprint.Height, footprint.Width));
+        }
+
+        if (learnedScores.Count == 0)
+        {
+            return null;
+        }
+
+        var catalog = scores.ToDictionary(pair => pair.Key, pair => pair.Value.Score, StringComparer.Ordinal);
+        return LearnedIconMatchPolicy.Choose(catalog, learnedScores) is { } itemId && scores.TryGetValue(itemId, out var entry)
+            ? new(entry.Reference, learnedScores[itemId], []) { Learned = true }
+            : null;
+
+        void Score(IconPixelDescriptor query, IReadOnlyList<LearnedIcon> learned)
+        {
+            foreach (var icon in learned)
+            {
+                var score = query.Correlate(icon.Descriptor);
+                if (!learnedScores.TryGetValue(icon.ItemId, out var best) || score > best)
+                {
+                    learnedScores[icon.ItemId] = score;
+                }
+            }
+        }
+    }
+
     /// <summary>Below this a lookalike is not worth showing a person as a possibility.</summary>
     private const double MinimumCandidateCorrelation = 0.6;
 
@@ -740,6 +811,9 @@ public sealed class GridPixelReconstructionBuilder(
     private sealed record IconMatch(IconReference? Identified, double Score, IReadOnlyList<IconReference> Candidates)
     {
         public static IconMatch None { get; } = new(null, 0, []);
+
+        /// <summary>Named by the player's own corrected crop rather than the catalog art.</summary>
+        public bool Learned { get; init; }
     }
 
     private static RecognizedItem BuildRecognizedItem(

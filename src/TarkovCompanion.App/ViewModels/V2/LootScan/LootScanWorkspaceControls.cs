@@ -35,6 +35,12 @@ public interface ILootScanWorkspaceControls
 
     /// <param name="rule">Always take, always leave, or <see cref="LootScanItemRule.None"/> to clear the rule.</param>
     Task SetRuleAsync(string itemId, LootScanItemRule rule);
+
+    /// <summary>
+    /// #712 1-12: the player named a refused cell from its lookalikes. The cell is named, kept
+    /// with the frame, its icon learned, and the scan decided again.
+    /// </summary>
+    Task ConfirmIdentityAsync(TarkovCompanion.Core.Abstractions.V2.GridCellAddress anchor, string itemId) => Task.CompletedTask;
 }
 
 /// <summary>One choice in a small picker: what it sets and what it is called.</summary>

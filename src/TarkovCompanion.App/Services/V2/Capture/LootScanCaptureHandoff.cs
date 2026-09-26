@@ -8,6 +8,7 @@ using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 
 namespace TarkovCompanion.App.Services.V2.Capture;
@@ -37,8 +38,11 @@ public sealed class LootScanCaptureHandoff(
     IObservedInventoryEvidenceReader? observedInventory = null,
     // #572: profile lookup, recommendation building and (in AcceptAsync only, never on a
     // re-decide) the scan's total are marked here, then Complete()'d - see ICaptureStageTimeline.
-    ICaptureStageTimeline? stageTimeline = null) : ICaptureResultHandoff
+    ICaptureStageTimeline? stageTimeline = null,
+    // #712 1-12: a named lookalike is kept for this frame and taught to the matcher.
+    CorrectionMemory? corrections = null) : ICaptureResultHandoff
 {
+    private readonly CorrectionMemory? _corrections = corrections;
     private readonly LootScanRecommendationSource? _recommendations = recommendations;
     private readonly IObservedInventoryEvidenceReader? _observedInventory = observedInventory;
     private readonly ICaptureStageTimeline? _stageTimeline = stageTimeline;
@@ -101,6 +105,73 @@ public sealed class LootScanCaptureHandoff(
         }
     }
 
+    /// <summary>
+    /// The player said what a refused cell of the last scan was, from its own lookalikes: the
+    /// cell is named, kept for this frame, its icon kept as a reference, and the frame decided again.
+    /// </summary>
+    /// <returns>False where there is no such cell, or the item was not one of its lookalikes.</returns>
+    public async Task<bool> CorrectCellAsync(GridCellAddress anchor, string itemId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        LootScanFrame? frame;
+        lock (_lastGate)
+        {
+            frame = _lastFrame;
+        }
+
+        if (frame?.Grid is not { } grid ||
+            grid.OccupiedCells.FirstOrDefault(cell => cell.Anchor == anchor) is not { } cell ||
+            GridCellCorrections.Apply(cell, itemId) is not { } corrected)
+        {
+            return false;
+        }
+
+        var updated = frame with
+        {
+            Grid = new GridReconstructionRequest(
+                grid.Surface,
+                grid.Lattice,
+                [.. grid.OccupiedCells.Select(existing => ReferenceEquals(existing, cell) ? corrected : existing)],
+                grid.VerticalScrollPosition),
+        };
+        lock (_lastGate)
+        {
+            if (ReferenceEquals(_lastFrame, frame))
+            {
+                _lastFrame = updated;
+            }
+        }
+
+        if (_corrections is not null && !ReferenceEquals(corrected, cell))
+        {
+            await _corrections.RecordFrameCorrectionAsync(frame.ContentSha256, GridCellCorrections.TargetKey(cell), itemId, cancellationToken)
+                .ConfigureAwait(false);
+            if (cell.Item.Bounds is { } bounds &&
+                corrected.Item.Value is { WidthCells.Value: { } width, HeightCells.Value: { } height })
+            {
+                await _corrections.LearnIconAsync(cell.Item.Provenance.ObservedUtc, bounds, itemId, width, height, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return await ReevaluateLastAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>A frame read before, with the cells the player named on it named again.</summary>
+    private async Task<GridReconstructionRequest?> WithKeptCorrectionsAsync(
+        GridReconstructionRequest? grid,
+        string contentSha256,
+        CancellationToken cancellationToken)
+    {
+        if (grid is null || _corrections is null)
+        {
+            return grid;
+        }
+
+        var kept = await _corrections.FrameCorrectionsAsync(contentSha256, cancellationToken).ConfigureAwait(false);
+        return GridCellCorrections.Apply(grid, kept);
+    }
+
     public async ValueTask<CaptureHandoffResult> AcceptAsync(
         CaptureHandoffRequest request,
         CancellationToken cancellationToken)
@@ -133,7 +204,7 @@ public sealed class LootScanCaptureHandoff(
                         request.DecodeRevision,
                         request.Analysis.ResultId,
                         request.Context.InitiatingDevice ?? "desktop",
-                        request.Analysis.Grid)
+                        await WithKeptCorrectionsAsync(request.Analysis.Grid, request.Analysis.ResultId, cancellationToken).ConfigureAwait(false))
                     {
                         CarriedGrid = request.Analysis.CarriedGrid,
                         CarriedGrids = request.Analysis.CarriedGrids,

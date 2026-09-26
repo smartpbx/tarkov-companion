@@ -408,7 +408,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
         var viewModel = new TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel(
             scan,
             offline: _shell.FleaPricesAreOffline,
-            timeProvider: _shell.FleaClock);
+            timeProvider: _shell.FleaClock,
+            correctItem: _fleaHandoff is { } flea ? itemId => flea.CorrectItemAsync(itemId, CancellationToken.None) : null);
         _fleaScan = viewModel;
         lock (_gate)
         {

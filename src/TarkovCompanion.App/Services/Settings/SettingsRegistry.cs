@@ -98,6 +98,8 @@ public static class SettingsRegistry
         [typeof(IGuidedStashScanPendingStore)] = "A stash scan in progress.",
         [typeof(IEventCatalog)] = "Event definitions: data.",
         [typeof(IEventAuthoring)] = "Event definitions: data.",
+        [typeof(TarkovCompanion.Core.Domain.Recognition.Learning.ICorrectionMemoryStore)] =
+            "Icons and names learned from corrections: this PC's data, never exported; Setup deletes it.",
     };
 
     /// <summary>Every workspace-layout key with a name. Prefix entries cover keys made per card or per page.</summary>
@@ -123,6 +125,7 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.PlanLearnMode, false, "Setup.Settings.Layout.LearnMode", V2SetupSection.ProfileProgress),
         new(WorkspaceLayoutKeys.SoundSettings, false, "Setup.Settings.Layout.Sound", V2SetupSection.Notifications),
+        new(WorkspaceLayoutKeys.LearnIconCrops, false, "Setup.Settings.Layout.LearnIconCrops", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.RaidCard(string.Empty), true, "Setup.Settings.Layout.RaidCard"),
         new(WorkspaceLayoutKeys.RaidSpawnRadius(string.Empty), true, "Setup.Settings.Layout.SpawnRadius"),
         new("page.", true, "Setup.Settings.Layout.PageFilters"),

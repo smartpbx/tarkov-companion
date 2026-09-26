@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             xmlns:v2vm="using:TarkovCompanion.App.ViewModels.V2"
              xmlns:pages="using:TarkovCompanion.App.ViewModels"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
@@ -52,6 +53,26 @@
             <TextBlock Classes="v2-body" Text="{Binding TraderLabel}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-body" Text="{Binding AverageLabel}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-label" Text="{Binding ItemLabel}" TextWrapping="Wrap" />
+            <!-- #712 1-12: a misread name is put right from the other items it could be. -->
+            <WrapPanel Orientation="Horizontal" IsVisible="{Binding HasIdentityChoices}"
+                       ToolTip.Tip="{Binding IdentityChoicesTip}">
+              <TextBlock Classes="v2-label" VerticalAlignment="Center" Margin="0,0,6,0"
+                         Text="{Binding IdentityChoicesLabel}" />
+              <ItemsControl ItemsSource="{Binding IdentityChoices}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="v2vm:IdentityChoiceViewModel">
+                    <Button Classes="v2-target" Margin="0,0,6,0" Content="{Binding Label}"
+                            Command="{Binding ChooseCommand}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </WrapPanel>
             <TextBlock Classes="v2-label" Text="{Binding MarketDataNote}" TextWrapping="Wrap"
                        IsVisible="{Binding HasMarketDataNote}" />
           </StackPanel>

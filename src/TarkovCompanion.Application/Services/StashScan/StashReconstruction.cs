@@ -31,7 +31,16 @@ public sealed record StashReconstructedTile(
     /// the sort plan told the player to sell one that was full of ammo.
     /// </remarks>
     public string? NestedContainerPath { get; init; }
+
+    /// <summary>#712 1-12: the recognizer's lookalikes, so an unnamed tile can be named from them.</summary>
+    public IReadOnlyList<StashTileCandidate> Candidates { get; init; } = [];
+
+    /// <summary>Where on its screenshot the tile was read; what a learned icon crop is keyed by.</summary>
+    public EvidenceRegion? SourceBounds { get; init; }
 }
+
+/// <summary>One lookalike of an unnamed tile.</summary>
+public sealed record StashTileCandidate(string ItemId, string Name);
 
 /// <summary>One container's grid, in the container's own coordinates rather than any screenshot's.</summary>
 public sealed record StashReconstructedContainer(
@@ -123,6 +132,15 @@ public sealed class StashReconstructionProjector
                         cell.Item.Provenance)
                     {
                         NestedContainerPath = cell.NestedContainerPath,
+                        Candidates = cell.Item.Candidates
+                            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.CandidateId))
+                            .DistinctBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+                            .Take(3)
+                            .Select(candidate => new StashTileCandidate(
+                                candidate.CandidateId,
+                                candidate.Value.DisplayName.Value ?? candidate.DisplayName))
+                            .ToArray(),
+                        SourceBounds = cell.Item.Bounds,
                     },
                     touchesEdge,
                     region.CaptureOrdinal));

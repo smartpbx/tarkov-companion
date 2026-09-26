@@ -10,8 +10,8 @@ public sealed class MigrationRecoveryTests
     public async Task LedgerHasPairedUpgradeAndRollbackFixturesAndFreshDatabaseAppliesAll()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(19, SqliteMigrationLedger.Entries.Count);
-        Assert.Equal("0019_loot_scan_history", SqliteMigrationLedger.Entries[^1].Id);
+        Assert.Equal(20, SqliteMigrationLedger.Entries.Count);
+        Assert.Equal("0020_correction_memory", SqliteMigrationLedger.Entries[^1].Id);
         Assert.All(SqliteMigrationLedger.Entries, entry =>
         {
             var fixture = SqliteMigrationRunner.ReadFixture(entry.Id);
@@ -20,7 +20,7 @@ public sealed class MigrationRecoveryTests
             Assert.EndsWith(";", fixture.UpgradeSql.TrimEnd(), StringComparison.Ordinal);
             Assert.EndsWith(";", fixture.RollbackSql.TrimEnd(), StringComparison.Ordinal);
         });
-        Assert.Equal(19, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
+        Assert.Equal(20, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
 
         var latest = SqliteMigrationRunner.ReadFixture("0015_flea_market_settings").RollbackSql;
         await using (var latestConnection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken))
@@ -488,6 +488,14 @@ public sealed class MigrationRecoveryTests
         "0015_flea_market_settings" =>
             "INSERT INTO flea_market_settings(id, sell_offer_fee_rate, sell_requirement_fee_rate, observed_utc) " +
             "VALUES (1, 0.05, 0.05, '2026-09-19T00:00:00Z');",
+        "0020_correction_memory" => """
+            INSERT INTO learned_icon_references(reference_id, item_id, width_cells, height_cells, png, created_utc)
+            VALUES ('00000000-0000-4000-8000-000000000020', 'rollback-item', 1, 1, x'89504e47', '2026-09-26T00:00:00Z');
+            INSERT INTO learned_text_aliases(kind, normalized_text, item_id, item_name, picks, updated_utc)
+            VALUES ('item-name', 'rollbak item', 'rollback-item', 'Rollback item', 2, '2026-09-26T00:00:00Z');
+            INSERT INTO learned_frame_corrections(frame_sha256, target_key, item_id, created_utc)
+            VALUES ('rollback-frame', 'loot:cell-000-000', 'rollback-item', '2026-09-26T00:00:00Z');
+            """,
         _ => string.Empty,
     };
 
@@ -514,6 +522,7 @@ public sealed class MigrationRecoveryTests
         "0017_raid_soft_delete" => "SELECT COUNT(*) FROM pragma_table_info('raids') WHERE name = 'deleted_utc';",
         "0018_stash_review_commands" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'stash_review_commands';",
         "0019_loot_scan_history" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'loot_scans';",
+        "0020_correction_memory" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'learned_%';",
         _ => throw new ArgumentOutOfRangeException(nameof(migrationId)),
     };
 

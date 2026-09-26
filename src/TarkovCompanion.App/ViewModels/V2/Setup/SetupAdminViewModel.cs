@@ -17,7 +17,9 @@ public sealed class SetupAdminViewModel(
     // [#292] Data & Privacy's Local only switch and per-service rows.
     SetupNetworkControlsViewModel? network = null,
     // [#712 0-10] Notifications › Sound.
-    SetupSoundViewModel? sound = null)
+    SetupSoundViewModel? sound = null,
+    // [#712 1-12] Game & Capture › Loot scan: what was learned from corrections.
+    SetupLearnedViewModel? learned = null)
 {
     public SetupDataDetailViewModel Data { get; } = data ?? throw new ArgumentNullException(nameof(data));
 
@@ -43,4 +45,8 @@ public sealed class SetupAdminViewModel(
     public SetupSoundViewModel? Sound { get; } = sound;
 
     public bool HasSound => Sound is not null;
+
+    public SetupLearnedViewModel? Learned { get; } = learned;
+
+    public bool HasLearned => Learned is not null;
 }

@@ -83,8 +83,17 @@ public sealed class FleaCaptureHandoff(
     IItemMarketFactSource? market = null,
     ILogger<FleaCaptureHandoff>? logger = null,
     ExplainableRecommendationEngine? engine = null,
-    RecommendationPolicyService? policies = null) : ICaptureResultHandoff
+    RecommendationPolicyService? policies = null,
+    // #712 1-12: the item the player said the screen was for, kept for the frame and, picked
+    // twice for the same reading, learned as a name.
+    TarkovCompanion.Infrastructure.Recognition.CorrectionMemory? corrections = null) : ICaptureResultHandoff
 {
+    /// <summary>The key a flea screen's corrected item is kept under, beside the frame's hash.</summary>
+    public const string CorrectionTarget = "flea:item";
+
+    private readonly Lock _lastGate = new();
+    private CaptureHandoffRequest? _last;
+    private IReadOnlyList<CaptureIdentifiedItem> _lastIdentified = [];
     private static readonly ProducerIdentity Producer = new("Tarkov Companion flea offer", "flea-offer-1");
 
     private readonly IItemRepository _items = items ?? throw new ArgumentNullException(nameof(items));
@@ -106,7 +115,14 @@ public sealed class FleaCaptureHandoff(
 
         try
         {
-            ListingsRead?.Invoke(this, await BuildAsync(request, cancellationToken).ConfigureAwait(false));
+            var identified = await WithKeptCorrectionAsync(request, cancellationToken).ConfigureAwait(false);
+            lock (_lastGate)
+            {
+                _last = request;
+                _lastIdentified = identified;
+            }
+
+            ListingsRead?.Invoke(this, await BuildAsync(request, identified, cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -116,11 +132,81 @@ public sealed class FleaCaptureHandoff(
         return CaptureHandoffResult.Accepted;
     }
 
+    /// <summary>
+    /// The player said the last flea screen was for <paramref name="itemId"/>, one of the items it
+    /// could be: the offers are priced again for it, the choice is kept with the frame, and the
+    /// reading the name was taken from counts one pick towards a learned name.
+    /// </summary>
+    /// <returns>False when no flea screen was read, or the item was not one it could be.</returns>
+    public async Task<bool> CorrectItemAsync(string itemId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        CaptureHandoffRequest? request;
+        IReadOnlyList<CaptureIdentifiedItem> identified;
+        lock (_lastGate)
+        {
+            request = _last;
+            identified = _lastIdentified;
+        }
+
+        if (request is null || identified.Count == 0 ||
+            identified.FirstOrDefault(item => string.Equals(item.CanonicalId, itemId, StringComparison.Ordinal)) is not { } chosen)
+        {
+            return false;
+        }
+
+        var reordered = FleaItemCorrection.PutFirst(identified, itemId);
+        if (corrections is not null && !ReferenceEquals(reordered, identified))
+        {
+            await corrections.RecordFrameCorrectionAsync(request.Analysis.ResultId, CorrectionTarget, itemId, cancellationToken)
+                .ConfigureAwait(false);
+            if (FleaItemCorrection.ObservedText(identified[0].Evidence) is { } observed)
+            {
+                await corrections.RecordNamePickAsync(observed, itemId, chosen.DisplayName, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        lock (_lastGate)
+        {
+            if (ReferenceEquals(_last, request))
+            {
+                _lastIdentified = reordered;
+            }
+        }
+
+        ListingsRead?.Invoke(this, await BuildAsync(request, reordered, cancellationToken).ConfigureAwait(false));
+        return true;
+    }
+
+    private async Task<IReadOnlyList<CaptureIdentifiedItem>> WithKeptCorrectionAsync(
+        CaptureHandoffRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (corrections is null)
+        {
+            return request.Analysis.Identified;
+        }
+
+        var kept = await corrections.FrameCorrectionsAsync(request.Analysis.ResultId, cancellationToken).ConfigureAwait(false);
+        return kept.TryGetValue(CorrectionTarget, out var itemId)
+            ? FleaItemCorrection.PutFirst(request.Analysis.Identified, itemId)
+            : request.Analysis.Identified;
+    }
+
     /// <summary>Public so the render preview and tests can price a frame without a capture session.</summary>
-    public async Task<FleaScanResult> BuildAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)
+    public Task<FleaScanResult> BuildAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var identified = request.Analysis.Identified.Take(5).ToArray();
+        return BuildAsync(request, request.Analysis.Identified, cancellationToken);
+    }
+
+    private async Task<FleaScanResult> BuildAsync(
+        CaptureHandoffRequest request,
+        IReadOnlyList<CaptureIdentifiedItem> identifiedItems,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var identified = identifiedItems.Take(5).ToArray();
         var evaluatedUtc = request.SubmittedUtc;
         var rates = await ReadFleaRatesAsync(cancellationToken).ConfigureAwait(false);
         var candidates = new List<CandidateFacts>(identified.Length);
@@ -484,4 +570,61 @@ public sealed class FleaCaptureHandoff(
         double Confidence,
         long? MarginRoubles,
         RecommendationResult Recommendation);
+}
+
+/// <summary>How a flea screen's corrected item is put first, and which reading it corrects.</summary>
+public static class FleaItemCorrection
+{
+    /// <summary>What a player's pick is recorded as in an identified item's evidence.</summary>
+    public const string PickedEvidence = "picked by the player";
+
+    /// <summary>
+    /// The list with <paramref name="itemId"/> first, as certain as the player's word, and the rest
+    /// in their order; the same list when it was already picked or is not in the list at all (a
+    /// pick is only ever a listed item).
+    /// </summary>
+    /// <remarks>
+    /// The pick carries confidence one: priced at the reader's own 0.52 the rows read "item name
+    /// uncertain" and compared with nothing, although the player had just said what it was.
+    /// </remarks>
+    public static IReadOnlyList<CaptureIdentifiedItem> PutFirst(IReadOnlyList<CaptureIdentifiedItem> identified, string itemId)
+    {
+        ArgumentNullException.ThrowIfNull(identified);
+        var index = identified.ToList().FindIndex(item => string.Equals(item.CanonicalId, itemId, StringComparison.Ordinal));
+        if (index < 0 || identified[index].Evidence.StartsWith(PickedEvidence, StringComparison.Ordinal))
+        {
+            return identified;
+        }
+
+        var picked = identified[index] with
+        {
+            Confidence = new Confidence(1),
+            Evidence = $"{PickedEvidence}; {identified[index].Evidence}",
+        };
+        return [picked, .. identified.Where((_, position) => position != index)];
+    }
+
+    /// <summary>
+    /// The text the name reader matched, from its evidence line (<c>observed=...;</c>), or null
+    /// when the evidence does not carry one.
+    /// </summary>
+    public static string? ObservedText(string? evidence)
+    {
+        if (string.IsNullOrEmpty(evidence))
+        {
+            return null;
+        }
+
+        const string marker = "observed=";
+        var start = evidence.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return null;
+        }
+
+        start += marker.Length;
+        var end = evidence.IndexOf(';', start);
+        var text = (end < 0 ? evidence[start..] : evidence[start..end]).Trim();
+        return text.Length == 0 ? null : text;
+    }
 }

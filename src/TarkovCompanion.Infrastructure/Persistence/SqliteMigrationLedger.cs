@@ -38,6 +38,7 @@ public static class SqliteMigrationLedger
         new("0017_raid_soft_delete", false, "Soft-delete column on raids, for Debrief's delete-with-undo"),
         new("0018_stash_review_commands", false, "Durable append-only stash review commands"),
         new("0019_loot_scan_history", false, "Saved Loot Scan results with their ruleset version"),
+        new("0020_correction_memory", false, "Icon crops, name aliases and frame corrections learned from the player"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>

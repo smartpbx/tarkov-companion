@@ -432,6 +432,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly IStashSnapshotStore _store;
     private readonly StashScanWorkflow _workflow;
     private readonly IStashReviewCommandSink _reviewCommands;
+    private readonly TarkovCompanion.Infrastructure.Recognition.CorrectionMemory? _corrections;
     private readonly IItemFactCatalog _catalog;
     private readonly IRuntimeStateStore _runtime;
     private readonly TimeProvider _clock;
@@ -485,8 +486,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         StashPlanSource? planSource = null,
         AppDataPaths? paths = null,
         StashScanCaptureStatus? captureStatus = null,
-        IWorkspaceLayoutStore? layout = null)
+        IWorkspaceLayoutStore? layout = null,
+        // #712 1-12: a tile named from its lookalikes teaches the matcher its icon.
+        TarkovCompanion.Infrastructure.Recognition.CorrectionMemory? corrections = null)
     {
+        _corrections = corrections;
         // [#902 P8] Grid or list, and the sort-plan group, come back after a visit and a restart.
         _pageState = new(layout, WorkspaceLayoutKeys.PageStash);
         _isGridView = _pageState.Get("view") != "list";
@@ -898,6 +902,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 OnPropertyChanged(nameof(SelectedItemOpenLoadoutCommand));
                 OnPropertyChanged(nameof(SelectedItemHasIntel));
                 OnPropertyChanged(nameof(SelectedItemId));
+                OnPropertyChanged(nameof(SelectedItemIdentityChoices));
+                OnPropertyChanged(nameof(HasSelectedItemIdentityChoices));
             }
         }
     }
@@ -1308,6 +1314,48 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             reason: "Marked unknown from the V2 stash workspace.")).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// #712 1-12: an unnamed tile's lookalikes, one tap each to say which it was. The choice is a
+    /// review command like a typed correction, and the tile's icon is kept as a reference while
+    /// the screenshot it came from is still in memory.
+    /// </summary>
+    public IReadOnlyList<IdentityChoiceViewModel> SelectedItemIdentityChoices =>
+        SelectedItem is { } selected &&
+        _reconstruction.Containers.SelectMany(container => container.Tiles)
+            .FirstOrDefault(tile => string.Equals(tile.ItemKey, selected.ItemKey, StringComparison.Ordinal)) is { IsKnown: false } tile
+            ? [.. tile.Candidates.Select((candidate, index) => new IdentityChoiceViewModel(
+                candidate.ItemId,
+                candidate.Name,
+                $"v2-stash-it-is-{index.ToString(CultureInfo.InvariantCulture)}",
+                () => ChooseIdentityAsync(tile, candidate.ItemId)))]
+            : [];
+
+    public bool HasSelectedItemIdentityChoices => SelectedItemIdentityChoices.Count > 0;
+
+    public string IdentityChoicesLabel => LearnText.ItIs;
+
+    private async Task ChooseIdentityAsync(StashReconstructedTile tile, string itemId)
+    {
+        if (SelectedRecognitionSnapshotId is not { } snapshotId)
+        {
+            return;
+        }
+
+        var saved = await SubmitReviewAsync(new StashReviewCommand(
+            Guid.NewGuid(),
+            snapshotId,
+            StashReviewActionKind.CorrectItemIdentity,
+            [tile.ItemKey],
+            _clock.GetUtcNow(),
+            StashReviewCommandProjection.WorkspaceOrigin,
+            correctedItemId: itemId)).ConfigureAwait(true);
+        if (saved && _corrections is not null && tile.SourceBounds is { } bounds)
+        {
+            await _corrections.LearnIconAsync(tile.Provenance.ObservedUtc, bounds, itemId, tile.Width, tile.Height, CancellationToken.None)
+                .ConfigureAwait(true);
+        }
+    }
+
     private async Task CorrectIdentityAsync()
     {
         if (_selected is null || SelectedItem is null || string.IsNullOrWhiteSpace(IdentityCorrection))
@@ -1540,8 +1588,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
 
         var reconstruction = _projector.Project(recognized);
+        // #712 1-12: identity and count corrections are applied back, not only listed.
         await BuildItemBreakdownAsync(
-            additions.Count == 0 ? reconstruction : _merger.Merge(reconstruction, additions),
+            StashReviewCorrections.Apply(
+                additions.Count == 0 ? reconstruction : _merger.Merge(reconstruction, additions),
+                _reviewState),
             cancellationToken).ConfigureAwait(true);
         RaiseAll();
     }

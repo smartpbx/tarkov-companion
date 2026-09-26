@@ -35,13 +35,18 @@ internal static class ScanFrame
     /// writes the row an items refresh would have written, through the same table.
     /// </param>
     /// <param name="phase"><c>--loot-scan-phase early</c>: the preview is never in a raid.</param>
+    /// <param name="learnFirstRefused">
+    /// #712 1-12, <c>--loot-learn-demo</c>: names the first refused cell as its top lookalike, the
+    /// way a player's "It is:" tap does, and reads the frame again so the learned crop is used.
+    /// </param>
     internal static async Task<(LootScanResult Result, ILootScanWorkspaceControls Controls)> EvaluateAsync(
         IServiceProvider services,
         string framePath,
         string? iconCacheDirectory,
         string? evaluateAtUtc,
         string? fleaRates = null,
-        string? phase = null)
+        string? phase = null,
+        bool learnFirstRefused = false)
     {
         var image = await new SkiaScreenshotImageLoader().LoadAsync(framePath, CancellationToken.None)
             ?? throw new InvalidOperationException($"Could not decode {framePath}.");
@@ -52,8 +57,30 @@ internal static class ScanFrame
         var cache = iconCacheDirectory is null
             ? services.GetRequiredService<IIconEvidenceCache>()
             : new FileIconEvidenceCache(new FileIconEvidenceCacheOptions(iconCacheDirectory) { MaximumEntries = 8192 });
-        var builder = new GridPixelReconstructionBuilder(cache, items, services.GetRequiredService<IOcrEngine>());
+        var crops = new RecentIconCrops();
+        var learned = services.GetRequiredService<TarkovCompanion.Core.Domain.Recognition.Learning.ICorrectionMemoryStore>();
+        var index = new IconReferenceIndex(cache, items, learned);
+        var builder = new GridPixelReconstructionBuilder(
+            cache, items, services.GetRequiredService<IOcrEngine>(), referenceIndex: index, recentCrops: crops);
         var grid = await builder.BuildAsync(image, InventoryGridSurface.VisibleLoot, clock.GetUtcNow());
+        if (learnFirstRefused &&
+            grid.OccupiedCells.FirstOrDefault(cell => cell.Item.Value is null && cell.Item.Candidates.Count > 0) is { } refused)
+        {
+            var memory = new CorrectionMemory(learned, index, crops);
+            var chosen = refused.Item.Candidates[0];
+            var taught = await memory.LearnIconAsync(
+                refused.Item.Provenance.ObservedUtc,
+                refused.Item.Bounds!,
+                chosen.CandidateId,
+                chosen.Value.WidthCells.Value ?? 1,
+                chosen.Value.HeightCells.Value ?? 1,
+                CancellationToken.None);
+            Console.WriteLine($"[loot-learn-demo] taught {chosen.CandidateId} ({chosen.DisplayName}) at {refused.Anchor}: {taught}");
+            grid = await builder.BuildAsync(image, InventoryGridSurface.VisibleLoot, clock.GetUtcNow().AddSeconds(1));
+            var reread = grid.OccupiedCells.First(cell => cell.Anchor == refused.Anchor);
+            Console.WriteLine($"[loot-learn-demo] read again: {reread.Item.Value?.CanonicalId.Value ?? "refused"} ({reread.Item.Status.Code})");
+        }
+
         var carried = await builder.BuildCarriedAsync(image, clock.GetUtcNow());
 
         var profiles = services.GetRequiredService<IProfileRuntimeContextService>();

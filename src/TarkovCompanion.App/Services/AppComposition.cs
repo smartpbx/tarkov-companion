@@ -927,6 +927,18 @@ public static class AppComposition
         services.AddSingleton<IconCandidateSeparator>();
         // [V2 rough package 37] The reference icons are read once and kept, and each named item
         // is handed to the decision engine with the catalog facts the companion holds for it.
+        // [#712 1-12] What the player taught by correcting a read: crops, names, kept corrections.
+        services.AddSingleton<TarkovCompanion.Core.Domain.Recognition.Learning.ICorrectionMemoryStore>(provider =>
+            new TarkovCompanion.Infrastructure.Persistence.Learning.SqliteCorrectionMemoryStore(provider.GetRequiredService<SqliteConnectionFactory>()));
+        services.AddSingleton<RecentIconCrops>();
+        services.AddSingleton(provider => new CorrectionMemory(
+            provider.GetRequiredService<TarkovCompanion.Core.Domain.Recognition.Learning.ICorrectionMemoryStore>(),
+            provider.GetRequiredService<IconReferenceIndex>(),
+            provider.GetRequiredService<RecentIconCrops>(),
+            provider.GetService<CanonicalItemResolverCache>(),
+            provider.GetService<IWorkspaceLayoutStore>(),
+            timeProvider,
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<CorrectionMemory>>()));
         services.AddSingleton<IconReferenceIndex>();
         services.AddSingleton<IIconCatalog, SqliteIconCatalog>();
         services.AddSingleton<IIconContentFetcher>(provider => new HttpIconContentFetcher(provider.GetRequiredService<HttpClient>()));
@@ -979,7 +991,8 @@ public static class AppComposition
             timeProvider,
             provider.GetService<Microsoft.Extensions.Logging.ILogger<LootScanCaptureHandoff>>(),
             provider.GetRequiredService<LootScanRecommendationSource>(),
-            provider.GetRequiredService<IObservedInventoryEvidenceReader>()));
+            provider.GetRequiredService<IObservedInventoryEvidenceReader>(),
+            corrections: provider.GetService<CorrectionMemory>()));
         services.AddSingleton<StashScanCaptureHandoff>();
         // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
         // item. Every intent but Loot and Stash used to be acknowledged and dropped.
@@ -990,7 +1003,8 @@ public static class AppComposition
             provider.GetRequiredService<IItemMarketFactSource>(),
             provider.GetService<Microsoft.Extensions.Logging.ILogger<FleaCaptureHandoff>>(),
             engine: null,
-            policies: provider.GetRequiredService<RecommendationPolicyService>()));
+            policies: provider.GetRequiredService<RecommendationPolicyService>(),
+            corrections: provider.GetService<CorrectionMemory>()));
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());
@@ -1147,7 +1161,10 @@ public static class AppComposition
                 networkPolicy,
                 action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
                 () => provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline),
-            provider.GetService<SetupSoundViewModel>()));
+            provider.GetService<SetupSoundViewModel>(),
+            new SetupLearnedViewModel(
+                provider.GetRequiredService<CorrectionMemory>(),
+                action => Avalonia.Threading.Dispatcher.UIThread.Post(action))));
         // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
         // three stores the sections themselves already read/write, never a fourth of its own.
         services.AddSingleton(provider => new SetupSettingsAdminViewModel(

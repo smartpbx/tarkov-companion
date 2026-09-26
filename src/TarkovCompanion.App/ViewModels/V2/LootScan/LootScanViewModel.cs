@@ -1008,6 +1008,34 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         OnPropertyChanged(string.Empty);
     }
 
+    /// <summary>
+    /// #712 1-12: a cell the recognizer refused, with its lookalikes as buttons; picking one names
+    /// the cell, keeps it with this frame and teaches the matcher the icon.
+    /// </summary>
+    public IReadOnlyList<IdentityChoiceViewModel> IdentityChoices =>
+        IsPending || _controls is null || _decision.Item.Value is not null
+            ? []
+            : [.. _decision.Item.Candidates
+                .Where(candidate => !string.IsNullOrWhiteSpace(candidate.CandidateId))
+                .DistinctBy(candidate => candidate.CandidateId, StringComparer.Ordinal)
+                .Take(3)
+                .Select((candidate, index) =>
+                {
+                    var anchor = _decision.SourceAnchor;
+                    var itemId = candidate.CandidateId;
+                    return new IdentityChoiceViewModel(
+                        itemId,
+                        candidate.Value.DisplayName.Value ?? candidate.DisplayName,
+                        $"v2-loot-scan-it-is-{index}",
+                        () => _controls.ConfirmIdentityAsync(anchor, itemId));
+                })];
+
+    public bool HasIdentityChoices => IdentityChoices.Count > 0;
+
+    public string IdentityChoicesLabel => LearnText.ItIs;
+
+    public string IdentityChoicesTip => LearnText.ItIsTip;
+
     public bool IsPinned => ItemId is { } id && _controls?.IsPinned(id) == true;
 
     public bool IsWishlisted => ItemId is { } id && _controls?.IsWishlisted(id) == true;
