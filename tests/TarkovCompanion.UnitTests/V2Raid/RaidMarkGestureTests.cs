@@ -153,7 +153,92 @@ public sealed class RaidMarkGestureTests
         Assert.DoesNotContain("markArmed", tablet, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// #929: dead in a scav raid with the squad still in, Clayton right-clicked the map and nothing
+    /// happened. Fails on the old code, where every drawn object counted as the press's target:
+    /// inside a modelled-traffic circle or on an extract the press was taken by that object, which
+    /// has no right-click meaning, so it neither removed anything nor placed a mark.
+    /// </summary>
+    [Fact]
+    public void A_right_click_inside_a_traffic_circle_or_on_an_extract_places_a_mark()
+    {
+        var pingId = Guid.NewGuid();
+        var mark = new RaidMark(pingId, RaidMarkKind.Ping, new("customs", null, 50, 50, null, null), NowUtc);
+        var (marksLayer, marks) = RaidCockpitViewModel.BuildMarksLayer([mark], "customs", NowUtc);
+        var reference = new MapSceneLayer(new("reference"), "Reference", 5, true);
+        var provenance = new DataProvenance("test", NowUtc);
+        MapSceneObject Shape(string id, MapSceneObjectKind kind, MapSceneGeometry geometry) =>
+            new(new(id), reference.Id, kind, MapSceneTruthKind.StaticReference, id, null, geometry, [], provenance);
+        MapSceneGeometry Square(double x0, double y0, double x1, double y1) =>
+            new(MapSceneGeometryKind.Region, [new(x0, y0), new(x1, y0), new(x1, y1), new(x0, y1)]);
+        var renderer = RendererWithScene(
+            [marksLayer!, reference],
+            [
+                .. marks,
+                // A traffic hotspot over the ping and the ground around it.
+                Shape("traffic-prior:0", MapSceneObjectKind.Traffic, Square(10, 10, 110, 110)),
+                Shape("catalog:extract-zb-1011", MapSceneObjectKind.Extract, MapSceneGeometry.At(new(160, 120))),
+                // An objective's zone with its pin inside it.
+                Shape("quest:obj-1:zone", MapSceneObjectKind.QuestObjective, new(MapSceneGeometryKind.Area, [new(140, 10), new(195, 10), new(195, 60), new(140, 60)])),
+                Shape("quest:obj-1:pin", MapSceneObjectKind.QuestObjective, MapSceneGeometry.At(new(180, 20))),
+            ]);
+        var inTraffic = renderer.Viewport(new(90, 95));
+        var onExtract = renderer.Viewport(new(160, 120));
+        var inZone = renderer.Viewport(new(150, 50));
+
+        // The old rule: every one of these presses was taken by something with no right-click use.
+        Assert.True(renderer.TryHitObjectAt(inTraffic.X, inTraffic.Y, out var swallowed));
+        Assert.Equal("traffic-prior:0", swallowed.Value);
+        Assert.True(renderer.TryHitObjectAt(onExtract.X, onExtract.Y, out _));
+        Assert.True(renderer.TryHitObjectAt(inZone.X, inZone.Y, out _));
+
+        renderer.Targets = item => RaidCockpitViewModel.TakesRightClick(item, hasGroup: true, keepsHandDone: true, _ => false);
+        foreach (var (x, y) in new[] { inTraffic, onExtract, inZone })
+        {
+            Assert.False(renderer.TryHitRightClickTargetAt(x, y, out var taken), $"The press was taken by {taken.Value}.");
+            Assert.True(renderer.TryScenePointAt(x, y, out _));
+        }
+
+        // What a right-click is for still wins, inside the circle too.
+        var onPing = renderer.ProjectedFor($"mark:{pingId}");
+        Assert.True(renderer.TryHitRightClickTargetAt(onPing.X, onPing.Y, out var ping));
+        Assert.Equal($"mark:{pingId}", ping.Value);
+        var onPin = renderer.Viewport(new(180, 20));
+        Assert.True(renderer.TryHitRightClickTargetAt(onPin.X, onPin.Y, out var pin));
+        Assert.Equal("quest:obj-1:pin", pin.Value);
+    }
+
+    [Fact]
+    public void Only_marks_lines_group_marks_and_objective_pins_take_a_right_click()
+    {
+        var provenance = new DataProvenance("test", NowUtc);
+        MapSceneObject At(string id) => new(
+            new(id), new("layer"), MapSceneObjectKind.Custom, MapSceneTruthKind.StaticReference, id, null,
+            MapSceneGeometry.At(new(1, 1)), [], provenance);
+        bool Takes(string id, bool hasGroup = true, bool keepsHandDone = true) =>
+            RaidCockpitViewModel.TakesRightClick(At(id), hasGroup, keepsHandDone, candidate => candidate.Value == "drawing:mine");
+
+        Assert.True(Takes($"mark:{Guid.NewGuid()}"));
+        Assert.True(Takes("drawing:mine"));
+        Assert.True(Takes("group-ping:12"));
+        Assert.True(Takes("group-waypoint:13"));
+        Assert.False(Takes("group-ping:12", hasGroup: false));
+        Assert.True(Takes("quest:obj-1:pin"));
+        Assert.False(Takes("quest:obj-1:pin", keepsHandDone: false));
+        foreach (var other in new[] { "traffic-prior:3", "catalog:extract-1", "squad-drawing:x", "group-route", "teammate:Geo", "player" })
+        {
+            Assert.False(Takes(other), other);
+        }
+    }
+
     private static TestRenderer RendererWith(RaidMark mark)
+    {
+        var (layer, objects) = RaidCockpitViewModel.BuildMarksLayer([mark], "customs", NowUtc);
+        Assert.NotNull(layer);
+        return RendererWithScene([layer!], objects);
+    }
+
+    private static TestRenderer RendererWithScene(IReadOnlyList<MapSceneLayer> layers, IReadOnlyList<MapSceneObject> objects)
     {
         var bounds = new MapSceneBounds(0, 0, 200, 150);
         var variant = new MapVariant(
@@ -181,8 +266,6 @@ public sealed class RaidMarkGestureTests
             []);
         var location = new MapLocation("customs", null, "Customs", null, null, [variant]);
         var model = new MapPresentationService().Create(location, variant, "/cache/customs.svg");
-        var (layer, objects) = RaidCockpitViewModel.BuildMarksLayer([mark], "customs", NowUtc);
-        Assert.NotNull(layer);
         var camera = new MapSceneCamera(
             bounds.MinimumX + (bounds.Width / 2),
             bounds.MinimumY + (bounds.Height / 2),
@@ -196,7 +279,7 @@ public sealed class RaidMarkGestureTests
             variant.Key,
             new(MapSceneMode.Flat2D, null, camera, []),
             [],
-            [layer!],
+            layers,
             objects,
             [new MapSceneAsset(
                 new("asset:customs"),
@@ -237,6 +320,20 @@ public sealed class RaidMarkGestureTests
 
         public bool TryScenePointAt(double x, double y, out MapScenePoint point) =>
             renderer.TryScenePointAt(x, y, out point);
+
+        public Func<MapSceneObject, bool>? Targets
+        {
+            set => renderer.RightClickTargets = value;
+        }
+
+        public bool TryHitRightClickTargetAt(double x, double y, out MapSceneObjectId objectId) =>
+            renderer.TryHitRightClickTargetAt(x, y, out objectId);
+
+        public (double X, double Y) Viewport(MapScenePoint point)
+        {
+            Assert.True(renderer.TryViewportPointAt(point, out var x, out var y));
+            return (x, y);
+        }
 
         public (double X, double Y) ProjectedFor(string objectId)
         {

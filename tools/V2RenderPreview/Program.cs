@@ -1547,6 +1547,11 @@ internal static class Program
                     MarkClipProbe.Run(window);
                 }
 
+                if (args.Contains("--mark-gate-probe"))
+                {
+                    MarkGateProbe.Run(window, raid);
+                }
+
                 // Change map inside the run, and say what the view drew and how long it took.
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {

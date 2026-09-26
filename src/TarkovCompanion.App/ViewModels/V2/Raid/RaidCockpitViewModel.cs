@@ -2918,6 +2918,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             renderer.ViewChangeRequested += ViewChangeRequested;
             // [#902 P4] The map's loot chip opens the loot card rather than a copy of its chips.
             renderer.LootFilterOpener = OpenLootCardCommand;
+            // [#929] A right-click on anything but a mark, a line or an objective pin places a mark.
+            renderer.RightClickTargets = TakesRightClick;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.CameraZoomedByPlayer += CameraZoomedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
