@@ -3988,6 +3988,7 @@
   "Setup.SettingsDiff.Field.ShareWithSquad": "Share with my squad",
   "Setup.SettingsDiff.Field.ShareLoadout": "Share my loadout",
   "Setup.SettingsDiff.Field.ShareQuests": "Share my quest progress",
+  "Setup.SettingsDiff.Field.ShareReadyCheck": "Share my ready check",
   "Setup.SettingsDiff.Field.Layout": "Page choice",
   "Setup.SettingsDiff.Field.MapDefault": "Map choice",
   "Setup.SettingsDiff.WithDetail": "{0} · {1}",
