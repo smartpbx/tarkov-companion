@@ -587,7 +587,7 @@ internal sealed class TabletSimulator : IDisposable
     }
 
     /// <summary>Resolves a code and leaves this tablet's pairing request, and goes no further.</summary>
-    public async Task SubmitPairingRequestAsync(string pairingCode, string name)
+    public async Task SubmitPairingRequestAsync(string pairingCode, string name, Func<PairingOffer, Task>? beforeSubmitting = null)
     {
         using var resolve = new HttpRequestMessage(HttpMethod.Post, "v2/companion/pairing/offers/resolve");
         resolve.Headers.Add("Tarkov-Pairing-Code", pairingCode.Replace("-", string.Empty, StringComparison.Ordinal));
@@ -596,6 +596,11 @@ internal sealed class TabletSimulator : IDisposable
         var offer = CompanionProtocolJson.Deserialize<PairingOffer>(await resolved.Content.ReadAsByteArrayAsync());
         using var ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         var request = PairingRequestFor(offer, ephemeral, name);
+        if (beforeSubmitting is not null)
+        {
+            await beforeSubmitting(offer);
+        }
+
         await PostMailboxAsync($"v2/companion/pairing/requests/{offer.AttemptId.Value:D}", CompanionProtocolJson.Serialize(request));
     }
 

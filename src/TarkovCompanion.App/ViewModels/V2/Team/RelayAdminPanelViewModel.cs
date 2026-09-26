@@ -59,7 +59,15 @@ public sealed class RelayAdminPanelViewModel : BindableViewModel
     /// <summary>Asks the relay whether this desktop is its owner, and if so, for its rooms.</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        IsRelayOwner = await _client.IsRelayOwnerAsync(cancellationToken).ConfigureAwait(true);
+        var owner = await _client.IsRelayOwnerAsync(cancellationToken).ConfigureAwait(true);
+        if (owner is null)
+        {
+            // [#936] Not an answer: the panel stays as it was, Refresh included, and says why.
+            Status = RelayAdminText.Unreachable;
+            return;
+        }
+
+        IsRelayOwner = owner.Value;
         if (!IsRelayOwner)
         {
             return;
@@ -73,6 +81,10 @@ public sealed class RelayAdminPanelViewModel : BindableViewModel
         }
 
         Show(rooms);
+        if (Status == RelayAdminText.Unreachable)
+        {
+            Status = null;
+        }
     }
 
     /// <summary>The render tool's seam: the panel as a relay owner with these rooms sees it.</summary>
