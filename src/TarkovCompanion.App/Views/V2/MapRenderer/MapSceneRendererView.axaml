@@ -1055,6 +1055,7 @@
                        is written in their colour; an ordinary place name has no host opinion and
                        keeps the themed foreground below. -->
                   <map:MapHaloText Classes="v2-map-place-name" Classes.teammate="{Binding HasColorHint}"
+                                  IsVisible="{Binding IsShown}"
                                   Width="{Binding Width}"
                                   RenderTransformOrigin="50%,50%" Text="{Binding Text}">
                     <map:MapHaloText.RenderTransform>

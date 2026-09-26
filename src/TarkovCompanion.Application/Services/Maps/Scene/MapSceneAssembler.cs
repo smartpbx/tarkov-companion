@@ -207,14 +207,63 @@ public sealed class MapSceneAssembler
             element.Label,
             element.Detail,
             MapSceneGeometry.At(point),
-            FloorsFor(element, floors),
+            kind == MapSceneObjectKind.Label ? PlaceNameFloors(element, floors) : FloorsFor(element, floors),
             source.Provenance,
             faction: element.Faction,
             offerState: source.OfferState,
             catalogId: element.CatalogId,
             extractRequirements: element.ExtractRequirements,
-            mapSwitch: element.Switch);
+            mapSwitch: element.Switch)
+        {
+            PlaceNameSize = kind == MapSceneObjectKind.Label ? element.SizePercent : null,
+        };
     }
+
+    /// <summary>
+    /// [#931] The floors a catalog place name is written on: its own floor, not the ground plan as well.
+    /// </summary>
+    /// <remarks>
+    /// Reported from Interchange in Stack view: the ground floor carried every shop name of both
+    /// upper mall floors on top of each other, "Nortex", "ТАРЗДРАВ", "Fashion Store", unreadable.
+    /// Each of those names says where it is, 25 to 33 m or 34 m and up, and the catalog's 2nd and
+    /// 3rd floors start at 25 and 34. The base floor matched them anyway, because Interchange
+    /// publishes no height range for its base floor, and a floor with no range contains every
+    /// height. Where the base floor is unbounded like that, the other floors are what bound it: a
+    /// name wholly at or above the lowest of them is theirs. Where the catalog does give the base
+    /// floor a range (Streets, Factory, Shoreline) that range already decides, and Shoreline's
+    /// "West Wing" at -100 to 100 stays on every floor it spans.
+    /// </remarks>
+    public static IReadOnlyList<string> PlaceNameFloors(
+        MapOverlayElement element,
+        IReadOnlyList<MapFloorDefinition> floors)
+    {
+        var onFloors = FloorsFor(element, floors);
+        if (element.MinimumHeight is not { } bottom || onFloors.Count < 2)
+        {
+            return onFloors;
+        }
+
+        var baseFloor = floors.FirstOrDefault(floor => string.Equals(floor.Id, BaseFloorId, StringComparison.OrdinalIgnoreCase));
+        if (baseFloor is null ||
+            !onFloors.Contains(baseFloor.Id, StringComparer.OrdinalIgnoreCase) ||
+            baseFloor.Extents.Any(extent => extent.MinimumHeight is not null || extent.MaximumHeight is not null))
+        {
+            return onFloors;
+        }
+
+        var lowestUpper = floors
+            .Where(floor => !ReferenceEquals(floor, baseFloor))
+            .SelectMany(floor => floor.Extents)
+            .Select(extent => extent.MinimumHeight)
+            .Where(height => height is not null)
+            .DefaultIfEmpty(null)
+            .Min();
+        return lowestUpper is { } lowest && bottom >= lowest
+            ? onFloors.Where(id => !string.Equals(id, baseFloor.Id, StringComparison.OrdinalIgnoreCase)).ToArray()
+            : onFloors;
+    }
+
+    private const string BaseFloorId = "base";
 
     private static IReadOnlyList<string> FloorsFor(
         MapOverlayElement element,
