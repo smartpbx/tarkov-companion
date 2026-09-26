@@ -99,6 +99,9 @@ public sealed record RaidExportRecord(
 {
     /// <summary>[#269] The wipe label the raid was played in, or null when it cannot be placed.</summary>
     public string? Wipe { get; init; }
+
+    /// <summary>[#712 0-8] When the player entered the outcome now on the raid, or null when they did not.</summary>
+    public DateTimeOffset? OutcomeRecordedUtc { get; init; }
 }
 
 /// <summary>
@@ -135,12 +138,18 @@ public sealed record RaidExportRecord(
 /// CSV column and a <c>wipe</c> field in JSON, empty or null where it cannot be placed. With
 /// <c>mode</c> it says which game each raid belongs to, so a file mixing contexts is readable as one.
 /// </para>
+/// <para>
+/// Version 5 (#712 0-8) adds <c>outcome_recorded_local</c> as the last CSV column and
+/// <c>outcomeRecorded</c> in JSON: when the player entered the outcome (the after-raid question or
+/// a Debrief correction), on their clock, empty or null where the outcome was not entered by hand.
+/// With <c>outcome_source</c> = <c>manual</c> it is the answer's provenance: the player, and when.
+/// </para>
 /// </remarks>
 public static class RaidHistoryExport
 {
     // Version 3 adds the manual kills and carried-value fields and their source columns; version
     // 2's columns, including its own additions over version 1, keep their names and positions.
-    public const int SchemaVersion = 4;
+    public const int SchemaVersion = 5;
 
     // The file is opened in a spreadsheet by the player, so times are their own clock in a shape a
     // spreadsheet reads as a date-time (an ISO string with an offset arrives as text), and the
@@ -154,6 +163,7 @@ public static class RaidHistoryExport
         "pmc_kills", "scav_kills", "boss_kills", "value_roubles",
         "pmc_kills_source", "scav_kills_source", "boss_kills_source", "value_roubles_source",
         "wipe",
+        "outcome_recorded_local",
     ];
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -204,6 +214,7 @@ public static class RaidHistoryExport
                 Escape(manual?.BossKills is null ? null : manualSource),
                 Escape(manual?.ValueRoubles is null ? null : manualSource),
                 Escape(record.Wipe),
+                Escape(record.OutcomeRecordedUtc is { } recorded ? LocalTime.SortableSeconds(recorded) : null),
             });
             await writer.WriteLineAsync(row.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
@@ -242,6 +253,7 @@ public static class RaidHistoryExport
             record.Raid.StartedUtc is { } started ? LocalTime.Iso(started) : null,
             record.Raid.EndedUtc is { } ended ? LocalTime.Iso(ended) : null,
             record.Raid.Outcome,
+            record.OutcomeRecordedUtc is { } recorded ? LocalTime.Iso(recorded) : null,
             record.Raid.Notes,
             manual?.PmcKills,
             manual?.ScavKills,
@@ -285,6 +297,7 @@ public static class RaidHistoryExport
         string? Started,
         string? Ended,
         string? Outcome,
+        string? OutcomeRecorded,
         string? Notes,
         int? PmcKills,
         int? ScavKills,

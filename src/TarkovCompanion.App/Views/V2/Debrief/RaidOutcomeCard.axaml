@@ -1,0 +1,128 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Debrief.RaidOutcomeCard"
+             x:DataType="vm:RaidOutcomeCardViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
+             xmlns:local="using:TarkovCompanion.App.Views.V2.Debrief"
+             xmlns:l="using:TarkovCompanion.App.Localization"
+             IsVisible="{Binding IsVisible}">
+  <!-- [#712 0-8] docs/design/v3/v3-post-raid-outcome.png: one quiet question after the raid, then
+       the recap. A card in the page, never a dialog and never anything drawn over the game. -->
+  <UserControl.Resources>
+    <local:RecapIconConverter x:Key="RecapIcon" />
+  </UserControl.Resources>
+  <UserControl.Styles>
+    <Style Selector="TextBlock.v2-outcome-caps">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-outcome-choice">
+      <Setter Property="Height" Value="48" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Padding" Value="2,0" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.v2-outcome-choice.success">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Button.v2-outcome-choice.danger">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="Button.v2-outcome-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Border.v2-outcome-kind">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,1" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.v2-outcome-kind TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border Background="{DynamicResource V2.Brush.Canvas}" BorderBrush="{DynamicResource V2.Brush.Divider}"
+          BorderThickness="1" CornerRadius="{DynamicResource V2.Shape.Card}"
+          AutomationProperties.AutomationId="v2-debrief-after-raid">
+    <StackPanel>
+      <StackPanel Spacing="12" Margin="18,16,18,18">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+          <TextBlock Grid.Column="0" Classes="v2-outcome-caps" Text="{x:Static l:DebriefText.AfterRaid}"
+                     VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding EndedLabel}" VerticalAlignment="Center" />
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn" Padding="4" MinHeight="0" VerticalAlignment="Center"
+                  Command="{Binding CloseCommand}" AutomationProperties.Name="{x:Static l:DebriefText.CloseAfterRaid}"
+                  AutomationProperties.AutomationId="v2-debrief-after-raid-close">
+            <Path Classes="v2-icon v2-icon-muted v2-icon-sm" Data="{DynamicResource V2.Icon.Close}" />
+          </Button>
+        </Grid>
+
+        <StackPanel Spacing="14" IsVisible="{Binding IsAsking}">
+          <TextBlock Classes="v2-heading-2" Text="{x:Static l:DebriefText.AfterRaidQuestion}" TextWrapping="Wrap"
+                     AutomationProperties.HeadingLevel="2" />
+          <!-- Four answers on one row at the 420 px panel: columns weighted by the words, so
+               "Ran through" is not cut where equal columns would cut it. -->
+          <Grid ColumnDefinitions="1.1*,0.8*,1.25*,0.75*" ColumnSpacing="8"
+                AutomationProperties.AutomationId="v2-debrief-outcome-choices">
+            <Button Grid.Column="0" Classes="v2-outcome-choice success" Content="{Binding Choices[0].Label}" Command="{Binding Choices[0].Command}" AutomationProperties.Name="{Binding Choices[0].Label}" />
+            <Button Grid.Column="1" Classes="v2-outcome-choice danger" Content="{Binding Choices[1].Label}" Command="{Binding Choices[1].Command}" AutomationProperties.Name="{Binding Choices[1].Label}" />
+            <Button Grid.Column="2" Classes="v2-outcome-choice" Content="{Binding Choices[2].Label}" Command="{Binding Choices[2].Command}" AutomationProperties.Name="{Binding Choices[2].Label}" />
+            <Button Grid.Column="3" Classes="v2-outcome-choice" Content="{Binding Choices[3].Label}" Command="{Binding Choices[3].Command}" AutomationProperties.Name="{Binding Choices[3].Label}" />
+          </Grid>
+          <Button Classes="v2-outcome-link" HorizontalAlignment="Left" Content="{x:Static l:DebriefText.AnswerLater}"
+                  Command="{Binding LaterCommand}" AutomationProperties.AutomationId="v2-debrief-outcome-later" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding ShowsOutcome}">
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding OutcomeLabel}" TextWrapping="Wrap"
+                     VerticalAlignment="Center" AutomationProperties.AutomationId="v2-debrief-outcome-label" />
+          <Border Classes="v2-outcome-kind" IsVisible="{Binding HasOutcomeKind}" VerticalAlignment="Center">
+            <TextBlock Text="{Binding OutcomeKindLabel}" />
+          </Border>
+        </StackPanel>
+        <TextBlock Classes="v2-label" Foreground="{DynamicResource V2.Brush.Warning}" Text="{Binding Status}"
+                   TextWrapping="Wrap" IsVisible="{Binding HasStatus}" />
+      </StackPanel>
+
+      <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0" IsVisible="{Binding HasRecap}">
+        <StackPanel Spacing="4" Margin="18,14,18,16">
+          <TextBlock Classes="v2-outcome-caps" Text="{x:Static l:DebriefText.Recap}" Margin="0,0,0,4" />
+          <ItemsControl ItemsSource="{Binding Recap}" AutomationProperties.AutomationId="v2-debrief-recap">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:RaidRecapLineViewModel">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,5">
+                  <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Top" Margin="0,2,0,0"
+                        Data="{Binding Icon, Converter={StaticResource RecapIcon}}" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Text}" TextWrapping="Wrap" />
+                  <Border Grid.Column="2" Classes="v2-outcome-kind" IsVisible="{Binding HasKind}">
+                    <TextBlock Text="{Binding KindLabel}" />
+                  </Border>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>
