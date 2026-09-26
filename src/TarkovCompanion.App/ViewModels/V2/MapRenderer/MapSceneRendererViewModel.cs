@@ -952,7 +952,28 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// "what did that gesture land on" for something other than selection — a right-click asking
     /// to remove a mark, for one. This view model does not need to know marks exist to answer it.
     /// </remarks>
-    public bool TryHitObjectAt(double viewportX, double viewportY, out MapSceneObjectId objectId)
+    public bool TryHitObjectAt(double viewportX, double viewportY, out MapSceneObjectId objectId) =>
+        TryHitObjectAt(viewportX, viewportY, null, out objectId);
+
+    /// <summary>
+    /// [#929] Which drawn objects a right-click means; null means all of them.
+    /// </summary>
+    /// <remarks>
+    /// A right-click on an object is that object's gesture, and one on bare map places a mark.
+    /// Every drawn object used to count as "an object", so a right-click inside a modelled-traffic
+    /// circle, on an extract or beside a squadmate did nothing at all: the circles alone swallowed
+    /// one press in seven on Customs, and they sit exactly where a squad is fighting. Clayton, dead
+    /// and watching his squad: "i still couldnt ping the map". A host that gives some objects no
+    /// right-click meaning names the ones that have one, and the rest let the press through to
+    /// the map under them.
+    /// </remarks>
+    public Func<MapSceneObject, bool>? RightClickTargets { get; set; }
+
+    /// <summary>The object a right-click at this viewport position is for, per <see cref="RightClickTargets"/>.</summary>
+    public bool TryHitRightClickTargetAt(double viewportX, double viewportY, out MapSceneObjectId objectId) =>
+        TryHitObjectAt(viewportX, viewportY, RightClickTargets, out objectId);
+
+    private bool TryHitObjectAt(double viewportX, double viewportY, Func<MapSceneObject, bool>? eligible, out MapSceneObjectId objectId)
     {
         objectId = default;
         if (!_projection.TryUnproject(
@@ -969,6 +990,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             .Where(item => !item.IsCluster && item.IsShownOnPlan && item.SceneObject is not null)
             .Select(item => item.SceneObject!)
             .Concat(GeometryObjects.Select(item => item.SceneObject))
+            .Where(item => eligible is null || eligible(item))
             .ToArray();
         var hit = MapSceneHitTesting.HitTest(_scene, rendered, point, worldUnitsPerPixel * 24).FirstOrDefault();
         if (hit is null)

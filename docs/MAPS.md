@@ -221,7 +221,10 @@ drops a ping and shift+right-click drops a numbered waypoint, while right-click 
 — ours or the group's — removes it. Removal beats placement: `MapSceneRendererView` raises exactly
 one of `MarkerRightClicked` and `PlanRightClicked` per gesture, so the press that removes a mark can
 never also place one, and the hit area is the marker's own rather than the pixel. Both arms mark the
-gesture handled, so nothing above the plan can turn it into a context menu.
+gesture handled, so nothing above the plan can turn it into a context menu. Only things a
+right-click does something to count as hit (#929, `MapSceneRendererViewModel.RightClickTargets`):
+marks, our lines and objective pins. A press inside a traffic circle or quest zone, or on an extract
+or a squadmate, places the mark there; those used to swallow one press in six on Customs.
 
 The tablet has no second button, so the same three outcomes ride on how a finger behaves. Drag pans
 and pinch zooms, and neither ever leaves a mark. A tap on bare plan pings; a tap on an object selects

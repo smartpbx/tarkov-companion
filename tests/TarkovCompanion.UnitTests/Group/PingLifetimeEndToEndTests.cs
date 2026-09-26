@@ -112,6 +112,62 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
         Assert.Contains(run.Events.Lines, line => line.Contains("deleted, scoped to Alpha", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// #929: dead in a scav raid, or extracted from one, with the squad still inside on the same
+    /// map; a ping and a waypoint placed then reach the squad.
+    /// </summary>
+    /// <remarks>
+    /// Guards the half of the report after the click: nothing on the way from the mark store to a
+    /// squadmate's snapshot (the forwarder, the session, the relay) looks at the sender's raid
+    /// state or side. The half before the click, where the press was swallowed, is
+    /// RaidMarkGestureTests.A_right_click_inside_a_traffic_circle_or_on_an_extract_places_a_mark.
+    /// </remarks>
+    [Theory]
+    [InlineData("scav", "killed")]
+    [InlineData("scav", "extracted")]
+    [InlineData("PMC", "killed")]
+    public async Task A_player_out_of_their_raid_still_marks_the_map_for_the_squad_inside(string side, string how)
+    {
+        await using var run = await Run.StartAsync(output);
+        run.AlphaState.Update(snapshot => snapshot with
+        {
+            Raid = snapshot.Raid with { State = TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, MapId = "lighthouse", Side = side },
+        });
+        run.BravoState.Update(snapshot => snapshot with
+        {
+            Raid = snapshot.Raid with { State = TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, MapId = "lighthouse", Side = side },
+        });
+        // Killed and extracted end the same way in the log (userMatchOver); a scav's may carry
+        // Transfer. Either is PostRaid, and the menu after it is Menu.
+        run.AlphaState.Update(snapshot => snapshot with
+        {
+            Raid = snapshot.Raid with
+            {
+                State = how == "killed"
+                    ? TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.PostRaid
+                    : TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.Menu,
+            },
+        });
+        Assert.True(
+            await run.UntilAsync(
+                () => run.BravoState.Current.Group.Members.Any(member =>
+                    member.Name == "Alpha" && TarkovCompanion.Application.Services.Group.SquadRaidPresence.HasLeftRaid(member.RaidState)),
+                TimeSpan.FromSeconds(10)),
+            "Bravo should see Alpha out of the raid.");
+
+        await run.PlaceAsync();
+        await run.Store.PlaceAsync("lighthouse", null, 30, 40, null, RaidMarkScope.Squad, RaidMarkLifetime.UntilRemoved);
+
+        Assert.True(await run.UntilAsync(() => run.BravoSeesPing, TimeSpan.FromSeconds(10)), "Bravo should see the ping.");
+        Assert.True(
+            await run.UntilAsync(() => run.BravoState.Current.Group.Waypoints.Count > 0, TimeSpan.FromSeconds(10)),
+            "Bravo should see the waypoint.");
+        var ping = Assert.Single(run.BravoState.Current.Group.Pings);
+        Assert.Equal("lighthouse", ping.MapId);
+        Assert.Equal("Alpha", ping.By);
+        Assert.Equal("lighthouse", Assert.Single(run.BravoState.Current.Group.Waypoints).MapId);
+    }
+
     /// <summary>Everything one ping passes through, started and wired together.</summary>
     private sealed class Run : IAsyncDisposable
     {
@@ -310,6 +366,24 @@ public sealed class PingLifetimeEndToEndTests(ITestOutputHelper output)
                 }
 
                 events.Add($"relay: ping {added.Id} added");
+                return Results.Ok(added);
+            });
+            // #929: the waypoint route as Program.cs maps it, for Shift+right-click.
+            app.MapPost("/waypoints", (MarkRequest request, HttpRequest http) =>
+            {
+                if (!GroupKey.TryRead(http, out var key) || request.Validate() is not null)
+                {
+                    return Results.BadRequest();
+                }
+
+                var room = GroupKey.RoomFor(key);
+                var added = marks.AddWaypoint(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label)!;
+                if (marksEndHolds)
+                {
+                    changes.Record(room, null);
+                }
+
+                events.Add($"relay: waypoint {added.Id} added");
                 return Results.Ok(added);
             });
             app.MapDelete("/waypoints/{id:long}", (long id, string? by, HttpRequest http) =>

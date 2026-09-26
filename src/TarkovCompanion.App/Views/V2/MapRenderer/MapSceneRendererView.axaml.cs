@@ -297,7 +297,9 @@ public sealed partial class MapSceneRendererView : UserControl
             if (DataContext is MapSceneRendererViewModel rightClickRenderer)
             {
                 var position = eventArgs.GetPosition(PlanViewport);
-                if (rightClickRenderer.TryHitObjectAt(position.X, position.Y, out var objectId))
+                // [#929] Only an object the host gives a right-click meaning; anything else drawn
+                // there (a traffic circle, an extract, a squadmate) lets the press place a mark.
+                if (rightClickRenderer.TryHitRightClickTargetAt(position.X, position.Y, out var objectId))
                 {
                     // [V2 rough package 46] Removal beats placement: something under the pointer
                     // ends the gesture here, so the same press can never also drop a mark.
