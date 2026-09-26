@@ -62,6 +62,10 @@ evidence and its validation are unchanged by progressive disclosure. Active cons
 state, security state, destructive effects, failures, and decision-changing uncertainty remain
 visible rather than being deferred to details.
 
+Sound (#712 0-10) is output only and off by default: earcons and a spoken loot verdict through
+Windows' own media player and speech synthesiser. Nothing opens a microphone or captures game
+audio, and the extract-deadline cue is a tone, never a spoken time that could pass for the game's.
+
 ## Enforcement
 
 - Permanent rules live in root `AGENTS.md`.

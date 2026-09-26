@@ -97,6 +97,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 288] "on" when Plan rows include the engine's short reason.</summary>
     public const string PlanLearnMode = "plan.learn-mode";
 
+    /// <summary>[#712 0-10] Sound cues and speech as one JSON value; see SoundSettingsStore. Missing is off.</summary>
+    public const string SoundSettings = "sound.settings";
+
     /// <summary>[#902 P8] One page's remembered filters, chips and sorts; see <see cref="PageState"/>.</summary>
     public const string PageIntel = "page.intel";
     public const string PageAmmo = "page.ammo";

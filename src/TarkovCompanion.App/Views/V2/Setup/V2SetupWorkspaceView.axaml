@@ -396,6 +396,10 @@
               </StackPanel>
             </StackPanel>
             </Panel>
+            <!-- [#712 0-10] Sound cues and spoken loot verdicts, off by default. -->
+            <Panel IsVisible="{Binding Admin.HasSound, FallbackValue=False}">
+              <setup:V2SetupSoundView DataContext="{Binding Admin.Sound}" />
+            </Panel>
           </StackPanel>
         </Border>
 
