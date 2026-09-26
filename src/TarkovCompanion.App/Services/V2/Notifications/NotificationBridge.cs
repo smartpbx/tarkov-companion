@@ -278,7 +278,7 @@ public sealed class NotificationBridge : IDisposable
             RelayStaleSince = group.StaleSince,
             SquadMarks = marks,
             FleaSales = snapshot.FleaSales.Sales
-                .Select(sale => new FleaSaleInput(sale.OfferId, sale.Count, sale.WrittenUtc))
+                .Select(sale => new FleaSaleInput(sale.SaleKey, sale.Count, sale.WrittenUtc))
                 .ToArray(),
             FailedDataEndpoints = snapshot.Data.FailedEndpoints,
             // "Ready to install" is the unpacked build waiting for a restart, not merely one that

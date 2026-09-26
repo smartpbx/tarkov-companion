@@ -1,4 +1,7 @@
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -103,5 +106,84 @@ public sealed class FleaSaleParserTests
             ObservedUtc: Observed.AddMinutes(5)));
 
         Assert.Equal("OFFER_2", snapshot.Sales[0].OfferId);
+    }
+
+    /// <summary>
+    /// One offer sold in parts is several sales (#403 re-measure on 1.1.5.1.47510: 103 sale
+    /// notifications named 72 offers, and each had its own event id and its own payment).
+    /// </summary>
+    [Fact]
+    public void KeepsEachPartOfAnOfferThatSoldInParts()
+    {
+        var service = new FleaSaleStateService();
+
+        service.Apply(FleaSaleParser.ParseLine(Sold("EVENT_1", "OFFER_1", 1), Observed)!);
+        var snapshot = service.Apply(FleaSaleParser.ParseLine(Sold("EVENT_2", "OFFER_1", 1), Observed.AddSeconds(1))!);
+
+        Assert.Equal(2, snapshot.Sales.Count);
+        Assert.Equal(2, snapshot.Sales.Sum(sale => sale.Count));
+    }
+
+    /// <summary>backend and output both carry every sale, under the same event id.</summary>
+    [Fact]
+    public void KeepsOneRowForTheSameSaleReadFromTwoFiles()
+    {
+        var service = new FleaSaleStateService();
+        var backend = Sold("EVENT_1", "OFFER_1", 3);
+        var output = backend.Replace("|backend|", "|output|backend|", StringComparison.Ordinal);
+
+        Assert.True(service.TryApply(FleaSaleParser.ParseLine(backend, Observed)!));
+        Assert.False(service.TryApply(FleaSaleParser.ParseLine(output, Observed)!));
+
+        var sale = Assert.Single(service.Current.Sales);
+        Assert.Equal("EVENT_1", sale.EventId);
+        Assert.Equal("EVENT_1", sale.SaleKey);
+    }
+
+    /// <summary>
+    /// The raid record adds counts up per item, so the copy of a sale from the second file must
+    /// not reach it, while the second part of an offer must.
+    /// </summary>
+    [Fact]
+    public void RecordsEachSaleAgainstTheRaidOnce()
+    {
+        var recorder = new SaleRecorder();
+        var observers = new EftLogObservers(new SquadStateService(), new FleaSaleStateService(), raid: recorder);
+        var first = Sold("EVENT_1", "OFFER_1", 2);
+
+        observers.Observe(FleaSaleParser.ParseLine(first, Observed)!);
+        observers.Observe(FleaSaleParser.ParseLine(first.Replace("|backend|", "|output|backend|", StringComparison.Ordinal), Observed)!);
+        observers.Observe(FleaSaleParser.ParseLine(Sold("EVENT_2", "OFFER_1", 1), Observed)!);
+
+        Assert.Equal(["EVENT_1", "EVENT_2"], recorder.Sales.Select(sale => sale.EventId));
+    }
+
+    private static string Sold(string eventId, string offerId, int count) =>
+        LineHeader
+        + $$"""[{"type":"RagfairOfferSold","eventId":"{{eventId}}","offerId":"{{offerId}}","handbookId":"ITEM_1","count":{{count}}}]""";
+
+    private sealed class SaleRecorder : IRaidActivityRecorder
+    {
+        public List<FleaSaleObservation> Sales { get; } = [];
+
+        public RaidSnapshot Current => throw new NotSupportedException();
+
+        public Task<RaidSnapshot> ApplyExtractsAsync(
+            IReadOnlyList<ActiveExtract> extracts,
+            DateTimeOffset observedUtc,
+            CancellationToken cancellationToken,
+            TimeSpan? raidClock = null,
+            IReadOnlyList<string>? linesNotMatched = null,
+            IReadOnlyList<string>? transits = null) => throw new NotSupportedException();
+
+        public Task RecordSaleAsync(FleaSaleObservation sale, CancellationToken cancellationToken)
+        {
+            Sales.Add(sale);
+            return Task.CompletedTask;
+        }
+
+        public Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task RecordLoadTimeAsync(LoadTimeObservation loadTime, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

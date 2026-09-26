@@ -74,7 +74,8 @@ public static class FleaSaleParser
                 ReadText(payload, "handbookId"),
                 ReadCount(payload),
                 observedUtc.ToUniversalTime(),
-                localZone is null ? null : RaidReplayDecision.WrittenUtc(line, localZone));
+                localZone is null ? null : RaidReplayDecision.WrittenUtc(line, localZone),
+                ReadText(payload, "eventId"));
         }
         catch (JsonException)
         {
@@ -104,7 +105,7 @@ public static class FleaSaleParser
 /// <remarks>
 /// Deliberately not persisted. The game restates a notification when it is redelivered, and a
 /// sale list that survived restarts would need a durable idea of which sales had already been
-/// shown; within one session the offer id is enough. What the player wants from this is "what
+/// shown; within one session the event id is enough. What the player wants from this is "what
 /// sold while I was in that raid", which is a session-shaped question.
 /// </remarks>
 public sealed class FleaSaleStateService
@@ -119,13 +120,25 @@ public sealed class FleaSaleStateService
 
     public FleaSalesSnapshot Apply(FleaSaleObservation sale)
     {
+        TryApply(sale);
+        return Current;
+    }
+
+    /// <summary>Adds a sale, and says whether it was a new one.</summary>
+    /// <remarks>
+    /// Keyed on the notification's event id, not the offer's. A notification written to both
+    /// backend and output is the same sale; two parts of one offer are two sales (see
+    /// <see cref="FleaSaleObservation"/>), and keying on the offer lost 31 of 103 of them.
+    /// </remarks>
+    public bool TryApply(FleaSaleObservation sale)
+    {
         ArgumentNullException.ThrowIfNull(sale);
         lock (_gate)
         {
             // A redelivered notification is the same sale, not a second one.
-            if (!_sales.TryAdd(sale.OfferId, sale))
+            if (!_sales.TryAdd(sale.SaleKey, sale))
             {
-                return Current;
+                return false;
             }
 
             Current = new(
@@ -134,7 +147,7 @@ public sealed class FleaSaleStateService
                     .Take(MaximumSales)
                     .ToArray(),
                 sale.ObservedUtc);
-            return Current;
+            return true;
         }
     }
 

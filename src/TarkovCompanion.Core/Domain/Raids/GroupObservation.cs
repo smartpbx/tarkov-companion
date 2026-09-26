@@ -174,9 +174,14 @@ public sealed record SquadSnapshot(
 ///
 /// Only what the notification states is carried. There is no price or currency field in it,
 /// so no revenue figure is offered and none is estimated from cached prices: that would be a
-/// guess presented as a receipt.
+/// guess presented as a receipt. (The payment arrives separately, as a trader message; see
+/// docs/research/EFT_LOG_FACTS.md. It is not read.)
+///
+/// One offer can sell several times. On 1.1.5.1.47510 (2026-09-22..25) 103 sale notifications,
+/// each with its own event id and its own payment, named 72 offers: 18 offers sold in two to six
+/// parts, about a second apart. Keying a sale on its offer therefore dropped 31 of 103 sales.
 /// </remarks>
-/// <param name="OfferId">The game's own id for the offer, used to keep one row per sale.</param>
+/// <param name="OfferId">The game's own id for the offer. Not unique per sale: see the remarks.</param>
 /// <param name="HandbookItemId">
 /// The item that sold, as an id rather than a name. Whether it resolves against synced item
 /// data is not assumed; a caller that cannot resolve it says so rather than inventing a name.
@@ -189,15 +194,24 @@ public sealed record SquadSnapshot(
 /// from this morning apart from one that just happened, which is what the flea-sold
 /// notification needs.
 /// </param>
+/// <param name="EventId">
+/// The notification's own id. The same sale written to two files carries the same one, and two
+/// sales of one offer carry different ones, so this is what one row per sale is keyed on.
+/// </param>
 public sealed record FleaSaleObservation(
     string OfferId,
     string? HandbookItemId,
     int Count,
     DateTimeOffset ObservedUtc,
-    DateTimeOffset? WrittenUtc = null);
+    DateTimeOffset? WrittenUtc = null,
+    string? EventId = null)
+{
+    /// <summary>What makes this sale one sale: its event id, or its offer id on a line without one.</summary>
+    public string SaleKey => string.IsNullOrWhiteSpace(EventId) ? OfferId : EventId;
+}
 
 /// <summary>Flea sales seen this session, newest first.</summary>
-/// <param name="Sales">Every sale observed, at most one row per offer.</param>
+/// <param name="Sales">Every sale observed, one row per sale (<see cref="FleaSaleObservation.SaleKey"/>).</param>
 /// <param name="UpdatedUtc">When the list last changed.</param>
 public sealed record FleaSalesSnapshot(IReadOnlyList<FleaSaleObservation> Sales, DateTimeOffset UpdatedUtc)
 {

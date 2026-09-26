@@ -166,7 +166,9 @@ public sealed partial class EftLogParser
     private static RaidLifecycleState? SuggestedState(string line)
     {
         // "[Narrate] Game Stopped" was only observed on an older build, so it is kept as a
-        // signal but cannot be relied on alone to detect the end of a raid.
+        // signal but cannot be relied on alone to detect the end of a raid. "Status: Free" on a
+        // profileStatus line is kept for the same reason: 1.1.5.1.47510 wrote 53 profileStatus
+        // lines over six sessions (2026-09-22..25), every one Busy (#403).
         if (ContainsAny(line, "game stopped", "status: free"))
         {
             return RaidLifecycleState.PostRaid;
@@ -264,8 +266,8 @@ public sealed partial class EftLogParser
     /// These are far better evidence than the surrounding prose. userConfirmed opens a raid
     /// and userMatchOver closes it, both naming the map and both carrying the profile id, so
     /// the pair gives an exact start, end and duration for the player specifically. A close
-    /// whose status is Transfer is a move to another map rather than the end of a raid;
-    /// treating the two alike would invent a raid that never happened.
+    /// whose status is Transfer ends the raid like any other (see the userMatchOver arm below);
+    /// a transit that follows it is a raid of its own, found from its scene preset (#892).
     ///
     /// The same files carry notifications describing teammates. Those are never read as the
     /// player's state: without a matching profile id nothing is attributed at all.
