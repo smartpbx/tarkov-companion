@@ -641,6 +641,7 @@ public static class AppComposition
         });
         services.AddSingleton<IEftLogObserver, EftLogObservers>();
         TarkovCompanion.App.Services.V2.SituationComposition.Add(services); // [#712 0-2] ADR 0022
+        TarkovCompanion.App.Services.Sound.SoundComposition.Add(services); // [#712 0-10] sound, off by default
         TarkovCompanion.App.Services.V2.PreRaidBriefComposition.Add(services); // [#712 0-9]
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
@@ -1144,7 +1145,8 @@ public static class AppComposition
             new SetupNetworkControlsViewModel(
                 networkPolicy,
                 action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
-                () => provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline)));
+                () => provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline),
+            provider.GetService<SetupSoundViewModel>()));
         // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
         // three stores the sections themselves already read/write, never a fourth of its own.
         services.AddSingleton(provider => new SetupSettingsAdminViewModel(

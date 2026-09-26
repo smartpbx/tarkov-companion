@@ -1,0 +1,81 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupSoundView"
+             x:DataType="vm:SetupSoundViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#712 0-10] Sound cues and spoken loot verdicts. Off until the player turns it on (decision 1);
+       output only, so the card says in one line that nothing listens. -->
+  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-sound">
+    <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
+    <TextBlock Classes="v2-label" Text="{Binding Intro}" TextWrapping="Wrap" />
+    <TextBlock Classes="v2-label" Text="{Binding UnavailableNote}" IsVisible="{Binding IsUnavailable}" TextWrapping="Wrap"
+               AutomationProperties.AutomationId="v2-setup-sound-unavailable" />
+    <Border Classes="v2-card" Padding="12,10">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MasterLabel}" />
+          <TextBlock Classes="v2-label" Text="{Binding MasterHint}" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
+                IsEnabled="{Binding Enabled}"
+                AutomationProperties.AutomationId="v2-setup-sound-test"
+                Content="{Binding TestLabel}" Command="{Binding TestCommand}" />
+        <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
+                      IsChecked="{Binding Enabled, Mode=TwoWay}"
+                      OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
+                      AutomationProperties.AutomationId="v2-setup-sound-master"
+                      AutomationProperties.Name="{Binding MasterLabel}" />
+      </Grid>
+    </Border>
+    <ItemsControl ItemsSource="{Binding Cues}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SetupSoundCueRowViewModel">
+          <Border Classes="v2-card" Padding="12,8" Margin="0,0,8,8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
+                <TextBlock Classes="v2-label" Text="{Binding Hint}" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                            IsEnabled="{Binding CanChange}"
+                            IsChecked="{Binding IsOn, Mode=TwoWay}"
+                            OnContent="{x:Static l:SetupText.NotificationsOn}" OffContent="{x:Static l:SetupText.NotificationsOff}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Title}" />
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <CheckBox IsChecked="{Binding SpeakLootVerdicts, Mode=TwoWay}" IsEnabled="{Binding Enabled}"
+              AutomationProperties.AutomationId="v2-setup-sound-speak"
+              Content="{Binding SpeakLabel}" />
+    <TextBlock Classes="v2-label" Text="{Binding SpeakHint}" TextWrapping="Wrap" />
+    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="8" Margin="0,4,0,0">
+      <TextBlock Classes="v2-label" Text="{Binding VolumeLabel}" VerticalAlignment="Center" />
+      <ItemsControl Grid.Column="1" ItemsSource="{Binding VolumeChoices}" IsEnabled="{Binding Enabled}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><WrapPanel ItemSpacing="4" LineSpacing="4" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:SetupSoundVolumeChoiceViewModel">
+            <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsCurrent}"
+                    AutomationProperties.AutomationId="{Binding AutomationId}"
+                    AutomationProperties.Name="{Binding Label}"
+                    Content="{Binding Label}" Command="{Binding ChooseCommand}" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Grid.Row="1" Classes="v2-label" Text="{Binding DeviceLabel}" VerticalAlignment="Center" />
+      <ComboBox Grid.Row="1" Grid.Column="1" MinWidth="280" HorizontalAlignment="Left"
+                IsEnabled="{Binding Enabled}"
+                ItemsSource="{Binding DeviceChoices}" SelectedItem="{Binding SelectedDevice, Mode=TwoWay}"
+                AutomationProperties.AutomationId="v2-setup-sound-device"
+                AutomationProperties.Name="{Binding DeviceLabel}" />
+    </Grid>
+  </StackPanel>
+</UserControl>

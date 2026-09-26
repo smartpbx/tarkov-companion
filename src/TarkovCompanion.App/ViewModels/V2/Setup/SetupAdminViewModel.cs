@@ -15,7 +15,9 @@ public sealed class SetupAdminViewModel(
     // [#572] The loot auto-return countdown, the last scan's timing and the Loot page's progress line.
     SetupLootScanViewModel? lootScan = null,
     // [#292] Data & Privacy's Local only switch and per-service rows.
-    SetupNetworkControlsViewModel? network = null)
+    SetupNetworkControlsViewModel? network = null,
+    // [#712 0-10] Notifications › Sound.
+    SetupSoundViewModel? sound = null)
 {
     public SetupDataDetailViewModel Data { get; } = data ?? throw new ArgumentNullException(nameof(data));
 
@@ -37,4 +39,8 @@ public sealed class SetupAdminViewModel(
     public SetupNetworkControlsViewModel? Network { get; } = network;
 
     public bool HasNetwork => Network is not null;
+
+    public SetupSoundViewModel? Sound { get; } = sound;
+
+    public bool HasSound => Sound is not null;
 }

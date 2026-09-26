@@ -596,6 +596,13 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#712 0-10] --sound-on: the Sound card with the master switch on (it starts off).
+            if (args.Contains("--sound-on"))
+            {
+                services.GetService<TarkovCompanion.Application.Services.Sound.SoundSettingsStore>()?.Update(settings => settings with { Enabled = true });
+                Pump(20);
+            }
+
             // #667: fixture OCR output through the real matcher and history inference, so the
             // Setup preview can be judged without invoking a Windows-only OCR provider on dev.
             if (shell?.SetupWorkspace?.QuestSync is { } questSync && args.Contains("--quest-sync-demo"))
