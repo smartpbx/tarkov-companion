@@ -140,6 +140,7 @@ public sealed class FormatGuardPackTests
         }
 
         Assert.Equal(Text(expect, "phase"), RaidPhaseMarkerParser.ParseLine(line, Observed)?.Kind.ToString());
+        Assert.Equal(Text(expect, "sessionMode"), SessionModeParser.ParseLine(line, Observed)?.Mode?.ToString());
     }
 
     [Theory]

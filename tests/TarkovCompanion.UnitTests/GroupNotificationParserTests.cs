@@ -265,6 +265,62 @@ public sealed class GroupNotificationParserTests
         });
     }
 
+    /// <summary>
+    /// [#403] 161 of 161 not-ready notifications on 1.1.5.1.47510 carried only an account id; the
+    /// parser looked for extendedProfile, read nothing, and a squadmate who un-readied stayed ready.
+    /// </summary>
+    [Fact]
+    public void ReadsANotReadyNotificationThatNamesOnlyTheAccount()
+    {
+        var line = Line("groupMatchRaidNotReady", """
+            [{"type":"groupMatchRaidNotReady","eventId":"ID_1","aid":9041989}]
+            """);
+
+        var observation = GroupNotificationParser.ParseLine(line, Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal(GroupObservationKind.MemberUpdated, observation.Kind);
+        var member = observation.Member!;
+        Assert.False(member.IsReady);
+        Assert.Null(member.Nickname);
+        // The same key as the member's earlier ready line, so the two merge into one row.
+        Assert.Equal(GroupNotificationParser.ParseLine(RaidReadyLine, Observed)!.Member!.Key, member.Key);
+    }
+
+    /// <summary>[#403] 7 of 7 invite-accepted notifications wrote the member at the top level.</summary>
+    [Fact]
+    public void ReadsTheJoiningMemberFromAnInviteAcceptedNotification()
+    {
+        var line = Line("groupMatchInviteAccept", """
+            [{"type":"groupMatchInviteAccept","eventId":"ID_1","_id":"ID_2","aid":9041990,
+            "Info":{"Nickname":"PLAYER_C","Side":"Usec","Level":20},
+            "PlayerVisualRepresentation":{"Info":{"Nickname":"PLAYER_C"}},"isLeader":false,"isReady":false}]
+            """);
+
+        var observation = GroupNotificationParser.ParseLine(line, Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal(GroupObservationKind.MemberUpdated, observation.Kind);
+        var member = observation.Member!;
+        Assert.Equal("PLAYER_C", member.Nickname);
+        Assert.Equal("Usec", member.Side);
+        Assert.Equal(20, member.Level);
+        Assert.Equal(9041990, member.AccountId);
+        Assert.False(member.IsReady);
+        Assert.False(member.IsLeader);
+    }
+
+    /// <summary>A not-ready line is not-ready whatever else it says; the type is the statement.</summary>
+    [Fact]
+    public void ANotReadyNotificationIsNeverReadAsReady()
+    {
+        var line = Line("groupMatchRaidNotReady", """
+            [{"type":"groupMatchRaidNotReady","eventId":"ID_1","extendedProfile":{"aid":9041989,"isReady":true}}]
+            """);
+
+        Assert.False(GroupNotificationParser.ParseLine(line, Observed)!.Member!.IsReady);
+    }
+
     /// <summary>Wraps a payload in the header the game writes ahead of it, on one line.</summary>
     private static string Line(string notificationType, string payloadJson) =>
         LineHeader + notificationType + " " + OneLine(payloadJson);

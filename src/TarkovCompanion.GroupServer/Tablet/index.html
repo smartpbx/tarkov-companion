@@ -205,6 +205,66 @@
     #surfacePanel { grid-area: panel; overflow-y: auto; min-height: 0; padding-right: 2px; }
     body.live #map { height: 100%; min-height: 0; }
   }
+  /* #712 0-11: the desktop's Now panel (docs/design/v3/v3-tablet-now.png). Only with a surface that
+     carries one (body.has-now): beside the map on a tablet on its side, under it on a phone. The
+     controls column is one tap away (body.now-controls) and the Now panel comes back from there. */
+  #nowPanel { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    flex-direction: column; min-height: 0; overflow: hidden; }
+  body.live.has-now:not(.now-controls) #nowPanel { display: flex; }
+  body.live.has-now:not(.now-controls) #surfaceBar,
+  body.live.has-now:not(.now-controls) #surfacePanel { display: none; }
+  .nowBlock { padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .nowBlock h2 { margin: 0 0 4px; font-size: 12px; letter-spacing: .1em; color: var(--quiet); }
+  .nowHead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .nowAge { color: var(--quiet); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .nowHeadline { font-size: 32px; line-height: 1.15; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #nowPanel.late .nowHeadline, #nowPanel.late #nowHeading { color: var(--ochre); }
+  #nowPanel.urgent .nowHeadline, #nowPanel.urgent #nowHeading, #nowPanel.urgent #nowNote { color: var(--alarm); }
+  .nowDetail { color: var(--quiet); font-size: 13px; }
+  .nowNote { font-size: 14px; margin-top: 4px; }
+  .nowNote.done::before { content: "✓ "; color: var(--sage); }
+  .nowWhere { font-size: 19px; font-weight: 600; line-height: 1.3; }
+  .nowWhere.stale { color: var(--quiet); }
+  .nowExit { font-size: 16px; margin-top: 4px; }
+  .nowExit .nowDetail { display: block; }
+  .nowSquadRow { display: flex; align-items: center; gap: 10px; min-height: 52px; border-top: 1px solid var(--line); }
+  .nowSquadRow:first-child { border-top: 0; }
+  .nowSquadRow.away { opacity: .7; }
+  .nowSquadRow .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .nowSquadRow .who { flex: 1 1 auto; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nowSquadRow .who b { font-weight: 700; }
+  .nowSquadRow .who span { color: var(--quiet); }
+  .nowSquadRow button { flex: none; min-width: 88px; color: var(--cyan); border-color: rgba(34, 211, 238, .55); background: transparent; font-weight: 600; }
+  .nowSquadRow button[disabled] { color: var(--quiet); border-color: var(--line); }
+  .nowSquadLine { font-size: 15px; }
+  .nowNextLabel { font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .nowNextLabel::before { content: "A"; flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--ochre);
+    color: var(--cyan-ink); font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .nowNextLabel.none { font-size: 13px; font-weight: 400; color: var(--quiet); }
+  .nowNextLabel.none::before { display: none; }
+  #nowNextThen { margin-left: 30px; }
+  .nowScanLine { font-size: 16px; }
+  #nowScanRows { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  #nowScanRows .lootRow { padding: 5px 10px; }
+  .nowFoot { margin-top: auto; display: flex; padding: 8px 18px; border-top: 1px solid var(--line); }
+  .nowFoot #nowBecause { flex: 1 1 auto; min-width: 0; color: var(--quiet); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #nowScanBlock { border-bottom: 0; }
+  body.live.has-now #nowBack { width: 100%; margin-bottom: 8px; }
+  @media not all and (orientation: landscape) and (min-width: 700px) {
+    /* A phone: the map keeps most of the screen and NOW shows under it without scrolling. */
+    body.live.has-now:not(.now-controls) #map { height: calc(100svh - 330px); min-height: 260px; }
+    /* A narrow row wraps its place rather than cutting it off. */
+    .nowSquadRow .who { white-space: normal; padding: 6px 0; }
+  }
+  @media (orientation: landscape) and (min-width: 700px) {
+    body.live.has-now:not(.now-controls) #surface,
+    body.live.has-now.panel-hidden:not(.now-controls) #surface {
+      grid-template-columns: minmax(0, 1fr) clamp(360px, 38vw, 500px);
+      grid-template-rows: minmax(0, 1fr);
+      grid-template-areas: "map now";
+    }
+    #nowPanel { grid-area: now; }
+  }
 </style>
 </head>
 <body>
@@ -314,7 +374,41 @@
       <p class="attribution" id="attribution"></p>
     </div>
 
+    <!-- #712 0-11: the desktop's Now panel, in its words and its block order. Every count says what
+         it is counted from; nothing here is presented as live. -->
+    <aside id="nowPanel" aria-label="Now">
+      <div class="nowBlock" id="nowNowBlock">
+        <h2 id="nowHeading">NOW</h2>
+        <div class="nowHeadline" id="nowHeadline"></div>
+        <div class="nowDetail" id="nowDetail"></div>
+        <div class="nowNote" id="nowNote" hidden></div>
+      </div>
+      <div class="nowBlock" id="nowYouBlock" hidden>
+        <div class="nowHead"><h2 id="nowYouHeading">YOU</h2><span class="nowAge" id="nowYouAge"></span></div>
+        <div class="nowWhere" id="nowYouWhere"></div>
+        <div class="nowExit" id="nowYouExit" hidden></div>
+      </div>
+      <div class="nowBlock" id="nowSquadBlock" hidden>
+        <h2 id="nowSquadHeading">SQUAD</h2>
+        <div id="nowSquadRows"></div>
+      </div>
+      <div class="nowBlock" id="nowNextBlock" hidden>
+        <h2 id="nowNextHeading">NEXT</h2>
+        <div class="nowNextLabel" id="nowNextLabel"></div>
+        <div class="nowDetail" id="nowNextThen"></div>
+      </div>
+      <div class="nowBlock" id="nowScanBlock">
+        <div class="nowHead"><h2 id="nowScanHeading">LAST SCAN</h2><span class="nowAge" id="nowScanAge"></span></div>
+        <div class="nowScanLine" id="nowScanLine"></div>
+        <div id="nowScanRows"></div>
+        <div class="nowDetail" id="nowScanHint" hidden></div>
+      </div>
+      <!-- The newest change's "because". The controls are the map's ☰, which swaps them in. -->
+      <div class="nowFoot" id="nowFoot" hidden><span id="nowBecause"></span></div>
+    </aside>
+
     <div id="surfacePanel">
+      <button type="button" id="nowBack" hidden>Back to Now</button>
       <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
            pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
            either do nothing (Follow) or silently disagree with the desk (Independent). -->
@@ -1976,6 +2070,7 @@
         live.surface = null;
         live.mapRevision = null;
         live.relayError = false;
+        takeNow(null);
         live.ownerSeenMs = ownerSeen === null ? null : Number(ownerSeen);
         // No map is not the same as no desktop: it may simply not have one open yet.
         live.desktopOnline = RelayFrameCrypto.desktopOnline({ ownerSeenMs: ownerSeen, publishedUtc: null, nowMs: Date.now() });
@@ -2018,6 +2113,7 @@
       takeSentView(surface);
       takeLoot(surface);
       takeReviews(surface);
+      takeNow(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
       } else if (!surface.artwork) {
@@ -2062,6 +2158,242 @@
     }
 
     if (!$("lootSheet").hidden || (fresh && !first)) renderLoot(loot);
+  }
+
+  // #712 0-11: the desktop's Now panel rides on the surface. The words are the desktop's; this page
+  // only counts what moves with time (the raid clock from its anchor, each age from its stamp), so
+  // the desktop sends it when something it says changes, not every second. A surface without it (an
+  // older desktop, or its now-panel flag off) leaves the page exactly as it was.
+  let nowPayload = null;
+  let nowControls = false;
+  let nowSquadKey = null;
+  let nowTicker = null;
+
+  function takeNow(surface) {
+    const now = surface?.now ?? null;
+    const has = !!now && Number(now.version) >= 1 && !!now.now;
+    const changed = has !== !!nowPayload;
+    nowPayload = has ? now : null;
+    document.body.classList.toggle("has-now", has);
+    document.body.classList.toggle("now-controls", has && nowControls);
+    $("nowBack").hidden = !has;
+    clearInterval(nowTicker);
+    nowTicker = has ? setInterval(tickNow, 1000) : null;
+    if (has) renderNow();
+    if (changed) labelControlsToggle();
+    if (changed) drawMap();
+  }
+
+  function showNowControls(on) {
+    nowControls = on;
+    document.body.classList.toggle("now-controls", !!nowPayload && on);
+    if (on) document.body.classList.remove("panel-hidden");
+    labelControlsToggle();
+    drawMap();
+  }
+
+  // The map's ☰: with the Now panel it swaps the panel for the controls, and says which it will do.
+  function labelControlsToggle() {
+    const toggle = $("panelToggle");
+    if (!nowPayload) {
+      setPanelHidden(document.body.classList.contains("panel-hidden"));
+      return;
+    }
+
+    const label = nowControls ? "Back to Now" : "Map controls";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    toggle.setAttribute("aria-expanded", String(nowControls));
+  }
+
+  // "12 s" / "3 min", in the desktop's words.
+  function nowAge(sinceUtc) {
+    const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(sinceUtc)) / 1000));
+    const words = nowPayload?.words ?? {};
+    return seconds < 60
+      ? (words.seconds ?? "{0} s").replace("{0}", String(seconds))
+      : (words.minutes ?? "{0} min").replace("{0}", String(Math.floor(seconds / 60)));
+  }
+
+  function nowAgo(sinceUtc) {
+    return (nowPayload?.words?.ago ?? "{0} ago").replace("{0}", nowAge(sinceUtc));
+  }
+
+  // "20:57", or "1:02:03" past an hour: NowPanelState.Clock.
+  function nowClock(clock) {
+    const at = Date.parse(clock.atUtc);
+    const ms = clock.kind === "left" ? at - Date.now() : Date.now() - at;
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = String(total % 60).padStart(2, "0");
+    return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${Math.floor(total / 60)}:${seconds}`;
+  }
+
+  function tickNow() {
+    const now = nowPayload;
+    if (!now) return;
+    const block = now.now;
+    $("nowHeadline").textContent = block.clock ? block.headline.replace("{clock}", nowClock(block.clock)) : block.headline;
+    $("nowDetail").textContent = block.detailSinceUtc ? block.detail.replace("{ago}", nowAgo(block.detailSinceUtc)) : block.detail;
+    if (now.you) $("nowYouAge").textContent = now.you.sinceUtc ? nowAgo(now.you.sinceUtc) : now.you.age;
+    for (const age of document.querySelectorAll("#nowSquadRows [data-since]")) age.textContent = nowAge(age.dataset.since);
+    $("nowScanAge").textContent = now.scan?.sinceUtc ? nowAgo(now.scan.sinceUtc) : "";
+  }
+
+  function renderNow() {
+    const now = nowPayload;
+    if (!now) return;
+    const panel = $("nowPanel");
+    panel.classList.toggle("late", now.tone === "Late");
+    panel.classList.toggle("urgent", now.tone === "Urgent");
+    panel.dataset.phase = now.phase;
+    const block = now.now;
+    $("nowHeading").textContent = block.heading;
+    $("nowNote").textContent = block.note;
+    $("nowNote").hidden = !block.note;
+    $("nowNote").classList.toggle("done", !!block.noteIsDone);
+
+    $("nowYouBlock").hidden = !now.you;
+    if (now.you) {
+      $("nowYouHeading").textContent = now.you.heading;
+      $("nowYouWhere").textContent = now.you.where;
+      $("nowYouWhere").classList.toggle("stale", !!now.you.isStale);
+      const exit = $("nowYouExit");
+      exit.hidden = !now.you.exit;
+      exit.replaceChildren(now.you.exit);
+      if (now.you.exitNote) {
+        const note = document.createElement("span");
+        note.className = "nowDetail";
+        note.textContent = now.you.exitNote;
+        exit.append(note);
+      }
+    }
+
+    $("nowSquadBlock").hidden = !now.squad;
+    if (now.squad) renderNowSquad(now);
+
+    $("nowNextBlock").hidden = !now.next;
+    if (now.next) {
+      $("nowNextHeading").textContent = now.next.heading;
+      const label = $("nowNextLabel");
+      label.textContent = now.next.label ? [now.next.label, now.next.detail].filter((part) => part).join(" · ") : now.next.hint;
+      label.classList.toggle("none", !now.next.label);
+      $("nowNextThen").textContent = now.next.then;
+      $("nowNextThen").hidden = !now.next.then;
+    }
+
+    const scan = now.scan;
+    $("nowScanHeading").textContent = scan.heading;
+    $("nowScanLine").textContent = scan.line;
+    $("nowScanHint").textContent = scan.hint;
+    $("nowScanHint").hidden = !scan.hint;
+    const rows = $("nowScanRows");
+    rows.replaceChildren();
+    for (const row of scan.rows ?? []) {
+      const item = document.createElement("div");
+      item.className = "lootRow";
+      const verdict = document.createElement("span");
+      verdict.className = `verdict ${row.verdict}`;
+      verdict.textContent = row.word;
+      const name = document.createElement("span");
+      name.className = "lootName";
+      name.textContent = row.name;
+      const value = document.createElement("span");
+      value.className = "lootValue";
+      value.textContent = row.value;
+      item.append(verdict, name, value);
+      if (row.reason) {
+        const reason = document.createElement("span");
+        reason.className = "lootReason";
+        reason.textContent = row.reason;
+        item.append(reason);
+      }
+      rows.append(item);
+    }
+
+    $("nowBecause").textContent = now.because ?? "";
+    $("nowFoot").hidden = !now.because;
+    tickNow();
+  }
+
+  // Rebuilt only when a row says something new, so a Ping button is never swapped out from under
+  // a finger by a republish that changed nothing here.
+  function renderNowSquad(now) {
+    $("nowSquadHeading").textContent = now.squad.heading;
+    const focus = (now.scan?.rows ?? []).length > 0;
+    const key = JSON.stringify([focus, now.squad, now.words?.ping]);
+    if (key === nowSquadKey) return;
+    nowSquadKey = key;
+    const holder = $("nowSquadRows");
+    holder.replaceChildren();
+    const rows = now.squad.rows ?? [];
+    if (rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.textContent = now.squad.empty;
+      const hint = document.createElement("div");
+      hint.className = "nowDetail";
+      hint.textContent = now.squad.emptyHint;
+      holder.append(empty, hint);
+      return;
+    }
+
+    // While a fresh verdict has the room, SQUAD is one line, as on the desktop.
+    if (focus) {
+      const line = document.createElement("div");
+      line.className = "nowSquadLine";
+      line.textContent = rows.map((row) => `${row.name} ${row.where}`).join("  ·  ");
+      holder.append(line);
+      return;
+    }
+
+    for (const row of rows) {
+      const item = document.createElement("div");
+      item.className = "nowSquadRow" + (row.isAway ? " away" : "");
+      item.dataset.name = row.name;
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = row.colour ?? squadColour(row.name);
+      const who = document.createElement("span");
+      who.className = "who";
+      const name = document.createElement("b");
+      name.textContent = row.name;
+      const where = document.createElement("span");
+      where.textContent = ` · ${row.where}`;
+      who.append(name, where);
+      item.append(dot, who);
+      if (row.seenUtc) {
+        const age = document.createElement("span");
+        age.className = "nowAge";
+        age.dataset.since = row.seenUtc;
+        age.textContent = nowAge(row.seenUtc);
+        item.append(age);
+      }
+      const ping = document.createElement("button");
+      ping.type = "button";
+      ping.textContent = now.words?.ping ?? "Ping";
+      ping.title = (now.words?.pingTip ?? "Ping {0}").replace("{0}", row.name);
+      ping.setAttribute("aria-label", ping.title);
+      ping.disabled = !row.canPing;
+      ping.addEventListener("click", () => pingSquadmate(row.name));
+      item.append(ping);
+      holder.append(item);
+    }
+  }
+
+  // #712 0-11: a squad row's Ping is an ordinary tablet ping (the same command a tap on the map
+  // sends) at that squadmate's last shared spot as the desktop drew it, named for them. Only what
+  // their own companion shared: the desktop's squad marker, never anything else.
+  function pingSquadmate(name) {
+    const target = (live?.surface?.objects ?? []).find((item) =>
+      item.kind === "TeammateLastKnown" && item.label === name && (item.points ?? []).length >= 2);
+    if (!target) {
+      showNotice(`No shared spot for ${name} on this map yet.`, "warn");
+      return;
+    }
+
+    addMark(target.points[0], target.points[1], "Ping", null, { lifetime: "Ping", label: name });
+    showNotice(`Pinged ${name}'s last shared spot.`, "");
   }
 
   function renderLoot(loot) {
@@ -3476,7 +3808,7 @@
     const fields = lifetimeFields(extra.lifetime ?? $("markLifetime").value, kind ?? "Ping");
     const markKind = fields.kind;
     // What was typed wins; otherwise a waypoint dropped on a spawn keeps that spawn's name.
-    const label = ($("markLabel").value.trim() || spawnName || "").slice(0, 80) || null;
+    const label = (extra.label ?? ($("markLabel").value.trim() || spawnName || "")).slice(0, 80) || null;
     return sendCommand({
       type: "upsertMark",
       ...commandHeader(revision ?? live.marksRevision + 1),
@@ -4198,8 +4530,12 @@
       }
     });
   }
-  $("panelToggle").addEventListener("click", () =>
-    setPanelHidden(!document.body.classList.contains("panel-hidden")));
+  $("panelToggle").addEventListener("click", () => {
+    // #712 0-11: with the Now panel beside the map, this swaps it for the controls and back.
+    if (nowPayload) showNowControls(!nowControls);
+    else setPanelHidden(!document.body.classList.contains("panel-hidden"));
+  });
+  $("nowBack").addEventListener("click", () => showNowControls(false));
   try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
   for (const button of $("markScope").querySelectorAll("button")) {
     button.addEventListener("click", () => setMarkScope(button.dataset.scope));
@@ -4353,6 +4689,19 @@
     offlineSendingId,
     lastAcknowledgement,
     lootOpen: !$("lootSheet").hidden,
+    now: nowPayload ? {
+      shown: getComputedStyle($("nowPanel")).display !== "none",
+      phase: nowPayload.phase,
+      headline: $("nowHeadline").textContent,
+      detail: $("nowDetail").textContent,
+      youAge: $("nowYouAge").textContent,
+      squad: [...document.querySelectorAll("#nowSquadRows .nowSquadRow")].map((row) => row.dataset.name),
+      scanLine: $("nowScanLine").textContent,
+      scanRows: document.querySelectorAll("#nowScanRows .lootRow").length,
+      scrolls: $("nowPanel").scrollHeight > $("nowPanel").clientHeight + 1,
+      pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+      panelBox: (() => { const box = $("nowPanel").getBoundingClientRect(); return [box.x, box.y, box.width, box.height]; })(),
+    } : null,
     pairingStages: [...stageHistory],
     lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
     markColour,

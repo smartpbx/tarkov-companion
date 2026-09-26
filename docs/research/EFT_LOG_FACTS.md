@@ -70,6 +70,7 @@ system message; 103 of them flea payments) 104, 12 (hand-in) 10, 10 (started) 9,
 - **Group readiness is half read.** All 161 `groupMatchRaidNotReady` carry only an account id,
   and all 7 `groupMatchInviteAccept` carry the member at the top level; `GroupNotificationParser`
   looks for `extendedProfile` in both and reads nothing. A member who un-readies stays ready.
+  (Fixed: both shapes are read; a not-ready line keys to the member's earlier ready line by `aid`.)
 - **`push-notifications` gives the chat-only reader nothing.** Its payloads are indented JSON on
   the lines after `Got notification | …`, so no single line holds both the marker and the JSON:
   0 quest events and 0 sales from all six files. `backend` has them all, so nothing is lost.
@@ -92,7 +93,11 @@ system message; 103 of them flea payments) 104, 12 (hand-in) 10, 10 (started) 9,
 
 ### Follow-up parser opportunities
 
-Measured above; none is parsed by this change.
+Measured above. The first four rows are now read (#403 follow-up): the session mode moves the active
+profile (`SessionModeParser`, `ProfileModeFollower`), the not-ready and invite-accepted shapes reach the
+party (`GroupNotificationParser`), and the queue steps and spawn lines are situation stages
+(`RaidPhaseMarkerParser`: `MatchingStep`, `Spawning`, `Spawned`; `userMatchCreated` and the other load
+timings are still unread).
 
 | Fact | Line kind | Frequency | Value for the V3 situation engine |
 | --- | --- | --- | --- |

@@ -32,6 +32,11 @@ public interface IEftLogObserver
     void Observe(RaidPhaseMarker marker)
     {
     }
+
+    /// <summary>[#712 decision 4] The game's <c>Session mode:</c> line, which the active profile follows.</summary>
+    void Observe(Core.Domain.Profiles.GameSessionMode mode)
+    {
+    }
 }
 
 /// <summary>Routes each kind of observation to the service that keeps it.</summary>
@@ -52,9 +57,15 @@ public sealed class EftLogObservers(
     // keep them; what is lost is the raid they belonged to.
     IRaidActivityRecorder? raid = null,
     // [#712 0-2] Optional like the rest; without it nothing tells matching from loading.
-    Situations.SituationService? situation = null) : IEftLogObserver
+    Situations.SituationService? situation = null,
+    // [#712 decision 4] Optional like the rest; without it the profile stays where the player put it.
+    Profiles.ProfileModeFollower? profileMode = null) : IEftLogObserver
 {
     public void Observe(RaidPhaseMarker marker) => situation?.Observe(marker);
+
+    /// <summary>Not awaited, like the quest and sale writes: the watcher is reading a file and must not stop.</summary>
+    public void Observe(Core.Domain.Profiles.GameSessionMode mode) =>
+        _ = profileMode?.ObserveAsync(mode, CancellationToken.None);
 
     public void Observe(GroupObservation observation) => squad.Apply(observation);
 
@@ -127,9 +138,22 @@ public sealed class SquadStateService
             switch (observation.Kind)
             {
                 case GroupObservationKind.MemberUpdated when observation.Member is { } updated:
-                    _members[updated.Key] = _members.TryGetValue(updated.Key, out var known)
-                        ? Merge(known, updated)
-                        : updated;
+                    if (_members.TryGetValue(updated.Key, out var known))
+                    {
+                        _members[updated.Key] = Merge(known, updated);
+                    }
+                    else if (updated.Nickname is null)
+                    {
+                        // A not-ready notification names only an account id. For somebody not yet
+                        // seen it would add a nameless row; and it could only be the player's own
+                        // toggle or a member whose ready line was missed, neither worth a row.
+                        return Current;
+                    }
+                    else
+                    {
+                        _members[updated.Key] = updated;
+                    }
+
                     break;
                 case GroupObservationKind.MemberLeft when observation.Member is { } departed:
                     _members.Remove(departed.Key);

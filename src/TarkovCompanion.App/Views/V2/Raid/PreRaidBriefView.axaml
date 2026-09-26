@@ -90,7 +90,7 @@
         <StackPanel Spacing="6">
           <TextBlock Classes="v2-heading-3" Text="{x:Static l:RaidText.BriefSquad}" />
           <TextBlock Classes="v2-body" Text="{Binding Current.SquadLine}" MaxLines="1" TextTrimming="CharacterEllipsis" />
-          <TextBlock Classes="v2-label" Text="{x:Static l:RaidText.BriefSquadFrom}" Opacity="0.8" />
+          <TextBlock Classes="v2-label" Text="{Binding Current.SquadFrom}" Opacity="0.8" />
         </StackPanel>
       </Border>
 
