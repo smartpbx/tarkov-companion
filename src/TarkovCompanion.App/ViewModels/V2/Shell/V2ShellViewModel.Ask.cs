@@ -20,6 +20,12 @@ public sealed partial class V2ShellViewModel
 
     public bool HasAsk => Ask is not null;
 
+    /// <summary>
+    /// "No command matches" shows only when nothing else answers the words: under an answer card it
+    /// read as though the question had failed (#960).
+    /// </summary>
+    public bool ShowsNoCommandMatches => HasNoFilteredCommandItems && Ask is not { IsShowing: true };
+
     /// <summary>Wires the Ask box into the palette; called from composition and by tests.</summary>
     public void AttachAsk(AskViewModel ask)
     {
@@ -30,6 +36,7 @@ public sealed partial class V2ShellViewModel
         ask.SetQuery(PaletteQuery);
         OnPropertyChanged(nameof(Ask));
         OnPropertyChanged(nameof(HasAsk));
+        OnPropertyChanged(nameof(ShowsNoCommandMatches));
     }
 
     /// <summary>Opens where an answer's link points, closing the palette first.</summary>

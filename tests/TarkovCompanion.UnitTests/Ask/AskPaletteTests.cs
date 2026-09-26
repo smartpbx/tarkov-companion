@@ -37,6 +37,29 @@ public sealed class AskPaletteTests
     }
 
     [Fact]
+    public async Task No_command_matches_hides_under_an_answer_card_and_shows_when_nothing_answers()
+    {
+        await WithShellAsync(async shell =>
+        {
+            shell.PaletteCommand.Execute(null);
+
+            shell.PaletteQuery = "best extract from here";
+            await shell.Ask!.PendingAnswer!;
+            Assert.True(shell.Ask.IsShowing);
+            Assert.True(shell.HasNoFilteredCommandItems);
+            Assert.False(shell.ShowsNoCommandMatches);
+
+            shell.PaletteQuery = "zzqxv";
+            Assert.False(shell.Ask.IsShowing);
+            Assert.True(shell.HasNoFilteredCommandItems);
+            Assert.True(shell.ShowsNoCommandMatches);
+
+            shell.PaletteQuery = "theme";
+            Assert.False(shell.ShowsNoCommandMatches);
+        });
+    }
+
+    [Fact]
     public async Task A_link_closes_the_palette_and_opens_its_page()
     {
         await WithShellAsync(shell =>

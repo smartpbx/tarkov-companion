@@ -1265,7 +1265,7 @@
             <Panel IsVisible="{Binding Ask.IsShowing, FallbackValue=False}">
               <askViews:AskCardView DataContext="{Binding Ask}" />
             </Panel>
-            <TextBlock Classes="v2-label" IsVisible="{Binding HasNoFilteredCommandItems}" Text="{Binding PaletteEmpty}" />
+            <TextBlock Classes="v2-label" IsVisible="{Binding ShowsNoCommandMatches}" Text="{Binding PaletteEmpty}" />
             <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasFilteredCommandItems}">
               <ItemsControl ItemsSource="{Binding FilteredCommandItems}">
                 <ItemsControl.ItemTemplate>
