@@ -80,9 +80,22 @@ internal sealed class HeadlessSessions : IDisposable
         {
             // The race above: cancelled and completed, with nothing to wait on.
         }
+        catch (AggregateException exception) when (IsLoopStoppedRace(exception))
+        {
+            // The same Dispose, the other order: CompleteAdding lands while the dispatch loop is
+            // in BlockingCollection.Take, which throws rather than returning, and Wait rethrows it.
+            // The loop has been told to stop and the test body has run; seen on RailGearClipTests
+            // in a Linux gate run (2026-09-26) with every assertion passed.
+        }
         finally
         {
             Owner.Release();
         }
     }
+
+    private static bool IsLoopStoppedRace(AggregateException exception) =>
+        exception.Flatten().InnerExceptions is { Count: > 0 } inner &&
+        inner.All(error => error is InvalidOperationException &&
+            error.StackTrace?.Contains("BlockingCollection", StringComparison.Ordinal) == true &&
+            error.Message.Contains("marked as complete", StringComparison.Ordinal));
 }
