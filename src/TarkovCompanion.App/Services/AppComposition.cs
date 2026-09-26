@@ -803,6 +803,8 @@ public static class AppComposition
         services.AddSingleton<GuidedStashScanService>();
         services.AddSingleton<GuidedStashScanArming>();
         services.AddSingleton<StashScanWorkspaceViewModel>();
+        // [#712 0-8] The raid-end edge the after-raid card asks on; the Situation stream can replace it.
+        services.AddSingleton<IRaidEndSignal, RuntimeRaidEndSignal>();
         services.AddSingleton<DebriefWorkspaceViewModel>();
         // v2r-team (package 9, wave 2): the Team workspace, over the same GroupSessionService and
         // IGroupSettingsStore the V1 Group/Squad pages used, plus CompanionPairingViewModel

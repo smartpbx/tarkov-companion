@@ -2383,6 +2383,11 @@ internal static class Program
                 Pump(20);
                 DebriefCoverageDemo.Show(debrief, args, Pump);
                 DebriefContextDemo.Show(debrief, args);
+                if (args.Contains("--outcome-demo"))
+                {
+                    OutcomeCardDemo.Show(services, debrief, args, DrainUntilComplete, Pump);
+                }
+
                 if (args.Contains("--debrief-tags-demo"))
                 {
                     debrief.SelectedTagFilterOption = debrief.TagFilterOptions.First(option => option.Tag == "Tasks");

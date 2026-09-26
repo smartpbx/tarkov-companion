@@ -609,6 +609,8 @@
     <Border Grid.Column="1" Width="420" Classes="v2-debrief-panel">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="16,12,16,16">
+          <!-- [#712 0-8] The after-raid question and recap, above the detail it summarises. -->
+          <local:RaidOutcomeCard DataContext="{Binding AfterRaid}" />
           <TextBlock Classes="v2-heading-2" Text="{x:Static l:DebriefText.RaidDetail}" AutomationProperties.HeadingLevel="2" />
           <Border Classes="v2-debrief-section" IsVisible="{Binding HasNoSelection}">
             <TextBlock Classes="v2-debrief-muted" Text="{x:Static l:DebriefText.SelectARaid}" TextWrapping="Wrap" />

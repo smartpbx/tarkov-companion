@@ -102,7 +102,7 @@ public sealed class RaidDebriefExportTests
         await using var json = new MemoryStream();
         await harness.History.ExportJsonAsync(json, CancellationToken.None);
         using var document = JsonDocument.Parse(json.ToArray());
-        Assert.Equal(4, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(5, document.RootElement.GetProperty("schemaVersion").GetInt32());
         var scan = document.RootElement.GetProperty("raids")[0].GetProperty("scans")[0];
         Assert.Equal("Graphics card", scan.GetProperty("itemName").GetString());
         Assert.Equal("inferred", scan.GetProperty("itemSource").GetString());
@@ -164,6 +164,31 @@ public sealed class RaidDebriefExportTests
         // all-null object: GetManualMetadataAsync and an unset raid must read the same way.
         await harness.History.SetManualMetadataAsync(raidId, RaidManualMetadata.Empty, CancellationToken.None);
         Assert.Null(await harness.History.GetManualMetadataAsync(raidId, CancellationToken.None));
+    }
+
+    /// <summary>
+    /// [#712 0-8] The after-raid answer is written straight through while the raid's end travels
+    /// the outbox, so an answer tapped quickly can land first; the end must not wipe it.
+    /// </summary>
+    [Fact]
+    public async Task An_outcome_answered_before_the_end_is_written_survives_the_end_and_exports_with_its_time()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var raidId = Guid.NewGuid();
+        await harness.History.StartAsync(
+            new RaidHistoryEntry(raidId, Guid.NewGuid(), "customs", "Regular", Start, null, null, null),
+            CancellationToken.None);
+        await harness.History.CorrectAsync(raidId, "Survived", null, CancellationToken.None);
+
+        await harness.History.EndAsync(raidId, Start.AddMinutes(24), null, null, CancellationToken.None);
+
+        var raid = Assert.Single(await harness.History.ListAsync(CancellationToken.None));
+        Assert.Equal("Survived", raid.Outcome);
+        Assert.Equal(Start.AddMinutes(24), raid.EndedUtc);
+        var row = Assert.Single(await ExportRowsAsync(harness));
+        Assert.Equal("manual", row["outcome_source"]);
+        Assert.Equal("5", row["schema_version"]);
+        Assert.Equal(LocalTime.SortableSeconds(Start.AddHours(1)), row["outcome_recorded_local"]);
     }
 
     private static async Task<IReadOnlyList<Dictionary<string, string>>> ExportRowsAsync(Harness harness)

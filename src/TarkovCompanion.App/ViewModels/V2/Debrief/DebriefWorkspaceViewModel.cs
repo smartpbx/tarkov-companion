@@ -274,7 +274,10 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         QuestTrackingOptions? questOptions = null,
         IWorkspaceLayoutStore? layoutStore = null,
         ILootScanHistoryStore? lootScans = null,
-        IRaidContextSource? raidContext = null)
+        IRaidContextSource? raidContext = null,
+        IRaidEndSignal? raidEnds = null,
+        IMapDataService? maps = null,
+        Action<Action>? dispatch = null)
     {
         _lootScans = lootScans;
         _raidContext = raidContext;
@@ -306,6 +309,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         SaveViewCommand = new DelegateCommand(SaveView);
         ApplySavedViewCommand = new DelegateCommand(ApplySavedView);
         DeleteSavedViewCommand = new DelegateCommand(DeleteSavedView);
+        InitialiseAfterRaid(raidEnds, maps, dispatch);
     }
 
     public IReadOnlyList<DebriefRaidRowViewModel> Raids { get; private set; } = [];
@@ -1379,6 +1383,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         RebuildExtractChoices();
 
         Raids = Raids.Select(row => row with { IsSelected = row.RaidId == raidId }).ToArray();
+        await RefreshAfterRaidRecapAsync(cancellationToken).ConfigureAwait(true);
         RaiseAll();
     }
 
@@ -1505,6 +1510,9 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
         var wrongCount = scans.Length - counted.Length + lootScans.Count - countedLoot.Length;
         var recognised = counted.Count(scan => scan.Recognised) + countedLoot.Count(scan => scan.Items.Any(item => item.ItemId is not null));
         var unavailable = counted.Count(scan => !scan.IsAvailable);
+        NoteScanTotals(
+            counted.Length + countedLoot.Length,
+            counted.Sum(scan => scan.ValueRoubles ?? 0) + countedLoot.Sum(scan => scan.TakenValueRoubles));
         SelectedScanSummary = scans.Length + lootScans.Count == 0
             ? DebriefText.NoScans
             : string.Join(" · ", new[]
