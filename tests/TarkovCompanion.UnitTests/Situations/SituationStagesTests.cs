@@ -34,7 +34,9 @@ public sealed class SituationStagesTests
             AppLine("2026-09-23 22:03:41.000", "scene preset path:maps/customs_preset.bundle rcid:customs.scenespreset.asset"),
             AppLine("2026-09-23 22:03:41.989", "TRACE-NetworkGameMatching G"));
         Assert.Equal(SituationPhase.Matching, timeline.Now.Phase.Value);
-        Assert.Contains("10:03:40", timeline.Now.Phase.Because, StringComparison.Ordinal);
+        // The time is written through LocalTime, so its hour depends on the runner's clock format
+        // (22:03:40 on the Linux runner, 10:03:40 PM elsewhere); the minutes and seconds do not.
+        Assert.Contains(":03:40", timeline.Now.Phase.Because, StringComparison.Ordinal);
 
         timeline.Logs(
             AppLine("2026-09-23 22:03:44.054", "MatchingCompleted:3.76 real:3.76 diff:0"),
