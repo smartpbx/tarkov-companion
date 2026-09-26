@@ -587,6 +587,14 @@
             </Panel>
             <Separator Margin="0,6" />
             <TextBlock Classes="v2-heading-3" Text="{Binding DiagnosticsHeading}" AutomationProperties.HeadingLevel="3" />
+            <!-- [#712 0-3] Whether the game's logs and screenshot names are still in shapes this build reads. -->
+            <Panel IsVisible="{Binding HasFormatHealth}" AutomationProperties.AutomationId="v2-setup-format-health">
+              <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding FormatHealth.Line, FallbackValue=''}"
+                         IsVisible="{Binding !FormatHealth.IsDegraded, FallbackValue=False}" />
+              <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding FormatHealth.Line, FallbackValue=''}"
+                         IsVisible="{Binding FormatHealth.IsDegraded, FallbackValue=False}"
+                         Foreground="{DynamicResource V2.Brush.Warning}" />
+            </Panel>
             <Border Classes="v2-card" IsVisible="{Binding Pairing.HasClockSkewNotice}"
                     AutomationProperties.AutomationId="v2-setup-clock-skew">
               <StackPanel Classes="v2-stack">

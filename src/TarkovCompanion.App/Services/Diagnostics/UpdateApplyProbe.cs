@@ -59,7 +59,7 @@ internal static class UpdateApplyProbe
                     return Finish(options, report, 4, "the older build was not accepted");
                 }
 
-                return HandOver(options, report, gateway);
+                return HandOver(options, report, gateway, back: true);
             }
 
             var found = gateway.CheckAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -84,7 +84,7 @@ internal static class UpdateApplyProbe
         }
     }
 
-    private static int HandOver(AppCommandLine options, SortedDictionary<string, object?> report, VelopackUpdateGateway gateway)
+    private static int HandOver(AppCommandLine options, SortedDictionary<string, object?> report, VelopackUpdateGateway gateway, bool back = false)
     {
         report["bystanderPid"] = StartBystander();
         Finish(options, report, 0, "handing over to the updater");
@@ -94,7 +94,15 @@ internal static class UpdateApplyProbe
             new UpdateHandOverSteps(() => { }, () => { }, _ => Task.CompletedTask),
             new HardProcessEnder(Log),
             Log);
-        gateway.ApplyAndRestart();
+        if (back)
+        {
+            ((IUpdateRollback)gateway).ApplyAndRestart();
+        }
+        else
+        {
+            gateway.ApplyAndRestart();
+        }
+
         return 5;
     }
 

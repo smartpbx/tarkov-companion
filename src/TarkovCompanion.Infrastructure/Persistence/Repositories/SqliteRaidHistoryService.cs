@@ -538,6 +538,9 @@ public sealed class SqliteRaidHistoryService(
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    // [#712 0-8] An end that carries no outcome keeps the one already there: the end arrives
+    // through the outbox, and the after-raid answer is written straight through, so an answer
+    // tapped seconds after the raid can land first and was being wiped by the end's null.
     private static async Task EndCoreAsync(
         SqliteConnection connection,
         SqliteTransaction? transaction,
@@ -551,7 +554,7 @@ public sealed class SqliteRaidHistoryService(
         command.Transaction = transaction;
         command.CommandText = """
             UPDATE raids
-            SET end_utc = $endUtc, outcome = $outcome, notes = $notes
+            SET end_utc = $endUtc, outcome = COALESCE($outcome, outcome), notes = COALESCE($notes, notes)
             WHERE id = $id;
             """;
         command.Parameters.AddWithValue("$id", raidId.ToString("D"));
@@ -810,14 +813,22 @@ public sealed class SqliteRaidHistoryService(
         var context = raidContext?.Current();
         return
         [
-            .. raids.Select(raid => new RaidExportRecord(
-                raid,
-                RaidFactRules.Classify(raid, RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []))),
-                [.. scans.GetValueOrDefault(raid.Id, []).Where(scan =>
-                    !wrongScanIds.GetValueOrDefault(raid.Id, EmptyWrongScanIds).Contains(scan.Id))],
-                manual.GetValueOrDefault(raid.Id))
+            .. raids.Select(raid =>
             {
-                Wipe = context?.WipeOf(raid),
+                var raidCorrections = RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []));
+                var sources = RaidFactRules.Classify(raid, raidCorrections);
+                return new RaidExportRecord(
+                    raid,
+                    sources,
+                    [.. scans.GetValueOrDefault(raid.Id, []).Where(scan =>
+                        !wrongScanIds.GetValueOrDefault(raid.Id, EmptyWrongScanIds).Contains(scan.Id))],
+                    manual.GetValueOrDefault(raid.Id))
+                {
+                    Wipe = context?.WipeOf(raid),
+                    OutcomeRecordedUtc = sources.Outcome == RaidFactKind.Manual
+                        ? RaidOutcomeQuestion.RecordedUtc(raid, raidCorrections)
+                        : null,
+                };
             }),
         ];
     }

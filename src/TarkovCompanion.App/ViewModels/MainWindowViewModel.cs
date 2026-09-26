@@ -896,7 +896,7 @@ public sealed class RaidPageViewModel : PageViewModel
     /// The catalog states a PMC length and, where it knows one, a scav length. A scav raid is
     /// the shorter of the two and using the PMC length for it would promise time nobody has.
     /// </remarks>
-    private TimeSpan? LengthFor(RaidSnapshot raid)
+    internal TimeSpan? LengthFor(RaidSnapshot raid)
     {
         if (raid.MapId is not { Length: > 0 } mapId || _maps is null)
         {
@@ -2555,6 +2555,13 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             CanRestartForUpdate = false;
             UpdateStatus = SetupText.SettingsUpdateInstalling;
             _updates.ApplyAndRestart();
+        }
+        catch (UpdateNotDownloadedException exception)
+        {
+            // #937: the package is gone (fetching an older build empties packages\), so the same
+            // button downloads it again instead of restarting into nothing.
+            UpdateStatus = SetupText.SettingsUpdateStartFailed(exception.Message);
+            CanDownloadUpdate = true;
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {

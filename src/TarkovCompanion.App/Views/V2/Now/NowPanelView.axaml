@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:now="using:TarkovCompanion.App.ViewModels.V2.Now"
+             xmlns:raid="using:TarkovCompanion.App.Views.V2.Raid"
              AutomationProperties.AutomationId="v2-now-panel"
              AutomationProperties.Name="{x:Static l:NowText.PanelName}">
   <!-- [#712 0-4] docs/design/v3/v3-raid-now.png and v3-raid-late-loot.png: one column read from a
@@ -146,11 +147,24 @@
       </Button>
       <!-- The newest automatic change's reason (ADR 0022's transitions), so a switch is never silent. -->
       <TextBlock DockPanel.Dock="Bottom" Classes="now-small" Margin="22,0,22,10" MaxLines="2" TextTrimming="CharacterEllipsis"
-                 IsVisible="{Binding State.HasBecause}" Text="{Binding State.Because}"
-                 AutomationProperties.AutomationId="v2-now-because" />
+                 Text="{Binding State.Because}"
+                 AutomationProperties.AutomationId="v2-now-because">
+        <!-- The brief carries its own "because"; one is enough. -->
+        <TextBlock.IsVisible>
+          <MultiBinding Converter="{x:Static BoolConverters.And}">
+            <Binding Path="State.HasBecause" />
+            <Binding Path="ShowsBlocks" />
+          </MultiBinding>
+        </TextBlock.IsVisible>
+      </TextBlock>
 
       <!-- Clipped rather than spilling onto More: the blocks are sized to fit 1080 high (#712 T3). -->
-      <StackPanel x:Name="Blocks" ClipToBounds="True">
+      <!-- [#712 0-9] Matching or loading: the pre-raid brief is the panel until GameStarted. -->
+      <Panel>
+      <Panel IsVisible="{Binding ShowsBrief}" Margin="6,4,6,0">
+        <raid:PreRaidBriefView DataContext="{Binding Brief}" />
+      </Panel>
+      <StackPanel x:Name="Blocks" ClipToBounds="True" IsVisible="{Binding ShowsBlocks}">
         <!-- NOW: the only clock on the page. -->
         <Panel>
         <Rectangle Fill="{DynamicResource V2.Brush.Warning}" Opacity="0.13" IsVisible="{Binding State.IsLate}" />
@@ -379,6 +393,7 @@
           </StackPanel>
         </Border>
       </StackPanel>
+      </Panel>
     </DockPanel>
   </Border>
 </UserControl>

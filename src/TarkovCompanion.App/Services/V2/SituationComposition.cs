@@ -1,6 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.FormatGuards;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Situations;
@@ -26,12 +27,17 @@ internal static class SituationComposition
                 async cancellationToken => (await catalog.GetAsync(cancellationToken).ConfigureAwait(false)).Catalog,
                 provider.GetService<IMapDataService>());
         });
+        // [#712 0-3] One monitor: the log and screenshot watchers feed it, the situation and Setup read it.
+        services.AddSingleton(provider => new FormatHealthMonitor(
+            provider.GetService<TimeProvider>(),
+            provider.GetService<ILogger<FormatHealthMonitor>>()));
         services.AddSingleton(provider => new SituationService(
             provider.GetRequiredService<IRuntimeStateStore>(),
             provider.GetService<TimeProvider>(),
             provider.GetRequiredService<ISituationPlaces>(),
             // Registered only where recognition is (Windows); elsewhere LAST SCAN stays empty.
             provider.GetService<LatestScanResultPublisher>(),
-            provider.GetService<ILogger<SituationService>>()));
+            provider.GetService<ILogger<SituationService>>(),
+            formatHealth: provider.GetRequiredService<FormatHealthMonitor>()));
     }
 }

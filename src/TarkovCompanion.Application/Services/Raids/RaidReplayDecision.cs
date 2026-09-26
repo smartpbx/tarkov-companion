@@ -13,9 +13,10 @@ public sealed record ReplayedRaidLine(RaidEvidence Evidence, DateTimeOffset? Wri
     public string? Source { get; init; }
 
     /// <summary>
-    /// How many times the clock had stepped back in its file before this line, counted over every
-    /// line of the file (see <see cref="RaidReplayDecision.IsClockStep"/>). Null leaves it to be
-    /// counted over the replayed lines alone, which are sparse enough to miss a step.
+    /// Which stretch of its file between backward clock steps this line is in, counted back from the
+    /// file's end over every line of the file: 0 is the last stretch, -1 the one before it (see
+    /// <see cref="RaidReplayDecision.IsClockStep"/> and <see cref="RaidReplayDecision.CountFromEnd"/>).
+    /// Null leaves it to be counted over the replayed lines alone, which are sparse enough to miss a step.
     /// </summary>
     public int? Stretch { get; init; }
 }
@@ -205,6 +206,24 @@ public static class RaidReplayDecision
                 : candidate.At != best.At ? candidate.At < best.At : candidate.Line.Order < best.Line.Order;
     }
 
+    /// <summary>
+    /// Renumbers the stretches of the lines one file added, <paramref name="firstOfFile"/> onwards,
+    /// from the stretch count the whole file reached, so that 0 is the file's last stretch.
+    /// </summary>
+    /// <remarks>
+    /// Rebased on the file's final count, not on its last replayed line (#937): when a file's last
+    /// evidence line comes before a step and only keepalives follow it, rebasing on that line moved
+    /// all of the file's lines one stretch too late, and a Shoreline end stamped four hours fast then
+    /// sorted after, and closed, a Lighthouse raid that began after the step.
+    /// </remarks>
+    public static void CountFromEnd(IList<ReplayedRaidLine> replayed, int firstOfFile, int stretchesInFile)
+    {
+        for (var index = firstOfFile; index < replayed.Count; index++)
+        {
+            replayed[index] = replayed[index] with { Stretch = (replayed[index].Stretch ?? 0) - stretchesInFile };
+        }
+    }
+
     /// <summary>Whether a file's stamps going from <paramref name="before"/> to <paramref name="after"/> means its clock stepped back.</summary>
     public static bool IsClockStep(DateTimeOffset before, DateTimeOffset after) => before - after > ClockStep;
 
@@ -234,11 +253,13 @@ public static class RaidReplayDecision
                 previous = written;
             }
 
-            counted.Add((line, line.Stretch ?? epoch, previous ?? DateTimeOffset.MinValue));
+            counted.Add((line, epoch, previous ?? DateTimeOffset.MinValue));
         }
 
+        // A supplied stretch is already counted back from the file's end; only the ones counted
+        // here, over the replayed lines alone, are rebased on the last of them.
         var last = counted.Count > 0 ? counted[^1].Epoch : 0;
-        return counted.Select(entry => entry with { Epoch = entry.Epoch - last });
+        return counted.Select(entry => entry with { Epoch = entry.Line.Stretch ?? entry.Epoch - last });
     }
 
     private static ReplayedRaidLine Begin(ReplayedRaidLine? open, ReplayedRaidLine line)

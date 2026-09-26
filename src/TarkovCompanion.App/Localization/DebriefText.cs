@@ -9,7 +9,7 @@ namespace TarkovCompanion.App.Localization;
 /// noun with an "s" glued on, because other languages do not pluralise that way. Map, item,
 /// extract and tag names are data and pass through as arguments untranslated.
 /// </remarks>
-public static class DebriefText
+public static partial class DebriefText
 {
     public static string RaidHistory => UiText.Get("Debrief.RaidHistory");
     public static string Refresh => UiText.Get("Debrief.Refresh");

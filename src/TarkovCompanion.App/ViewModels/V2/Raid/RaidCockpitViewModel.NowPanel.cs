@@ -28,6 +28,12 @@ public sealed partial class RaidCockpitViewModel
     /// <summary>The Now panel is the column: the strip under the map and the top bar drop their clocks.</summary>
     public bool ShowsNowPanel => NowHost.ShowsNowPanel;
 
+    /// <summary>[#712 0-9] The brief as the column, with the Now panel off (on, the Now panel hosts it).</summary>
+    public bool ShowsColumnBrief => PreRaidBrief.IsShown && !NowHost.IsNowOn;
+
+    /// <summary>The Raid plan cards: the column with the flag off and no brief, or the Now panel's More drawer.</summary>
+    public bool ShowsCardScroll => NowHost.ShowsCardStack && (NowHost.IsMoreOpen || !PreRaidBrief.IsShown);
+
     /// <summary>The column's width: the dragged width, widened to the Now panel's minimum while it shows.</summary>
     public double RightColumnWidth => NowHost.ShowsNowPanel ? Math.Max(ContextPanelWidth, NowPanelMinimumWidth) : ContextPanelWidth;
 
@@ -41,6 +47,7 @@ public sealed partial class RaidCockpitViewModel
 
         var panel = new NowPanelViewModel(situation, _timeProvider, PostToInterface)
         {
+            Brief = PreRaidBrief, // [#712 0-9] shown in place of the blocks while matching or loading
             MemberColour = name => _map.GroupColorFor(name) is { Length: 9 } argb ? "#" + argb[3..] : null,
             PingMember = _groupSession is null ? null : PingSquadmateAsync,
         };
@@ -62,6 +69,16 @@ public sealed partial class RaidCockpitViewModel
             OnPropertyChanged(nameof(ShowsNowPanel));
             OnPropertyChanged(nameof(RightColumnWidth));
             OnPropertyChanged(nameof(ShowsStripPhase));
+            OnPropertyChanged(nameof(ShowsColumnBrief));
+            OnPropertyChanged(nameof(ShowsCardScroll));
+        };
+        PreRaidBrief.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null or nameof(PreRaidBriefViewModel.IsShown))
+            {
+                OnPropertyChanged(nameof(ShowsColumnBrief));
+                OnPropertyChanged(nameof(ShowsCardScroll));
+            }
         };
         return host;
     }

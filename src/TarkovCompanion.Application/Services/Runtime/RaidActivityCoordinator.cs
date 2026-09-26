@@ -565,12 +565,14 @@ public sealed class RaidActivityCoordinator(
         }
         else if (previous.RaidId is { } displacedRaidId
             && previous.State == RaidLifecycleState.InRaid
-            && current.State == RaidLifecycleState.InRaid
+            && current.State is RaidLifecycleState.InRaid or RaidLifecycleState.LoadingRaid
             && current.RaidId != displacedRaidId)
         {
             // Another raid began while this one was still open, so the game never reported its
             // end: the process died, or the machine did. Its row used to stay open until the next
-            // restart swept it up, with Debrief showing it in progress all the while.
+            // restart swept it up, with Debrief showing it in progress all the while. A scene for
+            // another map goes through LoadingRaid with no raid id yet, and the next step starts
+            // from LoadingRaid, so this is the only moment the old raid can be closed (#937).
             commands.Add(NotReported(displacedRaidId, previous, evidence.ObservedUtc, RebasedStart(displacedRaidId, previous)));
         }
     }

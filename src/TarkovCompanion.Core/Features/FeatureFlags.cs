@@ -83,6 +83,17 @@ public static class Flag
         OnInStable: false,
         NeedsRestart: true);
 
+    /// <summary>[#712 0-9] The brief the Raid panel shows while the game log says matching or loading.</summary>
+    public static readonly FeatureFlagDefinition PreRaidBrief = new(
+        "preraid-brief",
+        "Pre-raid brief",
+        "The Raid panel's brief while you match. Off keeps the usual cards.",
+        OwnerIssue: 712,
+        OnInDev: true,
+        OnInRough: true,
+        OnInStable: false,
+        NeedsRestart: false);
+
     /// <summary>[#712 0-4] The Now panel in place of the Raid plan card stack; the cards move to More.</summary>
     public static readonly FeatureFlagDefinition NowPanel = new(
         "now-panel",
@@ -95,7 +106,7 @@ public static class Flag
         // Read whenever the Raid page's right column is laid out, so a switch in Setup applies at once.
         NeedsRestart: false);
 
-    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, NowPanel];
+    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, PreRaidBrief, NowPanel];
 }
 
 /// <summary>Whether a feature is on for this run.</summary>

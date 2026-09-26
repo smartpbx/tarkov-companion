@@ -557,6 +557,53 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         return true;
     }
 
+    /// <remarks>
+    /// #937: a manual batch whose last picture could not be admitted has nothing left to close its
+    /// session, and cancelling it threw away the reviews of every picture already accepted.
+    /// </remarks>
+    public bool EndWhenIdle(CaptureSessionId sessionId, string origin)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(origin);
+        EventHandler? changed;
+        lock (_gate)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var session) || session.IsTerminal || session.CancellationRequested)
+            {
+                return false;
+            }
+
+            if (_armedSessionId == sessionId)
+            {
+                _armedSessionId = null;
+            }
+
+            if (_claimedIntentSessionId == sessionId)
+            {
+                _claimedIntentSessionId = null;
+            }
+
+            session.RequestTerminal(CaptureSessionStage.Complete);
+            if (session.ActiveCaptureCount == 0 && session.PendingTerminalStage is { } stage)
+            {
+                session.AppendSession(
+                    stage,
+                    _timeProvider.GetUtcNow(),
+                    stage switch
+                    {
+                        CaptureSessionStage.Complete => "session_complete",
+                        CaptureSessionStage.Failed => "session_failed",
+                        _ => "session_cancelled",
+                    });
+                PruneSessionsUnsafe();
+            }
+
+            changed = _changed;
+        }
+
+        Notify(changed);
+        return true;
+    }
+
     public async ValueTask DisposeAsync()
     {
         lock (_gate)

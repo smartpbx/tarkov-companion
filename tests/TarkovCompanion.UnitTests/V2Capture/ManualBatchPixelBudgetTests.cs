@@ -135,6 +135,55 @@ public sealed class ManualBatchPixelBudgetTests
         Assert.Equal(3, session.Artifacts.Length);
     }
 
+    /// <summary>#937: a session with nothing left to close it ends once its accepted pictures are reviewed, and keeps them.</summary>
+    [Fact]
+    public async Task EndingWhenIdleKeepsThePicturesAlreadyAccepted()
+    {
+        await using var coordinator = new CaptureSessionCoordinator(
+            new InlineCaptureWorkScheduler(),
+            new ReadsAsStash(),
+            new AcceptingHandoff(),
+            Origin,
+            TimeProvider.System,
+            new CaptureSessionOptions(maximumRetainedPixelBytes: 8 * FrameBytes));
+        coordinator.ReviewRequested += (_, request) => coordinator.TryReview(
+            request.Review.SessionId,
+            request.Review.ArtifactId,
+            request.Review.DecodeRevision,
+            CaptureReviewAction.UseDetected,
+            "test-user");
+        var sessionId = new CaptureSessionId(Guid.NewGuid());
+        var now = TimeProvider.System.GetUtcNow();
+        Assert.True(coordinator.Arm(new(
+            new(sessionId, ScanIntent.Stash, Origin, now, Context.ActiveProfile, Context.ActiveMap, now.AddMinutes(1)),
+            Context,
+            new("hold_screen", "Hold the requested screen steady."))).Accepted);
+        foreach (var frame in Frames(2))
+        {
+            var receipt = await coordinator.EnqueueAsync(
+                new(
+                    CaptureDeliveryKind.Batch,
+                    new MemoryCaptureSource(frame.Image!, CaptureSourceKind.UserSelectedImage),
+                    Context,
+                    TimeProvider.System.GetUtcNow(),
+                    CaptureCorrelationId.New(),
+                    sessionId,
+                    endSessionAfterReview: false,
+                    "batch-937"),
+                CancellationToken.None);
+            Assert.Equal(CaptureQueueDisposition.Accepted, receipt.Disposition);
+        }
+
+        Assert.True(coordinator.EndWhenIdle(sessionId, "test"));
+
+        var session = await TerminalAsync(coordinator, sessionId);
+        Assert.False(session.CancellationRequested);
+        Assert.Equal(CaptureSessionStage.Complete, session.Snapshot.Progress[^1].Stage);
+        Assert.Equal(2, session.Artifacts.Length);
+        Assert.All(session.Artifacts, artifact => Assert.Equal(CaptureArtifactDisposition.Accepted, artifact.Disposition));
+        Assert.False(coordinator.EndWhenIdle(sessionId, "test"));
+    }
+
     private static async Task<CaptureSessionState> TerminalAsync(CaptureSessionCoordinator coordinator, CaptureSessionId sessionId)
     {
         var deadline = DateTime.UtcNow.AddSeconds(20);

@@ -25,7 +25,7 @@ public sealed class RaidHistoryExportTests
         Assert.Equal(
             "id,profile_id,map_id,mode,start_local,end_local,outcome,notes,schema_version,map_source,mode_source,"
                 + "start_source,end_source,outcome_source,notes_source,scans,scans_recognised,pmc_kills,scav_kills,"
-                + "boss_kills,value_roubles,pmc_kills_source,scav_kills_source,boss_kills_source,value_roubles_source,wipe",
+                + "boss_kills,value_roubles,pmc_kills_source,scav_kills_source,boss_kills_source,value_roubles_source,wipe,outcome_recorded_local",
             lines[0].TrimEnd('\r'));
         Assert.Equal(RaidHistoryExport.CsvColumns, lines[0].TrimEnd('\r').Split(','));
         Assert.StartsWith("id,profile_id,map_id,mode,start_local,end_local,outcome,notes,", lines[0], StringComparison.Ordinal);
@@ -40,7 +40,7 @@ public sealed class RaidHistoryExportTests
         var header = RaidHistoryExport.CsvColumns.ToList();
         string Cell(string column) => row[header.IndexOf(column)];
 
-        Assert.Equal("4", Cell("schema_version"));
+        Assert.Equal("5", Cell("schema_version"));
         Assert.Equal("customs", Cell("map_id"));
         Assert.Equal("observed", Cell("map_source"));
         Assert.Equal("inferred", Cell("mode_source"));
@@ -130,7 +130,7 @@ public sealed class RaidHistoryExportTests
 
         using var document = JsonDocument.Parse(stream.ToArray());
         var root = document.RootElement;
-        Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(5, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(exported, root.GetProperty("exportedUtc").GetDateTimeOffset());
         var raid = Assert.Single(root.GetProperty("raids").EnumerateArray());
         Assert.Equal("customs", raid.GetProperty("mapId").GetString());
@@ -221,6 +221,28 @@ public sealed class RaidHistoryExportTests
         Assert.Null(RaidScanFact.TryParse("not json"));
         Assert.Null(RaidScanFact.TryParse("[]"));
         Assert.Null(RaidScanFact.TryParse("{}"));
+    }
+
+    [Fact]
+    public async Task The_outcome_carries_when_the_player_entered_it_and_is_empty_where_they_did_not()
+    {
+        using var pin = TarkovCompanion.UnitTests.PlayerTime.PlayerClock.Pin();
+        var answered = Record(outcome: "Survived") with { OutcomeRecordedUtc = Start.AddMinutes(25) };
+        var text = await Csv([answered, Record()]);
+
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var header = RaidHistoryExport.CsvColumns.ToList();
+        var first = Cells(lines[1].TrimEnd('\r'));
+        Assert.Equal("manual", first[header.IndexOf("outcome_source")]);
+        Assert.Equal(LocalTime.SortableSeconds(Start.AddMinutes(25)), first[header.IndexOf("outcome_recorded_local")]);
+        Assert.Equal(string.Empty, Cells(lines[2].TrimEnd('\r'))[header.IndexOf("outcome_recorded_local")]);
+
+        await using var stream = new MemoryStream();
+        await RaidHistoryExport.WriteJsonAsync(stream, [answered, Record()], Start, CancellationToken.None);
+        using var document = JsonDocument.Parse(stream.ToArray());
+        var raids = document.RootElement.GetProperty("raids");
+        Assert.Equal(Start.AddMinutes(25), raids[0].GetProperty("outcomeRecorded").GetDateTimeOffset());
+        Assert.Equal(JsonValueKind.Null, raids[1].GetProperty("outcomeRecorded").ValueKind);
     }
 
     private static async Task<string> Csv(IReadOnlyList<RaidExportRecord> records)

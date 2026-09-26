@@ -121,6 +121,18 @@ public sealed class RaidCockpitArtworkAndFloorsTests
         string expected) =>
         Assert.Equal(expected, RaidCockpitViewModel.StackArtworkStepFor(wantsStack, hasChoice, prefersDrawing, chosenOn, location).ToString());
 
+    /// <summary>
+    /// #938: the drawing Stack borrows belongs to that map and that session alone. It shows on the
+    /// map it was borrowed on (however the map's id is cased), and nowhere else.
+    /// </summary>
+    [Theory]
+    [InlineData("customs", "customs", true)]
+    [InlineData("Customs", "customs", true)]
+    [InlineData("customs", "interchange", false)]
+    [InlineData(null, "customs", false)]
+    public void The_stacks_borrowed_drawing_shows_on_its_own_map_only(string? borrowedOn, string location, bool expected) =>
+        Assert.Equal(expected, MapViewModel.IsStackDrawingOn(borrowedOn, location));
+
     [Fact]
     public void Automatic_floor_selection_says_what_it_did_or_why_it_could_not()
     {

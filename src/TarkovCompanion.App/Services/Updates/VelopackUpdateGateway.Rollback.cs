@@ -51,7 +51,11 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
 {
     private readonly IVelopackLocator? _locator;
     private readonly Lazy<IUpdateFeedTransport> _transport;
-    private UpdateManager? _applyManager;
+    // Going back's own verified build, updater and pin, apart from the forward update's (#937):
+    // they used to share _verified, so a failed fetch of the older build left "Update ready ·
+    // Restart" with nothing to apply, and a fetched one would have been applied by "Update now".
+    private VelopackAsset? _rollbackVerified;
+    private UpdateManager? _rollbackManager;
     private UpdatePin? _pendingPin;
     private string? _pendingHost;
     private string? _installedFeedSha256;
@@ -134,9 +138,12 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
             return new(SetupText.UpdateNothingToGoBackTo);
         }
 
-        _verified = null;
-        _applyManager = null;
+        _rollbackVerified = null;
+        _rollbackManager = null;
         _pendingPin = null;
+        // The updater empties packages\ when it downloads, so the newer build fetched for "Update
+        // ready" is gone whatever happens next (measured, #937): forward has to download it again.
+        _verified = null;
         try
         {
             IUpdateFeedTransport inner = target.Source == RollbackSource.Feed
@@ -157,8 +164,8 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
 
             await downgrade.DownloadUpdatesAsync(info, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
-            _verified = info.TargetFullRelease;
-            _applyManager = downgrade;
+            _rollbackVerified = info.TargetFullRelease;
+            _rollbackManager = downgrade;
             _pendingHost = target.Source == RollbackSource.KeptCopy ? "kept copy on this PC" : null;
             _pendingPin = UpdateRollbackRules.PinFor(target.Version, offer.Installed, offer.LatestInFeed, DateTimeOffset.UtcNow);
             _logger?.LogInformation("Going back from {Installed} to {Target}, from the {Source}", offer.Installed, target.Version, target.Source);
@@ -174,6 +181,18 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
             _logger?.LogWarning(exception, "Could not fetch {Target} to go back to", target.Version);
             return new(SetupText.UpdateCouldNotFetch(target.Version, exception.Message), Failed: true);
         }
+    }
+
+    /// <summary>Hands the older build fetched by <see cref="DownloadPreviousAsync"/> to the updater, as a downgrade.</summary>
+    /// <exception cref="InvalidOperationException">No older build has been fetched and checked.</exception>
+    void IUpdateRollback.ApplyAndRestart()
+    {
+        if (_rollbackVerified is not { } update || _rollbackManager is not { } manager)
+        {
+            throw new InvalidOperationException(SetupText.UpdateNothingToGoBackTo);
+        }
+
+        Apply(update, manager, wentBack: true);
     }
 
     public void ResumeUpdates()
@@ -304,7 +323,7 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
     }
 
     /// <summary>Remembers what is being handed over, and the pin when it is a step back.</summary>
-    private void RecordApply(VelopackAsset update)
+    private void RecordApply(VelopackAsset update, bool wentBack)
     {
         if (State is not { } store)
         {
@@ -313,7 +332,6 @@ public sealed partial class VelopackUpdateGateway : IUpdateRollback
 
         try
         {
-            var wentBack = _applyManager is not null;
             var host = (wentBack ? _pendingHost : null) ?? UpdateProvenanceText.HostOf(Channel.Feed);
             store.Write(store.Read() with
             {

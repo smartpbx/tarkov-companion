@@ -126,6 +126,22 @@ public sealed class NowPanelHostTests
     }
 
     [Fact]
+    public void While_the_pre_raid_brief_shows_it_is_the_Now_panel_and_the_blocks_come_back_at_the_raid()
+    {
+        var brief = new PreRaidBriefViewModel();
+        using var panel = new NowPanelViewModel(null, tick: false) { Brief = brief };
+        Assert.False(panel.ShowsBrief);
+        Assert.True(panel.ShowsBlocks);
+
+        brief.Show(TarkovCompanion.App.ViewModels.V2.Raid.PreRaidBrief.Hidden with { IsShown = true, Title = "Customs" });
+        Assert.True(panel.ShowsBrief);
+        Assert.False(panel.ShowsBlocks);
+
+        brief.Show(TarkovCompanion.App.ViewModels.V2.Raid.PreRaidBrief.Hidden);
+        Assert.True(panel.ShowsBlocks);
+    }
+
+    [Fact]
     public void The_last_phase_change_reason_is_the_because_line()
     {
         using var scope = NowPanelStateTests.English();

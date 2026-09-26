@@ -120,7 +120,7 @@ public sealed class PairedDeviceResumeService : IDisposable
                 {
                     await RefuseAsync(
                         ticket,
-                        exception is UnauthorizedAccessException ? NotRecognised : Failed).ConfigureAwait(false);
+                        exception is DeviceNotRecognisedException ? NotRecognised : Failed).ConfigureAwait(false);
                 }
             }
             finally
@@ -187,7 +187,7 @@ public sealed class PairedDeviceResumeService : IDisposable
             if (request.DeviceKey.KeyId != known.DeviceKey.KeyId ||
                 !string.Equals(request.DeviceKey.CosePublicKeyBase64Url, known.DeviceKey.CosePublicKeyBase64Url, StringComparison.Ordinal))
             {
-                throw new UnauthorizedAccessException("The resume request names another device key.");
+                throw new DeviceNotRecognisedException("The resume request names another device key.");
             }
 
             await _coordinator.AcknowledgeRelayResolvedCodeAsync(attemptId, Now(), cancellationToken).ConfigureAwait(false);
@@ -247,6 +247,18 @@ public sealed class PairedDeviceResumeService : IDisposable
             throw;
         }
     }
+
+    /// <summary>
+    /// The one failure that means the tablet is not this desktop's: the key that answered is not
+    /// the key on record.
+    /// </summary>
+    /// <remarks>
+    /// [#936] Every UnauthorizedAccessException used to be refused as not-recognised, and the tablet
+    /// deletes its remembered desktop on that word. The coordinator throws the same type for an
+    /// attempt it pruned at the offer's deadline, so a slow tablet answering on the edge was told
+    /// to forget a pairing that was still good. Anything else is "failed", which it keeps.
+    /// </remarks>
+    private sealed class DeviceNotRecognisedException(string message) : UnauthorizedAccessException(message);
 
     // The wire words of RelayResumeRefusals on the relay; this project does not reference it.
     private const string NotRecognised = "not-recognised";

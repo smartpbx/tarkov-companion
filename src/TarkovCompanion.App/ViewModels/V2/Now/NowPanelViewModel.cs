@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using TarkovCompanion.App.Localization;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Situations;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Situations;
@@ -30,6 +31,7 @@ public sealed class NowPanelViewModel : BindableViewModel, IDisposable
     private IReadOnlyList<NowExit> _exits = [];
     private NowLootVerdict? _verdict;
     private NowPanelState _state = new();
+    private PreRaidBriefViewModel? _brief;
     private bool _disposed;
 
     public NowPanelViewModel(SituationService? situation, TimeProvider? clock = null, Action<Action>? post = null, bool tick = true)
@@ -64,6 +66,41 @@ public sealed class NowPanelViewModel : BindableViewModel, IDisposable
     /// on that member's side (#712 T3 "direction-aware attention"). The row itself pulses already.
     /// </summary>
     public event EventHandler<NowSquadRowViewModel>? SquadPulsed;
+
+    /// <summary>
+    /// [#712 0-9] The pre-raid brief: while it is shown (matching or loading, its own flag on) the
+    /// panel is the brief, and the blocks take over at GameStarted.
+    /// </summary>
+    public PreRaidBriefViewModel? Brief
+    {
+        get => _brief;
+        set
+        {
+            if (ReferenceEquals(_brief, value))
+            {
+                return;
+            }
+
+            if (_brief is not null)
+            {
+                _brief.PropertyChanged -= BriefChanged;
+            }
+
+            _brief = value;
+            if (_brief is not null)
+            {
+                _brief.PropertyChanged += BriefChanged;
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowsBrief));
+            OnPropertyChanged(nameof(ShowsBlocks));
+        }
+    }
+
+    public bool ShowsBrief => _brief?.IsShown == true;
+
+    public bool ShowsBlocks => !ShowsBrief;
 
     /// <summary>Sends a ping at a squadmate's last shared spot; null where there is no squad session.</summary>
     public Func<string, CancellationToken, Task<bool>>? PingMember { get; set; }
@@ -164,6 +201,15 @@ public sealed class NowPanelViewModel : BindableViewModel, IDisposable
         foreach (var row in SquadRows)
         {
             row.Dispose();
+        }
+    }
+
+    private void BriefChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is null or nameof(PreRaidBriefViewModel.IsShown))
+        {
+            OnPropertyChanged(nameof(ShowsBrief));
+            OnPropertyChanged(nameof(ShowsBlocks));
         }
     }
 

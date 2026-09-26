@@ -1013,8 +1013,13 @@
       <Panel IsVisible="{Binding NowHost.ShowsNowPanel}" Margin="0,4,16,16">
         <nowView:NowPanelView DataContext="{Binding NowHost.Panel}" />
       </Panel>
+      <!-- [#712 0-9] While the log says matching or loading, the brief stands in for the cards
+           (with the Now panel on, the Now panel hosts it instead). -->
+      <Panel IsVisible="{Binding ShowsColumnBrief}">
+        <raid:PreRaidBriefView DataContext="{Binding PreRaidBrief}" />
+      </Panel>
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
-      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding NowHost.ShowsCardStack}">
+      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding ShowsCardScroll}">
         <prim:StagedStack Spacing="12" Margin="16,12,16,16">
           <Button Classes="v2-target v2-outline" HorizontalAlignment="Left" IsVisible="{Binding NowHost.IsMoreOpen}"
                   Command="{Binding NowHost.CloseMoreCommand}" AutomationProperties.AutomationId="v2-now-back">

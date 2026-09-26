@@ -224,6 +224,96 @@ public sealed class RelayOwnerAdminTests
     }
 
     [Fact]
+    public async Task A_removed_desktop_that_flips_sharing_off_and_on_inside_one_tick_rejoins()
+    {
+        // [#936] Off and on again before the loop ever read the switch as off: no DELETE went,
+        // the removal never lifted, and every POST after was refused for thirty minutes.
+        await using var relay = await AdminRelay.StartAsync();
+        using var http = new HttpClient();
+        var state = new RuntimeStateStore(new RuntimeOptions(false, Offline: true, GameMode.Regular, "en", TimeSpan.FromHours(9), TimeSpan.FromMinutes(5)));
+        var settings = new FixedSettings(relay.Address, "Alpha");
+        await using var alpha = new GroupSessionService(settings, state, http, NullLogger<GroupSessionService>.Instance);
+        alpha.Start();
+        Assert.True(await UntilAsync(() => state.Current.Group.IsSharing), "Alpha should reach the relay.");
+        await new RelayAdminClient(relay.OwnerSender).RemoveMemberAsync(Room, "Alpha", CancellationToken.None);
+        Assert.True(await UntilAsync(() => Equals(state.Current.Group.Status?.Code, GroupStatus.RemovedByOwner)));
+
+        settings.Saved();
+        settings.Saved();
+
+        Assert.True(await UntilAsync(() => state.Current.Group.IsSharing), $"Alpha should be back, not '{state.Current.Group.Status?.Code}'.");
+        Assert.False(relay.Moderation.IsRemoved(Room, "Alpha"));
+    }
+
+    [Fact]
+    public async Task Cleared_lines_stay_cleared_while_the_drawer_briefly_stops_sending_them()
+    {
+        // [#936] A line set to Just me, or pushed out by newer lines, drops out of the publish
+        // while it is still live. The clear used to be forgotten then, and the line came back.
+        await using var relay = await AdminRelay.StartAsync();
+        await relay.PublishAsync("Alpha", Line("a-1"), Line("a-2"));
+        Assert.Equal(2, await relay.PostOutcomeAsync($"admin/owner/rooms/{Room}/drawings/clear"));
+
+        await relay.PublishAsync("Alpha", Line("a-3"));
+        await relay.PublishAsync("Alpha");
+        await relay.PublishAsync("Alpha", Line("a-1"), Line("a-2"), Line("a-3"));
+
+        Assert.Equal(["a-3"], LineIds(await relay.PublishAsync("Carol")));
+    }
+
+    [Fact]
+    public void A_clear_racing_a_publish_still_keeps_the_members_lines_off()
+    {
+        // [#936] The member's publish lands between the read and the swap. The swap lost, no ids
+        // were recorded, and the lines stayed on every map and out of the count.
+        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
+        var rooms = new GroupRooms(clock);
+        var moderation = new GroupRoomModeration(clock);
+        rooms.Publish(Room, "Alpha", Member("a-1"));
+        var raced = false;
+
+        var taken = rooms.TakeDrawings(Room, null, (name, ids) =>
+        {
+            moderation.Clear(Room, name, ids);
+            if (!raced)
+            {
+                raced = true;
+                rooms.Publish(Room, "Alpha", Member("a-1", "a-2"));
+            }
+        });
+
+        Assert.Equal(["a-1", "a-2"], taken["Alpha"].Order(StringComparer.Ordinal));
+        Assert.Equal(0, rooms.AdminSnapshot()[Room].Single().Drawings);
+        Assert.Null(moderation.Filter(Room, Member("a-1", "a-2")).Drawings);
+    }
+
+    [Fact]
+    public async Task One_failed_owner_status_read_leaves_the_admin_panel_and_its_refresh_up()
+    {
+        // [#936] Any doubt read as "not the owner", and the panel hid itself, Refresh included.
+        await using var relay = await AdminRelay.StartAsync();
+        var failNext = false;
+        var client = new RelayAdminClient((method, path, token) => failNext && path.Contains("admin-status", StringComparison.Ordinal)
+            ? Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))
+            : relay.OwnerSender(method, path, token));
+        var panel = new TarkovCompanion.App.ViewModels.V2.Team.RelayAdminPanelViewModel(client);
+        await panel.RefreshAsync(CancellationToken.None);
+        Assert.True(panel.IsRelayOwner);
+
+        failNext = true;
+        await panel.RefreshAsync(CancellationToken.None);
+        Assert.True(panel.IsRelayOwner);
+        Assert.True(panel.HasStatus);
+
+        // A definite answer still hides it.
+        var squadmate = new RelayAdminClient((_, _, _) => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.Unauthorized)));
+        var other = new TarkovCompanion.App.ViewModels.V2.Team.RelayAdminPanelViewModel(squadmate);
+        await other.RefreshAsync(CancellationToken.None);
+        Assert.False(other.IsRelayOwner);
+        Assert.Null(await new RelayAdminClient((_, _, _) => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.TooManyRequests))).IsRelayOwnerAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task The_desktop_client_reads_a_relay_from_before_the_controls_as_unsupported()
     {
         var client = new RelayAdminClient((_, _, _) => Task.FromResult<HttpResponseMessage?>(new HttpResponseMessage(HttpStatusCode.NotFound)));
@@ -342,6 +432,14 @@ public sealed class RelayOwnerAdminTests
             app.MapGroupRoomState(rooms, marks, changes, moderation);
             app.MapRelayCompanionRoutes(directory, recovery, new RelayOwnerClaimGate(clock));
             app.MapRelayOwnerAdmin(directory, rooms, marks, changes, moderation);
+            // What Program.cs serves for DELETE /state/{name}, the goodbye that lifts a removal.
+            app.MapDelete("/state/{name}", (string name, Microsoft.AspNetCore.Http.HttpRequest request) =>
+            {
+                var room = GroupKey.RoomFor(request.Headers["X-Group-Key"].ToString());
+                rooms.Remove(room, name);
+                moderation.Left(room, name);
+                return Microsoft.AspNetCore.Http.Results.Ok();
+            });
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri(app.Urls.First().TrimEnd('/') + "/") };
             return new AdminRelay(app, recovery, client, owner.Value!, squadmate.Value!, rooms, marks, moderation);
@@ -424,8 +522,19 @@ public sealed class RelayOwnerAdminTests
         }
     }
 
+    private static GroupMemberState Member(params string[] lines) =>
+        new("Alpha", "customs", "InRaid", null, null, null, null, null, [], [])
+        {
+            Drawings = [.. lines.Select(id => new GroupDrawingState(id, "customs", [1.0, 2.0, 3.0, 4.0]))],
+        };
+
     private sealed class FixedSettings(string address, string name) : IGroupSettingsStore
     {
+        public event EventHandler? Changed;
+
+        /// <summary>What a save of the switch raises, the stored value unchanged.</summary>
+        public void Saved() => Changed?.Invoke(this, EventArgs.Empty);
+
         public Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new GroupSharingSettings(true, address, name, Key, false, false));
 

@@ -508,8 +508,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// <summary>Why the floors could not be stacked, when the reason is actionable.</summary>
     private string _stackRefusal = string.Empty;
 
-    /// <summary>[#923] The map whose photograph the Stack button swapped for the drawing, if any.</summary>
-    private string? _drawingChosenForStack;
     private readonly PacedDispatch _rebuildRequest;
     private bool _disposed;
 
@@ -1279,7 +1277,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         // [Issue 571] A right-click that hit a quest objective's pin, not one of our own marks:
         // the pin's "right-click menu" is Done/Not done, one gesture same as removing a mark is.
-        if (_handDone is not null && TryParseObjectiveId(objectId, out var objectiveId))
+        // #938: never a squadmate's pin; that objective is not ours to mark done or not done.
+        if (_handDone is not null && !IsSquadObjective(objectId) && TryParseObjectiveId(objectId, out var objectiveId))
         {
             ToggleObjectiveDone(objectiveId);
         }
@@ -3420,6 +3419,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// a flat plan. So a press on a photograph now loads the drawing too, and a press on "2D"
     /// puts the photograph back if the stack is what took it away. A map with no drawing at all
     /// never gets here: the scene offers no stack for it (FloorStackUnavailableReason).
+    ///
+    /// #938: the drawing is borrowed through <see cref="MapViewModel.ShowDrawingForStackAsync"/>,
+    /// which never saves it as the map's artwork, so a restart or a 2D press on another map leaves
+    /// the player's own choice in place.
     /// </remarks>
     private void ApplyStackChoice(bool wantsStack)
     {
@@ -3429,20 +3432,20 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         }
 
         var locationId = _map.SelectedLocation?.Id ?? _map.RenderModel?.Location.Id;
-        var step = StackArtworkStepFor(wantsStack, _map.HasArtworkChoice, _map.PrefersDrawing, _drawingChosenForStack, locationId);
-        if (!wantsStack)
-        {
-            _drawingChosenForStack = null;
-        }
-
+        var step = StackArtworkStepFor(wantsStack, _map.HasArtworkChoice, _map.PrefersDrawing, _map.StackDrawingLocationId, locationId);
         switch (step)
         {
             case StackArtworkStep.ChooseDrawing:
-                _drawingChosenForStack = locationId;
-                _map.ToggleArtworkAsync().Observe("raid", "load the drawing for the floor stack");
+                // #938: borrowed for the session, never saved as the map's artwork.
+                _map.ShowDrawingForStackAsync().Observe("raid", "load the drawing for the floor stack");
                 break;
             case StackArtworkStep.RestorePhoto:
-                _map.ToggleArtworkAsync().Observe("raid", "put the photograph back after the floor stack");
+                _map.EndStackDrawingAsync().Observe("raid", "put the photograph back after the floor stack");
+                break;
+            case StackArtworkStep.None when !wantsStack:
+                // A borrow left on another map ends too, so that map reopens on its own artwork.
+                _map.EndStackDrawingAsync().Observe("raid", "forget the floor stack's drawing");
+                _rebuildRequest.Request();
                 break;
             default:
                 // The flag alone does not rebuild the scene; the plates arrive with the next build.

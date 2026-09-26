@@ -113,6 +113,46 @@ public sealed class ManualImageIntakeBatchTests
         Assert.All(pixels[2], value => Assert.Equal(0, value));
     }
 
+    /// <summary>
+    /// #937: the last picture refused for want of room (a game screenshot took the slot) is tried
+    /// again, and the session is not cancelled with the pictures already accepted in it.
+    /// </summary>
+    [Fact]
+    public async Task ALastPictureRefusedForWantOfRoomIsTriedAgain()
+    {
+        await using var sessions = new RecordingSessions(
+            disposition: call => call == 3 ? CaptureQueueDisposition.Rejected : CaptureQueueDisposition.Accepted,
+            code: _ => "capture_queue_full");
+        var intake = new ManualImageIntake(sessions, new NoFiles(), new FixedContextSource());
+
+        var outcome = await intake.SubmitBatchAsync(Inputs(3), ManualImageOrigin.Drop, "batch-retry", SessionId, _ => { }, CancellationToken.None);
+
+        Assert.Equal(new ManualImageBatchOutcome(3, 0, 0), outcome);
+        Assert.Equal(4, sessions.Submissions.Count);
+        Assert.True(sessions.Submissions[3].EndSessionAfterReview);
+        var retried = await sessions.Submissions[3].Source.ReadAsync(CancellationToken.None);
+        Assert.All(retried.Pixels!.Image.Pixels.ToArray(), value => Assert.Equal(3, value));
+        retried.Pixels.Dispose();
+        Assert.Equal(0, sessions.CancelCalls);
+    }
+
+    /// <summary>#937: refused again, the last picture fails alone and the session ends when the accepted ones are reviewed.</summary>
+    [Fact]
+    public async Task ALastPictureRefusedTwiceFailsAloneAndKeepsTheAcceptedOnes()
+    {
+        await using var sessions = new RecordingSessions(
+            disposition: call => call >= 3 ? CaptureQueueDisposition.Rejected : CaptureQueueDisposition.Accepted,
+            code: _ => "decoded_pixel_budget_exceeded");
+        var intake = new ManualImageIntake(sessions, new NoFiles(), new FixedContextSource());
+
+        var outcome = await intake.SubmitBatchAsync(Inputs(3), ManualImageOrigin.Drop, "batch-refused", SessionId, _ => { }, CancellationToken.None);
+
+        Assert.Equal(new ManualImageBatchOutcome(2, 1, 0), outcome);
+        Assert.Equal(4, sessions.Submissions.Count);
+        Assert.Equal(0, sessions.CancelCalls);
+        Assert.Equal(1, sessions.EndWhenIdleCalls);
+    }
+
     private static IReadOnlyList<ManualImageInput> Inputs(int count) =>
         Inputs(Enumerable.Range(1, count).Select(index =>
             Enumerable.Repeat(checked((byte)index), 16).ToArray()).ToArray());
@@ -144,8 +184,17 @@ public sealed class ManualImageIntakeBatchTests
 
     private sealed class RecordingSessions(
         Action? afterAdmission = null,
-        Func<int, CaptureQueueDisposition>? disposition = null) : ICaptureSessionService
+        Func<int, CaptureQueueDisposition>? disposition = null,
+        Func<int, string>? code = null) : ICaptureSessionService
     {
+        public int EndWhenIdleCalls { get; private set; }
+
+        public bool EndWhenIdle(CaptureSessionId sessionId, string origin)
+        {
+            EndWhenIdleCalls++;
+            return true;
+        }
+
         public List<CaptureSubmission> Submissions { get; } = [];
 
         public int CancelCalls { get; private set; }
@@ -178,7 +227,7 @@ public sealed class ManualImageIntakeBatchTests
                 result,
                 submission.CorrelationId,
                 submission.SubmittedUtc,
-                result == CaptureQueueDisposition.Accepted ? "queued" : "queue_full"));
+                result == CaptureQueueDisposition.Accepted ? "queued" : code?.Invoke(Submissions.Count) ?? "queue_full"));
         }
 
         public bool TryReview(

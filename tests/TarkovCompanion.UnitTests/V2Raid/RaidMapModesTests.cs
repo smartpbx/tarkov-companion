@@ -52,6 +52,37 @@ public sealed class RaidMapModesTests
         Assert.Equal(1, route.Add(new MapPoint(0, 0))!.Step);
     }
 
+    /// <summary>
+    /// #938: Undo then a new click reuses step 3 under the same route id. The undone click's bind
+    /// used to remove whatever sat under (route, 3), which was the new click's placement, so the
+    /// new mark was never bound and stayed on the map after Undo or Clear.
+    /// </summary>
+    [Fact]
+    public void An_undone_stops_late_bind_does_not_take_the_next_clicks_placement()
+    {
+        var route = new PlannedRoute();
+        route.Add(new MapPoint(0, 0));
+        route.Add(new MapPoint(10, 0));
+        var placements = new Dictionary<(Guid Route, int Step), object>();
+        var undone = new object();
+        var third = route.Add(new MapPoint(20, 0))!;
+        placements[(route.RouteId, third.Step)] = undone;
+
+        // Undo drops the pending entry (the cockpit's RemovePlacement), and the next click takes the same step.
+        route.Undo();
+        placements.Remove((route.RouteId, third.Step));
+        var again = route.Add(new MapPoint(30, 0))!;
+        Assert.Equal(third.Step, again.Step);
+        var fresh = new object();
+        placements[(route.RouteId, again.Step)] = fresh;
+
+        // The undone placement finishes first: it binds nothing and leaves the new one pending.
+        Assert.False(RaidCockpitViewModel.TakePlacement(placements, (route.RouteId, again.Step), undone));
+        Assert.Same(fresh, placements[(route.RouteId, again.Step)]);
+        Assert.True(RaidCockpitViewModel.TakePlacement(placements, (route.RouteId, again.Step), fresh));
+        Assert.Empty(placements);
+    }
+
     [Fact]
     public void A_stop_whose_mark_went_leaves_the_route_and_a_pending_one_stays()
     {

@@ -91,6 +91,7 @@ public sealed class GalleryStateSceneTests
     [InlineData("inspect", GallerySceneKind.Inspect, false)]
     [InlineData("routestops", GallerySceneKind.RouteStops, false)]
     [InlineData("spawnlines", GallerySceneKind.SpawnLines, false)]
+    [InlineData("updatewaiting", GallerySceneKind.UpdateWaiting, false)]
     [InlineData("page", GallerySceneKind.Page, false)]
     public void The_gallery_names_each_scene_and_only_the_four_states_are_state_scenes(string name, GallerySceneKind kind, bool isState)
     {
