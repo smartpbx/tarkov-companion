@@ -90,6 +90,39 @@ internal static class NowPanelDemo
             Console.WriteLine($"Squad ping from {member.Name}: edge={(shell?.RaidCockpit as RaidCockpitViewModel)?.SquadEdge.Edge}");
         }
 
+        // [#712 2-4] --now-personal-demo: recorded raids with trails (a pace to measure) and five
+        // raids left by the second-nearest exit, then the panel reads its history again.
+        if (args.Contains("--now-personal-demo") && shell?.RaidCockpit is RaidCockpitViewModel personal &&
+            personal.NowHost.Panel is { } nowPanel)
+        {
+            void Drain(Task task)
+            {
+                for (var turn = 0; !task.IsCompleted && turn < 2000; turn++)
+                {
+                    pump(1);
+                }
+
+                task.GetAwaiter().GetResult();
+            }
+
+            PersonalPatternsDemo.Seed(services, Drain);
+            var second = nowPanel.Exits
+                .Where(exit => !exit.IsTransit && exit.Metres is not null)
+                .OrderBy(exit => exit.Metres)
+                .Skip(1)
+                .FirstOrDefault();
+            if (second is not null)
+            {
+                PersonalPatternsDemo.SeedExitUses(services, second.Name, 5, Drain);
+            }
+
+            nowPanel.ReloadPersonal();
+            pump(60);
+            Console.WriteLine($"Now personal: pace={nowPanel.Personal.Pace?.MetresPerSecond:0.00} uses={string.Join(",", nowPanel.Personal.ExitUses.Select(pair => $"{pair.Key}={pair.Value}"))} " +
+                $"exits={string.Join(",", nowPanel.Exits.Select(exit => $"{exit.Name}@{exit.Metres:0}{(exit.IsOffered ? "*" : string.Empty)}"))}");
+            Console.WriteLine($"Now personal: you='{nowPanel.State.YouExit}' note='{nowPanel.State.YouExitNote}' leave='{nowPanel.State.NowNote}' label='{nowPanel.State.LeaveEstimate}'");
+        }
+
         if (shell?.RaidCockpit is RaidCockpitViewModel shown)
         {
             Console.WriteLine($"Now panel: shown={shown.NowHost.ShowsNowPanel} phase={shown.NowHost.Panel?.Situation.Phase.Value} " +

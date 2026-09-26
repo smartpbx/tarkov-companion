@@ -192,7 +192,8 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
             return;
         }
 
-        var state = NowPanelState.Project(_situation, _clock.GetUtcNow(), _exits, _verdict, _leaveMargin);
+        RequestPersonal(); // [#712 2-4]
+        var state = NowPanelState.Project(_situation, _clock.GetUtcNow(), _exits, _verdict, _leaveMargin, _personal);
         UpdateSquad(state.Squad);
         State = state;
     }

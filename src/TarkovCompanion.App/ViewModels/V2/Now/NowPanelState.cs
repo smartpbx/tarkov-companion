@@ -1,6 +1,7 @@
 using System.Globalization;
 using TarkovCompanion.App.Localization;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Personal;
 using TarkovCompanion.Application.Services.Strategy.Prior;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Loot;
@@ -109,7 +110,10 @@ public sealed record NowPanelState
     /// <summary>[#712 0-6] The leave line is a model (walk pace, last screenshot): its label, shown with it.</summary>
     public bool HasLeaveEstimate => IsLate && HasNowNote;
 
-    public string LeaveEstimate => HasLeaveEstimate ? NowText.LeaveEstimate : string.Empty;
+    public string LeaveEstimate => HasLeaveEstimate ? NowText.LeaveEstimateFor(WalksAtYourPace) : string.Empty;
+
+    /// <summary>[#712 2-4] Walk minutes are the player's own measured pace, not the fixed careful one.</summary>
+    public bool WalksAtYourPace { get; init; }
 
     /// <summary>[#712 0-6] YOU's side "wrong?" chip: the side the raid is being read as.</summary>
     public string YouSide { get; init; } = string.Empty;
@@ -135,6 +139,15 @@ public sealed record NowPanelState
     public string YouExitNote { get; init; } = string.Empty;
 
     public bool HasYouExitNote => YouExitNote.Length > 0;
+
+    /// <summary>
+    /// [#712 2-4] YOU's exit note for the late-raid block: only "not seen on your extract list". The
+    /// leave line's own label says whose pace; why the exit was picked stays with YOU's exit line
+    /// (at 150% text in a maximised window, the longer note cost SQUAD its last line).
+    /// </summary>
+    public string LeaveExitNote { get; init; } = string.Empty;
+
+    public bool HasLeaveExitNote => LeaveExitNote.Length > 0;
 
     public bool ShowsSquad { get; init; }
 
@@ -221,13 +234,16 @@ public sealed record NowPanelState
         DateTimeOffset nowUtc,
         IReadOnlyList<NowExit>? exits = null,
         NowLootVerdict? verdict = null,
-        TimeSpan? leaveMargin = null)
+        TimeSpan? leaveMargin = null,
+        NowPersonal? personal = null)
     {
         ArgumentNullException.ThrowIfNull(situation);
+        personal ??= NowPersonal.None;
         var phase = situation.Phase.Value;
         var inRaid = phase == SituationPhase.InRaid;
         var raidStart = situation.Clock?.StartedUtc;
-        var exit = inRaid ? ChooseExit(exits) : null;
+        var pick = inRaid ? ChoosePersonalExit(exits, personal.ExitUses) : null;
+        var exit = pick?.Exit;
 
         // A verdict from before this raid started is the last raid's container, not this one's.
         var shownVerdict = verdict is not null && (!inRaid || raidStart is null || verdict.ReceivedUtc >= raidStart)
@@ -255,25 +271,38 @@ public sealed record NowPanelState
             ShowsScan = true,
             IsVerdictFocus = focus,
             YouSide = NowText.WrongSide(situation.Side?.Value ?? SituationSide.Unknown),
+            WalksAtYourPace = personal.IsYourPace,
         };
         state = state with { SquadLine = JoinSquad(state.Squad) };
-        state = WithNow(state, situation, nowUtc, exit, leaveMargin ?? LeaveMargin);
-        state = WithYou(state, situation.You, nowUtc, exit);
+        state = WithNow(state, situation, nowUtc, exit, leaveMargin ?? LeaveMargin, personal.Pace);
+        state = WithYou(state, situation.You, nowUtc, pick, personal.Pace);
         state = WithNext(state, situation.Next, situation.Then);
         return WithScan(state, situation.LastScan, shownVerdict, raidStart, nowUtc);
     }
 
     /// <summary>An offered exit first; else the nearest one, marked as not seen offered. Never a transit.</summary>
-    internal static NowExit? ChooseExit(IReadOnlyList<NowExit>? exits)
+    internal static NowExit? ChooseExit(IReadOnlyList<NowExit>? exits, IReadOnlyDictionary<string, int>? uses = null) =>
+        ChoosePersonalExit(exits, uses ?? NowPersonal.None.ExitUses)?.Exit;
+
+    /// <summary>
+    /// [#712 2-4] As <see cref="ChooseExit"/>, with the player's own use weighed in (PersonalExits):
+    /// an exit they used counts up to a quarter nearer, an offered exit still wins, nothing is hidden.
+    /// </summary>
+    internal static NowExitPick? ChoosePersonalExit(IReadOnlyList<NowExit>? exits, IReadOnlyDictionary<string, int> uses)
     {
         if (exits is null)
         {
             return null;
         }
 
-        var placed = exits.Where(exit => !exit.IsTransit && exit.Metres is { } metres && double.IsFinite(metres)).ToArray();
-        return placed.Where(exit => exit.IsOffered).MinBy(exit => exit.Metres)
-            ?? placed.MinBy(exit => exit.Metres);
+        var placed = exits.Where(exit => !exit.IsTransit && exit.Metres is { } metres && double.IsFinite(metres) && metres >= 0).ToArray();
+        var choices = placed.Select(exit => new ExitChoice(exit.Name, exit.Metres!.Value, exit.IsOffered)).ToArray();
+        if (PersonalExits.Choose(choices, uses) is not { } suggested)
+        {
+            return null;
+        }
+
+        return new(placed[Array.IndexOf(choices, suggested.Exit)], suggested.Uses, suggested.UsesDecided);
     }
 
     /// <summary>"20:57", or "1:02:03" past an hour: a raid clock as the game writes it.</summary>
@@ -285,7 +314,7 @@ public sealed record NowPanelState
             : string.Create(CultureInfo.InvariantCulture, $"{(int)value.TotalMinutes}:{value.Seconds:00}");
     }
 
-    private static NowPanelState WithNow(NowPanelState state, Situation situation, DateTimeOffset nowUtc, NowExit? exit, TimeSpan margin)
+    private static NowPanelState WithNow(NowPanelState state, Situation situation, DateTimeOffset nowUtc, NowExit? exit, TimeSpan margin, WalkPace? pace)
     {
         var phase = situation.Phase.Value;
         if (phase != SituationPhase.InRaid)
@@ -337,7 +366,7 @@ public sealed record NowPanelState
             state = state with { NowHeading = NowText.HeadingLateRaid, Tone = NowTone.Late };
             if (exit?.Metres is { } metres)
             {
-                var walk = Walk(metres);
+                var walk = Walk(metres, pace);
                 var leaveBy = LeaveBy(nowUtc, timeLeft, walk, margin);
                 return leaveBy <= nowUtc
                     ? state with { Tone = NowTone.Urgent, NowNote = NowText.LeaveNow(exit.Name, walk) }
@@ -383,20 +412,22 @@ public sealed record NowPanelState
         return string.Join(" · ", parts);
     }
 
-    private static NowPanelState WithYou(NowPanelState state, SituationYou? you, DateTimeOffset nowUtc, NowExit? exit)
+    private static NowPanelState WithYou(NowPanelState state, SituationYou? you, DateTimeOffset nowUtc, NowExitPick? pick, WalkPace? pace)
     {
         if (!state.ShowsYou)
         {
             return state;
         }
 
+        var exit = pick?.Exit;
         var exitText = exit?.Metres is { } metres
             ? (exit.IsOffered ? NowText.OfferedExit : (Func<string, string, int, string>)NowText.NearestExit)(
                 exit.Name,
                 Distance(metres, exit.Compass),
-                Walk(metres))
+                Walk(metres, pace))
             : string.Empty;
-        var exitNote = exitText.Length > 0 && exit is { IsOffered: false } ? NowText.ExitUnconfirmed : string.Empty;
+        var exitNote = exitText.Length > 0 ? ExitNote(pick!, pace is not null) : string.Empty;
+        var leaveExitNote = exitText.Length > 0 && exit is { IsOffered: false } ? NowText.ExitUnconfirmed : string.Empty;
         if (you is null)
         {
             return state with
@@ -422,6 +453,7 @@ public sealed record NowPanelState
             YouIsStale = age > YouGoesStale,
             YouExit = exitText,
             YouExitNote = exitNote,
+            LeaveExitNote = leaveExitNote,
         };
     }
 
@@ -532,9 +564,27 @@ public sealed record NowPanelState
     internal static DateTimeOffset LeaveBy(DateTimeOffset nowUtc, TimeSpan timeLeft, int walkMinutes, TimeSpan margin) =>
         nowUtc + timeLeft - TimeSpan.FromMinutes(walkMinutes) - (margin < TimeSpan.Zero ? TimeSpan.Zero : margin);
 
-    /// <summary>Minutes on foot at the careful pace, the suggested routes' own allowance for obstacles.</summary>
-    internal static int Walk(double metres) =>
-        Math.Max(1, (int)Math.Ceiling(metres * TrafficRoute.ObstacleAllowance / TrafficRoute.CarefulPace / 60));
+    /// <summary>
+    /// Minutes on foot: the player's own measured pace when there is one (#712 2-4), else the careful
+    /// pace with the suggested routes' own allowance for obstacles.
+    /// </summary>
+    internal static int Walk(double metres, WalkPace? pace = null) =>
+        Math.Max(1, (int)Math.Ceiling(PersonalPace.Seconds(metres, pace) / 60));
+
+    /// <summary>
+    /// YOU's exit note: "not seen on your extract list", why the player's own use changed the pick,
+    /// and "your pace" when the minutes are theirs. The fixed pace is the default and says nothing.
+    /// </summary>
+    private static string ExitNote(NowExitPick pick, bool yourPace)
+    {
+        string[] parts =
+        [
+            .. pick.Exit.IsOffered ? Array.Empty<string>() : [NowText.ExitUnconfirmed],
+            .. pick.UsesDecided && pick.Uses > 0 ? [NowText.ExitUsed(pick.Uses)] : Array.Empty<string>(),
+            .. yourPace ? [NowText.YourPace] : Array.Empty<string>(),
+        ];
+        return string.Join(" · ", parts);
+    }
 
     private static string Joined(string text, int before) => before > 0 ? "· " + text : text;
 

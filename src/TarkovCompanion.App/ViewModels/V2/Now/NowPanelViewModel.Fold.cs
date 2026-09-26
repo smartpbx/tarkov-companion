@@ -62,7 +62,7 @@ public sealed partial class NowPanelViewModel
     public int MoreLines => _fold >= 5 ? 1 : 0;
 
     /// <summary>The late-raid line names an exit the extract list never showed, and YOU's own note for it is hidden.</summary>
-    public bool ShowsLeaveExitNote => State.IsLate && State.HasNowNote && State.HasYouExitNote && !ShowsYouExit;
+    public bool ShowsLeaveExitNote => State.IsLate && State.HasNowNote && State.HasLeaveExitNote && !ShowsYouExit;
 
     public int NextLabelLines => _fold >= 2 ? 1 : 2;
 
