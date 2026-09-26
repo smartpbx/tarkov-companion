@@ -127,9 +127,14 @@ public sealed class MapLabelPlacementTests(ITestOutputHelper output)
             placer.Place(boxes, ranks, order, discs, shown);
         }
 
-        // Warm up at the densest zoom, which grows every buffer to its largest.
+        // Warm up at the densest zoom, which grows every buffer to its largest, then run every zoom
+        // enough times for the JIT to finish tiering the placer up. A tier-up mid-measurement is
+        // charged to this thread (2.8 KB and 5.8 KB over 1000 steps in two stressed runs, 2026-09-26).
         Step(8);
-        Step(1);
+        for (var warm = 0; warm < 400; warm++)
+        {
+            Step(1 + (warm % 8));
+        }
         var clock = Stopwatch.StartNew();
         var before = GC.GetAllocatedBytesForCurrentThread();
         const int steps = 1000;
@@ -141,7 +146,9 @@ public sealed class MapLabelPlacementTests(ITestOutputHelper output)
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         clock.Stop();
         output.WriteLine($"{shops.Length} names: {clock.Elapsed.TotalMicroseconds / steps:0.0} µs per zoom step, {allocated} bytes allocated over {steps} steps");
-        Assert.Equal(0, allocated);
+        // Under one byte per step on average: the smallest object is 24 bytes, so any allocation made
+        // on every step still fails this, while a stray runtime allocation during the loop does not.
+        Assert.True(allocated < steps, $"{allocated} bytes allocated over {steps} steps");
     }
 
     [Fact]
