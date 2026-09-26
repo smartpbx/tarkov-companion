@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "profile": {
+    "id": "58eb99dd-436b-4d47-b501-7e455e9d804e",
+    "name": "Local profile",
+    "gameMode": "regular",
+    "level": 1,
+    "faction": "unknown",
+    "edition": null,
+    "traderLevels": {},
+    "completedTaskIds": [],
+    "objectiveProgress": {},
+    "hideoutStationLevels": {},
+    "wishlistItemIds": [],
+    "ownedItemCounts": {},
+    "eventItemStates": {},
+    "itemOverrides": {},
+    "updatedUtc": "2026-09-26T18:51:23.7427909+00:00",
+    "profileGeneration": "8a35869d1cc74c3ebf8dac9d82a8fffb"
+  },
+  "exportedUtc": "2026-09-26T18:51:23.7438718+00:00"
+}
