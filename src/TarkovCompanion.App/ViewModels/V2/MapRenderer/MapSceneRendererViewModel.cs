@@ -1374,12 +1374,31 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         var centre = _projection.Unproject(found.CentreX, found.CentreY);
+        // [#961] A host that asked to fill its card never fits back out to a letterbox: zoom 1 is
+        // already "cover" there, and the content fit only chooses where the crop sits.
+        var zoom = Math.Clamp(
+            found.Zoom,
+            _fillsViewport ? 1 : Math.Min(1, PlanFit(bearingDegrees)?.Zoom ?? 1),
+            Math.Max(1, MaximumZoom));
+        if (_fillsViewport && Math.Abs(bearingDegrees % 360) < 1e-9)
+        {
+            centre = KeepOnPlan(centre, zoom);
+        }
+
+        return new(centre.X, centre.Y, zoom, bearingDegrees, 0);
+    }
+
+    /// <summary>Moves a north-up centre just far enough that the card shows no ground past the plan's edge.</summary>
+    private MapScenePoint KeepOnPlan(MapScenePoint centre, double zoom)
+    {
+        var bounds = _scene.Bounds;
+        var halfWidth = CanvasWidth / (2 * _projection.ScaleX * zoom);
+        var halfHeight = CanvasHeight / (2 * _projection.ScaleY * zoom);
+        static double Clamp(double value, double minimum, double maximum, double half) =>
+            maximum - minimum <= 2 * half ? (minimum + maximum) / 2 : Math.Clamp(value, minimum + half, maximum - half);
         return new(
-            centre.X,
-            centre.Y,
-            Math.Clamp(found.Zoom, Math.Min(1, PlanFit(bearingDegrees)?.Zoom ?? 1), Math.Max(1, MaximumZoom)),
-            bearingDegrees,
-            0);
+            Clamp(centre.X, bounds.MinimumX, bounds.MaximumX, halfWidth),
+            Clamp(centre.Y, bounds.MinimumY, bounds.MaximumY, halfHeight));
     }
 
     /// <summary>The whole plan rectangle on the card at a bearing, with the markers' own inset.</summary>

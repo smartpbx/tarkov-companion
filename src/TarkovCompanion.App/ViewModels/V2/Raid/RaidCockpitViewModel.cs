@@ -3013,7 +3013,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         IReadOnlyList<MapSceneLegacyElement> legacyElements,
         IReadOnlyList<MapSceneLayer> layers,
         IReadOnlyList<MapSceneObject> objects,
-        MapSceneRendererViewModel? existing)
+        MapSceneRendererViewModel? existing,
+        bool fillsViewport = false)
     {
         var sameMap = existing is not null &&
             string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
@@ -3048,7 +3049,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             nextChangeId: Guid.NewGuid,
             reviewedAssetResolver: ResolveBackgroundImage,
             showsDetailsPanel: false,
-            fillsViewport: false,
+            fillsViewport: fillsViewport,
             pictureLease: LeasePicture,
             styleResolver: ObjectiveRouteStyle);
     }
@@ -4003,7 +4004,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             position => model.TryMapPosition(position, out var point) && double.IsFinite(point.X) && double.IsFinite(point.Y)
                 ? new MapScenePoint(point.X, point.Y)
                 : null);
-        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing);
+        // [#961] Team's column is tall and narrow: the map covers it rather than floating in a letterbox.
+        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing, fillsViewport: true);
     }
 
     /// <summary>

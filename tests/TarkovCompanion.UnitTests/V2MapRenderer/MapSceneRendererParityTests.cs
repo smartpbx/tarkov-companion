@@ -192,6 +192,26 @@ public sealed class MapSceneRendererParityTests
     }
 
     [Fact]
+    public void A_renderer_that_fills_its_card_never_fits_out_to_a_letterbox()
+    {
+        // [#961] Team's squad map: the same quarter-turned plan that fits at 0.7 above stays at
+        // zoom 1, which in a filling renderer already covers the card edge to edge.
+        var scene = Scene([Player(headingDegrees: 0)], bearingDegrees: 90);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            () => Guid.Parse("20000000-0000-0000-0000-000000000025"),
+            _ => new TestArtwork(new(1000, 700)),
+            fillsViewport: true);
+        var published = new List<MapSceneViewChange>();
+        renderer.ViewChangeRequested += published.Add;
+
+        renderer.FitPlanCommand.Execute(null);
+
+        Assert.Equal(1, Assert.Single(published).Camera!.Value.Zoom, 6);
+    }
+
+    [Fact]
     public void Setting_a_bearing_normalises_it_and_says_nothing_when_it_has_not_moved()
     {
         var renderer = Renderer(Scene([Player(headingDegrees: 0)]), () => Guid.Parse("20000000-0000-0000-0000-000000000024"));
