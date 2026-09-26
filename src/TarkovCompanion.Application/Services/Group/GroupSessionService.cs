@@ -896,7 +896,6 @@ public sealed class GroupSessionService : IAsyncDisposable
             _relayHolds = false;
             _latency.Reset();
         }
-
         else if (_removedByOwner && _registered is { } removed && Interlocked.Exchange(ref _settingsSaved, 0) == 1)
         {
             // [#936] Removed, and the player has touched the switch since: the DELETE is what
