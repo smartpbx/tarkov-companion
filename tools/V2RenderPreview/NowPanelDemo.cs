@@ -18,7 +18,10 @@ namespace TarkovCompanion.V2RenderPreview;
 /// <c>--now-outcome died|survived</c> after <c>--raid-left</c>: the one-tap answer reported to the
 /// situation. <c>--now-menu</c>: the raid state back in the menu. <c>--now-loot-demo</c>: the
 /// Loot Scan demo result handed to the shell the way a capture hands it, which in a raid now
-/// stays on the Now panel (decision 7). <c>--now-more</c>: the More drawer open. Dev tool only.
+/// stays on the Now panel (decision 7). <c>--now-more</c>: the More drawer open.
+/// <c>--now-party</c> [#403]: a party the game's group notifications named (one not ready) and
+/// nobody sharing over the relay, so SQUAD falls back to the party list. <c>--now-spawning</c>
+/// [#403]: after <c>--brief-demo</c> (matching), the raid found, the map loaded and GameSpawn written. Dev tool only.
 /// </remarks>
 internal static class NowPanelDemo
 {
@@ -39,6 +42,27 @@ internal static class NowPanelDemo
             pump(20);
         }
 
+        if (args.Contains("--now-party"))
+        {
+            GroupMember Member(long aid, string name, bool leader, bool ready) =>
+                new($"p{aid}", aid, name, "Bear", 20, leader, ready, null, []);
+            store.Update(snapshot => snapshot with
+            {
+                Squad = new([Member(1000001, "Geo", true, true), Member(1000002, "Riley", false, false), Member(1000003, "Sam", false, true)],
+                    DateTimeOffset.UtcNow.AddSeconds(-45), null, DateTimeOffset.UtcNow.AddSeconds(-8)),
+                Group = snapshot.Group with { Members = [] },
+            });
+            pump(20);
+        }
+
+        if (args.Contains("--now-spawning") && services.GetService<SituationService>() is { } stages)
+        {
+            stages.Observe(new RaidPhaseMarker(RaidPhaseMarkerKind.MatchingCompleted, DateTimeOffset.UtcNow.AddSeconds(-30)));
+            stages.Observe(new RaidPhaseMarker(RaidPhaseMarkerKind.LocationLoaded, DateTimeOffset.UtcNow.AddSeconds(-18)));
+            stages.Observe(new RaidPhaseMarker(RaidPhaseMarkerKind.Spawning, DateTimeOffset.UtcNow.AddSeconds(-4)));
+            pump(20);
+        }
+
         if (args.Contains("--now-loot-demo") && shell is not null)
         {
             var profile = store.Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
@@ -56,7 +80,8 @@ internal static class NowPanelDemo
         if (shell?.RaidCockpit is RaidCockpitViewModel shown)
         {
             Console.WriteLine($"Now panel: shown={shown.NowHost.ShowsNowPanel} phase={shown.NowHost.Panel?.Situation.Phase.Value} " +
-                $"clock='{shown.NowHost.Panel?.State.NowHeadline}' you='{shown.NowHost.Panel?.State.YouWhere}' route={shell.Router.Current.Location.Route}");
+                $"clock='{shown.NowHost.Panel?.State.NowHeadline}' detail='{shown.NowHost.Panel?.State.NowDetail}' " +
+                $"squad='{string.Join(", ", shown.NowHost.Panel?.State.Squad.Select(row => row.Name + " " + row.Where) ?? [])}' you='{shown.NowHost.Panel?.State.YouWhere}' route={shell.Router.Current.Location.Route}");
         }
     }
 

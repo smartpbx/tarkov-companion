@@ -46,12 +46,26 @@ public static class NowText
     public static string PhaseLine(SituationPhase phase, bool fromScreen = false) => UiText.Get(phase switch
     {
         SituationPhase.Menu => "Now.PhaseLine.Menu",
-        SituationPhase.Matching => "Now.PhaseLine.Matching",
         SituationPhase.Loading => "Now.PhaseLine.Loading",
         SituationPhase.PostRaid or SituationPhase.InRaid => "Now.PhaseLine.PostRaid",
         SituationPhase.Dead or SituationPhase.Extracted => fromScreen ? "Now.PhaseLine.ReportedScreen" : "Now.PhaseLine.Reported",
         _ => "Now.PhaseLine.Unknown",
     });
+
+    /// <summary>[#403] NOW's headline once the game wrote GameSpawn: seconds from moving.</summary>
+    public static string Spawning => UiText.Get("Now.Phase.Spawning");
+    public static string SpawningMap(string map) => UiText.Format("Now.Phase.SpawningMap", map);
+
+    /// <summary>[#403] One step of getting into the raid, as the game's log timed it: "found 14:05".</summary>
+    public static string Stage(TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind kind, string time) => UiText.Format(kind switch
+    {
+        TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.MatchingStarted => "Now.Stage.Ready",
+        TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.MatchingCompleted => "Now.Stage.Found",
+        TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.LocationLoaded => "Now.Stage.MapLoaded",
+        TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.Spawning => "Now.Stage.Spawning",
+        TarkovCompanion.Core.Domain.Raids.RaidPhaseMarkerKind.Spawned => "Now.Stage.Spawned",
+        _ => "Now.Stage.Started",
+    }, time);
 
     public static string ScreenLine(string screen) => UiText.Format("Now.PhaseLine.Screen", screen);
     public static string ScreenFlea => UiText.Get("Now.Screen.Flea");
@@ -87,6 +101,10 @@ public static class NowText
     public static string SquadQuiet(string area) => UiText.Format("Now.Squad.Quiet", area);
     public static string SquadQuietNoPlace => UiText.Get("Now.Squad.QuietNoPlace");
     public static string SquadUnknown => UiText.Get("Now.Squad.Unknown");
+    public static string SquadFromGame => UiText.Get("Now.Squad.FromGame");
+    public static string PartyReady => UiText.Get("Now.Squad.PartyReady");
+    public static string PartyNotReady => UiText.Get("Now.Squad.PartyNotReady");
+    public static string PartyMember => UiText.Get("Now.Squad.PartyMember");
     public static string SquadEmpty => UiText.Get("Now.Squad.Empty");
     public static string SquadEmptyHint => UiText.Get("Now.Squad.EmptyHint");
     public static string Ping => UiText.Get("Now.Squad.Ping");
