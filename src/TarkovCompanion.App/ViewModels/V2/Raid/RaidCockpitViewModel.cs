@@ -3014,7 +3014,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         IReadOnlyList<MapSceneLayer> layers,
         IReadOnlyList<MapSceneObject> objects,
         MapSceneRendererViewModel? existing,
-        bool fillsViewport = false)
+        bool fillsViewport = false,
+        Func<MapSceneObject, bool>? fitsTo = null)
     {
         var sameMap = existing is not null &&
             string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
@@ -3050,6 +3051,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             reviewedAssetResolver: ResolveBackgroundImage,
             showsDetailsPanel: false,
             fillsViewport: fillsViewport,
+            fitsTo: fitsTo,
             pictureLease: LeasePicture,
             styleResolver: ObjectiveRouteStyle);
     }
@@ -4004,8 +4006,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             position => model.TryMapPosition(position, out var point) && double.IsFinite(point.X) && double.IsFinite(point.Y)
                 ? new MapScenePoint(point.X, point.Y)
                 : null);
-        // [#961] Team's column is tall and narrow: the map covers it rather than floating in a letterbox.
-        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing, fillsViewport: true);
+        // [#961] Team's column is tall and narrow: the map covers it, and the view frames the
+        // squad's plan (its waypoints, pings and squadmates) rather than the map's middle.
+        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing, fillsViewport: true,
+            fitsTo: item => item.Kind is MapSceneObjectKind.Waypoint or MapSceneObjectKind.Ping or MapSceneObjectKind.TeammateLastKnown);
     }
 
     /// <summary>

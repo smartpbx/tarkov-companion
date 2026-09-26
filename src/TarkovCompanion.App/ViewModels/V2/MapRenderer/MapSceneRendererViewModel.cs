@@ -118,6 +118,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private string? _selectedLootSpawnId;
     private IReadOnlyList<string>? _lootCategories;
     private readonly bool _fillsViewport;
+    private readonly Func<MapSceneObject, bool>? _fitsTo;
     // The drawn plan's true width:height, taken from the decoded artwork once it resolves. Scene
     // coordinates are the same normalized square for every map, so this is the only thing that
     // knows Streets is wide and Factory is not. NaN until (or unless) artwork resolves.
@@ -173,9 +174,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         bool ranksLootByValue = false,
         // [#775] A lease on each picture the resolver hands out, so its owner cannot free a
         // picture still on this renderer (RendererPictureHold). Null: the host owns nothing it frees.
-        Func<IImage, IDisposable?>? pictureLease = null)
+        Func<IImage, IDisposable?>? pictureLease = null,
+        // [#961] What a fit frames when any of it is on the map: Team's squad map fits the shared
+        // plan's waypoints and pings, not the whole map. Null: the map's own features, as before.
+        Func<MapSceneObject, bool>? fitsTo = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
+        _fitsTo = fitsTo;
         _pictureHold = pictureLease is null ? null : new(pictureLease);
         _ranksLootByValue = ranksLootByValue;
         _lootValues = MapLootRanking.ValuesOf(highValueLoot);
@@ -1362,7 +1367,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private MapSceneCamera FittedCamera(double bearingDegrees)
     {
         var bounds = _scene.Bounds;
-        var fit = ContentFit(bearingDegrees) ?? PlanFit(bearingDegrees);
+        var chosen = ChosenFit(bearingDegrees);
+        var fit = chosen ?? ContentFit(bearingDegrees) ?? PlanFit(bearingDegrees);
         if (fit is not { } found || !_projection.IsUsable)
         {
             return new(
@@ -1374,11 +1380,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         var centre = _projection.Unproject(found.CentreX, found.CentreY);
-        // [#961] A host that asked to fill its card never fits back out to a letterbox: zoom 1 is
-        // already "cover" there, and the content fit only chooses where the crop sits.
+        // [#961] A filling host that frames nothing of its own never fits back out to a letterbox:
+        // zoom 1 is already "cover" there. One that does (Team) frames its marks whole even past
+        // cover, since a squad plan cropped off the card is worse, and with none on the map it
+        // shows the whole map: the letterbox is the honest view of an empty plan.
         var zoom = Math.Clamp(
             found.Zoom,
-            _fillsViewport ? 1 : Math.Min(1, PlanFit(bearingDegrees)?.Zoom ?? 1),
+            _fillsViewport && _fitsTo is null ? 1 : Math.Min(Math.Min(1, found.Zoom), PlanFit(bearingDegrees)?.Zoom ?? 1),
             Math.Max(1, MaximumZoom));
         if (_fillsViewport && Math.Abs(bearingDegrees % 360) < 1e-9)
         {
@@ -1418,6 +1426,60 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             CanvasWidth,
             CanvasHeight,
             MapInset);
+    }
+
+    /// <summary>[#961] The host's own objects (<c>fitsTo</c>) framed with the same margin as the content fit.</summary>
+    private MapFitGeometry.Fit? ChosenFit(double bearingDegrees)
+    {
+        if (_fitsTo is null || !_projection.IsUsable)
+        {
+            return null;
+        }
+
+        var points = new List<(double X, double Y)>();
+        foreach (var item in _scene.Objects)
+        {
+            if (!_fitsTo(item))
+            {
+                continue;
+            }
+
+            foreach (var point in item.Geometry.Points)
+            {
+                if (double.IsFinite(point.X) && double.IsFinite(point.Y))
+                {
+                    var projected = _projection.Project(point);
+                    points.Add((projected.X, projected.Y));
+                }
+            }
+        }
+
+        if (points.Count == 0)
+        {
+            return null;
+        }
+
+        // A single mark has no extent to fit; frame it at the plain fit's zoom instead of the maximum.
+        var fit = MapFitGeometry.For(
+            points,
+            bearingDegrees,
+            CanvasWidth,
+            CanvasHeight,
+            MapInset + (2 * ContentMarginFraction * Math.Min(CanvasWidth, CanvasHeight)));
+        return points.Count == 1 && fit is { } one ? one with { Zoom = 1 } : fit;
+    }
+
+    /// <summary>Where a scene point is drawn on the card under the current camera; for tests.</summary>
+    internal (double X, double Y) ToCard(MapScenePoint point)
+    {
+        var camera = _scene.View.Camera;
+        var at = _projection.Project(point);
+        var centre = _projection.Project(camera.CenterX, camera.CenterY);
+        var radians = camera.BearingDegrees * Math.PI / 180;
+        var x = (at.X - centre.X) * camera.Zoom;
+        var y = (at.Y - centre.Y) * camera.Zoom;
+        return ((Math.Cos(radians) * x) + (Math.Sin(radians) * y) + CameraPostTranslateX,
+            (-Math.Sin(radians) * x) + (Math.Cos(radians) * y) + CameraPostTranslateY);
     }
 
     private MapFitGeometry.Fit? ContentFit(double bearingDegrees)
