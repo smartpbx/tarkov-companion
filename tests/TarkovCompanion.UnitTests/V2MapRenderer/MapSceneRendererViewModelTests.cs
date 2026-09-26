@@ -54,6 +54,29 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Same(scene, renderer.Scene);
     }
 
+    [Fact]
+    public void A_disabled_presentation_button_says_why_when_hovered()
+    {
+        // [#923] "the 3d and stack map view dont work": the strip showed "3D" greyed out with a
+        // tooltip of "3D interior" and no reason, and a map that could not stack gave the generic
+        // "needs floor-specific artwork" rather than the scene's own reason.
+        var renderer = Renderer(Scene(supportsFloorStack: false));
+
+        var stack = renderer.Modes.Single(item => item.Mode == MapSceneMode.FloorStack2D);
+        var interior = renderer.Modes.Single(item => item.Mode == MapSceneMode.Interior3D);
+        var flat = renderer.Modes.Single(item => item.Mode == MapSceneMode.Flat2D);
+
+        Assert.False(stack.IsAvailable);
+        Assert.Equal("No reviewed floor stack.", stack.UnavailableReason);
+        Assert.Contains("Floor stack", stack.Tip, StringComparison.Ordinal);
+        Assert.Contains("No reviewed floor stack.", stack.Tip, StringComparison.Ordinal);
+        Assert.False(interior.IsAvailable);
+        Assert.Contains(interior.UnavailableReason, interior.Tip, StringComparison.Ordinal);
+        Assert.NotEqual(interior.Label, interior.Tip);
+        Assert.True(flat.IsAvailable);
+        Assert.Equal(flat.Label, flat.Tip);
+    }
+
     [Theory]
     [InlineData(true, 0)]
     [InlineData(false, 0)]

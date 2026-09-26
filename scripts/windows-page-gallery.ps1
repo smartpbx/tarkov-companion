@@ -1913,6 +1913,24 @@ $Shots.Add([pscustomobject]@{
         },
         [pscustomobject]@{ action = "ready"; condition = "settled"; description = "the map settled" }) }
 })
+# [#923] "the 3d and stack map view dont work": Interchange opens on its photograph, and Stack
+# was undone by the next rebuild. Pressed here the way a player does, it loads the drawing and
+# stacks the floors. Advisory: a picture to judge, not a gate.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-interchange-stack-1920"
+    args = @("--ui-shell", "v2-a", "--map", "interchange")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    galleryScene = "map"
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    advisory = $true
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "toggle"; description = "press Stack in the Raid strip"
+            targetAutomationId = "v2-map-mode-floorstack2d"; targetControlType = "Button"
+            timeoutSeconds = 60
+        },
+        [pscustomobject]@{ action = "ready"; condition = "settled"; description = "the map settled" }) }
+})
 # [#279] Marker states a clean runner never has: the app seeds them itself (--gallery-scene,
 # developer mode only; see GallerySceneRunner) from the catalog it has already downloaded, and
 # answers "ready" on the diagnostic channel once they are drawn. Synthetic throughout: made-up
