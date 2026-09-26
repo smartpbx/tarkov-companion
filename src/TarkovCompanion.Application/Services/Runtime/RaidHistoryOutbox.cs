@@ -1306,18 +1306,21 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         string OfferId,
         string? HandbookItemId,
         int Count,
-        DateTimeOffset ObservedUtc)
+        DateTimeOffset ObservedUtc,
+        // Null in payloads queued before it existed.
+        string? EventId = null)
     {
         public static SalePayload From(Guid raidId, FleaSaleObservation sale) => new(
             raidId,
             RequiredText(sale.OfferId),
             Text(sale.HandbookItemId),
             sale.Count,
-            sale.ObservedUtc);
+            sale.ObservedUtc,
+            Text(sale.EventId));
 
         public RaidHistoryCommand ToCommand() => RaidHistoryCommand.RecordSale(
             RaidId,
-            new FleaSaleObservation(OfferId, HandbookItemId, Count, ObservedUtc));
+            new FleaSaleObservation(OfferId, HandbookItemId, Count, ObservedUtc, EventId: EventId));
     }
 
     private sealed record QuestPayload(

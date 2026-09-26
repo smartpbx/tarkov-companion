@@ -217,7 +217,9 @@ public sealed partial class RuntimeArchitectureRatchetTests
             "Source", "Succeeded", "ValuePerSlotRoubles", "ValueRoubles");
         // WrittenUtc (#314) is on the record and deliberately NOT in the codec: it only tells the
         // flea-sold notification a replayed sale from a new one, in memory, before anything is queued.
-        AssertShape<FleaSaleObservation>("Count", "HandbookItemId", "ObservedUtc", "OfferId", "WrittenUtc");
+        // EventId (#403) IS in the codec (SalePayload, optional so older queued payloads still
+        // read): it is what tells two parts of one offer from one sale read twice.
+        AssertShape<FleaSaleObservation>("Count", "EventId", "HandbookItemId", "ObservedUtc", "OfferId", "WrittenUtc");
         AssertShape<QuestStatusObservation>("EventId", "ObservedUtc", "State", "TaskId");
         AssertShape<ScreenshotPosition>(
             "DuplicateIndex", "Filename", "HeadingDegrees", "InGameTime", "Orientation", "Position", "Timestamp");
