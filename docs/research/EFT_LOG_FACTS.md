@@ -4,9 +4,108 @@ Established on 2026-09-11 against a live installation: 33 log folders, 254 raid 
 game build 1.1.5.0.47242. Everything here was measured, not assumed. Several entries record
 an *absence*, which is as useful as a presence and stops the same ground being re-covered.
 
+**Re-measured on 2026-09-26 against build 1.1.5.1.47510 (#403).** Six sessions played
+2026-09-22..25, 80 MB, 64 files. The first section below has the counts; claims further down
+that the re-measure overturned are marked **Stale (1.1.5.1)** where they stand.
+
 Nothing here was taken from another tool's source. A third-party tool's published feature
 list was used to decide what to look for; every claim below was then confirmed or refuted
 against real logs.
+
+## Re-measure on 1.1.5.1.47510 (2026-09-26, #403)
+
+**The sample.** Six game launches, 2026-09-22..25, all PvP seasonal: every session wrote
+`Session mode: PvpSeason` once, and 6,056 of the 6,151 backend requests went to the
+`gw-pvp-season` host (89 to the lobby, 6 to `gw-pvp`). 53 online raids (distinct `shortId`, each with a `userConfirmed` and a `userMatchOver`) plus
+two offline transit raids with no id (#892), so 55 scene presets. By profile: 34 PMC raids, 19
+scav (all on Lighthouse). Ends: `Free` 44, `Transfer` 9, every Transfer on the scav profile. Maps
+on the notifications: `Lighthouse` 19, `TarkovStreets` 12, `Shoreline` 7, `laboratory` 6,
+`RezervBase` 5, `bigmap` 2, `factory4_day` 2. 103 flea sales, 9 quests started, 7 story quests
+and 3 repeatables handed in, none failed.
+
+**Not in the sample**, so still unmeasured on this build: a PvE session, a known death, a known
+run-through, a finished craft, an insurance return (message type 8 never appeared). The outcome
+findings below therefore rest on absence across 53 raids of unknown outcome, not on a death
+that was looked for and not found.
+
+Counts come from `tools/LogFactsAudit` (raids, sales, quests, load times) and from line-kind
+counts taken by hand with every id, name and address masked. Nothing from these files is in the
+repository; the format pack in `tests/TarkovCompanion.UnitTests/FormatGuards/Packs/1.1.5.1.47510`
+holds synthetic lines in each shape.
+
+| File | Lines | With a header | Opened by the companion | What in it is about the raid |
+| --- | --- | --- | --- | --- |
+| `application` | 7,234 | 6,436 | in full | map (scene preset, `profileStatus`), matching stages, eight load-stage timings, transit, profile selection, session mode, movement corrections |
+| `backend` | 13,574 | 13,462 | in full | every notification (793), HTTP request paths (6,151) |
+| `output` | 898,517 | 113,832 | in full (last 16 MB on replay) | a mirror of `application`, `backend`, `push-notifications` and `network-messages`, plus Unity's own: in-game clock, post-raid timing block |
+| `push-notifications` | 166,072 | 1,603 | quest/flea lines only | the same notifications, payloads as indented JSON |
+| `errors` | 120,034 | 21,538 | no | stack traces |
+| `network-connection` | 583 | 583 | no | one connect/disconnect per online raid, with round trip and loss |
+| `network-messages` | 1,576 | 1,576 | no | one counters line about every 30 s in a raid |
+| `spatial-audio`, `files-checker` | 251, 126 | all | no | none |
+| `inventory`, `player` | 43, 5 | 11, 5 | no | rejected inventory operations; names bots and players |
+| `aiData`, `aiErrors`, `maperrors` | 143, 143, 34 | 53, 53, 34 | no | bot and map warnings, one session each |
+
+Fourteen prefixes, not eleven: `aiData`, `aiErrors`, `maperrors`, `network-messages` and
+`player` were each in one to six sessions; `objectPool` was in none.
+
+**Notifications in `backend`** (distinct event ids; `output` carries the same 793 again):
+`groupMatchRaidReady` 187, `groupMatchRaidNotReady` 161, `new_message` 126, `RagfairOfferSold`
+103, `userConfirmed` 53, `userMatchOver` 53, `groupMatchStartGame` 50, `userMatchCreated` 34,
+`RagfairNewRating` 12, `groupMatchInviteAccept` 7, `groupMatchUserLeave` 3 (5 lines),
+`groupMatchWasRemoved` 1, `groupMatchInviteDecline` 1. `new_message` by message type: 4 (a
+system message; 103 of them flea payments) 104, 12 (hand-in) 10, 10 (started) 9, 13 (a message with items, meaning unknown) 3.
+
+**What the re-measure changed:**
+
+- **Flea revenue is in the logs.** Each `RagfairOfferSold` is followed within a second by a
+  `new_message` of type 4 whose `systemData` names the sold item and count and whose `items`
+  hold one rouble stack with a `StackObjectsCount`: 103 sales, 103 payments, every one matched
+  on time and count. The `systemData` also carries the buyer's nickname, a player never met, and
+  must never be read. Not parsed yet.
+- **One offer can sell several times.** The 103 sales named 72 offers; 18 offers sold in two to
+  six parts, about a second apart, each part with its own event id and its own payment.
+  `FleaSaleStateService` kept one row per offer and so dropped 31 of 103 sales; it now keys on
+  the event id, and only the first copy of a sale reaches the raid record.
+- **Group readiness is half read.** All 161 `groupMatchRaidNotReady` carry only an account id,
+  and all 7 `groupMatchInviteAccept` carry the member at the top level; `GroupNotificationParser`
+  looks for `extendedProfile` in both and reads nothing. A member who un-readies stays ready.
+- **`push-notifications` gives the chat-only reader nothing.** Its payloads are indented JSON on
+  the lines after `Got notification | …`, so no single line holds both the marker and the JSON:
+  0 quest events and 0 sales from all six files. `backend` has them all, so nothing is lost.
+- **`Status: Free` is never written.** All 53 `profileStatus` lines read `Status: Busy`, `RaidMode:
+  Online`, `GameMode: deathmatch`. The end of a raid comes only from `userMatchOver`, the profile
+  reload after an offline raid, and (unread) the `network-connection` disconnect, which fell
+  within a second of `userMatchOver` (median 0.6 s over 52 pairs).
+- **The player's own position appears in `application`**, 104 times: `Reason:PacketsQueue|Speed|
+  Stuck|Lift, Position:(x, y, z), SpeedLimit:…, CurrentState:…`, written when the game corrects
+  the player's movement. Sporadic (4 to 37 per session) and not read.
+- **"DeathScreen" is not a death.** `output` writes a `[DevLog] === MENU LOAD PROFILE ===` block
+  after every raid (52 opened with `PostRaid_Start`), and its `DeathScreen_Shown` milestone is the
+  result screen, shown after every raid end. Outcome stays absent.
+- **The in-game clock is written.** `RealDateTime:… GameDateTime:… factor:7`, 127 lines in
+  `output`, about two per raid. Not read.
+- **Map tokens:** `laboratory` now observed, on `profileStatus` (6) and as a scene preset (8).
+- `ExitStatus`: 64 lines, all stack frames (54 with `TimeSpan`, 10 other frames). `SavageLockTime`:
+  769 lines, none beside the player's own `profileid`. Queue time: 52 raids, 3.8 / 19.7 / 87.2 s
+  (min / mean / max).
+
+### Follow-up parser opportunities
+
+Measured above; none is parsed by this change.
+
+| Fact | Line kind | Frequency | Value for the V3 situation engine |
+| --- | --- | --- | --- |
+| Mode and season | `application` `Session mode: PvpSeason`; backend host `gw-pvp-season` | 1 per launch | High: picks the permanent or seasonal profile before any raid (#712 T1) |
+| Squadmate un-readied / joined | `groupMatchRaidNotReady` (`aid` only); `groupMatchInviteAccept` (member at top level) | 161; 7 | High: the SQUAD block and the Matching phase show stale readiness today |
+| Matching stages | `TRACE-NetworkGameMatching G`/`H`/`I`; `userMatchCreated` | 1 each per online raid; 34 of 53 raids | Medium: splits "matching" into finer stages |
+| Load stages | `GamePrepared` … `PlayerSpawnEvent` … `GameSpawned` | 1 each per raid | Medium: "spawning" about 20 s before `GameStarted` |
+| Flea revenue | `new_message` type 4, rouble stack in `items` | 1 per sale | Medium: roubles per sale on Debrief and in the flea-sold toast |
+| Raid end, second source | `network-connection` `Disconnect`, `Statistics (rtt, lose)` | 1 per online raid | Medium: an end when `backend` misses one; per-raid connection quality |
+| In-game time | `output` `GameDateTime:` | about 2 per raid | Medium: day/night for the NOW block without a screenshot |
+| Own position | `application` `Reason:…, Position:(x, y, z)` | 4 to 37 per session | Low: sporadic; own position only |
+| Post-raid screen timing | `output` `[DevLog] === MENU LOAD PROFILE ===` block | 1 per raid end | Low: written once back in the menu, so it marks the end of post-raid, not its start |
+| Flea rating | `RagfairNewRating` | 12 | Low |
 
 ## Count unique events, not matching lines
 
@@ -35,7 +134,7 @@ C:\Battlestate Games\Escape from Tarkov\Logs\log_<stamp>_<version>\<stamp>_<vers
 One folder per game launch. The newest is resolved from the folder's own name, which carries the
 launch time, not from last-write time: file times drift when the clock steps, the name cannot.
 
-Eleven file prefixes exist. In a typical folder: `output`, `backend`, `application`,
+Eleven file prefixes exist (**stale (1.1.5.1)**: fourteen, see the re-measure above). In a typical folder: `output`, `backend`, `application`,
 `errors`, `network-messages`, `push-notifications`, `network-connection`, `spatial-audio`,
 `files-checker`, plus `inventory`, `player` and `objectPool` in some sessions. Sizes vary
 enormously between sessions: one `output_000.log` was 2.4 MB and another 15.6 MB.
@@ -176,8 +275,11 @@ progress the game has not yet announced (ADR 0004).
 only `ragfair` HTTP traffic existed and no sale outcome. That came from searching for the
 phrase "offer sold", which never appears; the notification type is one word. There are 52
 `RagfairOfferSold` notifications, carrying `offerId`, `handbookId` and `count`. So which item
-sold and how many is recoverable. No price or currency field is present, so revenue is not.
-`FleaSaleParser` reads these, deduplicated on `offerId`; they are shown for the running session
+sold and how many is recoverable. No price or currency field is present in this notification.
+**Stale (1.1.5.1):** revenue is recoverable, from the type-4 `new_message` that follows each sale
+(see the re-measure above).
+`FleaSaleParser` reads these, deduplicated on the notification's event id (on `offerId` until the
+1.1.5.1 re-measure found one offer selling in parts); they are shown for the running session
 on the V1 Flea page and, per raid, on Debrief (package 26).
 
 **The player's own inventory.** Measured across 1390 notification lines in the six newest log
@@ -269,7 +371,8 @@ Outcome and quest progress are not, and no amount of parsing will change that.
 
 ## The screenshot filenames, which are a separate source
 
-The logs never carry the player's position. The screenshot filenames do, and only when the
+The logs never carry the player's position (**stale (1.1.5.1)**: `application` writes it on a
+movement correction, 104 times in six sessions; see the re-measure). The screenshot filenames do, and only when the
 player takes one. Measured against the same installation on 2026-09-11:
 
 ```
@@ -296,7 +399,8 @@ watch. As with the logs, change notifications cannot be relied on; the folder is
 
 ## Re-measuring this note
 
-Everything above was measured against build 1.1.5.0.47242. DB4Tarkov's LOGS tool (the reason
+The older sections were measured against build 1.1.5.0.47242, the re-measure at the top against
+1.1.5.1.47510. DB4Tarkov's LOGS tool (the reason
 these claims were revisited for issue #403) also targets 1.1.5.0, so the outcome and scav-cooldown
 findings below do not need a newer build to be re-checked — only a fresh, larger sample.
 
@@ -318,9 +422,10 @@ against unrecognised shapes and Setup › Updates & Diagnostics says when one ch
 
 ## Still unknown
 
-Four map tokens were never observed because those maps were not played in the logged window:
-`laboratory`, `terminal`, and the `Sandbox` variants beyond `Sandbox` and `Sandbox_high`.
+Three map tokens were never observed because those maps were not played in the logged window:
+`terminal`, and the `Sandbox` variants beyond `Sandbox` and `Sandbox_high`. (`laboratory` was
+seen on 1.1.5.1.)
 The pairing now comes from synced data, so this matters less than it did.
 
 Every `profileStatus` line, on all 254 record lines, reads `GameMode: deathmatch`, including on
-ordinary raids. Unexplained. Nothing branches on it.
+ordinary raids; so did all 53 on 1.1.5.1. Unexplained. Nothing branches on it.

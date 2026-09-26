@@ -606,7 +606,7 @@
       "header": "Recognised",
       "notification": "Neutral",
       "expect": {},
-      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 76 lines, reasons PacketsQueue, Speed, Stuck and Lift. Carries the player's own position when the game corrects movement; sporadic, not read."
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 104 lines: PacketsQueue 52, Speed 28, Lift 14, Stuck 10. Carries the player's own position when the game corrects movement; sporadic, not read."
     },
     {
       "name": "application.client-metrics",
