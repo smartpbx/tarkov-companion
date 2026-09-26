@@ -2853,14 +2853,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // at its default.
         // [#902] While Loot focus is on, the layers it hid stay hidden through each rebuild: only
         // a layer the view does not have yet takes its remembered choice.
-        var remembered = _layerVisibility.Apply(requestedView.Layers);
-        if (Renderer?.IsLootFocused == true)
-        {
-            var held = requestedView.Layers.Select(state => state.LayerId).ToHashSet();
-            remembered = [.. requestedView.Layers, .. remembered.Where(state => !held.Contains(state.LayerId))];
-        }
-
-        requestedView = requestedView with { Layers = remembered };
+        requestedView = requestedView with { Layers = _layerVisibility.Compose(requestedView.Layers, Renderer?.IsLootFocused == true) };
 
         // [V2 rough package 39] The mode follows V1's own "Stack" toggle, which is also what the
         // renderer's presentation control now pushes back here.
@@ -3377,17 +3370,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return;
         }
 
-        var result = MapSceneViewReducer.Apply(Renderer.Scene, change);
-        if (result.Status is MapSceneViewChangeStatus.Applied or MapSceneViewChangeStatus.Unchanged)
-        {
-            Renderer.Present(result.Scene);
-        }
-
         // [Issue 796] Remembered from here, so a toggle from the Layers menu or the paired tablet
         // (which drives this same renderer) is kept alike. [#902] Loot focus's own steps are not.
-        _layerVisibility.Record(change, result.Status, Renderer.IsDispatchingLootFocus);
+        var isLootFocus = Renderer.IsDispatchingLootFocus;
+        var result = _layerVisibility.ApplyChange(Renderer, change);
         if (change.Kind == MapSceneViewChangeKind.SetLayerVisibility && result.Status == MapSceneViewChangeStatus.Applied &&
-            change.LayerId == MyTrailLayerId && !Renderer.IsDispatchingLootFocus)
+            change.LayerId == MyTrailLayerId && !isLootFocus)
         {
             SyncMyTrail();
         }

@@ -76,6 +76,9 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private readonly TabletRemoteWorkspaceApplier _remote;
     private bool _disposed;
     private WorkspaceProjection? _remoteTarget;
+    // [#933] The active-layer list the shared state holds, as far as this desktop knows: what it
+    // pushed itself, else what the last tablet request carried. See TabletLayerRequest.
+    private IReadOnlyList<string>? _sharedLayers;
     private int _remotePosted;
     private DesktopViewportEase? _ease;
     private DateTimeOffset? _sentToTabletUtc;
@@ -317,6 +320,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         // revision after the last) and throw the tablet's drag back to wherever the desk was.
         if (canonical.DeviceModes.ControlLease is not null)
         {
+            // The list every move from that tablet will carry, until it switches a layer itself.
+            Interlocked.CompareExchange(ref _sharedLayers, canonical.Workspace.Projection.ActiveLayers, null);
             return;
         }
 
@@ -377,6 +382,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 now.AddSeconds(30),
                 projection),
             cancellationToken).ConfigureAwait(false);
+        Volatile.Write(ref _sharedLayers, projection.ActiveLayers);
     }
 
     /// <summary>
@@ -515,16 +521,15 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 renderer.ClearSelection();
             }
 
-            // Only the layers that differ: every call is a view change of its own, and a streamed
-            // drag would otherwise re-send every layer's switch with every move.
-            var visible = ActiveLayers(renderer.Scene).ToHashSet(StringComparer.Ordinal);
-            foreach (var layer in renderer.Scene.Layers)
+            // Only the layers the tablet itself switched (#933, TabletLayerRequest), and of those
+            // only the ones that differ: every call is a view change of its own.
+            var previous = Interlocked.Exchange(ref owner._sharedLayers, projection.ActiveLayers);
+            foreach (var (layerId, wanted) in TabletLayerRequest.Changes(
+                         renderer.Scene,
+                         previous?.ToHashSet(StringComparer.Ordinal),
+                         projection.ActiveLayers.ToHashSet(StringComparer.Ordinal)))
             {
-                var wanted = projection.ActiveLayers.Contains(layer.Id.Value);
-                if (wanted != visible.Contains(layer.Id.Value))
-                {
-                    renderer.SetLayerVisibility(layer.Id, wanted);
-                }
+                renderer.SetLayerVisibility(layerId, wanted);
             }
         }
     }
