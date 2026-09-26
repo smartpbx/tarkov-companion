@@ -474,6 +474,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
         // V2 rough package 17 (team): the Team context panel's links move through this router.
         _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
+        if (_plan is not null)
+        {
+            // [#712 T7] Team's "Put on the Raid map" is Plan's "Open in Raid" for the planned map.
+            _team?.AttachOpenInRaid(_plan.OpenMapInRaidAsync);
+        }
+
         if (legacy is not null)
         {
             // Package 29 (parity): the in-game party is V1's Squad view model, which the legacy graph

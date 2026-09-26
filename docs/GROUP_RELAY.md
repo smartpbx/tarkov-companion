@@ -88,6 +88,12 @@ previous entry rather than adding a second one.
   is on that extract's map or on none) and a note (at most 120). A relay older than these drops
   them; a client older than them ignores them. A desktop "Squad" mark whose send fails is queued,
   shown as "Queued" in Team's marks, and sent when the group is next seen live (at most 15 min).
+- `loadoutCheck`, `level` — the sender's own Loadout check and level for Team's ready check
+  (#712 T7): `{"mapId": "<quest map id>", "age": <seconds>, "items": [{"kind": "keys"|"items"|
+  "weapon"|"gear", "ok": true|false|null, "missing": "<≤64>"}]}` (at most 8 items, kind ≤16) and
+  a level from 1 to 79. Made on the sender's companion from their own quests and stash scans; on
+  by default once in a squad, off with Team › Group › "My ready check". Omitted when not shared;
+  older relays drop them and older clients ignore them.
 - `drawings` — lines the player drew on the Raid map in Draw mode with "Squad" scope (#286):
   `[{"id": "<≤64>", "mapId": "customs", "floor": "<catalog floor id, optional>", "points":
   [x0, z0, x1, z1, …]}]`, world metres rounded to 0.1. At most 20 lines of 2 to 200 points; the

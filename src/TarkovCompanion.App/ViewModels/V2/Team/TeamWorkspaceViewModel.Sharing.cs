@@ -113,6 +113,7 @@ public sealed partial class TeamWorkspaceViewModel
             IsEnabled = stored.IsEnabled;
             SharesLoadout = stored.SharesLoadout;
             SharesQuests = stored.SharesQuests;
+            SharesReadyCheck = stored.SharesReadyCheck;
             // A field the player has not touched since the last read follows the store; an edited one stays.
             if (previous is null || SameText(ServerUri, previous.ServerUri))
             {
@@ -168,6 +169,7 @@ public sealed partial class TeamWorkspaceViewModel
             IsEnabled = IsEnabled,
             SharesLoadout = SharesLoadout,
             SharesQuests = SharesQuests,
+            SharesReadyCheck = SharesReadyCheck,
         }).ConfigureAwait(true);
         if (ok && saved is not null)
         {

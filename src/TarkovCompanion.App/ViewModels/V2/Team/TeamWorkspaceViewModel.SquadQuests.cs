@@ -56,6 +56,7 @@ public sealed partial class TeamWorkspaceViewModel
         OnPropertyChanged(nameof(SquadQuests));
         OnPropertyChanged(nameof(HasSquadQuests));
         OnPropertyChanged(nameof(SquadQuestsSummary));
+        RefreshSquadPlan(_group);
     }
 
     /// <summary>The rows for a resolved picture; shared quests first within each member.</summary>

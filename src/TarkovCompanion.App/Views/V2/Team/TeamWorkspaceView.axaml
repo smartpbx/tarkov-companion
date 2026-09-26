@@ -105,6 +105,12 @@
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <!-- [#780] "Shared" beside a quest two or more of the squad have. -->
+    <!-- [#712 T7] A card's small caps heading, as the concept's "TONIGHT FOR THE SQUAD". -->
+    <Style Selector="TextBlock.v2-team-overline">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
     <Style Selector="Border.v2-team-chip">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -294,7 +300,154 @@
              picker): the group's waypoints numbered 1..N and joined in order, and pings. The
              renderer is hosted the way Raid and Plan host it; the marks list sits in the context
              panel with the same numbers. -->
-        <Border Classes="v2-team-pane v2-team-stage" IsVisible="{Binding IsOverview}">
+        <!-- [#712 T7] Laid out like docs/design/v3/v3-squad-ready.png: the squad's plan and ready
+             check on the left, the shared plan's map on the right. -->
+        <Grid IsVisible="{Binding IsOverview}" ColumnDefinitions="7*,12,5*">
+        <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                      AutomationProperties.AutomationId="v2-team-squad-plan">
+          <StackPanel Spacing="12">
+            <!-- Tonight for the squad: quests two or more of you have active, on one map, in order. -->
+            <Border Classes="v2-team-pane" Padding="18,14">
+              <StackPanel Spacing="4">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <TextBlock Classes="v2-label v2-team-overline" Text="{x:Static l:TeamPlanText.Heading}" AutomationProperties.HeadingLevel="2" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:TeamPlanText.Source}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding HasPlan}">
+                  <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Classes="v2-heading-1" Text="{Binding PlanTitle}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Classes="v2-label" Text="{x:Static l:TeamPlanText.CountedPerQuest}" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="v2-team-primary" VerticalAlignment="Center"
+                          AutomationProperties.AutomationId="v2-team-plan-to-raid"
+                          Command="{Binding PutPlanOnRaidCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Path Classes="v2-icon" Stroke="{DynamicResource V2.Brush.Canvas}" Data="{DynamicResource V2.Icon.Map}" />
+                      <TextBlock Text="{x:Static l:TeamPlanText.PutOnRaid}" VerticalAlignment="Center" />
+                    </StackPanel>
+                  </Button>
+                </Grid>
+                <ItemsControl ItemsSource="{Binding PlanMapChips}" IsVisible="{Binding HasPlanMapChips}" Margin="0,4,0,0">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="6" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TeamPlanMapChipViewModel">
+                      <Button Classes="v2-team-outline" Classes.v2-team-on="{Binding IsSelected}"
+                              Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding SharedQuestRows}" IsVisible="{Binding HasPlan}" Margin="0,6,0,0"
+                              AutomationProperties.AutomationId="v2-team-shared-quests">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TeamSharedQuestRowViewModel">
+                      <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,11">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                          <Border Classes="v2-team-stop" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Order}" />
+                          </Border>
+                          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock TextTrimming="CharacterEllipsis">
+                              <Run Text="{Binding Name}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Members}" />
+                            </TextBlock>
+                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsTogether}">
+                              <Border Classes="v2-team-chip">
+                                <TextBlock Classes="v2-label" Text="{x:Static l:TeamPlanText.Together}" />
+                              </Border>
+                              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding TogetherLabel}"
+                                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" MaxWidth="460" />
+                            </StackPanel>
+                          </StackPanel>
+                          <ItemsControl Grid.Column="2" ItemsSource="{Binding Initials}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:TeamMemberInitialViewModel">
+                                <Border Width="24" Height="24" CornerRadius="12" Background="{Binding Colour}">
+                                  <TextBlock Text="{Binding Initial}" FontSize="{DynamicResource V2.Type.Label.Size}" FontWeight="Bold" Foreground="{DynamicResource V2.Brush.Canvas}"
+                                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Spacing="2" IsVisible="{Binding HasNoPlan}" Margin="0,6,0,0">
+                  <TextBlock Classes="v2-body v2-team-strong" Text="{x:Static l:TeamPlanText.None}" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:TeamPlanText.NoneHint}" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Ready check: each member's own Loadout check and level, as their companion shared it. -->
+            <Border Classes="v2-team-pane" Padding="18,14" IsVisible="{Binding HasReadyRows}"
+                    AutomationProperties.AutomationId="v2-team-ready-rows">
+              <StackPanel Spacing="4">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <TextBlock Classes="v2-label v2-team-overline" Text="{x:Static l:TeamText.ReadyCheck}" AutomationProperties.HeadingLevel="2" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:TeamPlanText.ReadySource}" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding ReadyRows}" Margin="0,4,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TeamReadyRowViewModel">
+                      <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0" Padding="0,11">
+                        <Grid ColumnDefinitions="180,*,Auto" ColumnSpacing="12">
+                          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Ellipse Width="9" Height="9" Fill="{Binding Colour}" VerticalAlignment="Center" />
+                            <StackPanel Spacing="0">
+                              <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Name}" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Classes="v2-label" Text="{Binding Level}" IsVisible="{Binding HasLevel}" />
+                                <TextBlock Classes="v2-label v2-team-ready-text" Text="{x:Static l:TeamText.Ready}" IsVisible="{Binding IsReady}" />
+                                <TextBlock Classes="v2-label v2-team-warning-text" Text="{x:Static l:TeamText.NotReady}" IsVisible="{Binding IsNotReady}" />
+                              </StackPanel>
+                            </StackPanel>
+                          </StackPanel>
+                          <ItemsControl Grid.Column="1" ItemsSource="{Binding Checks}" IsVisible="{Binding HasChecks}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate><WrapPanel ItemSpacing="16" LineSpacing="4" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:TeamLoadoutChipViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                  <Path Classes="v2-icon v2-team-success" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"
+                                        Data="M5,12 L10,17 L19,7" IsVisible="{Binding IsOk}" />
+                                  <Path Classes="v2-icon v2-team-warning" Width="12" Height="12" Stretch="Uniform" VerticalAlignment="Center"
+                                        Data="{DynamicResource V2.Icon.Close}" IsVisible="{Binding IsMissing}" />
+                                  <TextBlock Classes="v2-label" Text="?" IsVisible="{Binding IsUnknown}" VerticalAlignment="Center" />
+                                  <TextBlock Classes="v2-body" Text="{Binding Label}" IsVisible="{Binding IsOk}" />
+                                  <TextBlock Classes="v2-body v2-team-warning-text" Text="{Binding Label}" IsVisible="{Binding IsMissing}" />
+                                  <TextBlock Classes="v2-label" Text="{Binding Label}" IsVisible="{Binding IsUnknown}" VerticalAlignment="Center" />
+                                </StackPanel>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                          <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                                     Text="{Binding Empty}" IsVisible="{Binding HasEmpty}" />
+                          <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding Source}" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Classes="v2-team-row" Padding="14,10" Margin="0,4,0,0"
+                        BorderBrush="{DynamicResource V2.Brush.Warning}" IsVisible="{Binding ReadyCheckHasMissing}">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Path Classes="v2-icon v2-team-warning" Data="{DynamicResource V2.Icon.Check}" />
+                    <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding ReadyCheckSummary}" TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                </Border>
+                <TextBlock Classes="v2-label" Margin="0,4,0,0" Text="{Binding ReadyCheckSummary}" IsVisible="{Binding !ReadyCheckHasMissing}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Column="2" Classes="v2-team-pane v2-team-stage">
           <Grid>
             <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself, whose own
                  DataContext is overridden to MapPreview (same as the Raid workspace). -->
@@ -326,6 +479,7 @@
             </Border>
           </Grid>
         </Border>
+        </Grid>
 
         <!-- Group: joining, creating and leaving a group, and what this desktop shares. -->
         <Border Classes="v2-team-pane" IsVisible="{Binding IsGroupSection}">
@@ -404,6 +558,11 @@
                                 OnContent="{x:Static l:TeamText.MyQuestProgressToggle}" OffContent="{x:Static l:TeamText.MyQuestProgressToggle}"
                                 AutomationProperties.Name="{x:Static l:TeamText.ShareMyQuestProgress}" />
                   <TextBlock Classes="v2-label" Text="{x:Static l:TeamText.ShareQuestsHint}" />
+                  <ToggleSwitch Classes="v2-team-switch" IsChecked="{Binding SharesReadyCheck, Mode=TwoWay}"
+                                OnContent="{x:Static l:TeamPlanText.ShareReadyCheckToggle}" OffContent="{x:Static l:TeamPlanText.ShareReadyCheckToggle}"
+                                AutomationProperties.AutomationId="v2-team-share-ready-check"
+                                AutomationProperties.Name="{x:Static l:TeamPlanText.ShareMyReadyCheck}" />
+                  <TextBlock Classes="v2-label" Text="{x:Static l:TeamPlanText.ShareReadyCheckHint}" />
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" Spacing="12">

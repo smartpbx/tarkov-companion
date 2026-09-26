@@ -203,8 +203,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         // [#292] Local only and the squad/report switches; null allows everything, as before.
         INetworkPolicy? network = null,
         // #712 0-12: when an exchange carried a new screenshot position, for the Position timeline.
-        CaptureSessions.ICaptureStageTimeline? stageTimeline = null)
+        CaptureSessions.ICaptureStageTimeline? stageTimeline = null,
+        // [#712 T7] This player's own Loadout check and level for the squad's ready check.
+        GroupReadyCheckShare? readyCheck = null)
     {
+        _readyCheck = readyCheck;
         _stageTimeline = stageTimeline;
         _network = network;
         _clock = clock ?? TimeProvider.System;
@@ -218,6 +221,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     }
 
     private readonly GroupSquadStatus? _status;
+    private readonly GroupReadyCheckShare? _readyCheck;
     private readonly INetworkPolicy? _network;
     private readonly CaptureSessions.ICaptureStageTimeline? _stageTimeline;
 
@@ -253,6 +257,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             // [#289] A ready toggle is sent now, the same way a quest change is.
             _status.Changed += QuestsChanged;
+        }
+
+        if (_readyCheck is not null)
+        {
+            // [#712 T7] A new check (another map planned) is sent now, like a ready toggle.
+            _readyCheck.Changed += QuestsChanged;
         }
 
         // [#286] A line drawn or removed is sent now, like a ready toggle.
@@ -934,6 +944,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         // when nobody shares quests, and it is what keeps their quests apart when somebody does.
         var ownMode = _quests is null ? null : await _quests.GameModeAsync(cancellationToken).ConfigureAwait(false);
         var status = _status?.Current ?? SquadStatus.None;
+        // [#712 T7] On by default; the "My ready check" switch sends neither the check nor the level.
+        var readiness = settings.SharesReadyCheck && _readyCheck is not null
+            ? await _readyCheck.GetAsync(cancellationToken).ConfigureAwait(false)
+            : SharedReadiness.None;
         var payload = Describe(snapshot, settings, sharedQuests, observed, _clock.GetUtcNow()) with
         {
             GameMode = ownMode,
@@ -944,6 +958,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             // [#286] Absent, not empty, when there is nothing drawn: the publish is byte for byte
             // what it was before lines existed.
             Drawings = GroupDrawingWire.Describe(Drawings.Current),
+            // [#712 T7] Absent, not empty, when not shared: the publish is what it was before.
+            LoadoutCheck = LoadoutCheckWire.Describe(readiness.Check, _clock.GetUtcNow()),
+            Level = readiness.Level,
         };
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
@@ -1345,6 +1362,9 @@ public sealed class GroupSessionService : IAsyncDisposable
         Ready = member.Ready,
         PlannedExtract = string.IsNullOrWhiteSpace(member.PlannedExtract) ? null : member.PlannedExtract.Trim(),
         Note = string.IsNullOrWhiteSpace(member.Note) ? null : member.Note.Trim(),
+        // [#712 T7] Absent from a companion or relay that predates them, or one switched off.
+        LoadoutCheck = LoadoutCheckWire.Read(member.LoadoutCheck),
+        Level = member.Level is >= 1 and <= 79 ? member.Level : null,
         // [#780] Absent from a companion or relay that predates it, which reads as no objectives.
         Objectives = [.. (member.Objectives ?? [])
             .Where(objective => objective is { TaskId.Length: > 0, ObjectiveId.Length: > 0 })
@@ -1670,6 +1690,11 @@ public sealed class GroupSessionService : IAsyncDisposable
             _status.Changed -= QuestsChanged;
         }
 
+        if (_readyCheck is not null)
+        {
+            _readyCheck.Changed -= QuestsChanged;
+        }
+
         Drawings.Changed -= QuestsChanged;
         _settings.Changed -= SettingsChanged;
         if (_network is not null)
@@ -1819,6 +1844,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         [JsonPropertyName("raidClockAge")]
         public double? RaidClockAgeSeconds { get; init; }
 
+        /// <summary>[#712 T7] Their own Loadout check; left out of the JSON when not shared.</summary>
+        [JsonPropertyName("loadoutCheck")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public LoadoutCheckDto? LoadoutCheck { get; init; }
+
+        /// <summary>[#712 T7] Their own level; left out of the JSON when not shared.</summary>
+        [JsonPropertyName("level")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? Level { get; init; }
+
         /// <summary>[#286] The lines this member shares; left out of the JSON when there are none.</summary>
         [JsonPropertyName("drawings")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1831,6 +1866,59 @@ public sealed class GroupSessionService : IAsyncDisposable
     {
         [JsonPropertyName("count")]
         public decimal? Count { get; init; }
+    }
+
+    /// <summary>[#712 T7] The wire form of a Loadout check (GroupLoadoutCheckState on the relay).</summary>
+    internal sealed record LoadoutCheckDto(
+        [property: JsonPropertyName("items")] IReadOnlyList<LoadoutCheckItemDto>? Items)
+    {
+        [JsonPropertyName("mapId")]
+        public string? MapId { get; init; }
+
+        [JsonPropertyName("age")]
+        public double? AgeSeconds { get; init; }
+    }
+
+    internal sealed record LoadoutCheckItemDto(
+        [property: JsonPropertyName("kind")] string Kind,
+        [property: JsonPropertyName("ok")] bool? Ok)
+    {
+        [JsonPropertyName("missing")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? Missing { get; init; }
+    }
+
+    /// <summary>[#712 T7] A Loadout check to and from the wire, inside the relay's bounds.</summary>
+    internal static class LoadoutCheckWire
+    {
+        public static LoadoutCheckDto? Describe(SharedLoadoutCheck? check, DateTimeOffset nowUtc) => check is null
+            ? null
+            : new LoadoutCheckDto([.. check.Items
+                .Where(item => item.Kind.Length is > 0 and <= 16)
+                .Take(SharedLoadoutCheck.MaximumItems)
+                .Select(item => new LoadoutCheckItemDto(item.Kind, item.Ok)
+                {
+                    Missing = item.Missing is { Length: > SharedLoadoutCheck.MissingLimit } text
+                        ? text[..SharedLoadoutCheck.MissingLimit]
+                        : item.Missing,
+                })])
+            {
+                MapId = check.MapId is { Length: <= 64 } map ? map : null,
+                AgeSeconds = Math.Round(Math.Clamp((nowUtc - check.CheckedUtc).TotalSeconds, 0, 86_400), 1),
+            };
+
+        public static GroupLoadoutCheckView? Read(LoadoutCheckDto? check) => check?.Items is not { } items
+            ? null
+            : new(
+                string.IsNullOrWhiteSpace(check.MapId) ? null : check.MapId,
+                [.. items
+                    .Where(item => item is { Kind.Length: > 0 })
+                    .Take(SharedLoadoutCheck.MaximumItems)
+                    .Select(item => new LoadoutCheckItem(
+                        item.Kind,
+                        item.Ok,
+                        item.Ok == false && !string.IsNullOrWhiteSpace(item.Missing) ? item.Missing.Trim() : null))],
+                check.AgeSeconds is { } age && double.IsFinite(age) && age >= 0 ? TimeSpan.FromSeconds(age) : null);
     }
 
     private sealed record TrailPointDto(

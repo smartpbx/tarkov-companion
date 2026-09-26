@@ -407,6 +407,10 @@ public static class AppComposition
         services.AddSingleton<GroupKitShare>();
         // [#289] The extract, note and ready state shared from Team; the group session sends it.
         services.AddSingleton<GroupSquadStatus>();
+        // [#712 T7] This player's own Loadout check and level for the squad's ready check.
+        services.AddSingleton(provider => new GroupReadyCheckShare(
+            provider.GetRequiredService<IPlayerProfileService>(),
+            provider.GetRequiredService<TarkovCompanion.Application.Services.Planning.LoadoutSuggestionService>()));
         services.AddSingleton<GroupSessionService>();
         // [#314] A consented problem report that found the relay unreachable waits here and is retried.
         services.AddSingleton(provider => new TarkovCompanion.Application.Services.Feedback.ProblemReportOutbox(

@@ -248,7 +248,11 @@ public sealed class GroupPageViewModel : PageViewModel
             string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim(),
             string.IsNullOrWhiteSpace(Key) ? null : Key.Trim(),
             SharesLoadout,
-            SharesQuests);
+            SharesQuests)
+        {
+            // [#712 T7] This page has no ready-check switch; it keeps whatever Team set.
+            SharesReadyCheck = (await _settings.GetAsync(CancellationToken.None).ConfigureAwait(true)).SharesReadyCheck,
+        };
 
         await _settings.SaveAsync(settings, CancellationToken.None).ConfigureAwait(true);
         SaveStatus = !settings.IsEnabled

@@ -55,7 +55,11 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
                     // [#780] On unless the player opted out. A file written before the opt-out
                     // existed carries only the old switch, which defaulted off and was rarely
                     // touched, so it reads as on: squad quest sync is on by default.
-                    document.QuestsOptOut is { } optedOut ? !optedOut : true);
+                    document.QuestsOptOut is { } optedOut ? !optedOut : true)
+                {
+                    // [#712 T7] On unless the player opted out; a file from before reads as on.
+                    SharesReadyCheck = document.ReadyCheckOptOut != true,
+                };
         }
         finally
         {
@@ -84,6 +88,7 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
                 settings.SharesQuests)
             {
                 QuestsOptOut = !settings.SharesQuests,
+                ReadyCheckOptOut = settings.SharesReadyCheck ? null : true,
             };
             await AtomicJsonFile.WriteAsync(
                 settingsPath,
@@ -150,5 +155,9 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
     {
         /// <summary>[#780] The explicit opt-out; null in a file written before it existed.</summary>
         public bool? QuestsOptOut { get; init; }
+
+        /// <summary>[#712 T7] The ready check's opt-out; absent while it is on.</summary>
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public bool? ReadyCheckOptOut { get; init; }
     }
 }

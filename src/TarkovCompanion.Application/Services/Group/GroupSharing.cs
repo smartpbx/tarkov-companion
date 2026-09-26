@@ -45,6 +45,15 @@ public sealed record GroupSharingSettings(
     public Phrase? ResetReason { get; init; }
 
     /// <summary>
+    /// [#712 T7] Whether this player's own Loadout check and level go to the squad's ready check.
+    /// </summary>
+    /// <remarks>
+    /// On by default once in a squad (decision 5 on #712); the "My ready check" switch on Team ›
+    /// Group turns it off. A settings file without the field reads as on.
+    /// </remarks>
+    public bool SharesReadyCheck { get; init; } = true;
+
+    /// <summary>
     /// Whether this is complete enough to try, as opposed to merely switched on.
     /// </summary>
     /// <remarks>
@@ -313,6 +322,12 @@ public sealed record GroupMemberView(
 
     /// <summary>[#289] A short line they left for the squad.</summary>
     public string? Note { get; init; }
+
+    /// <summary>[#712 T7] Their own Loadout check, as their companion made it; null when not shared.</summary>
+    public GroupLoadoutCheckView? LoadoutCheck { get; init; }
+
+    /// <summary>[#712 T7] Their own level, as their companion shared it; null when not shared.</summary>
+    public int? Level { get; init; }
 
     /// <summary>
     /// Where they have been this raid, oldest first, without their current position.
