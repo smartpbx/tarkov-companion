@@ -105,6 +105,7 @@ public sealed partial class NowPanelGlanceTests
                         using var panel = new NowPanelViewModel(null, new FixedClock(Now), post: action => action(), tick: false);
                         panel.Show(fixture.Situation);
                         panel.SetExits(fixture.Exits);
+                        panel.SetPersonal(fixture.Personal);
                         panel.ShowLoot(fixture.Verdict);
                         var view = new NowPanelView { DataContext = panel };
                         var window = new Window
@@ -232,11 +233,25 @@ public sealed partial class NowPanelGlanceTests
             yield return $"YOU '{state.YouWhere}' is shown without its screenshot's age";
         }
 
-        var exit = NowPanelState.ChooseExit(fixture.Exits);
+        var personal = fixture.Personal ?? NowPersonal.None;
+        var pick = NowPanelState.ChoosePersonalExit(fixture.Exits, personal.ExitUses);
+        var exit = pick?.Exit;
         var namesExit = exit is not null && seen.Any(text => text.Contains(exit.Name, StringComparison.Ordinal));
         if (inRaid && exit is { IsOffered: false } && namesExit && !Shows(NowText.ExitUnconfirmed))
         {
             yield return $"the exit {exit.Name} was never seen offered, and '{NowText.ExitUnconfirmed}' is not on screen";
+        }
+
+        // [#712 2-4] Your own use moved the pick off the nearest exit: why is on screen with YOU's exit line.
+        if (inRaid && pick is { UsesDecided: true, Uses: > 0 } && Shows(state.YouExit) && !Shows(NowText.ExitUsed(pick.Uses)))
+        {
+            yield return $"the exit {exit!.Name} was named for your use of it, and '{NowText.ExitUsed(pick.Uses)}' is not on screen";
+        }
+
+        // [#712 2-4] YOU's walk minutes are your measured pace: it says so beside them.
+        if (inRaid && personal.IsYourPace && Shows(state.YouExit) && !Shows(NowText.YourPace))
+        {
+            yield return $"YOU's walk '{state.YouExit}' is your pace, and '{NowText.YourPace}' is not on screen";
         }
 
         // [#403] Companions' rows or the game's party list: either way, where they came from is on screen.
@@ -257,9 +272,11 @@ public sealed partial class NowPanelGlanceTests
         }
 
         // [#712 0-6] The leave-by time is modelled from a walking pace and the last screenshot.
-        if (state.IsLate && state.HasNowNote && Shows(state.NowNote) && !Shows(NowText.LeaveEstimate))
+        // [#712 2-4] The label names the pace the walk came from, the player's own or the careful one.
+        var leaveLabel = NowText.LeaveEstimateFor(personal.IsYourPace);
+        if (state.IsLate && state.HasNowNote && Shows(state.NowNote) && !Shows(leaveLabel))
         {
-            yield return $"the leave line '{state.NowNote}' is an estimate, and '{NowText.LeaveEstimate}' is not on screen";
+            yield return $"the leave line '{state.NowNote}' is an estimate, and '{leaveLabel}' is not on screen";
         }
 
         if (state.HasNext && Shows(state.NextLabel[..Math.Min(12, state.NextLabel.Length)]) && !Shows(NowText.NextOnRoute))
@@ -364,6 +381,19 @@ public sealed partial class NowPanelGlanceTests
         yield return new("late raid, worst case, old verdict", late, far, Verdict(Now.AddMinutes(-4)));
         yield return new("late raid, worst case, fresh verdict", late, far, Verdict(Now.AddSeconds(-2)));
         yield return new("late raid, past leaving, fresh verdict", Worst(NowPanelStateTests.InRaid(minutesIn: 37, length: 40)), far, Verdict(Now.AddSeconds(-2)));
+
+        // [#712 2-4] Your pace, and an exit you use named over a nearer one never seen offered: YOU's note at its longest.
+        NowExit[] yours =
+        [
+            NowPanelStateTests.Exit("Crossroads", 150, "S", offered: false),
+            NowPanelStateTests.Exit("Scav Checkpoint Crossroads", 180, "SW", offered: false),
+        ];
+        var personal = new NowPersonal(
+            new(0.7, 0.6, 0.9, 40, 12),
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Scav Checkpoint Crossroads"] = 12 });
+        yield return new("late raid, worst case, your pace and exit", late, yours, Personal: personal);
+        yield return new("late raid, your pace and exit, fresh verdict", late, yours, Verdict(Now.AddSeconds(-2)), personal);
+        yield return new("in raid, worst case, your pace and exit", mid, yours, Personal: personal);
     }
 
     /// <summary>Four squadmates in the raid with long places, a long YOU, and a long route.</summary>
@@ -417,7 +447,12 @@ public sealed partial class NowPanelGlanceTests
         public override string ToString() => $"1920x{WindowHeight} at {TextPercent}%";
     }
 
-    internal sealed record Fixture(string Name, Situation Situation, IReadOnlyList<NowExit>? Exits = null, NowLootVerdict? Verdict = null)
+    internal sealed record Fixture(
+        string Name,
+        Situation Situation,
+        IReadOnlyList<NowExit>? Exits = null,
+        NowLootVerdict? Verdict = null,
+        NowPersonal? Personal = null)
     {
         public IReadOnlyList<NowExit> Exits { get; } = Exits ?? [];
     }

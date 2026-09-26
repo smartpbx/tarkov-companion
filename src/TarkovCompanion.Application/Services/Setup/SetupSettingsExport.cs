@@ -85,7 +85,8 @@ public static class SetupSettingsExport
             SquadSharing = new SquadSharingDocument(
                 normalized.SquadSharing.IsEnabled,
                 normalized.SquadSharing.SharesLoadout,
-                normalized.SquadSharing.SharesQuests),
+                normalized.SquadSharing.SharesQuests,
+                normalized.SquadSharing.SharesReadyCheck),
             Layout = new SortedDictionary<string, string>(normalized.Layout.ToDictionary(), StringComparer.Ordinal),
             MapDefaults = new SortedDictionary<string, string>(normalized.MapDefaults.ToDictionary(), StringComparer.OrdinalIgnoreCase),
         };
@@ -178,7 +179,9 @@ public static class SetupSettingsExport
                 ? new SquadSharingChoices(
                     squad.IsEnabled ?? SquadSharingChoices.Default.IsEnabled,
                     squad.SharesLoadout ?? SquadSharingChoices.Default.SharesLoadout,
-                    squad.SharesQuests ?? SquadSharingChoices.Default.SharesQuests)
+                    squad.SharesQuests ?? SquadSharingChoices.Default.SharesQuests,
+                    // A file from before #961 has no ready-check switch: the default, as for a new group.json.
+                    squad.SharesReadyCheck ?? SquadSharingChoices.Default.SharesReadyCheck)
                 : current.SquadSharing,
             Layout = document.Layout is { } layout
                 ? new SortedDictionary<string, string>(
@@ -243,5 +246,5 @@ public static class SetupSettingsExport
     private sealed record HorizonsDocument(RecommendationHorizon? Quest, RecommendationHorizon? Hideout);
 
     /// <remarks>The three switches only: the relay address, display name and group key never leave group.json.</remarks>
-    private sealed record SquadSharingDocument(bool? IsEnabled, bool? SharesLoadout, bool? SharesQuests);
+    private sealed record SquadSharingDocument(bool? IsEnabled, bool? SharesLoadout, bool? SharesQuests, bool? SharesReadyCheck = null);
 }

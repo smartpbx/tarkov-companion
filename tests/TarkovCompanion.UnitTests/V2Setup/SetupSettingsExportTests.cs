@@ -149,6 +149,25 @@ public sealed class SetupSettingsExportTests
     }
 
     [Fact]
+    public void My_ready_check_travels_with_the_file_and_an_older_file_leaves_it_on()
+    {
+        var off = SetupSettingsSnapshot.Default with { SquadSharing = new SquadSharingChoices(true, true, true, SharesReadyCheck: false) };
+
+        var result = SetupSettingsExport.Validate(SetupSettingsExport.ToJson(off));
+        var older = SetupSettingsExport.Validate(
+            "{\"schemaVersion\": 1, \"squadSharing\": {\"isEnabled\": true, \"sharesLoadout\": true, \"sharesQuests\": true}}",
+            off);
+
+        Assert.True(result.IsValid);
+        Assert.False(result.Snapshot!.SquadSharing.SharesReadyCheck);
+        Assert.Contains(
+            SetupSettingsDiff.Compare(SetupSettingsSnapshot.Default with { SquadSharing = new(true, true, true) }, off),
+            entry => entry.Field == SetupSettingsField.ShareReadyCheck);
+        Assert.True(older.IsValid);
+        Assert.True(older.Snapshot!.SquadSharing.SharesReadyCheck);
+    }
+
+    [Fact]
     public void AnEmptyFileFailsValidation()
     {
         var result = SetupSettingsExport.Validate("null");

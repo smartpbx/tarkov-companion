@@ -901,7 +901,10 @@ public static class AppComposition
             squadQuests: provider.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>(),
             // [Issue 796] Never passed until now, so the panel width, cards, Follow zoom, loot
             // threshold and layer choices all worked for the session and were forgotten after it.
-            layout: provider.GetService<IWorkspaceLayoutStore>())));
+            layout: provider.GetService<IWorkspaceLayoutStore>())
+        {
+            PersonalHistorySource = provider.GetService<IRaidHistoryService>(), // [#712 2-4] the Now panel's pace and exits
+        }));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2

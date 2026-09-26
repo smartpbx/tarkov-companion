@@ -6,8 +6,9 @@ using TarkovCompanion.Core.Network;
 
 namespace TarkovCompanion.Application.Services.Setup;
 
-/// <summary>The three squad-sharing switches of group.json, without the address, name or key.</summary>
-public sealed record SquadSharingChoices(bool IsEnabled, bool SharesLoadout, bool SharesQuests)
+/// <summary>The squad-sharing switches of group.json, without the address, name or key.</summary>
+/// <param name="SharesReadyCheck">"My ready check" (#961), on by default like group.json's own.</param>
+public sealed record SquadSharingChoices(bool IsEnabled, bool SharesLoadout, bool SharesQuests, bool SharesReadyCheck = true)
 {
     /// <summary>What <c>GroupSharingSettings.Off</c> holds: nothing shared, quests on once joined.</summary>
     public static SquadSharingChoices Default { get; } = new(false, false, true);

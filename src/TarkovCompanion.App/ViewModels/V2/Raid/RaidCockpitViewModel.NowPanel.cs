@@ -52,6 +52,7 @@ public sealed partial class RaidCockpitViewModel
             PingMember = _groupSession is null ? null : PingSquadmateAsync,
             WaypointMember = _groupSession is null ? null : WaypointSquadmateAsync, // [#712 0-5]
             LeaveMargin = LeaveMarginChoice.Value, // [#712 0-6]
+            LoadPersonal = NowHistory is null ? null : LoadNowPersonalAsync, // [#712 2-4]
         };
         NowHost.Panel = panel;
         panel.SetExits(NowExits());

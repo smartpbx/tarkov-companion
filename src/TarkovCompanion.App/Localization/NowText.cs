@@ -31,6 +31,9 @@ public static class NowText
 
     /// <summary>[#712 0-6] The leave line is worked out (walk pace, last screenshot), so it says so.</summary>
     public static string LeaveEstimate => UiText.Get("Now.LeaveEstimate");
+
+    /// <summary>[#712 2-4] The leave line's label, naming the pace its walk minutes came from.</summary>
+    public static string LeaveEstimateFor(bool yourPace) => yourPace ? UiText.Get("Now.LeaveEstimateYourPace") : LeaveEstimate;
     public static string MarginLabel => UiText.Get("Now.Margin.Label");
     public static string MarginValue(int minutes) => UiText.Format("Now.Margin.Value", minutes);
     public static string MarginLess => UiText.Get("Now.Margin.Less");
@@ -88,6 +91,8 @@ public static class NowText
     public static string OfferedExit(string exit, string where, int minutes) => UiText.Format("Now.You.OfferedExit", exit, where, minutes);
     public static string NearestExit(string exit, string where, int minutes) => UiText.Format("Now.You.NearestExit", exit, where, minutes);
     public static string ExitUnconfirmed => UiText.Get("Now.You.ExitUnconfirmed");
+    public static string ExitUsed(int uses) => uses == 1 ? UiText.Get("Now.You.ExitUsedOnce") : UiText.Format("Now.You.ExitUsed", uses);
+    public static string YourPace => UiText.Get("Now.You.YourPace");
     public static string Wrong => UiText.Get("Now.You.Wrong");
     public static string WrongDetail => UiText.Get("Now.You.WrongDetail");
     public static string WrongSide(SituationSide side) => side switch
