@@ -1929,7 +1929,7 @@ $Shots.Add([pscustomobject]@{
             targetAutomationId = "v2-map-mode-floorstack2d"; targetControlType = "Button"
             timeoutSeconds = 60
         },
-        [pscustomobject]@{ action = "ready"; condition = "settled"; description = "the map settled" }) }
+        [pscustomobject]@{ action = "ready"; condition = "stack"; description = "the floor stack drawn" }) }
 })
 # [#279] Marker states a clean runner never has: the app seeds them itself (--gallery-scene,
 # developer mode only; see GallerySceneRunner) from the catalog it has already downloaded, and
