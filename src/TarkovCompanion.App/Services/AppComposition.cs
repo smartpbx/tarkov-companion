@@ -904,7 +904,10 @@ public static class AppComposition
             layout: provider.GetService<IWorkspaceLayoutStore>(),
             // Never passed until now either, so a chosen suggested route was never saved to the
             // raid and Debrief had no plan to compare the trail with.
-            raidHistory: provider.GetRequiredService<IRaidHistoryService>())));
+            raidHistory: provider.GetRequiredService<IRaidHistoryService>())
+        {
+            PersonalHistorySource = provider.GetService<IRaidHistoryService>(), // [#712 2-4] the Now panel's pace and exits
+        }));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2

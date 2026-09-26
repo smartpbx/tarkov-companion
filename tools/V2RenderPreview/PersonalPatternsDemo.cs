@@ -18,6 +18,28 @@ internal static class PersonalPatternsDemo
     /// <summary>--debrief-patterns-demo (with --debrief-demo): seeds the raids.</summary>
     public static void Seed(IServiceProvider services, Action<Task> drain) => drain(SeedAsync(services));
 
+    /// <summary>
+    /// [#712 2-4] <paramref name="count"/> finished Customs raids left by <paramref name="exit"/>, for
+    /// the Now panel's exit weighting (--now-personal-demo).
+    /// </summary>
+    public static void SeedExitUses(IServiceProvider services, string exit, int count, Action<Task> drain) =>
+        drain(SeedExitUsesAsync(services, exit, count));
+
+    private static async Task SeedExitUsesAsync(IServiceProvider services, string exit, int count)
+    {
+        var history = services.GetRequiredService<SqliteRaidHistoryService>();
+        var profile = await services.GetRequiredService<IPlayerProfileService>().GetActiveAsync(CancellationToken.None);
+        var now = DateTimeOffset.UtcNow;
+        for (var index = 0; index < count; index++)
+        {
+            var started = now.AddDays(-5 - index);
+            var id = await history.StartAsync(new(Guid.NewGuid(), profile.Id, "customs", "Regular", started, null, null, null), CancellationToken.None);
+            var at = started.AddMinutes(25);
+            await history.EndAsync(id, at, "Survived", null, CancellationToken.None);
+            await history.RecordEventAsync(id, RaidExtractUsed.EventType, at, new RaidExtractUsed(exit, at).ToPayload(), CancellationToken.None);
+        }
+    }
+
     private static async Task SeedAsync(IServiceProvider services)
     {
         var history = services.GetRequiredService<SqliteRaidHistoryService>();

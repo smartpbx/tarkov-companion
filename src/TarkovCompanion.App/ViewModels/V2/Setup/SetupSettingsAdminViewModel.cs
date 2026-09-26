@@ -318,7 +318,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
             Horizons = _sources.Horizons?.CurrentSettings ?? RecommendationHorizonSettings.Default,
             SquadSharing = squad is null
                 ? SquadSharingChoices.Default
-                : new SquadSharingChoices(squad.IsEnabled, squad.SharesLoadout, squad.SharesQuests),
+                : new SquadSharingChoices(squad.IsEnabled, squad.SharesLoadout, squad.SharesQuests, squad.SharesReadyCheck),
             Layout = _sources.Layout?.Entries ?? SetupSettingsSnapshot.Default.Layout,
             MapDefaults = maps,
         }.Normalized();
@@ -385,7 +385,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
 
         if (_sources.SquadSharing is { } group && target.SquadSharing != current.SquadSharing)
         {
-            // The three switches only. The relay address, name and key stay exactly as they are.
+            // The four switches only. The relay address, name and key stay exactly as they are.
             var stored = await group.GetAsync(token).ConfigureAwait(true);
             await group.SaveAsync(
                     stored with
@@ -393,6 +393,7 @@ public sealed class SetupSettingsAdminViewModel : BindableViewModel
                         IsEnabled = target.SquadSharing.IsEnabled,
                         SharesLoadout = target.SquadSharing.SharesLoadout,
                         SharesQuests = target.SquadSharing.SharesQuests,
+                        SharesReadyCheck = target.SquadSharing.SharesReadyCheck, // [#961]
                     },
                     token)
                 .ConfigureAwait(true);

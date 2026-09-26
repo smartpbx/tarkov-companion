@@ -33,6 +33,7 @@ public enum SetupSettingsField
     ShareWithSquad,
     ShareLoadout,
     ShareQuests,
+    ShareReadyCheck,
 
     /// <summary>One workspace-layout entry; <see cref="SetupSettingsDiffEntry.Detail"/> is its key.</summary>
     Layout,
@@ -152,6 +153,7 @@ public static class SetupSettingsDiff
         Add(SetupSettingsField.ShareWithSquad, current.SquadSharing.IsEnabled, incoming.SquadSharing.IsEnabled);
         Add(SetupSettingsField.ShareLoadout, current.SquadSharing.SharesLoadout, incoming.SquadSharing.SharesLoadout);
         Add(SetupSettingsField.ShareQuests, current.SquadSharing.SharesQuests, incoming.SquadSharing.SharesQuests);
+        Add(SetupSettingsField.ShareReadyCheck, current.SquadSharing.SharesReadyCheck, incoming.SquadSharing.SharesReadyCheck);
 
         AddEach(SetupSettingsField.Layout, current.Layout, incoming.Layout, SetupSettingsValueKind.Stored, StringComparer.Ordinal);
         AddEach(SetupSettingsField.MapDefault, current.MapDefaults, incoming.MapDefaults, SetupSettingsValueKind.Stored, StringComparer.OrdinalIgnoreCase);

@@ -191,7 +191,7 @@
             <TextBlock Classes="now-small" Text="{Binding State.LeaveEstimate}" IsVisible="{Binding State.HasLeaveEstimate}"
                        AutomationProperties.AutomationId="v2-now-leave-estimate" />
             <!-- [#712 0-7] The leave line names an exit; while YOU's exit line is hidden, its "not seen" goes here. -->
-            <TextBlock Classes="now-small" Text="{Binding State.YouExitNote}" IsVisible="{Binding ShowsLeaveExitNote}" />
+            <TextBlock Classes="now-small" Text="{Binding State.LeaveExitNote}" IsVisible="{Binding ShowsLeaveExitNote}" />
             <TextBlock Classes="now-small" IsVisible="{Binding State.HasNowDetail}" Text="{Binding State.NowDetail}" />
             <!-- A grid, not a row: at 150% text the run-through line wraps rather than running off the panel. -->
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,8,0,0">
