@@ -1384,6 +1384,7 @@ public sealed partial class DebriefWorkspaceViewModel : BindableViewModel
 
         Raids = Raids.Select(row => row with { IsSelected = row.RaidId == raidId }).ToArray();
         await RefreshAfterRaidRecapAsync(cancellationToken).ConfigureAwait(true);
+        await RefreshPersonalPatternAsync(cancellationToken).ConfigureAwait(true);
         RaiseAll();
     }
 
