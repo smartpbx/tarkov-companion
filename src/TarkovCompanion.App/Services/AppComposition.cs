@@ -643,6 +643,7 @@ public static class AppComposition
         TarkovCompanion.App.Services.V2.SituationComposition.Add(services); // [#712 0-2] ADR 0022
         TarkovCompanion.App.Services.Sound.SoundComposition.Add(services); // [#712 0-10] sound, off by default
         TarkovCompanion.App.Services.V2.PreRaidBriefComposition.Add(services); // [#712 0-9]
+        TarkovCompanion.App.Services.V2.AskComposition.Add(services); // [#712 2-5] the palette's Ask mode
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
         services.AddSingleton<TesseractOcrEngine>();

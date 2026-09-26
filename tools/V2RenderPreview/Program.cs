@@ -1764,6 +1764,7 @@ internal static class Program
                 if (StringOption(args, "--palette-query") is { } paletteQuery)
                 {
                     shell.PaletteQuery = paletteQuery;
+                    if (shell.Ask?.PendingAnswer is { } answer) { DrainUntilComplete(answer); } // [#712 2-5] the Ask card's answer
                 }
 
                 Pump(20);
@@ -2103,6 +2104,16 @@ internal static class Program
                     Pump(2);
                 }
 
+                Pump(20);
+            }
+
+            // [#712 2-5] --ask "<question>": Ctrl+K with a question typed, after any --raid-demo so an
+            // extract question sees the demo raid's exits; the frame waits for the answer card.
+            if (shell is not null && StringOption(args, "--ask") is { } askQuestion)
+            {
+                if (!shell.IsPaletteOpen) { shell.PaletteCommand.Execute(null); }
+                shell.PaletteQuery = askQuestion;
+                if (shell.Ask?.PendingAnswer is { } asked) { DrainUntilComplete(asked); }
                 Pump(20);
             }
 
