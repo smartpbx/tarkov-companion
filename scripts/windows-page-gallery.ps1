@@ -1902,6 +1902,11 @@ foreach ($GearRail in @("labels", "icons")) {
 # scale a player looks at mid-raid. Uploaded with the other v2-a-* captures (v2-route-gallery).
 foreach ($Zoom in @(0, 3)) {
     $ExtractSteps = [System.Collections.Generic.List[object]]::new()
+    # [#712 0-4] Extract options is a Raid plan card, and the cards are the Now panel's More drawer.
+    $ExtractSteps.Add([pscustomobject]@{
+        action = "invoke"; description = "open the Now panel's More drawer"
+        targetAutomationId = "v2-now-more"; targetControlType = "Button"; timeoutSeconds = 30
+    })
     $ExtractSteps.Add([pscustomobject]@{
         action = "invoke"; description = "select the first extract from Extract options"
         targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
@@ -1937,6 +1942,10 @@ $Shots.Add([pscustomobject]@{
     galleryScene = "map"
     seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
     interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "invoke"; description = "open the Now panel's More drawer (#712 0-4)"
+            targetAutomationId = "v2-now-more"; targetControlType = "Button"; timeoutSeconds = 30
+        },
         [pscustomobject]@{
             action = "invoke"; description = "select the first Labs extract from Extract options"
             targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
@@ -1992,8 +2001,9 @@ foreach ($InRaidMap in @("customs", "interchange")) {
         captureBeforeInteraction = $true
         interaction = [pscustomobject]@{ steps = @(
             [pscustomobject]@{
-                action = "assert"; description = "the raid clock on the strip, and the map keeps its height in raid"
-                expectedAutomationIds = @("v2-map-plan", "v2-raid-phase", "v2-raid-layers", "v2-raid-traffic-chip")
+                # [#712 0-4] One clock: the Now panel's NOW block holds it, the strip no longer does.
+                action = "assert"; description = "the raid clock in the Now panel, and the map keeps its height in raid"
+                expectedAutomationIds = @("v2-map-plan", "v2-now-clock", "v2-raid-layers", "v2-raid-traffic-chip")
                 expectedBounds = @([pscustomobject]@{
                     automationId = "v2-map-plan"
                     minimumWindowWidthFraction = 0.66

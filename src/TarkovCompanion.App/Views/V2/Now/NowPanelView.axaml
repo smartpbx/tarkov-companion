@@ -1,0 +1,399 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Now.NowPanelView"
+             x:DataType="now:NowPanelViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:l="using:TarkovCompanion.App.Localization"
+             xmlns:now="using:TarkovCompanion.App.ViewModels.V2.Now"
+             xmlns:raid="using:TarkovCompanion.App.Views.V2.Raid"
+             AutomationProperties.AutomationId="v2-now-panel"
+             AutomationProperties.Name="{x:Static l:NowText.PanelName}">
+  <!-- [#712 0-4] docs/design/v3/v3-raid-now.png and v3-raid-late-loot.png: one column read from a
+       metre away, five blocks in human units, and never a scroll bar at 1920x1080. Everything the
+       Raid plan's sixteen cards held is behind More at the foot (the cards themselves, unchanged). -->
+  <UserControl.Styles>
+    <Style Selector="Border.now-card">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.now-block">
+      <Setter Property="Padding" Value="22,16,22,16" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="TextBlock.now-eyebrow">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.now-clock">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Display.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Display.LineHeight}" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.now-lead">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading2.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading2.LineHeight}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.now-row">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading3.LineHeight}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.now-note">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Body.LineHeight}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.now-small">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <!-- "Take 2 · Swap 1 · Leave 1" on one line at 400 px: a size under the clock's. -->
+    <Style Selector="TextBlock.now-verdict">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading1.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading1.LineHeight}" />
+    </Style>
+    <Style Selector="TextBlock.now-take">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.now-swap">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.now-leave">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="TextBlock.now-check">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Info}" />
+    </Style>
+    <!-- Late raid: the NOW block goes amber, and red once the time to leave has passed. -->
+    <Style Selector="Border.now-late TextBlock.now-eyebrow, Border.now-late TextBlock.now-clock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.now-urgent TextBlock.now-eyebrow, Border.now-urgent TextBlock.now-clock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="StackPanel.now-stale">
+      <Setter Property="Opacity" Value="0.55" />
+    </Style>
+    <!-- A squad row's leading edge lights for two seconds when that squadmate moves area or pings. -->
+    <Style Selector="Border.now-pulse">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.6" /></Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.now-pulse.now-lit">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Window.v2-motion-reduced Border.now-pulse">
+      <Setter Property="Transitions">
+        <Transitions />
+      </Setter>
+    </Style>
+    <Style Selector="Button.now-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.now-wrong">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="10,2" />
+      <Setter Property="MinHeight" Value="24" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+    </Style>
+    <Style Selector="Button.now-ping">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="MinWidth" Value="28" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border Classes="now-card">
+    <DockPanel>
+      <!-- More: the Raid plan cards, every one of them. -->
+      <Button DockPanel.Dock="Bottom" Classes="now-link" Command="{Binding MoreCommand}"
+              AutomationProperties.AutomationId="v2-now-more"
+              AutomationProperties.Name="{x:Static l:NowText.More}"
+              ToolTip.Tip="{x:Static l:NowText.MoreTip}">
+        <Border Padding="22,14" BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,1,0,0">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.Action}" Text="{x:Static l:NowText.More}" />
+            <Path Grid.Column="1" Classes="v2-icon v2-icon-sm v2-icon-action" Data="{DynamicResource V2.Icon.ChevronRight}" />
+          </Grid>
+        </Border>
+      </Button>
+      <!-- The newest automatic change's reason (ADR 0022's transitions), so a switch is never silent. -->
+      <TextBlock DockPanel.Dock="Bottom" Classes="now-small" Margin="22,0,22,10" MaxLines="2" TextTrimming="CharacterEllipsis"
+                 Text="{Binding State.Because}"
+                 AutomationProperties.AutomationId="v2-now-because">
+        <!-- The brief carries its own "because"; one is enough. -->
+        <TextBlock.IsVisible>
+          <MultiBinding Converter="{x:Static BoolConverters.And}">
+            <Binding Path="State.HasBecause" />
+            <Binding Path="ShowsBlocks" />
+          </MultiBinding>
+        </TextBlock.IsVisible>
+      </TextBlock>
+
+      <!-- Clipped rather than spilling onto More: the blocks are sized to fit 1080 high (#712 T3). -->
+      <!-- [#712 0-9] Matching or loading: the pre-raid brief is the panel until GameStarted. -->
+      <Panel>
+      <Panel IsVisible="{Binding ShowsBrief}" Margin="6,4,6,0">
+        <raid:PreRaidBriefView DataContext="{Binding Brief}" />
+      </Panel>
+      <StackPanel x:Name="Blocks" ClipToBounds="True" IsVisible="{Binding ShowsBlocks}">
+        <!-- NOW: the only clock on the page. -->
+        <Panel>
+        <Rectangle Fill="{DynamicResource V2.Brush.Warning}" Opacity="0.13" IsVisible="{Binding State.IsLate}" />
+        <Rectangle Fill="{DynamicResource V2.Brush.Danger}" Opacity="0.13" IsVisible="{Binding State.IsUrgent}" />
+        <Border Classes="now-block" Classes.now-late="{Binding State.IsLate}" Classes.now-urgent="{Binding State.IsUrgent}"
+                AutomationProperties.AutomationId="v2-now-now">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="now-eyebrow" Text="{Binding State.NowHeading}" />
+            <TextBlock Classes="now-clock" Text="{Binding State.NowHeadline}" Margin="0,4,0,0"
+                       AutomationProperties.AutomationId="v2-now-clock" />
+            <TextBlock Classes="now-note" FontSize="{DynamicResource V2.Type.Heading3.Size}" LineHeight="{DynamicResource V2.Type.Heading3.LineHeight}" FontWeight="SemiBold" IsVisible="{Binding State.IsLate}"
+                       Text="{Binding State.NowNote}" AutomationProperties.AutomationId="v2-now-leave" />
+            <TextBlock Classes="now-small" IsVisible="{Binding State.HasNowDetail}" Text="{Binding State.NowDetail}" />
+            <StackPanel Classes="v2-icon-label" Margin="0,8,0,0">
+              <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="!State.IsLate" />
+                  <Binding Path="State.HasNowNote" />
+                </MultiBinding>
+              </StackPanel.IsVisible>
+              <Path Classes="v2-icon v2-icon-sm" Stroke="{DynamicResource V2.Brush.Success}" Data="{DynamicResource V2.Icon.Check}"
+                    IsVisible="{Binding State.NowNoteIsDone}" />
+              <Path Classes="v2-icon v2-icon-sm v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}"
+                    IsVisible="{Binding !State.NowNoteIsDone}" />
+              <TextBlock Classes="now-note" Text="{Binding State.NowNote}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        </Panel>
+
+        <!-- YOU: where the last screenshot put you, in words, and its age. -->
+        <Border Classes="now-block" IsVisible="{Binding State.ShowsYou}" AutomationProperties.AutomationId="v2-now-you">
+          <StackPanel Spacing="4" Classes.now-stale="{Binding State.YouIsStale}">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingYou}" />
+              <TextBlock Grid.Column="1" Classes="now-small" Text="{Binding State.YouAge}" IsVisible="{Binding State.IsVerdictFocus}" />
+            </Grid>
+            <TextBlock Classes="now-lead" Margin="0,4,0,0" Text="{Binding State.YouWhere}"
+                       Classes.now-note="{Binding State.IsVerdictFocus}"
+                       AutomationProperties.AutomationId="v2-now-you-where" />
+            <TextBlock Classes="now-small" Text="{Binding State.YouAge}" IsVisible="{Binding State.IsNotVerdictFocus}" />
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="0,8,0,0">
+              <Grid.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="State.HasYouExit" />
+                  <Binding Path="State.IsNotVerdictFocus" />
+                </MultiBinding>
+              </Grid.IsVisible>
+              <Border Width="30" Height="30" CornerRadius="15" VerticalAlignment="Top" Margin="0,2,0,0"
+                      BorderBrush="{DynamicResource V2.Brush.Success}" BorderThickness="1.5">
+                <Path Classes="v2-icon v2-icon-sm" Stroke="{DynamicResource V2.Brush.Success}" HorizontalAlignment="Center"
+                      Data="{DynamicResource V2.Icon.Exit}" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock Classes="now-lead" Text="{Binding State.YouExit}" AutomationProperties.AutomationId="v2-now-you-exit" />
+                <TextBlock Classes="now-small" Text="{Binding State.YouExitNote}" IsVisible="{Binding State.HasYouExitNote}" />
+              </StackPanel>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+              <StackPanel.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="State.YouIsPlaced" />
+                  <Binding Path="State.IsNotVerdictFocus" />
+                </MultiBinding>
+              </StackPanel.IsVisible>
+              <Button Classes="now-wrong" Content="{x:Static l:NowText.Wrong}" Command="{Binding WrongCommand}"
+                      AutomationProperties.AutomationId="v2-now-wrong" />
+              <TextBlock Classes="now-small" VerticalAlignment="Center" Text="{x:Static l:NowText.WrongDetail}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- LAST SCAN comes up above SQUAD while a fresh verdict has the room (v3-raid-late-loot). -->
+        <Border Classes="now-block" IsVisible="{Binding State.IsVerdictFocus}" AutomationProperties.AutomationId="v2-now-scan-focus">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingLastScan}" />
+              <TextBlock Grid.Column="1" Classes="now-small" Foreground="{DynamicResource V2.Brush.Action}" Text="{Binding State.ScanAge}" />
+            </Grid>
+            <Button Classes="now-link" Command="{Binding OpenLootCommand}" ToolTip.Tip="{x:Static l:NowText.OpenLoot}"
+                    AutomationProperties.Name="{x:Static l:NowText.OpenLoot}">
+              <WrapPanel ItemSpacing="10">
+                <TextBlock Classes="now-clock now-verdict now-take" Text="{Binding State.TakeText}" IsVisible="{Binding State.TakeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="now-clock now-verdict now-swap" Text="{Binding State.SwapText}" IsVisible="{Binding State.SwapText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="now-clock now-verdict now-leave" Text="{Binding State.LeaveText}" IsVisible="{Binding State.LeaveText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="now-clock now-verdict now-check" Text="{Binding State.CheckText}" IsVisible="{Binding State.CheckText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </WrapPanel>
+            </Button>
+            <ItemsControl ItemsSource="{Binding State.VerdictRows}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="now:NowLootRow">
+                  <Border BorderBrush="{DynamicResource V2.Brush.Divider}" BorderThickness="0,0,0,1" Padding="0,8">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                      <StackPanel Spacing="1">
+                        <TextBlock Classes="now-note" FontWeight="SemiBold">
+                          <Run Text="{Binding VerdictWord}" FontSize="{DynamicResource V2.Type.Label.Size}" Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+                          <Run Text=" " />
+                          <Run Text="{Binding Name}" />
+                        </TextBlock>
+                        <TextBlock Classes="now-small" Text="{Binding Reason}" IsVisible="{Binding HasReason}"
+                                   MaxLines="2" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" Classes="now-note" FontWeight="SemiBold" VerticalAlignment="Center" Text="{Binding Value}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- SQUAD: one row per member, only what their own companion shared (#712 0-5). -->
+        <Border Classes="now-block" IsVisible="{Binding State.ShowsSquad}" AutomationProperties.AutomationId="v2-now-squad">
+          <StackPanel Spacing="10">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingSquad}" />
+              <TextBlock Grid.Column="1" Classes="now-small" Text="{x:Static l:NowText.SquadSource}" IsVisible="{Binding State.HasSquad}" />
+            </Grid>
+            <TextBlock Classes="now-row" TextWrapping="Wrap" Text="{Binding State.SquadLine}">
+              <TextBlock.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="State.IsVerdictFocus" />
+                  <Binding Path="State.HasSquad" />
+                </MultiBinding>
+              </TextBlock.IsVisible>
+            </TextBlock>
+            <ItemsControl ItemsSource="{Binding SquadRows}" IsVisible="{Binding State.IsNotVerdictFocus}"
+                          AutomationProperties.AutomationId="v2-now-squad-rows">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="now:NowSquadRowViewModel">
+                  <Panel>
+                    <Border Classes="now-pulse" Classes.now-lit="{Binding IsPulsing}" Width="3" CornerRadius="2"
+                            HorizontalAlignment="Left" Margin="-12,0,0,0" Background="{Binding Colour}" />
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" MinHeight="30">
+                      <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{Binding Colour}" />
+                      <TextBlock Grid.Column="1" Classes="now-row" VerticalAlignment="Center" TextWrapping="Wrap"
+                                 Opacity="{Binding RowOpacity}">
+                        <Run Text="{Binding Name}" FontWeight="SemiBold" />
+                        <Run Text="  " />
+                        <Run Text="{Binding Where}" Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+                      </TextBlock>
+                      <TextBlock Grid.Column="2" Classes="now-note" VerticalAlignment="Center" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                                 Text="{Binding Age}" />
+                      <Button Grid.Column="3" Classes="now-ping" VerticalAlignment="Center" IsVisible="{Binding CanPing}"
+                              Command="{Binding PingCommand}" ToolTip.Tip="{Binding PingTip}"
+                              AutomationProperties.Name="{Binding PingTip}" AutomationProperties.AutomationId="v2-now-squad-ping">
+                        <Path Classes="v2-icon v2-icon-sm v2-icon-action" Data="{DynamicResource V2.Icon.Ping}" />
+                      </Button>
+                    </Grid>
+                  </Panel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Spacing="2" IsVisible="{Binding State.HasNoSquad}">
+              <TextBlock Classes="now-row" Text="{x:Static l:NowText.SquadEmpty}" />
+              <TextBlock Classes="now-small" Text="{x:Static l:NowText.SquadEmptyHint}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- NEXT: the objective route the player opened, this stop and the one after. -->
+        <Border Classes="now-block" IsVisible="{Binding State.ShowsNext}" AutomationProperties.AutomationId="v2-now-next">
+          <StackPanel Spacing="6">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingNext}" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" IsVisible="{Binding State.HasNext}">
+                <Ellipse Width="8" Height="8" Fill="{DynamicResource V2.Brush.Warning}" VerticalAlignment="Center" />
+                <TextBlock Classes="now-small" Foreground="{DynamicResource V2.Brush.Warning}" Text="{x:Static l:NowText.NextOnRoute}" />
+              </StackPanel>
+            </Grid>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" IsVisible="{Binding State.HasNext}" Margin="0,4,0,0">
+              <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" Margin="0,2,0,0"
+                      Background="{DynamicResource V2.Brush.Warning}">
+                <Path Classes="v2-icon v2-icon-sm" Stroke="{DynamicResource V2.Brush.Canvas}" HorizontalAlignment="Center"
+                      VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Objective}" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="4">
+                <TextBlock Classes="now-lead" MaxLines="2" TextTrimming="CharacterEllipsis" Text="{Binding State.NextLabel}"
+                           ToolTip.Tip="{Binding State.NextLabel}" AutomationProperties.AutomationId="v2-now-next-label" />
+                <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.TextSecondary}" Text="{Binding State.NextDetail}"
+                           IsVisible="{Binding State.HasNextDetail}" />
+                <TextBlock Classes="now-note" Foreground="{DynamicResource V2.Brush.TextSecondary}" Opacity="0.8" Text="{Binding State.ThenLabel}" MaxLines="1" TextTrimming="CharacterEllipsis"
+                           IsVisible="{Binding State.HasThen}" />
+              </StackPanel>
+            </Grid>
+            <StackPanel Spacing="2" IsVisible="{Binding State.HasNoNext}">
+              <TextBlock Classes="now-row" Text="{x:Static l:NowText.NextNone}" />
+              <TextBlock Classes="now-small" Text="{x:Static l:NowText.NextNoneHint}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- LAST SCAN in its one-line form: the verdict counts, or the newest screen read. -->
+        <Border Classes="now-block" BorderThickness="0" AutomationProperties.AutomationId="v2-now-scan">
+          <Border.IsVisible>
+            <MultiBinding Converter="{x:Static BoolConverters.And}">
+              <Binding Path="State.ShowsScan" />
+              <Binding Path="State.IsNotVerdictFocus" />
+            </MultiBinding>
+          </Border.IsVisible>
+          <StackPanel Spacing="6">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="now-eyebrow" Text="{x:Static l:NowText.HeadingLastScan}" />
+              <TextBlock Grid.Column="1" Classes="now-small" Text="{Binding State.ScanAge}" />
+            </Grid>
+            <Button Classes="now-link" Command="{Binding OpenLootCommand}" IsVisible="{Binding State.HasVerdict}"
+                    ToolTip.Tip="{x:Static l:NowText.OpenLoot}" AutomationProperties.Name="{x:Static l:NowText.OpenLoot}">
+              <WrapPanel ItemSpacing="10">
+                <TextBlock Classes="now-lead now-take" Text="{Binding State.TakeText}" IsVisible="{Binding State.TakeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="now-lead now-swap" Text="{Binding State.SwapText}" IsVisible="{Binding State.SwapText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="now-lead now-leave" Text="{Binding State.LeaveText}" IsVisible="{Binding State.LeaveText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBlock Classes="now-lead now-check" Text="{Binding State.CheckText}" IsVisible="{Binding State.CheckText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </WrapPanel>
+            </Button>
+            <TextBlock Classes="now-row" Text="{Binding State.ScanLine}" IsVisible="{Binding State.HasScanLine}" TextWrapping="Wrap" />
+            <StackPanel Spacing="6" IsVisible="{Binding State.HasNoScan}">
+              <TextBlock Classes="now-row" Text="{Binding State.ScanNone}" />
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" IsVisible="{Binding State.ShowsScanHint}">
+                <Path Classes="v2-icon v2-icon-sm v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" VerticalAlignment="Top" Margin="0,2,0,0" />
+                <TextBlock Grid.Column="1" Classes="now-note" Foreground="{DynamicResource V2.Brush.TextSecondary}" Text="{x:Static l:NowText.ScanNoneHint}" />
+              </Grid>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+      </Panel>
+    </DockPanel>
+  </Border>
+</UserControl>

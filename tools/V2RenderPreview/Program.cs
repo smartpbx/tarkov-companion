@@ -2214,6 +2214,8 @@ internal static class Program
                 }
             }
 
+            NowPanelDemo.Apply(services, shell, args, Pump); // [#712 0-4]
+
             // [Issue 701] Exercise the same choices exposed beside the gem and in Layers. This
             // runs before --loot-preset so the resulting frame and object count use the choice.
             var lootThreshold = StringOption(args, "--loot-threshold");

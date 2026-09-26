@@ -94,7 +94,19 @@ public static class Flag
         OnInStable: false,
         NeedsRestart: false);
 
-    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, PreRaidBrief];
+    /// <summary>[#712 0-4] The Now panel in place of the Raid plan card stack; the cards move to More.</summary>
+    public static readonly FeatureFlagDefinition NowPanel = new(
+        "now-panel",
+        "Now panel on the Raid map",
+        "The Raid map's right panel as NOW, YOU, SQUAD, NEXT and LAST SCAN. Off shows the Raid plan cards.",
+        OwnerIssue: 712,
+        OnInDev: true,
+        OnInRough: true,
+        OnInStable: false,
+        // Read whenever the Raid page's right column is laid out, so a switch in Setup applies at once.
+        NeedsRestart: false);
+
+    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, PreRaidBrief, NowPanel];
 }
 
 /// <summary>Whether a feature is on for this run.</summary>

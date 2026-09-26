@@ -9,7 +9,8 @@
              xmlns:mapvm="using:TarkovCompanion.App.ViewModels.Maps"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
-             xmlns:raid="using:TarkovCompanion.App.Views.V2.Raid">
+             xmlns:raid="using:TarkovCompanion.App.Views.V2.Raid"
+             xmlns:nowView="using:TarkovCompanion.App.Views.V2.Now">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a card row. -->
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
@@ -192,6 +193,11 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <!-- [#712 0-4] The Now panel is its own card on the page, as the map card is (v3-raid-now.png). -->
+    <Style Selector="Border.v2-raid-panel.v2-now-host">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
     </Style>
     <!-- [V2 rough package 46] The panel's own edge, and the only chrome left when it is away:
          14 pixels wide, so putting the panel away really does give the map everything else. -->
@@ -999,14 +1005,26 @@
       </Panel>
     </Border>
 
-    <Border Grid.Column="2" x:Name="ContextPanel" Classes="v2-raid-panel"
-            Width="{Binding ContextPanelWidth}" IsVisible="{Binding ShowsContextPanel}">
+    <Border Grid.Column="2" x:Name="ContextPanel" Classes="v2-raid-panel" Classes.v2-now-host="{Binding NowHost.ShowsNowPanel}"
+            Width="{Binding RightColumnWidth}" IsVisible="{Binding ShowsContextPanel}">
       <Panel>
-      <!-- [#712 0-9] While the log says matching or loading, the brief stands in for the cards. -->
-      <raid:PreRaidBriefView DataContext="{Binding PreRaidBrief}" IsVisible="{Binding IsShown}" />
+      <!-- [#712 0-4] With the now-panel flag on, the column is the Now panel and the cards below
+           are its More drawer; with it off the cards are the column, as before. -->
+      <Panel IsVisible="{Binding NowHost.ShowsNowPanel}" Margin="0,4,16,16">
+        <nowView:NowPanelView DataContext="{Binding NowHost.Panel}" />
+      </Panel>
+      <!-- [#712 0-9] While the log says matching or loading, the brief stands in for the cards
+           (with the Now panel on, the Now panel hosts it instead). -->
+      <Panel IsVisible="{Binding ShowsColumnBrief}">
+        <raid:PreRaidBriefView DataContext="{Binding PreRaidBrief}" />
+      </Panel>
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
-      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding !PreRaidBrief.IsShown}">
+      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding ShowsCardScroll}">
         <prim:StagedStack Spacing="12" Margin="16,12,16,16">
+          <Button Classes="v2-target v2-outline" HorizontalAlignment="Left" IsVisible="{Binding NowHost.IsMoreOpen}"
+                  Command="{Binding NowHost.CloseMoreCommand}" AutomationProperties.AutomationId="v2-now-back">
+            <TextBlock Text="{Binding NowHost.BackLabel}" />
+          </Button>
           <TextBlock Classes="v2-heading-2" Text="{x:Static l:RaidText.RaidPlan}" AutomationProperties.HeadingLevel="2" />
 
           <!-- Header card: the map, the raid phase, and what this map offers at a glance. Mode is a

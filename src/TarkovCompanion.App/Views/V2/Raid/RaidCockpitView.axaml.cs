@@ -49,6 +49,7 @@ public sealed partial class RaidCockpitView : UserControl
 
         SyncDrawMode();
         WatchRendererForInspect();
+        WatchNowHost(_cockpit); // [#712 0-4]
     }
 
     private void CockpitPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs eventArgs)

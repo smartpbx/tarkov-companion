@@ -78,7 +78,8 @@ public sealed class RaidMapSpaceTests
             .First(element => element.Name.LocalName == "Grid" && element.Attribute("ColumnDefinitions") is not null)
             .Attribute("ColumnDefinitions")!.Value;
         Assert.Equal("*,Auto,Auto", columns);
-        Assert.Contains("Width=\"{Binding ContextPanelWidth}\"", File.ReadAllText(RepositoryFile(CockpitView)), StringComparison.Ordinal);
+        // [#712 0-4] RightColumnWidth is the dragged ContextPanelWidth, widened only while the Now panel shows.
+        Assert.Contains("Width=\"{Binding RightColumnWidth}\"", File.ReadAllText(RepositoryFile(CockpitView)), StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding ShowsContextPanel}\"", File.ReadAllText(RepositoryFile(CockpitView)), StringComparison.Ordinal);
     }
 

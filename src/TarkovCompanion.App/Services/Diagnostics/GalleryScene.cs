@@ -441,9 +441,16 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
         var model = main.Map.RenderModel ?? throw new InvalidOperationException("the map has no render model");
         var demo = GallerySquad.Build(model, services.GetRequiredService<TimeProvider>().GetUtcNow());
         services.GetRequiredService<IRuntimeStateStore>().Update(snapshot => snapshot with { Raid = demo.Raid });
-        await WaitForAsync(() => raid.ShowsStripPhase, StepTimeout, "the raid clock on the strip", cancellationToken)
+        // [#712 0-4] One clock: the Now panel's NOW block when it shows, the strip's otherwise.
+        await WaitForAsync(
+                () => raid.ShowsNowPanel
+                    ? raid.NowHost.Panel?.State is { Phase: TarkovCompanion.Core.Domain.Situations.SituationPhase.InRaid }
+                    : raid.ShowsStripPhase,
+                StepTimeout,
+                "the raid clock",
+                cancellationToken)
             .ConfigureAwait(true);
-        return $"clock '{raid.RaidPhaseLabel}'";
+        return raid.ShowsNowPanel ? $"clock '{raid.NowHost.Panel?.State.NowHeadline}'" : $"clock '{raid.RaidPhaseLabel}'";
     }
 
     /// <summary>

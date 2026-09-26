@@ -120,7 +120,7 @@ public sealed partial class V2ShellViewModel
     {
         void Apply()
         {
-            if (Router.Current.Location.Route == V2Routes.Loot || LootGoesToTabletOnly)
+            if (Router.Current.Location.Route == V2Routes.Loot || LootGoesToTabletOnly || LootStaysOnNowPanel)
             {
                 return;
             }
@@ -164,7 +164,7 @@ public sealed partial class V2ShellViewModel
 
         result.StayToggled -= LootAutoReturnStayToggled;
         result.StayToggled += LootAutoReturnStayToggled;
-        if (LootGoesToTabletOnly)
+        if (LootGoesToTabletOnly || LootStaysOnNowPanel) // [#712 0-4] decision 7: the verdict stays in LAST SCAN
         {
             // The result is held for the Loot page, which the player can still open by hand.
             PushLootAutoReturnState();

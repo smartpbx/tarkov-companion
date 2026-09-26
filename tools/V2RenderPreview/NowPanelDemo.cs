@@ -1,0 +1,68 @@
+using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
+using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Situations;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Inventory;
+using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Domain.Situations;
+
+namespace TarkovCompanion.V2RenderPreview;
+
+/// <summary>
+/// [#712 0-4] The Now panel's states for a render, each reached through the real services.
+/// </summary>
+/// <remarks>
+/// <c>--now-outcome died|survived</c> after <c>--raid-left</c>: the one-tap answer reported to the
+/// situation. <c>--now-menu</c>: the raid state back in the menu. <c>--now-loot-demo</c>: the
+/// Loot Scan demo result handed to the shell the way a capture hands it, which in a raid now
+/// stays on the Now panel (decision 7). <c>--now-more</c>: the More drawer open. Dev tool only.
+/// </remarks>
+internal static class NowPanelDemo
+{
+    public static void Apply(IServiceProvider services, V2ShellViewModel? shell, string[] args, Action<int> pump)
+    {
+        var store = services.GetRequiredService<IRuntimeStateStore>();
+        if (args.Contains("--now-menu"))
+        {
+            store.Update(snapshot => snapshot with { Raid = snapshot.Raid with { State = RaidLifecycleState.Menu, UpdatedUtc = DateTimeOffset.UtcNow.AddMinutes(-30) } });
+            pump(20);
+        }
+
+        if (Option(args, "--now-outcome") is { } outcome && services.GetService<SituationService>() is { } situation &&
+            store.Current.Raid.RaidId is { } raidId)
+        {
+            var value = outcome.Equals("died", StringComparison.OrdinalIgnoreCase) ? SituationOutcome.Died : SituationOutcome.Survived;
+            situation.ReportOutcome(raidId, new(value, Confidence.Certain, SituationSource.Player, DateTimeOffset.UtcNow, "You answered the question."));
+            pump(20);
+        }
+
+        if (args.Contains("--now-loot-demo") && shell is not null)
+        {
+            var profile = store.Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
+            var scope = new InventoryProfileScope(profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
+            shell.ShowLootScanResult(new LootScanViewModel(ScanDemo.LootResult(scope)));
+            pump(40);
+        }
+
+        if (args.Contains("--now-more") && shell?.RaidCockpit is RaidCockpitViewModel cockpit)
+        {
+            cockpit.NowHost.OpenMore();
+            pump(20);
+        }
+
+        if (shell?.RaidCockpit is RaidCockpitViewModel shown)
+        {
+            Console.WriteLine($"Now panel: shown={shown.NowHost.ShowsNowPanel} phase={shown.NowHost.Panel?.Situation.Phase.Value} " +
+                $"clock='{shown.NowHost.Panel?.State.NowHeadline}' you='{shown.NowHost.Panel?.State.YouWhere}' route={shell.Router.Current.Location.Route}");
+        }
+    }
+
+    private static string? Option(string[] args, string name)
+    {
+        var index = Array.IndexOf(args, name);
+        return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+}
