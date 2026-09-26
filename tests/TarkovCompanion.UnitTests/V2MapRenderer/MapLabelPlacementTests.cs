@@ -135,9 +135,20 @@ public sealed class MapLabelPlacementTests(ITestOutputHelper output)
         {
             Step(1 + (warm % 8));
         }
+
+        // Two measured windows: whatever the runtime allocates once (a tier-up, a lazily created
+        // buffer; 8160 bytes once on the Windows runner, 2026-09-26) lands in the first, so the
+        // second must stay flat. Any allocation made on every step still grows the second window.
+        const int steps = 1000;
         var clock = Stopwatch.StartNew();
         var before = GC.GetAllocatedBytesForCurrentThread();
-        const int steps = 1000;
+        for (var step = 0; step < steps; step++)
+        {
+            Step(1 + (step % 8));
+        }
+
+        var first = GC.GetAllocatedBytesForCurrentThread() - before;
+        before = GC.GetAllocatedBytesForCurrentThread();
         for (var step = 0; step < steps; step++)
         {
             Step(1 + (step % 8));
@@ -145,10 +156,9 @@ public sealed class MapLabelPlacementTests(ITestOutputHelper output)
 
         var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         clock.Stop();
-        output.WriteLine($"{shops.Length} names: {clock.Elapsed.TotalMicroseconds / steps:0.0} µs per zoom step, {allocated} bytes allocated over {steps} steps");
-        // Under one byte per step on average: the smallest object is 24 bytes, so any allocation made
-        // on every step still fails this, while a stray runtime allocation during the loop does not.
-        Assert.True(allocated < steps, $"{allocated} bytes allocated over {steps} steps");
+        output.WriteLine($"{shops.Length} names: {clock.Elapsed.TotalMicroseconds / (2 * steps):0.0} µs per zoom step, {first} then {allocated} bytes allocated over two windows of {steps} steps");
+        // Under one byte per step: the smallest object is 24 bytes, so a per-step allocation fails.
+        Assert.True(allocated < steps, $"{allocated} bytes allocated over the second {steps} steps (first window {first})");
     }
 
     [Fact]
