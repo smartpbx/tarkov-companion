@@ -47,7 +47,15 @@ public sealed class PageState
             fields[field] = value;
         }
 
-        _store.Set(Key, Format(fields));
+        // [#935] Nothing to write when nothing changed. A page re-reading its fields after a reset sets
+        // each back to what it just read, and an empty entry would then show in the next reset's preview.
+        var formatted = Format(fields);
+        if (string.Equals(formatted, _store.Get(Key) ?? string.Empty, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _store.Set(Key, formatted);
     }
 
     public TEnum Enum<TEnum>(string field, TEnum fallback)

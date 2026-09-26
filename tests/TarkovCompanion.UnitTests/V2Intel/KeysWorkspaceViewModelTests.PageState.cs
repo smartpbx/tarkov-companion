@@ -36,6 +36,22 @@ public sealed partial class KeysWorkspaceViewModelTests
         Assert.Equal(KeyVerdictFilter.All, (await RememberingAsync(file)).Workspace.Filter);
     }
 
+    /// <summary>[#935] Reset everything replaced the layout: the chip is back on All at once.</summary>
+    [Fact]
+    public async Task A_reset_layout_puts_the_verdict_chip_back_without_a_restart()
+    {
+        // Pages built with no UI context re-read inline; with one, the re-read is posted to it.
+        SynchronizationContext.SetSynchronizationContext(null);
+        using var file = new LayoutFile();
+        var (_, workspace) = await RememberingAsync(file);
+        workspace.VerdictFilters.Single(chip => chip.Filter == KeyVerdictFilter.Sell).SelectCommand.Execute(null);
+
+        workspace.LearnMode.Layout!.Replace(new Dictionary<string, string>());
+
+        Assert.Equal(KeyVerdictFilter.All, workspace.Filter);
+        Assert.Equal(3, workspace.Keys.Count);
+    }
+
     private static async Task<(KeysPageViewModel Page, KeysWorkspaceViewModel Workspace)> RememberingAsync(LayoutFile file)
     {
         var facts = new[]

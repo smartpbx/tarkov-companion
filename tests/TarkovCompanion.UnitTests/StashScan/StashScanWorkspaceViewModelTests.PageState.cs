@@ -61,6 +61,25 @@ public sealed partial class StashScanWorkspaceViewModelTests
         Assert.False((await SortedAsync(file.Restart())).HasGroupFilter);
     }
 
+    /// <summary>[#935] Reset everything replaced the layout: the page shows the grid of every item at once.</summary>
+    [Fact]
+    public async Task A_reset_layout_clears_the_remembered_tile_and_list_view_without_a_restart()
+    {
+        // Pages built with no UI context re-read inline; with one, the re-read is posted to it.
+        SynchronizationContext.SetSynchronizationContext(null);
+        using var file = new LayoutFile();
+        var layout = file.Restart();
+        var page = await SortedAsync(layout);
+        page.PlanTiles.Single(tile => tile.IsSell).SelectCommand!.Execute(null);
+        Assert.True(page.HasGroupFilter);
+
+        layout.Replace(new Dictionary<string, string>());
+
+        Assert.False(page.HasGroupFilter);
+        Assert.True(page.IsGridView);
+        Assert.Null(layout.Get(WorkspaceLayoutKeys.PageStash));
+    }
+
     [Fact]
     public async Task A_tile_the_plan_has_not_sorted_does_nothing_and_says_so()
     {

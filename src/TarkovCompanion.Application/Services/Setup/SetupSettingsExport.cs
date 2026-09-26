@@ -8,12 +8,29 @@ using TarkovCompanion.Core.Network;
 
 namespace TarkovCompanion.Application.Services.Setup;
 
+/// <summary>Why an import file could not be read. The App says it in the interface language.</summary>
+public enum SetupSettingsImportError
+{
+    /// <summary>Not JSON, or JSON of the wrong shape (a typo in an enum name, a string where a number goes).</summary>
+    Malformed = 1,
+
+    /// <summary>The file holds nothing (<c>null</c>).</summary>
+    Empty,
+
+    /// <summary>Written by a newer build, with a schema version this one does not know.</summary>
+    Newer,
+}
+
 /// <summary>What came back from reading an import file: either a snapshot ready to preview, or why not.</summary>
-public sealed record SetupSettingsValidationResult(bool IsValid, SetupSettingsSnapshot? Snapshot, string? Error)
+/// <remarks>
+/// [#935] <see cref="Detail"/> is the serializer's own English text, for the crash log only. It used
+/// to be the status line itself, so a player in any language read "System.Nullable`1[...] Path: $.theme".
+/// </remarks>
+public sealed record SetupSettingsValidationResult(bool IsValid, SetupSettingsSnapshot? Snapshot, SetupSettingsImportError? Error, string? Detail = null)
 {
     public static SetupSettingsValidationResult Success(SetupSettingsSnapshot snapshot) => new(true, snapshot, null);
 
-    public static SetupSettingsValidationResult Failure(string error) => new(false, null, error);
+    public static SetupSettingsValidationResult Failure(SetupSettingsImportError error, string? detail = null) => new(false, null, error, detail);
 }
 
 /// <summary>
@@ -89,6 +106,8 @@ public static class SetupSettingsExport
                 normalized.SquadSharing.SharesReadyCheck),
             Layout = new SortedDictionary<string, string>(normalized.Layout.ToDictionary(), StringComparer.Ordinal),
             MapDefaults = new SortedDictionary<string, string>(normalized.MapDefaults.ToDictionary(), StringComparer.OrdinalIgnoreCase),
+            Language = new LanguageDocument(normalized.InterfaceLanguage),
+            CaptureShortcut = normalized.CaptureShortcut,
         };
         return JsonSerializer.Serialize(document, JsonOptions);
     }
@@ -113,21 +132,36 @@ public static class SetupSettingsExport
         {
             document = JsonSerializer.Deserialize<Document>(json, JsonOptions);
         }
-        catch (JsonException exception)
+        catch (Exception exception) when (exception is JsonException or NotSupportedException or ArgumentException)
         {
-            return SetupSettingsValidationResult.Failure($"Not a valid preferences file: {exception.Message}");
+            return SetupSettingsValidationResult.Failure(SetupSettingsImportError.Malformed, exception.Message);
         }
 
         if (document is null)
         {
-            return SetupSettingsValidationResult.Failure("The file is empty.");
+            return SetupSettingsValidationResult.Failure(SetupSettingsImportError.Empty);
         }
 
         if (document.SchemaVersion > SchemaVersion)
         {
             return SetupSettingsValidationResult.Failure(
-                "This file was exported by a newer version of the app and cannot be understood.");
+                SetupSettingsImportError.Newer,
+                $"Schema {document.SchemaVersion}; this build reads up to {SchemaVersion}.");
         }
+
+        try
+        {
+            return SetupSettingsValidationResult.Success(Read(document, current));
+        }
+        catch (ArgumentException exception)
+        {
+            // A safety net: every dictionary below is built so a duplicate cannot throw.
+            return SetupSettingsValidationResult.Failure(SetupSettingsImportError.Malformed, exception.Message);
+        }
+    }
+
+    private static SetupSettingsSnapshot Read(Document document, SetupSettingsSnapshot current)
+    {
 
         var snapshot = new SetupSettingsSnapshot(
             new WorkspacePreferences(
@@ -188,16 +222,32 @@ public static class SetupSettingsExport
                     layout.Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value is not null).ToDictionary(),
                     StringComparer.Ordinal)
                 : current.Layout,
-            MapDefaults = document.MapDefaults is { } maps
-                ? new SortedDictionary<string, string>(
-                    maps.Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && !string.IsNullOrWhiteSpace(entry.Value))
-                        .ToDictionary(StringComparer.OrdinalIgnoreCase),
-                    StringComparer.OrdinalIgnoreCase)
-                : current.MapDefaults,
+            MapDefaults = document.MapDefaults is { } maps ? MapDefaultsOf(maps) : current.MapDefaults,
+            InterfaceLanguage = document.Language is { } language ? language.Culture : current.InterfaceLanguage,
+            CaptureShortcut = document.CaptureShortcut ?? current.CaptureShortcut,
         }
         .Normalized();
 
-        return SetupSettingsValidationResult.Success(snapshot);
+        return snapshot;
+    }
+
+    /// <summary>
+    /// [#935] The file's keys are exactly as written, so a hand edit can leave "customs" and "Customs"
+    /// side by side. Keyed case-insensitively, the later one wins, where ToDictionary threw and the
+    /// preview did nothing at all.
+    /// </summary>
+    private static SortedDictionary<string, string> MapDefaultsOf(IReadOnlyDictionary<string, string> maps)
+    {
+        var result = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in maps)
+        {
+            if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
+            {
+                result[key] = value;
+            }
+        }
+
+        return result;
     }
 
     /// <remarks>
@@ -239,7 +289,15 @@ public static class SetupSettingsExport
         public IReadOnlyDictionary<string, string>? Layout { get; init; }
 
         public IReadOnlyDictionary<string, string>? MapDefaults { get; init; }
+
+        /// <summary>[#935] The interface language; a null culture follows Windows. Absent: left as it is.</summary>
+        public LanguageDocument? Language { get; init; }
+
+        /// <summary>[#935] Whether Alt+Shift+C captures. Absent: left as it is.</summary>
+        public bool? CaptureShortcut { get; init; }
     }
+
+    private sealed record LanguageDocument(string? Culture);
 
     private sealed record NetworkDocument(bool? LocalOnly, bool? SquadSharing, bool? UpdateChecks, bool? ProblemReports, bool? TarkovTracker);
 

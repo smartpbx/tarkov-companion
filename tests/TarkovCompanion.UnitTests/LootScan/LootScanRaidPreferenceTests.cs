@@ -29,6 +29,22 @@ public sealed class LootScanRaidPreferenceTests
         Assert.Null(after.Phase);
     }
 
+    /// <summary>[#935] After Reset everything the Loot Scan decides with the default risk, not the old one until a restart.</summary>
+    [Fact]
+    public void A_reset_layout_puts_the_risk_back_and_says_so()
+    {
+        using var file = new LayoutFile();
+        var layout = file.Restart();
+        var preference = new LootScanRaidPreference(layout) { Risk = RecommendationRaidRisk.High };
+        var changes = 0;
+        preference.Changed += (_, _) => changes++;
+
+        layout.Replace(new Dictionary<string, string>());
+
+        Assert.Equal(RecommendationRaidRisk.Low, preference.Risk);
+        Assert.Equal(1, changes);
+    }
+
     [Fact]
     public async Task A_phase_chosen_in_one_raid_is_back_to_counted_in_the_next()
     {

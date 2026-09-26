@@ -183,12 +183,45 @@ public sealed class UiTextTests
         Assert.True(members.Length > atLeast, $"only {members.Length} accessors");
         foreach (var member in members)
         {
-            var arguments = member.GetParameters().Select(parameter => Sample(parameter.ParameterType)).ToArray();
-            var text = (string)member.Invoke(null, arguments)!;
-            Assert.False(string.IsNullOrWhiteSpace(text), member.Name);
+            foreach (var arguments in Samples(member.GetParameters()))
+            {
+                var text = (string)member.Invoke(null, arguments)!;
+                Assert.False(string.IsNullOrWhiteSpace(text), member.Name);
+            }
         }
 
         Assert.Empty(log);
+    }
+
+    /// <summary>
+    /// [#935] One call per accessor reached one branch: Setup Home's "nothing goes online" line is
+    /// chosen by an empty list, which the one-item sample never was, and the key it named was missing.
+    /// Each accessor is also called with its lists empty, with its switches and choices the other
+    /// way, and, when it takes only a choice, with every value of it.
+    /// </summary>
+    private static IEnumerable<object[]> Samples(ParameterInfo[] parameters)
+    {
+        yield return [.. parameters.Select(parameter => Sample(parameter.ParameterType))];
+        yield return [.. parameters.Select(parameter => parameter.ParameterType switch
+        {
+            { IsArray: true } type => Array.CreateInstance(type.GetElementType()!, 0),
+            { IsInterface: true, IsGenericType: true } type => Array.CreateInstance(type.GetGenericArguments()[0], 0),
+            var type => Sample(type),
+        })];
+        yield return [.. parameters.Select(parameter => parameter.ParameterType switch
+        {
+            var type when type == typeof(bool) => true,
+            var type when type == typeof(int) => 1,
+            { IsEnum: true } type => Enum.GetValues(type).Cast<object>().First(),
+            var type => Sample(type),
+        })];
+        if (parameters is [{ ParameterType.IsEnum: true } only])
+        {
+            foreach (var value in Enum.GetValues(only.ParameterType))
+            {
+                yield return [value];
+            }
+        }
     }
 
     /// <summary>An argument of any shape: a record of reason codes is built from its smallest constructor.</summary>

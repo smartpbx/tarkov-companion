@@ -93,6 +93,9 @@ public sealed class BackupAndResetTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(TarkovCompanion.Application.Services.CaptureSessions.LootAutoReturnPolicy.DefaultSeconds), lootScan.Timeout);
         Assert.Equal(1, app.Scale);
         Assert.Equal(ScreenshotRetentionSettings.Default, app.RetentionSeenByWindow);
+        // [#935] Persisted by the App, not Infrastructure: missed by Reset everything until now.
+        Assert.True(app.CaptureShortcut);
+        Assert.Null(app.Language.Get());
 
         // A reset keeps the group's address, name and key; only the three switches move.
         var group = await app.Group.GetAsync(CancellationToken.None);
@@ -176,6 +179,104 @@ public sealed class BackupAndResetTests : IDisposable
         Assert.Equal("on", app.Layout.Get(WorkspaceLayoutKeys.PlanLearnMode));
     }
 
+    /// <summary>
+    /// [#935] The preview's target was a whole-app snapshot taken when it opened. Confirmed later, it
+    /// switched squad sharing back on, reverted the scale and a page filter chosen meanwhile, though
+    /// the confirmed preview listed only notification rows.
+    /// </summary>
+    [Fact]
+    public async Task Reset_this_section_confirmed_later_leaves_what_changed_elsewhere_meanwhile()
+    {
+        using var app = await App.StartAsync(_root);
+        await app.ChangeEverythingAsync();
+        app.Admin.SetCurrentSection(V2SetupSection.Notifications);
+        await ((AsyncDelegateCommand)app.Admin.ResetSectionCommand).ExecuteAsync();
+        Assert.True(app.Admin.HasPendingChange);
+
+        // While the preview stands open: Team › Share with squad off, Ctrl+= and a chip on Keys.
+        var group = await app.Group.GetAsync(CancellationToken.None);
+        await app.Group.SaveAsync(group with { IsEnabled = false }, CancellationToken.None);
+        app.SetScale(1.1);
+        app.Layout.Set(WorkspaceLayoutKeys.PageKeys, "filter=Sell");
+
+        await ((AsyncDelegateCommand)app.Admin.ConfirmCommand).ExecuteAsync();
+
+        Assert.Equal(NotificationSettings.Default, app.Notifications.Settings);
+        Assert.False((await app.Group.GetAsync(CancellationToken.None)).IsEnabled);
+        Assert.Equal(1.1, app.Scale);
+        Assert.Equal("filter=Sell", app.Layout.Get(WorkspaceLayoutKeys.PageKeys));
+        Assert.Equal("This section's settings were reset.", app.Admin.StatusMessage);
+    }
+
+    /// <summary>[#935] An import's unnamed groups came from the preview-time capture, with the same stale write.</summary>
+    [Fact]
+    public async Task An_import_confirmed_later_leaves_the_groups_the_file_does_not_name()
+    {
+        using var app = await App.StartAsync(_root);
+        await app.ChangeEverythingAsync();
+        var file = Path.Combine(_root, "theme-only.json");
+        await File.WriteAllTextAsync(file, """{ "schemaVersion": 2, "theme": "HighContrast" }""");
+        app.Admin.ExchangePath = file;
+        await ((AsyncDelegateCommand)app.Admin.PreviewImportCommand).ExecuteAsync();
+        Assert.True(app.Admin.HasPendingChange);
+
+        app.Network.Set(NetworkControls.Default);
+
+        await ((AsyncDelegateCommand)app.Admin.ConfirmCommand).ExecuteAsync();
+
+        Assert.Equal(AppearanceTheme.HighContrast, app.Preferences.Current.Theme);
+        Assert.False(app.Network.Controls.LocalOnly);
+    }
+
+    /// <summary>
+    /// [#935] One group's store failing used to stop every group after it, with no message and the
+    /// preview left open for a second Confirm of the stale target.
+    /// </summary>
+    [Fact]
+    public async Task A_group_that_fails_to_save_is_named_and_the_rest_is_still_applied()
+    {
+        var preferences = new WorkspacePreferenceService(new JsonFileWorkspacePreferenceStore(Path.Combine(_root, "preferences.json")));
+        await preferences.LoadAsync(CancellationToken.None);
+        await preferences.UpdateAsync(WorkspacePreferences.Default with { Theme = AppearanceTheme.Light }, CancellationToken.None);
+        var layout = new JsonFileWorkspaceLayoutStore(Path.Combine(_root, "workspace-layout.json"));
+        layout.Set(WorkspaceLayoutKeys.PageKeys, "filter=Sell");
+        var admin = new SetupSettingsAdminViewModel(
+            preferences,
+            new JsonFileScreenshotRetentionStore(Path.Combine(_root, "screenshots.json")),
+            sources: new SetupSettingsSources { SquadSharing = new LockedGroupFile(), Layout = layout });
+        await ((AsyncDelegateCommand)admin.ResetAllCommand).ExecuteAsync();
+
+        await ((AsyncDelegateCommand)admin.ConfirmCommand).ExecuteAsync();
+
+        Assert.Equal(AppearanceTheme.Dark, preferences.Current.Theme);
+        Assert.Empty(layout.Entries);
+        Assert.False(admin.HasPendingChange);
+        Assert.Equal("Not saved: Squad sharing. The rest was applied.", admin.StatusMessage);
+    }
+
+    /// <summary>[#935] The status line said the serializer's English, "System.Nullable`1[...] Path: $.theme".</summary>
+    [Fact]
+    public async Task Import_and_export_failures_are_said_in_words_not_exception_text()
+    {
+        using var app = await App.StartAsync(_root);
+        var file = Path.Combine(_root, "typo.json");
+        await File.WriteAllTextAsync(file, """{ "schemaVersion": 2, "theme": "Darkk" }""");
+        app.Admin.ExchangePath = file;
+
+        await ((AsyncDelegateCommand)app.Admin.PreviewImportCommand).ExecuteAsync();
+
+        Assert.Equal("Not imported · Not a settings file this app can read.", app.Admin.StatusMessage);
+
+        app.Admin.ExchangePath = Path.Combine(_root, "no-such-folder", "settings.json");
+        await ((AsyncDelegateCommand)app.Admin.ExportCommand).ExecuteAsync();
+
+        Assert.Equal("Not exported · File not found.", app.Admin.StatusMessage);
+
+        await ((AsyncDelegateCommand)app.Admin.PreviewImportCommand).ExecuteAsync();
+
+        Assert.Equal("Not imported · File not found.", app.Admin.StatusMessage);
+    }
+
     [Fact]
     public void Backup_lives_under_About_and_Reset_this_section_wherever_a_setting_lives()
     {
@@ -254,6 +355,30 @@ public sealed class BackupAndResetTests : IDisposable
         Assert.True(missing.Count == 0, "Register these in SettingsRegistry.Domains or NotSettings: " + string.Join(", ", missing));
     }
 
+    /// <summary>
+    /// [#935] The App persists settings of its own (the interface language, the shell's preview state
+    /// with the Capture shortcut), which the Infrastructure scan above never saw. Every class there
+    /// named for what it keeps (a <c>…Store</c> or a <c>…Preference</c>) is registered or named here.
+    /// </summary>
+    [Fact]
+    public void Every_store_the_App_persists_is_registered_or_named_as_not_a_setting()
+    {
+        var known = SettingsRegistry.Domains.Select(entry => entry.Store).Concat(SettingsRegistry.NotSettings.Keys).ToHashSet();
+        var stores = typeof(SettingsRegistry).Assembly.GetTypes()
+            .Where(type => type.IsClass && !type.IsNested && type.Namespace?.StartsWith("TarkovCompanion.App", StringComparison.Ordinal) == true)
+            .Where(type => type.Name.EndsWith("Store", StringComparison.Ordinal) || type.Name.EndsWith("Preference", StringComparison.Ordinal))
+            .Where(type => !type.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false))
+            .ToArray();
+        Assert.NotEmpty(stores);
+
+        var missing = stores
+            .Where(store => !known.Contains(store) && !store.GetInterfaces().Any(known.Contains) && !(store.BaseType is { } baseType && known.Contains(baseType)))
+            .Select(store => store.FullName)
+            .ToArray();
+
+        Assert.True(missing.Length == 0, "Register these in SettingsRegistry.Domains or NotSettings: " + string.Join(", ", missing));
+    }
+
     [Fact]
     public void Every_workspace_layout_key_has_a_registered_name()
     {
@@ -291,6 +416,7 @@ public sealed class BackupAndResetTests : IDisposable
     {
         private readonly NotificationBridge _bridge;
         private double _scale;
+        private bool _captureShortcut;
 
         private App(string root, NotificationBridge bridge, WorkspacePreferenceService preferences)
         {
@@ -300,6 +426,9 @@ public sealed class BackupAndResetTests : IDisposable
             Retention.Changed += (_, saved) => RetentionSeenByWindow = saved;
             ScaleFile = Path.Combine(root, "scale.txt");
             _scale = File.Exists(ScaleFile) ? double.Parse(File.ReadAllText(ScaleFile), System.Globalization.CultureInfo.InvariantCulture) : 1;
+            CaptureFile = Path.Combine(root, "capture-shortcut.txt");
+            _captureShortcut = !File.Exists(CaptureFile) || File.ReadAllText(CaptureFile) == "on";
+            Language = SetupInterfaceLanguage.Source(root);
             Network = new NetworkPolicyService(new JsonFileNetworkControlsStore(Path.Combine(root, "network.json")));
             Flags = new FeatureFlagService(ReleaseRing.Rough, new JsonFileFeatureFlagOverrideStore(Path.Combine(root, "feature-flags.json")));
             Horizons = new RecommendationPolicyService(new JsonFileRecommendationPolicyStore(Path.Combine(root, "recommendations.json")));
@@ -323,8 +452,23 @@ public sealed class BackupAndResetTests : IDisposable
                     SquadSharing = Group,
                     Layout = Layout,
                     MapDefaults = MapDefaults,
+                    InterfaceLanguage = Language,
                 });
+            // As the shell does once it is composed.
+            Admin.AttachCaptureShortcut(() => _captureShortcut, value =>
+            {
+                _captureShortcut = value;
+                File.WriteAllText(CaptureFile, value ? "on" : "off");
+            });
         }
+
+        public (Func<string?> Get, Action<string?> Set) Language { get; }
+
+        public bool CaptureShortcut => _captureShortcut;
+
+        public void SetScale(double scale) => _scale = scale;
+
+        private string CaptureFile { get; }
 
         public WorkspacePreferenceService Preferences { get; }
 
@@ -390,6 +534,8 @@ public sealed class BackupAndResetTests : IDisposable
                     ["page.intel"] = "kind=ammo",
                 },
                 MapDefaults = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["factory#artwork"] = "drawing" },
+                InterfaceLanguage = "de",
+                CaptureShortcut = false,
             };
 
         /// <summary>Makes every change through the same services and stores the pages use.</summary>
@@ -412,9 +558,22 @@ public sealed class BackupAndResetTests : IDisposable
             }
 
             await MapDefaults.SetAsync("factory#artwork", "drawing", CancellationToken.None);
+            Language.Set(changed.InterfaceLanguage);
+            _captureShortcut = false;
+            File.WriteAllText(CaptureFile, "off");
         }
 
         public void Dispose() => _bridge.Dispose();
+    }
+
+    /// <summary>group.json held open by an antivirus scan: it reads, and every save fails.</summary>
+    private sealed class LockedGroupFile : IGroupSettingsStore
+    {
+        public Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken) => Task.FromResult(
+            new GroupSharingSettings(true, "https://relay.example", "Player", "a-group-key-long-enough", true, false));
+
+        public Task SaveAsync(GroupSharingSettings settings, CancellationToken cancellationToken) =>
+            throw new IOException("The process cannot access the file because it is being used by another process.");
     }
 
     private sealed class NoGroup : IGroupSettingsStore

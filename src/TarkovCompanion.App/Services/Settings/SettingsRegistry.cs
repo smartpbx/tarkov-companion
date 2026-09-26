@@ -32,6 +32,8 @@ public enum SettingsDomain
     SquadSharing,
     Layout,
     MapDefaults,
+    InterfaceLanguage,
+    CaptureShortcut,
 }
 
 /// <summary>A settings group, the store interface that persists it, and the Setup section that is its home (null: a page outside Setup).</summary>
@@ -53,7 +55,8 @@ public sealed record RegisteredLayoutKey(string Key, bool IsPrefix, string Label
 /// <para>
 /// Before this list, "Reset everything" covered three stores and said it covered everything. A new
 /// store was invisible to it by default, and nobody noticed for months. The rule now runs the other
-/// way: <c>SettingsRegistryTests</c> finds every file-backed store in the Infrastructure assembly and
+/// way: <c>SettingsRegistryTests</c> finds every file-backed store in the Infrastructure assembly, every
+/// store or preference class in the App assembly, and
 /// every <see cref="WorkspaceLayoutKeys"/> key, and fails unless each is either registered here or
 /// listed in <see cref="NotSettings"/> with the reason it is not a setting.
 /// </para>
@@ -78,6 +81,10 @@ public static class SettingsRegistry
         new(SettingsDomain.SquadSharing, typeof(IGroupSettingsStore), null),
         new(SettingsDomain.Layout, typeof(IWorkspaceLayoutStore), null),
         new(SettingsDomain.MapDefaults, typeof(IMapVariantPreferenceStore), null),
+        // [#935] Both are persisted by the App, not Infrastructure, so the ratchet missed them and
+        // Reset everything left the Capture shortcut off while saying everything was at its default.
+        new(SettingsDomain.InterfaceLanguage, typeof(TarkovCompanion.App.Localization.UiCulturePreference), V2SetupSection.AppearanceWindow),
+        new(SettingsDomain.CaptureShortcut, typeof(TarkovCompanion.App.Services.V2.Shell.V2ShellPreviewStore), V2SetupSection.GameCapture),
     ];
 
     /// <summary>Stores that persist something other than a setting, and why each is left out of Backup &amp; reset.</summary>
@@ -98,6 +105,7 @@ public static class SettingsRegistry
         [typeof(IGuidedStashScanPendingStore)] = "A stash scan in progress.",
         [typeof(IEventCatalog)] = "Event definitions: data.",
         [typeof(IEventAuthoring)] = "Event definitions: data.",
+        [typeof(TarkovCompanion.App.ViewModels.V2.Debrief.DebriefSavedViewStore)] = "Named Debrief views the player saved: data, kept in the workspace layout.",
         [typeof(TarkovCompanion.Core.Domain.Recognition.Learning.ICorrectionMemoryStore)] =
             "Icons and names learned from corrections: this PC's data, never exported; Setup deletes it.",
     };

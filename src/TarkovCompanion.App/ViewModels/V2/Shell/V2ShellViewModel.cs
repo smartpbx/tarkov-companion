@@ -309,6 +309,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             SetupWorkspace.AttachSettingsAdmin(settingsAdmin);
         }
 
+        // [#935] Reset everything, Export and Import cover the Capture shortcut switch.
+        settingsAdmin?.AttachCaptureShortcut(() => CaptureShortcutEnabled, enabled => { CaptureShortcutEnabled = enabled; QueueSave(); });
+
         if (databaseStatus is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachDatabaseStatus(databaseStatus);

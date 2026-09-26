@@ -61,6 +61,54 @@ public sealed class PageStateTests : IDisposable
         Assert.Equal(DayOfWeek.Monday, junk.Enum("kind", DayOfWeek.Monday));
     }
 
+    /// <summary>[#935] A replacement on the page's own thread re-reads at once; from another thread it is posted to the page's context.</summary>
+    [Fact]
+    public void A_replaced_layout_is_read_again_on_the_thread_that_owns_the_page()
+    {
+        var store = Restart();
+        var context = new RecordingContext();
+        var reads = 0;
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            WorkspaceLayoutReplaced.Reread(store, () => reads++);
+            store.Replace(new Dictionary<string, string>());
+            Assert.Equal(1, reads);
+            Assert.Equal(0, context.Posts);
+
+            // Joined, not awaited: this context never runs what is posted to it.
+            var other = new Thread(() => store.Replace(new Dictionary<string, string>()));
+            other.Start();
+            other.Join();
+            Assert.Equal(1, reads);
+            Assert.Equal(1, context.Posts);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
+    /// <summary>[#935] A field set to what is already stored writes nothing, not even an empty entry.</summary>
+    [Fact]
+    public void Setting_what_is_stored_writes_nothing()
+    {
+        var store = new MemoryStore();
+        var page = new PageState(store, WorkspaceLayoutKeys.PageKeys);
+
+        page.SetEnum("filter", DayOfWeek.Sunday, DayOfWeek.Sunday);
+
+        Assert.Empty(store);
+    }
+
+    private sealed class RecordingContext : SynchronizationContext
+    {
+        public int Posts { get; private set; }
+
+        public override void Post(SendOrPostCallback d, object? state) => Posts++;
+    }
+
     private sealed class MemoryStore : Dictionary<string, string>, IWorkspaceLayoutStore
     {
         public string? Get(string key) => TryGetValue(key, out var value) ? value : null;

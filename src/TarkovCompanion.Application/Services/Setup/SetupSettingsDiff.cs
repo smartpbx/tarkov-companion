@@ -40,6 +40,12 @@ public enum SetupSettingsField
 
     /// <summary>One map's remembered choice; <see cref="SetupSettingsDiffEntry.Detail"/> is its key.</summary>
     MapDefault,
+
+    /// <summary>[#935] The interface language; null is "follow Windows".</summary>
+    InterfaceLanguage,
+
+    /// <summary>[#935] The Alt+Shift+C capture shortcut.</summary>
+    CaptureShortcut,
 }
 
 /// <summary>How a diff value is written: as itself (a switch, a choice), a percentage, an hour of the day, or a number of hours.</summary>
@@ -154,6 +160,13 @@ public static class SetupSettingsDiff
         Add(SetupSettingsField.ShareLoadout, current.SquadSharing.SharesLoadout, incoming.SquadSharing.SharesLoadout);
         Add(SetupSettingsField.ShareQuests, current.SquadSharing.SharesQuests, incoming.SquadSharing.SharesQuests);
         Add(SetupSettingsField.ShareReadyCheck, current.SquadSharing.SharesReadyCheck, incoming.SquadSharing.SharesReadyCheck);
+
+        Add(
+            SetupSettingsField.InterfaceLanguage,
+            current.InterfaceLanguage?.ToLowerInvariant(),
+            incoming.InterfaceLanguage?.ToLowerInvariant(),
+            SetupSettingsValueKind.Stored);
+        Add(SetupSettingsField.CaptureShortcut, current.CaptureShortcut, incoming.CaptureShortcut);
 
         AddEach(SetupSettingsField.Layout, current.Layout, incoming.Layout, SetupSettingsValueKind.Stored, StringComparer.Ordinal);
         AddEach(SetupSettingsField.MapDefault, current.MapDefaults, incoming.MapDefaults, SetupSettingsValueKind.Stored, StringComparer.OrdinalIgnoreCase);

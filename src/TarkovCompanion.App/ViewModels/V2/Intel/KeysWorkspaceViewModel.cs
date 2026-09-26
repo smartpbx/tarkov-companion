@@ -127,6 +127,8 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         // [#902 P8] The verdict chip comes back after a visit elsewhere and a restart.
         _state = LearnMode.Page(TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutKeys.PageKeys);
         _filter = _state.Enum("filter", KeyVerdictFilter.All);
+        // [#935] A reset or an import replaced the layout: show the chip it holds now.
+        TarkovCompanion.Application.Services.Workspaces.WorkspaceLayoutReplaced.Reread(LearnMode.Layout, () => Filter = _state.Enum("filter", KeyVerdictFilter.All));
         VerdictFilters =
         [
             new(KeyVerdictFilter.All, IntelText.KeysFilterAll, SelectFilter),

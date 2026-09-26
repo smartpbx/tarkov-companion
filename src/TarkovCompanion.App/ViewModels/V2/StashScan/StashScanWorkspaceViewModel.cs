@@ -497,6 +497,20 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _groupFilter = _pageState.Get("group") is { } group && Enum.TryParse<StashPlanGroup>(group, out var parsed) && Enum.IsDefined(parsed)
             ? parsed
             : null;
+        // [#935] A reset or an import replaced the layout: show the view and group it holds now.
+        WorkspaceLayoutReplaced.Reread(layout, () =>
+        {
+            var group = _pageState.Get("group") is { } stored && Enum.TryParse<StashPlanGroup>(stored, out var parsed) && Enum.IsDefined(parsed)
+                ? parsed
+                : (StashPlanGroup?)null;
+            var view = _pageState.Get("view");
+            if (group != _groupFilter)
+            {
+                SelectGroup(group);
+            }
+
+            IsGridView = view != "list";
+        });
         _planSource = planSource;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow));
