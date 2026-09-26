@@ -528,6 +528,242 @@
           "kind": "MatchStarting"
         }
       }
+    },
+    {
+      "name": "application.session-mode",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|Session mode: PvpSeason",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): once per session, 6 of 6, all PvpSeason. The only line naming the mode and season; not read yet."
+    },
+    {
+      "name": "application.network-game-matching",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Debug|application|TRACE-NetworkGameMatching G",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): G, H and I once each per online raid (55 each), between Matching with group id and MatchingCompleted."
+    },
+    {
+      "name": "application.game-prepared",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|GamePrepared:12.4 real:19.8 diff:7.4",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): one of eight load-stage timings per raid (GamePrepared, GameCreated, GamePooled, GameRunned, GameSpawn, PlayerSpawnEvent, GameSpawned, GameStarted), 55 each."
+    },
+    {
+      "name": "application.game-spawn",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|GameSpawn:61.02(0) real:79.3(0) diff:18.28",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid"
+        }
+      },
+      "note": "Read as in-raid through the \"gamespawn\" marker, about 20 s before GameStarted."
+    },
+    {
+      "name": "application.game-spawned",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|GameSpawned:62.5(0) real:81.1(0) diff:18.6",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {
+        "eftLog": {
+          "state": "InRaid"
+        }
+      },
+      "note": "Also matches \"gamespawn\"."
+    },
+    {
+      "name": "application.player-spawn-event",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|PlayerSpawnEvent:61.9(0) real:80.4(0) diff:18.5",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "application.game-starting",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|GameStarting:74.2(0) real:87.9(0) diff:13.7",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 34 of 55 raids. Not GameStarted."
+    },
+    {
+      "name": "application.movement-correction",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|Reason:PacketsQueue, Position:(-101.5, 2.3, 44.0), SpeedLimit:6.5, CurrentState:Idle, StrengthSummaryLevel:5, WalkSpeedLimit:1",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 76 lines, reasons PacketsQueue, Speed, Stuck and Lift. Carries the player's own position when the game corrects movement; sporadic, not read."
+    },
+    {
+      "name": "application.client-metrics",
+      "file": "application",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|application|ClientMetricsEvents():1234.567",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "output.devlog-menu-load-profile",
+      "file": "output",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|output|[DevLog] === MENU LOAD PROFILE ===",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 57, of which 52 open with PostRaid_Start: a timing block written once back in the menu after a raid."
+    },
+    {
+      "name": "output.devlog-milestone",
+      "file": "output",
+      "line": "  DeathScreen_Shown : 17595.3ms",
+      "header": "Neutral",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "Inside the block above. DeathScreen is the post-raid result screen: 52 raid ends, 52 of these, deaths or not. It says nothing about the outcome."
+    },
+    {
+      "name": "output.game-date-time",
+      "file": "output",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|output|RealDateTime:01/01/2026 20:00:00  GameDateTime:01/01/2026 14:23:10  factor:7 debug:False",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 127 lines, factor 7 every time. The in-game clock at load; not read."
+    },
+    {
+      "name": "output.push-notifications-mirror",
+      "file": "output",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|output|push-notifications|Got notification | RagfairOfferSold",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "output repeats push-notifications' one-line summaries. No payload, so no parser may read it."
+    },
+    {
+      "name": "push-notifications.summary",
+      "file": "push-notifications",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|push-notifications|Got notification | ChatMessageReceived",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): this file prints each payload as indented JSON on the following lines, so the chat-only reader found 0 quest events and 0 sales in all six files. backend has them all."
+    },
+    {
+      "name": "push-notifications.json-body",
+      "file": "push-notifications",
+      "line": "  \"type\": \"new_message\",",
+      "header": "Neutral",
+      "notification": "Neutral",
+      "expect": {}
+    },
+    {
+      "name": "backend.group-raid-not-ready",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchRaidNotReady [{\"type\":\"groupMatchRaidNotReady\",\"eventId\":\"e0000000000000000000000b\",\"aid\":1000001}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 161 of them. Only an account id, no extendedProfile, so the group parser reads nothing and a member who un-readies stays ready. Follow-up."
+    },
+    {
+      "name": "backend.group-invite-accept",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchInviteAccept [{\"type\":\"groupMatchInviteAccept\",\"eventId\":\"e0000000000000000000000b\",\"_id\":\"p0000000000000000000000c\",\"aid\":1000002,\"Info\":{\"Nickname\":\"PLAYER_C\",\"Side\":\"Bear\",\"Level\":20},\"PlayerVisualRepresentation\":{\"Info\":{\"Nickname\":\"PLAYER_C\"}},\"isLeader\":false,\"isReady\":false}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 7. The member is at the top level, not under extendedProfile, so the group parser reads nothing until that member's first RaidReady. Follow-up."
+    },
+    {
+      "name": "backend.group-invite-decline",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchInviteDecline [{\"type\":\"groupMatchInviteDecline\",\"eventId\":\"e0000000000000000000000b\",\"aid\":1000003,\"Nickname\":\"PLAYER_D\"}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 1."
+    },
+    {
+      "name": "backend.group-was-removed",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a groupMatchWasRemoved [{\"type\":\"groupMatchWasRemoved\",\"eventId\":\"e0000000000000000000000b\",\"groupId\":\"g0000000000000000000000c\"}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 1, first ever observed. Names only the group, so nobody is removed from the party by it."
+    },
+    {
+      "name": "backend.ragfair-new-rating",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a RagfairNewRating [{\"type\":\"RagfairNewRating\",\"eventId\":\"e0000000000000000000000b\",\"rating\":0.25,\"isRatingGrowing\":true}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 12."
+    },
+    {
+      "name": "backend.message-type-13",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a new_message [{\"type\":\"new_message\",\"eventId\":\"e0000000000000000000000b\",\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"m0000000000000000000000d\",\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":13,\"dt\":1767297600,\"text\":\"\",\"templateId\":\"5936d90786f7742b1420ba5b 0\",\"hasRewards\":false,\"maxStorageTime\":0,\"items\":{\"data\":[{\"_id\":\"i0000000000000000000000e\",\"_tpl\":\"5449016a4bdc2d6f028b456f\",\"upd\":{\"StackObjectsCount\":1000}}],\"stash\":\"s0000000000000000000000e\"}}}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 3, each carrying items. Not a quest state: 10, 11 and 12 are, and nothing else is read as one."
+    },
+    {
+      "name": "backend.ragfair-offer-sold.second-part",
+      "file": "backend",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION e0000000000000000000000a RagfairOfferSold [{\"type\":\"RagfairOfferSold\",\"eventId\":\"e0000000000000000000000c\",\"offerId\":\"o0000000000000000000000f\",\"handbookId\":\"59faff1d86f7746c51718c9c\",\"count\":1}]",
+      "header": "Recognised",
+      "notification": "Recognised",
+      "expect": {
+        "flea": {
+          "offerId": "o0000000000000000000000f",
+          "handbookId": "59faff1d86f7746c51718c9c",
+          "count": 1
+        }
+      },
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 103 sales named 72 offers; 18 offers sold in parts. Same offer as backend.ragfair-offer-sold, its own event id, a sale of its own."
+    },
+    {
+      "name": "network-connection.connect",
+      "file": "network-connection",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|network-connection|Connect (address: 10.0.0.1:17000)",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): one Connect and one Disconnect per online raid (53 each); Disconnect falls within a second of userMatchOver (median 0.6 s). Not opened."
+    },
+    {
+      "name": "network-connection.statistics",
+      "file": "network-connection",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|network-connection|Statistics (address: 10.0.0.1:17000, rtt: 45.2, lose: 0.1, sent: 51234, received: 98765)",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "Written once at each raid's disconnect: round trip and loss for the raid."
+    },
+    {
+      "name": "network-messages.counters",
+      "file": "network-messages",
+      "line": "2026-01-01 20:00:00.000|1.1.5.1.47510|Info|network-messages|rpi:5|rwi:0|rsi:1|rci:0|ui:12|lui:3|lud:0",
+      "header": "Recognised",
+      "notification": "Neutral",
+      "expect": {},
+      "note": "#403 re-measure (6 sessions, 2026-09-22..25): 1576 lines, the file's only shape."
     }
   ],
   "screenshotNames": [
@@ -657,6 +893,54 @@
       "name": "file.spatial-audio",
       "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
       "file": "2026.01.01_20-00-00_1.1.5.1.47510 spatial-audio_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.network-messages",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 network-messages_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.inventory",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 inventory_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.player",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 player_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.aiData",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 aiData_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.aiErrors",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 aiErrors_000.log",
+      "version": "1.1.5.1.47510",
+      "readMode": null,
+      "kind": "Other"
+    },
+    {
+      "name": "file.maperrors",
+      "folder": "log_2026.01.01_20-00-00_1.1.5.1.47510",
+      "file": "2026.01.01_20-00-00_1.1.5.1.47510 maperrors_000.log",
       "version": "1.1.5.1.47510",
       "readMode": null,
       "kind": "Other"

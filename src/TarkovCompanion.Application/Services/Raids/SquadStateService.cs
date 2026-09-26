@@ -60,7 +60,13 @@ public sealed class EftLogObservers(
 
     public void Observe(FleaSaleObservation sale)
     {
-        flea.Apply(sale);
+        // Every sale is written to backend and to output, so each arrives twice. Only the first
+        // reaches the raid record, whose Debrief rows add counts up and would show it twice.
+        if (!flea.TryApply(sale))
+        {
+            return;
+        }
+
         // Only while a raid is open, which the recorder decides. A sale made in the menu
         // belongs to no raid, and attaching it to the last one would put it in a record of
         // something that had already finished.

@@ -175,10 +175,13 @@ public static class NotificationPrivacy
 public readonly record struct SquadMarkInput(long Id, string By, bool IsPing);
 
 /// <summary>One flea sale, as the coordinator needs to see it.</summary>
-/// <param name="OfferId">The game's offer id, which is what stops one sale being announced twice.</param>
+/// <param name="SaleId">
+/// The sale's own id (<see cref="Core.Domain.Raids.FleaSaleObservation.SaleKey"/>), which is what stops
+/// one sale being announced twice. Not the offer id: one offer can sell in several parts.
+/// </param>
 /// <param name="Count">How many items went with it.</param>
 /// <param name="WrittenUtc">When the game wrote it; null when its timestamp could not be read.</param>
-public readonly record struct FleaSaleInput(string OfferId, int Count, DateTimeOffset? WrittenUtc);
+public readonly record struct FleaSaleInput(string SaleId, int Count, DateTimeOffset? WrittenUtc);
 
 /// <summary>
 /// Everything the coordinator looks at, in one record it can be handed repeatedly.
