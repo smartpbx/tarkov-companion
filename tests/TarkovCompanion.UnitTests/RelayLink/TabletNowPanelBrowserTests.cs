@@ -256,11 +256,20 @@ public sealed class TabletNowPanelBrowserTests : RealBrowserTestHarness
         return ((System.Net.IPEndPoint)socket.LocalEndPoint!).Port;
     }
 
+    /// <remarks>
+    /// [#712 0-7] Without a browser this test passes having checked nothing, which is right for the
+    /// suite and wrong for the glance ratchet: <c>scripts/sweep-glance.sh</c> installs one and sets
+    /// TARKOV_REQUIRE_REAL_BROWSER=1, and then a missing browser fails instead.
+    /// </remarks>
     private static bool HasHeadlessBrowser()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var cache = Path.Combine(home, ".cache", "ms-playwright");
-        return Directory.Exists(cache) && Directory.EnumerateDirectories(cache, "chromium*").Any();
+        var found = Directory.Exists(cache) && Directory.EnumerateDirectories(cache, "chromium*").Any();
+        Assert.True(
+            found || Environment.GetEnvironmentVariable("TARKOV_REQUIRE_REAL_BROWSER") != "1",
+            $"TARKOV_REQUIRE_REAL_BROWSER is set and there is no Playwright Chromium under {cache}.");
+        return found;
     }
 
     private static X509Certificate2 CreateSelfSignedCertificate(string hostName)

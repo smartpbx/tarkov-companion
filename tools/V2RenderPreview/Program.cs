@@ -2873,6 +2873,7 @@ internal static class Program
                 Pump(20);
             }
 
+            NowPanelDemo.Probe(window, args); // [#712 0-7]
             SaveFrame(window, outputPath, width, height);
             if (StringOption(args, "--crop") is { } crop)
             {
