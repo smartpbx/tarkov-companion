@@ -38,4 +38,5 @@ public static partial class DebriefText
     public static string RecapTasks(string tasks) => UiText.Format("Debrief.RecapTasks", tasks);
     public static string RecapSquad(string names) => UiText.Format("Debrief.RecapSquad", names);
     public static string RecapMore(string shown, int more) => UiText.Format("Debrief.RecapMore", shown, more);
+    public static string RecapHandIn(string quests) => UiText.Format("Debrief.RecapHandIn", quests);
 }

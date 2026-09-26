@@ -124,6 +124,7 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.LootAutoReturnSeconds, false, "Setup.Settings.Layout.LootReturn", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.LootOnTabletOnly, false, "Setup.Settings.Layout.LootTabletOnly", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.PlanLearnMode, false, "Setup.Settings.Layout.LearnMode", V2SetupSection.ProfileProgress),
+        new(WorkspaceLayoutKeys.PlanSessionMinutes, false, "Setup.Settings.Layout.SessionLength", V2SetupSection.ProfileProgress),
         new(WorkspaceLayoutKeys.SoundSettings, false, "Setup.Settings.Layout.Sound", V2SetupSection.Notifications),
         new(WorkspaceLayoutKeys.LearnIconCrops, false, "Setup.Settings.Layout.LearnIconCrops", V2SetupSection.GameCapture),
         new(WorkspaceLayoutKeys.RaidCard(string.Empty), true, "Setup.Settings.Layout.RaidCard"),

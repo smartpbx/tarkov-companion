@@ -214,6 +214,11 @@ public sealed partial class DebriefWorkspaceViewModel
             ? new("Clipboard", DebriefText.RecapNoTasks, string.Empty)
             : new("Clipboard", DebriefText.RecapTasks(Shortlist(tasks)), DebriefText.Kind(RaidFactKind.Observed)));
 
+        if (await HandInRecapLineAsync(cancellationToken).ConfigureAwait(true) is { } handIn)
+        {
+            lines.Add(handIn);
+        }
+
         if (_afterRaidEnd is { Squad.Count: > 0 } end && end.RaidId == raid.Id)
         {
             lines.Add(new("People", DebriefText.RecapSquad(Shortlist(end.Squad)), DebriefText.Kind(RaidFactKind.Observed)));

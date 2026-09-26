@@ -5,7 +5,8 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
-             xmlns:l="using:TarkovCompanion.App.Localization">
+             xmlns:l="using:TarkovCompanion.App.Localization"
+             xmlns:planv="using:TarkovCompanion.App.Views.V2.Plan">
   <UserControl.Styles>
     <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
          colour is a class of its own rather than an attribute on the text. -->
@@ -205,6 +206,9 @@
                          AutomationProperties.AutomationId="v2-plan-game-log"
                          AutomationProperties.LiveSetting="Polite" />
             </StackPanel>
+
+            <!-- [#712 2-3] The evening's raids after the next one, and quests waiting on a trader. -->
+            <planv:PlanSessionCard />
 
             <!-- Which quests to plan around: search, a state chip, and a trader. -->
             <Border Classes="v2-intel-search">
