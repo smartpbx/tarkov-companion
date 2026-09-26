@@ -69,6 +69,15 @@ open applications before. Everything runs in GitHub Actions.
   To see it on a branch before merging, which is worth doing for packaging, installer or
   startup changes and not otherwise: `gh workflow run windows-verify.yml --ref <branch>`.
 
+- **The glance ratchet** (`scripts/sweep-glance.sh`, #712) keeps the Raid page's Now panel
+  readable at a glance, and fails rather than warns. In every phase and a worst case, at
+  1920x1080 and 1920x1009 with 100, 125 and 150% text, the panel does not scroll, nothing on it is
+  cut off and the raid clock is on it once (`NowPanelGlanceTests`); every guess it shows (a counted
+  clock, a screenshot's age, an exit never seen offered, a planned stop) has its label on screen;
+  every automatic phase switch has a "because" line (`SwitchBecauseGlanceTests`); and the tablet's
+  panel fits 1280x800. When content will not fit, the panel folds (`NowPanelViewModel.Fold`);
+  change what folds, not the rule.
+
 A pull request merges when `linux` is green. That list lives in `scripts/require-checks.sh`;
 run it to see whether the repository still agrees with it.
 

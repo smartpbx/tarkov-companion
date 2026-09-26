@@ -38,6 +38,11 @@ jobs:
           dotnet build tools/V2RenderPreview/TarkovCompanion.V2RenderPreview.csproj --configuration Release --no-restore
       - name: Test
         run: dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1 --logger "trx;LogFileName=tests.trx"
+      # [#712 0-7] The glance ratchet: the Now panel never scrolls, every guess on it shows its
+      # label, every automatic switch says why. Fails, never warns. The desktop half ran in Test;
+      # this checks it did, and runs the tablet half, which needs a real browser the runner lacks.
+      - name: Glance ratchet
+        run: ./scripts/sweep-glance.sh tests/TarkovCompanion.UnitTests/TestResults/tests.trx
       - name: Dependency vulnerability audit
         run: dotnet list TarkovCompanion.sln package --vulnerable --include-transitive --no-restore
       - name: Dependency license audit
