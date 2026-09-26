@@ -7,6 +7,7 @@ public static partial class RaidText
 {
     public static string BriefWhileMatching => UiText.Get("Raid.Brief.WhileMatching");
     public static string BriefWhileLoading => UiText.Get("Raid.Brief.WhileLoading");
+    public static string BriefWhileSpawning => UiText.Get("Raid.Brief.WhileSpawning");
     public static string BriefName => UiText.Get("Raid.Brief.Name");
     public static string BriefNoBosses => UiText.Get("Raid.Brief.NoBosses");
     public static string BriefQuestsHere => UiText.Get("Raid.Brief.QuestsHere");
@@ -17,6 +18,9 @@ public static partial class RaidText
     public static string BriefOfferedHint => UiText.Get("Raid.Brief.OfferedHint");
     public static string BriefSquad => UiText.Get("Raid.Brief.Squad");
     public static string BriefSquadFrom => UiText.Get("Raid.Brief.SquadFrom");
+    public static string BriefSquadFromGame => UiText.Get("Raid.Brief.SquadFromGame");
+    public static string BriefPartyReady => UiText.Get("Raid.Brief.PartyReady");
+    public static string BriefPartyNotReady => UiText.Get("Raid.Brief.PartyNotReady");
 
     public static string BriefSide(SituationSide side) => side switch
     {

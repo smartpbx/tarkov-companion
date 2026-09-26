@@ -20,6 +20,19 @@ public enum RaidPhaseMarkerKind
 
     /// <summary><c>GameStarted:</c>, the player is in the raid and can move.</summary>
     GameStarted,
+
+    /// <summary>
+    /// <c>TRACE-NetworkGameMatching G</c>, <c>H</c> or <c>I</c>: a step of the queue. Written once each
+    /// per online raid (#403: 55 of 55), within seconds of Ready, and sometimes after
+    /// <c>MatchingCompleted</c>. What each letter means is not known, so it is shown as "matching" only.
+    /// </summary>
+    MatchingStep,
+
+    /// <summary><c>GameSpawn:</c>, the player is being put on the map, about ten to twenty seconds before GameStarted.</summary>
+    Spawning,
+
+    /// <summary><c>GameSpawned:</c>, the player is on the map; the raid starts within seconds.</summary>
+    Spawned,
 }
 
 /// <summary>One of those markers, and when the log wrote it.</summary>

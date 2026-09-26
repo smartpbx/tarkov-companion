@@ -184,8 +184,10 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
         ProfileManagementService service,
         Action<Action>? post = null,
         SetupProfileTransferViewModel? transfer = null,
-        SetupProfileCompareViewModel? compare = null)
+        SetupProfileCompareViewModel? compare = null,
+        TarkovCompanion.App.ViewModels.V2.Shell.ProfileFollowViewModel? follow = null)
     {
+        Follow = follow;
         Transfer = transfer;
         Compare = compare;
         _service = service ?? throw new ArgumentNullException(nameof(service));
@@ -208,6 +210,9 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     }
 
     public ObservableCollection<SetupProfileRowViewModel> Profiles { get; } = [];
+
+    /// <summary>[#712 decision 4] The line with Undo after the profile followed the game's mode; the shell shows it.</summary>
+    public TarkovCompanion.App.ViewModels.V2.Shell.ProfileFollowViewModel? Follow { get; }
 
     /// <summary>Export and import of the active profile's progress; null where no file access is composed.</summary>
     public SetupProfileTransferViewModel? Transfer { get; }

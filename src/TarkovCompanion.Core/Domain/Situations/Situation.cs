@@ -158,6 +158,18 @@ public sealed record SituationSquadMember(
         PositionTakenUtc is { } taken ? (nowUtc > taken ? nowUtc - taken : TimeSpan.Zero) : null;
 }
 
+/// <summary>One member of the player's own party, as the game's group notifications named them.</summary>
+/// <param name="IsReady">Null when no notification has said.</param>
+public sealed record SituationPartyMember(string Name, bool? IsReady, bool IsLeader);
+
+/// <summary>The party from the game's own log (#403): who is in it and who has pressed Ready.</summary>
+/// <remarks>Distinct from <see cref="Situation.Squad"/>, which is only what squadmates' companions shared over the relay.</remarks>
+public sealed record SituationParty(
+    IReadOnlyList<SituationPartyMember> Members,
+    int ReadyCount,
+    DateTimeOffset UpdatedUtc,
+    string Because);
+
 /// <summary>NEXT: a stop of the objective route the player opened on this map.</summary>
 public sealed record SituationObjective(
     string ObjectiveId,
@@ -218,6 +230,15 @@ public sealed record Situation(
     public SituationObjective? Then { get; init; }
 
     public SituationScan? LastScan { get; init; }
+
+    /// <summary>
+    /// [#403] This raid attempt's matching and loading markers, oldest first, while matching, loading or
+    /// in the raid: when Ready was pressed, when the raid was found, the map loaded, spawning began.
+    /// </summary>
+    public IReadOnlyList<Raids.RaidPhaseMarker> Stages { get; init; } = [];
+
+    /// <summary>[#403] The party and its readiness from the game's log, when the player is in one.</summary>
+    public SituationParty? Party { get; init; }
 
     /// <summary>[#712 0-3] Whether the game's logs and screenshot names are still in shapes the companion reads.</summary>
     /// <remarks>Degraded means every other fact here may be missing or wrong; its "because" says which source and why.</remarks>

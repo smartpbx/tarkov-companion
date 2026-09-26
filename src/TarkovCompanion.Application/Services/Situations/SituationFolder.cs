@@ -166,7 +166,30 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
             Next = Objective(mapId, phase.Value, 0),
             Then = Objective(mapId, phase.Value, 1),
             LastScan = LastScan(phase.Value),
+            Stages = phase.Value is SituationPhase.Matching or SituationPhase.Loading or SituationPhase.InRaid
+                ? Attempt(_markers.Where(entry => entry.Sequence > _endSequence).ToArray())
+                : [],
+            Party = runtime is null ? null : Party(runtime.Squad),
         };
+    }
+
+    /// <summary>
+    /// The player's own party as the game's group notifications state it, ready or not (#403). Only
+    /// members the game named; readiness only where a notification said it.
+    /// </summary>
+    private static SituationParty? Party(SquadSnapshot squad)
+    {
+        if (!squad.HasMembers)
+        {
+            return null;
+        }
+
+        var members = squad.Members
+            .Select(member => new SituationPartyMember(member.Nickname ?? "Squadmate", member.IsReady, member.IsLeader == true))
+            .ToArray();
+        var ready = members.Count(member => member.IsReady == true);
+        return new(members, ready, squad.UpdatedUtc,
+            $"The game's group notifications, last at {Clock(squad.UpdatedUtc)}: {ready} of {members.Length} ready.");
     }
 
     private SituationFact<SituationPhase> Phase(ApplicationRuntimeSnapshot? runtime, DateTimeOffset nowUtc)
@@ -178,7 +201,8 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
 
         var raid = runtime.Raid;
         var cycle = _markers.Where(entry => entry.Sequence > _endSequence).ToArray();
-        var last = cycle.Length > 0 ? cycle[^1].Marker : null;
+        var attempt = Attempt(cycle);
+        var last = Furthest(attempt);
         // Fixed per rule rather than copied from the last log line, whose confidence moves with
         // every line and would give the situation a new version each time.
         var confidence = new Confidence(0.9);
@@ -191,9 +215,9 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
                     $"The game confirmed the raid; it has not started yet (last line: {Describe(last.Kind)} at {Clock(last.ObservedUtc)}).");
             case RaidLifecycleState.InRaid:
                 return InRaidFact(raid, cycle);
-            case RaidLifecycleState.LoadingRaid when last?.Kind == RaidPhaseMarkerKind.MatchingStarted:
-                return Fact(SituationPhase.Matching, confidence, SituationSource.GameLog, last.ObservedUtc,
-                    $"You pressed Ready at {Clock(last.ObservedUtc)} and the game is looking for a raid.");
+            case RaidLifecycleState.LoadingRaid when last is not null && IsQueue(last.Kind):
+                return Fact(SituationPhase.Matching, confidence, SituationSource.GameLog, ReadyAt(attempt),
+                    $"You pressed Ready at {Clock(ReadyAt(attempt))} and the game is looking for a raid.");
             case RaidLifecycleState.LoadingRaid:
                 return Fact(SituationPhase.Loading, confidence, SituationSource.GameLog, last?.ObservedUtc ?? raid.UpdatedUtc,
                     last is null
@@ -203,10 +227,10 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
 
         // Out of a raid. A queue started since the last raid ended comes first: it is what the
         // player is doing now.
-        if (last?.Kind == RaidPhaseMarkerKind.MatchingStarted && nowUtc - last.ObservedUtc < MatchingHolds)
+        if (last is not null && IsQueue(last.Kind) && nowUtc - ReadyAt(attempt) < MatchingHolds)
         {
-            return Fact(SituationPhase.Matching, new Confidence(0.9), SituationSource.GameLog, last.ObservedUtc,
-                $"You pressed Ready at {Clock(last.ObservedUtc)} and the game is looking for a raid.");
+            return Fact(SituationPhase.Matching, new Confidence(0.9), SituationSource.GameLog, ReadyAt(attempt),
+                $"You pressed Ready at {Clock(ReadyAt(attempt))} and the game is looking for a raid.");
         }
 
         if (runtime.Squad.MatchStartedUtc is { } groupStart
@@ -445,11 +469,56 @@ public sealed class SituationFolder(ISituationPlaces? places = null)
 
     private static string Describe(RaidPhaseMarkerKind kind) => kind switch
     {
-        RaidPhaseMarkerKind.MatchingStarted => "matching",
+        RaidPhaseMarkerKind.MatchingStarted or RaidPhaseMarkerKind.MatchingStep => "matching",
         RaidPhaseMarkerKind.MatchingCompleted => "matched",
         RaidPhaseMarkerKind.LocationLoaded => "map loaded",
+        RaidPhaseMarkerKind.Spawning => "spawning",
+        RaidPhaseMarkerKind.Spawned => "spawned",
         _ => "game started",
     };
+
+    private static bool IsQueue(RaidPhaseMarkerKind kind) =>
+        kind is RaidPhaseMarkerKind.MatchingStarted or RaidPhaseMarkerKind.MatchingStep;
+
+    /// <summary>How far into a raid each marker is. The log does not keep them in this order (#403).</summary>
+    private static int Rank(RaidPhaseMarkerKind kind) => kind switch
+    {
+        RaidPhaseMarkerKind.MatchingStarted or RaidPhaseMarkerKind.MatchingStep => 0,
+        RaidPhaseMarkerKind.MatchingCompleted => 1,
+        RaidPhaseMarkerKind.LocationLoaded => 2,
+        RaidPhaseMarkerKind.Spawning => 3,
+        RaidPhaseMarkerKind.Spawned => 4,
+        _ => 5,
+    };
+
+    /// <summary>This raid attempt's markers: from the latest Ready on, so a queue left and re-entered starts over.</summary>
+    private static RaidPhaseMarker[] Attempt((RaidPhaseMarker Marker, long Sequence)[] cycle)
+    {
+        var start = Array.FindLastIndex(cycle, entry => entry.Marker.Kind == RaidPhaseMarkerKind.MatchingStarted);
+        return cycle[Math.Max(start, 0)..].Select(entry => entry.Marker).ToArray();
+    }
+
+    /// <summary>
+    /// The furthest stage reached, not the last line: 1.1.5.1 wrote a queue step after MatchingCompleted
+    /// (#403), and taking the last line would put a loading raid back in the queue.
+    /// </summary>
+    private static RaidPhaseMarker? Furthest(RaidPhaseMarker[] attempt)
+    {
+        RaidPhaseMarker? furthest = null;
+        foreach (var marker in attempt)
+        {
+            if (furthest is null || Rank(marker.Kind) >= Rank(furthest.Kind))
+            {
+                furthest = marker;
+            }
+        }
+
+        return furthest;
+    }
+
+    private static DateTimeOffset ReadyAt(RaidPhaseMarker[] attempt) =>
+        attempt.FirstOrDefault(marker => marker.Kind == RaidPhaseMarkerKind.MatchingStarted)?.ObservedUtc
+        ?? attempt.First().ObservedUtc;
 
     /// <summary>A heading as one of eight compass points, with the map's convention (0 is north).</summary>
     public static string? Facing(double headingDegrees) =>
