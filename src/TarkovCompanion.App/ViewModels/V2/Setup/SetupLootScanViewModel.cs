@@ -56,6 +56,7 @@ public sealed class SetupLootScanViewModel : BindableViewModel
         _tabletOnly = string.Equals(layout?.Get(WorkspaceLayoutKeys.LootOnTabletOnly), "on", StringComparison.Ordinal);
         ToggleTabletOnlyCommand = new DelegateCommand(() => TabletOnly = !TabletOnly);
         Progress = new LootScanProgressViewModel(timeline, _post, clock);
+        Screenshots = new ScreenshotTimingViewModel(timeline, _post);
         _lastScan = timeline?.LastCompleted;
         if (timeline is not null)
         {
@@ -74,6 +75,9 @@ public sealed class SetupLootScanViewModel : BindableViewModel
 
     /// <summary>The Loot page's per-stage progress line, fed by the same timeline.</summary>
     public LootScanProgressViewModel Progress { get; }
+
+    /// <summary>[#712 0-12] Every kind of screenshot's p50/p95, beside the last loot scan.</summary>
+    public ScreenshotTimingViewModel Screenshots { get; }
 
     /// <summary>The remembered countdown; null means the timed return is off.</summary>
     public TimeSpan? Timeout => _timeout;
@@ -182,7 +186,8 @@ public sealed class SetupLootScanViewModel : BindableViewModel
 
     private void OnProgressed(CaptureStageStep progress)
     {
-        if (progress.Summary is not { } summary)
+        // #712 0-12: every kind completes a timeline now; this card is the last Loot scan's.
+        if (progress.Summary is not { IsLoot: true } summary)
         {
             return;
         }

@@ -130,6 +130,9 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     // [#893] Optional: every existing composition and test predates it.
     private readonly Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>? _logger;
 
+    // #712 0-12: every capture's milestones, whatever it turns out to be. Optional like the logger.
+    private readonly ICaptureStageTimeline? _stageTimeline;
+
     public CaptureSessionCoordinator(
         ICaptureWorkScheduler scheduler,
         ICaptureSessionPipeline pipeline,
@@ -137,9 +140,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         WorkspaceOrigin defaultOrigin,
         TimeProvider? timeProvider = null,
         CaptureSessionOptions? options = null,
-        Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>? logger = null)
+        Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>? logger = null,
+        ICaptureStageTimeline? stageTimeline = null)
     {
         _logger = logger;
+        _stageTimeline = stageTimeline;
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
         _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
         _handoff = handoff ?? throw new ArgumentNullException(nameof(handoff));
@@ -259,6 +264,9 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(submission);
+        // A watched file began its timeline when its name was seen; this is a no-op for it. A
+        // picture handed over by hand (a paste, a drop) starts here.
+        _stageTimeline?.Begin(submission.CorrelationId, submission.SubmittedUtc);
         CaptureQueueReceipt receipt;
         var disposeSource = false;
         QueuedCapture? rejectedQueued = null;
@@ -820,6 +828,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         CancellationToken cancellationToken)
     {
         var decodeStarted = _timeProvider.GetUtcNow();
+        _stageTimeline?.Reached(queued.Submission.CorrelationId, CaptureTimelineKinds.Dequeued);
         CapturePixelLease? pixels = null;
         MutableArtifact? artifact = null;
         var reserved = false;
@@ -855,6 +864,10 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 FinalizeUnstartedCapture(queued, session, diagnostic ?? "decode_failed", attempts);
                 return PreparedCapture.Rejected;
             }
+
+            // The file's bytes and its decode are one call of the source (the loader reads and
+            // decodes together), so "decoded" covers both.
+            _stageTimeline?.Reached(queued.Submission.CorrelationId, CaptureTimelineKinds.Decoded);
 
             cancellationToken.ThrowIfCancellationRequested();
             var admissionReservation = queued.TakeReservedPixelBytes();
@@ -962,6 +975,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
             if (pixels is null)
             {
+                _stageTimeline?.Complete(queued.Submission.CorrelationId, _timeProvider.GetUtcNow(), CaptureTimelineKinds.Unread);
                 return duplicate ? PreparedCapture.Duplicate : PreparedCapture.Rejected;
             }
 
@@ -997,6 +1011,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 return PreparedCapture.Rejected;
             }
 
+            _stageTimeline?.Reached(queued.Submission.CorrelationId, CaptureTimelineKinds.Recognised);
             CaptureReviewRequest review;
             lock (_gate)
             {
@@ -1367,6 +1382,16 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     _ = ExpireIntentAsync(session.Request.SessionId, _lifetime.Token);
                 }
 
+                if (handoffRequest is null)
+                {
+                    _stageTimeline?.Complete(artifact.CorrelationId, _timeProvider.GetUtcNow(), CaptureTimelineKinds.Unread);
+                }
+                else
+                {
+                    // Before the handoff, so a Loot scan's own Complete inside it is already a Loot one.
+                    _stageTimeline?.Classify(artifact.CorrelationId, CaptureTimelineKinds.For(handoffRequest.EffectiveIntent));
+                }
+
                 if (handoffRequest is not null)
                 {
                     var handoff = await AcceptHandoffAsync(handoffRequest, operation.Token).ConfigureAwait(false);
@@ -1428,6 +1453,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     }
 
                     Notify(changed);
+                    _stageTimeline?.Reached(artifact.CorrelationId, CaptureTimelineKinds.Shown);
+                    _stageTimeline?.Complete(
+                        artifact.CorrelationId,
+                        _timeProvider.GetUtcNow(),
+                        handoff.Disposition == CaptureHandoffDisposition.DurablyAccepted ? null : CaptureTimelineKinds.Unread);
                 }
 
                 return;
@@ -1456,6 +1486,8 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             }
 
             Notify(changed);
+            // A review abandoned or cancelled on the way: still one line, as Unread.
+            _stageTimeline?.Complete(artifact.CorrelationId, _timeProvider.GetUtcNow(), CaptureTimelineKinds.Unread);
         }
     }
 
@@ -1805,6 +1837,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         string code,
         int decodeAttempts = 0)
     {
+        _stageTimeline?.Complete(queued.Submission.CorrelationId, _timeProvider.GetUtcNow(), CaptureTimelineKinds.Unread);
         var rearmed = false;
         EventHandler? changed;
         lock (_gate)
@@ -1907,6 +1940,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         string code,
         bool cancelled)
     {
+        _stageTimeline?.Complete(queued.Submission.CorrelationId, _timeProvider.GetUtcNow(), CaptureTimelineKinds.Unread);
         EventHandler? changed;
         lock (_gate)
         {

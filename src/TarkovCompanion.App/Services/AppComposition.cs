@@ -1000,7 +1000,8 @@ public static class AppComposition
             provider.GetRequiredService<ICaptureResultHandoff>(),
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider,
-            logger: provider.GetService<Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>>()));
+            logger: provider.GetService<Microsoft.Extensions.Logging.ILogger<CaptureSessionCoordinator>>(),
+            stageTimeline: provider.GetService<ICaptureStageTimeline>()));
         // [fin-recognition] #283: the caller StashOrganizationPlanner never had. The stash
         // workspace takes it as an optional dependency and sorts each scan with it.
         services.AddSingleton<StashPlanSource>();

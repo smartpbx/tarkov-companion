@@ -201,8 +201,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         // [#289] The extract, note and ready state set on the Team workspace. Optional like the rest.
         GroupSquadStatus? status = null,
         // [#292] Local only and the squad/report switches; null allows everything, as before.
-        INetworkPolicy? network = null)
+        INetworkPolicy? network = null,
+        // #712 0-12: when an exchange carried a new screenshot position, for the Position timeline.
+        CaptureSessions.ICaptureStageTimeline? stageTimeline = null)
     {
+        _stageTimeline = stageTimeline;
         _network = network;
         _clock = clock ?? TimeProvider.System;
         _settings = settings;
@@ -216,6 +219,10 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private readonly GroupSquadStatus? _status;
     private readonly INetworkPolicy? _network;
+    private readonly CaptureSessions.ICaptureStageTimeline? _stageTimeline;
+
+    /// <summary>The position the relay last accepted, so only a new one is reported as sent.</summary>
+    private (DateTimeOffset? Taken, double X, double Y, double Z)? _positionSent;
 
     /// <summary>[#292] Local only or squad sharing switched off: nothing goes to the relay, not even a goodbye.</summary>
     private NetworkVerdict SharingVerdict => _network?.Check(NetworkService.SquadSharing) ?? NetworkVerdict.Allowed;
@@ -948,6 +955,7 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         var asked = _roomRevision;
         var sent = Stopwatch.GetTimestamp();
+        var sentOnClock = _clock.GetTimestamp();
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
@@ -989,6 +997,15 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         _removedByOwner = false;
+        if (snapshot.Raid.LastKnownPosition is { } carried)
+        {
+            var position = (Taken: (DateTimeOffset?)carried.Timestamp.ToUniversalTime(), carried.Position.X, carried.Position.Y, carried.Position.Z);
+            if (_positionSent != position)
+            {
+                _positionSent = position;
+                _stageTimeline?.PositionPublished(sentOnClock);
+            }
+        }
 
         var room = await response.Content.ReadFromJsonAsync<RoomStateDto>(Json, cancellationToken).ConfigureAwait(false);
         // A relay that answers with one can hold the next exchange until the room moves. One
