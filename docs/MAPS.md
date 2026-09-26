@@ -86,11 +86,10 @@ desktop canvas. The snapshot carries the selected map and floor, camera, layer s
 object IDs, point/line/area/region geometry, transform version, typed fact semantics, and reviewed
 asset manifests. Its list alternative and hit testing use the same visibility state as the visual
 map. Flat 2D is the baseline; floor-stack and interior presentations are capabilities over the
-same scene, not separate sources of map truth. The current Avalonia renderer deliberately
-disables both richer presentation buttons: the scene asset contract does not yet associate a
-`Floor2D` asset with a floor ID, and no reviewed interior renderer exists. It keeps the real
-floor filter available and reports a flat-plan fallback if another client publishes a richer
-canonical mode; it never draws the same flat artwork and calls it a floor stack or interior.
+same scene, not separate sources of map truth. The Avalonia renderer draws the floor stack (below) and
+disables the interior mode, since no reviewed interior renderer exists; it reports a flat-plan
+fallback if another client publishes a richer canonical mode, and never draws the same flat
+artwork and calls it a floor stack or interior.
 
 The Avalonia consumer resolves reviewed artwork through an injected verified-cache resolver; it
 does not fetch a manifest URL from the view. Point features use fixed-size accessible controls,
@@ -314,9 +313,12 @@ canvas headroom above and below the plan (`MapSceneProjection`'s `headroomAbove`
 so the plates either side are not clipped at the card's edge, capped at 45% of the card.
 
 The plates have to be the drawing. A tile grid and a drawing cover different rectangles of the same
-ground, so the cockpit refuses to stack a tile-drawn map and says which press would fix it
-("Stacked floors need the drawing — choose it above"); a map with no drawing at all, like Labs,
-says so instead. A floor whose artwork will not load is left out and the status line says how many
+ground, so pressing Stack over a photograph loads the map's drawing as well, and pressing 2D puts
+the photograph back if the stack is what replaced it (#923; before that the next rebuild quietly
+undid the press). A map with no drawing at all, like Labs or Icebreaker, gets no Stack: the scene
+withholds the mode (`MapSceneBuildRequest.FloorStackUnavailableReason`) and the disabled button's
+tooltip says why. 3D interior is disabled on every map with its reason on hover: upstream lists 3D
+variants but publishes no asset for them, and no interior renderer exists. A floor whose artwork will not load is left out and the status line says how many
 of how many arrived — a gap in the stack is honest, a blank plate at the right height is not.
 
 Automatic floor selection (`MapViewModel.FloorSource`) now states what it did: the floor it took

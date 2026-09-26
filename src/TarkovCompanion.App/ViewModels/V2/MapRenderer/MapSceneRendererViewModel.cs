@@ -1853,7 +1853,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             CanRenderMode(mode),
             RendererUnavailableReason(mode),
             () => RequestMode(mode),
-            DescribeModeShort(mode)))
+            DescribeModeShort(mode),
+            CanRenderMode(mode) ? null : Format("Map.Mode.Tip.Unavailable", DescribeMode(mode), RendererUnavailableReason(mode))))
         .ToArray();
 
     // [V2 rough package 39] Top floor first, the way a lift's buttons and a building's section
@@ -2686,7 +2687,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private string RendererUnavailableReason(MapSceneMode mode) => mode switch
     {
         MapSceneMode.Flat2D => _scene.Capabilities.Flat2D.UnavailableReason ?? string.Empty,
-        MapSceneMode.FloorStack2D => Text("Map.Mode.FloorStackUnsupported"),
+        // [#923] The scene's own reason where the host gave one ("only a photograph" on Labs), so
+        // the disabled button's tooltip says why this map cannot stack rather than a generic line.
+        MapSceneMode.FloorStack2D when _scene.FloorIds.Count <= 1 => Text("Map.Mode.FloorStack.OneFloor"),
+        MapSceneMode.FloorStack2D => _scene.Capabilities.FloorStack2D.UnavailableReason ?? Text("Map.Mode.FloorStackUnsupported"),
         MapSceneMode.Interior3D => Text("Map.Mode.InteriorUnsupported"),
         _ => string.Empty,
     };
@@ -3262,7 +3266,8 @@ public sealed class MapSceneRendererModeViewModel
         bool isAvailable,
         string unavailableReason,
         Action select,
-        string? shortLabel = null)
+        string? shortLabel = null,
+        string? tip = null)
     {
         Mode = mode;
         Label = label;
@@ -3270,6 +3275,7 @@ public sealed class MapSceneRendererModeViewModel
         IsSelected = isSelected;
         IsAvailable = isAvailable;
         UnavailableReason = unavailableReason;
+        Tip = string.IsNullOrWhiteSpace(tip) ? label : tip;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
 
@@ -3281,6 +3287,12 @@ public sealed class MapSceneRendererModeViewModel
     public bool IsSelected { get; }
     public bool IsAvailable { get; }
     public string UnavailableReason { get; }
+
+    /// <summary>
+    /// [#923] The hover text: the mode's name, and on a disabled mode why it is disabled. The
+    /// strip shows "3D" greyed out, and a greyed-out button with no reason reads as broken.
+    /// </summary>
+    public string Tip { get; }
     public string AutomationId => $"v2-map-mode-{Mode.ToString().ToLowerInvariant()}";
     public ICommand SelectCommand { get; }
 }

@@ -15,7 +15,8 @@ public sealed record MapSceneBuildRequest(
     IReadOnlyList<MapSceneLegacyElement> LegacyElements,
     IReadOnlyList<MapSceneLayer> AdditionalLayers,
     IReadOnlyList<MapSceneObject> AdditionalObjects,
-    IReadOnlyList<MapSceneAsset> Assets);
+    IReadOnlyList<MapSceneAsset> Assets,
+    string? FloorStackUnavailableReason = null);
 
 /// <summary>An old overlay paired with the source evidence that the old model did not carry.</summary>
 public sealed record MapSceneLegacyElement(
@@ -90,9 +91,14 @@ public sealed class MapSceneAssembler
         var floorIds = request.RenderModel.Floors.Select(floor => floor.Id).ToArray();
         var capabilities = new MapSceneCapabilities(
             MapSceneCapability.Available,
-            request.RenderModel.Floors.Count > 1
-                ? MapSceneCapability.Available
-                : MapSceneCapability.Unavailable("This map has no reviewed multi-floor plan."),
+            // [#923] A host that knows it can never produce the floor plates says so here, so the
+            // "Stack" button is disabled with that reason instead of taking a press that the next
+            // rebuild quietly undoes (Labs: no drawing at all, only a photograph).
+            request.RenderModel.Floors.Count <= 1
+                ? MapSceneCapability.Unavailable("This map has no reviewed multi-floor plan.")
+                : string.IsNullOrWhiteSpace(request.FloorStackUnavailableReason)
+                    ? MapSceneCapability.Available
+                    : MapSceneCapability.Unavailable(request.FloorStackUnavailableReason),
             assets.Any(asset => asset.Kind == MapSceneAssetKind.InteriorModel)
                 ? MapSceneCapability.Available
                 : MapSceneCapability.Unavailable("No reviewed interior model is available for this map."));

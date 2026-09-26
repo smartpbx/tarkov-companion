@@ -100,6 +100,27 @@ public sealed class RaidCockpitArtworkAndFloorsTests
         Assert.Equal([("a", false), ("b", true)], chosen);
     }
 
+    [Theory]
+    // [#923] Stack pressed over the photograph (what Customs and Interchange open on): the stack's
+    // plates are the drawing, so the press loads it rather than being undone by the next rebuild.
+    [InlineData(true, true, false, null, "customs", "ChooseDrawing")]
+    [InlineData(true, true, true, null, "customs", "None")]
+    [InlineData(true, false, false, null, "the-lab", "None")]
+    // 2D puts back the photograph the stack took away, on the same map only.
+    [InlineData(false, true, true, "customs", "customs", "RestorePhoto")]
+    [InlineData(false, true, true, "customs", "interchange", "None")]
+    // A drawing the player chose for themselves stays.
+    [InlineData(false, true, true, null, "customs", "None")]
+    [InlineData(false, true, false, "customs", "customs", "None")]
+    public void Stack_loads_the_drawing_it_needs_and_2D_puts_the_photograph_back(
+        bool wantsStack,
+        bool hasChoice,
+        bool prefersDrawing,
+        string? chosenOn,
+        string location,
+        string expected) =>
+        Assert.Equal(expected, RaidCockpitViewModel.StackArtworkStepFor(wantsStack, hasChoice, prefersDrawing, chosenOn, location).ToString());
+
     [Fact]
     public void Automatic_floor_selection_says_what_it_did_or_why_it_could_not()
     {

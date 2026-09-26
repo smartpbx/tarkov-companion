@@ -272,6 +272,15 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
                     "the loot layer's pins or its empty state",
                     cancellationToken).ConfigureAwait(true);
                 break;
+            case "stack":
+                // [#923] Stack over a photograph loads the drawing first; "settled" answered while
+                // the drawing was still downloading and photographed the flat picture.
+                await WaitForAsync(
+                    () => raid.Renderer is { HasFloorStack: true },
+                    StepTimeout,
+                    "the floor stack drawn",
+                    cancellationToken).ConfigureAwait(true);
+                break;
             default:
                 throw new InvalidOperationException($"no gallery condition named '{condition}'");
         }

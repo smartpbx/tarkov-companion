@@ -55,7 +55,7 @@
                         AutomationProperties.AutomationId="{Binding AutomationId}"
                         AutomationProperties.Name="{Binding Label}"
                         AutomationProperties.HelpText="{Binding UnavailableReason}"
-                        ToolTip.Tip="{Binding Label}"
+                        ToolTip.Tip="{Binding Tip}" ToolTip.ShowOnDisabled="True"
                         Command="{Binding SelectCommand}">
             <Panel>
               <TextBlock Classes="v2-mode-full" Text="{Binding Label}" />

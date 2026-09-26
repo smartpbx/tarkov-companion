@@ -507,6 +507,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private string? _floorArtworkVariantKey;
     /// <summary>Why the floors could not be stacked, when the reason is actionable.</summary>
     private string _stackRefusal = string.Empty;
+
+    /// <summary>[#923] The map whose photograph the Stack button swapped for the drawing, if any.</summary>
+    private string? _drawingChosenForStack;
     private readonly PacedDispatch _rebuildRequest;
     private bool _disposed;
 
@@ -2882,7 +2885,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             legacyElements,
             additionalLayers,
             additionalObjects,
-            floorAssets.Count == 0 ? [asset] : [asset, .. floorAssets]);
+            floorAssets.Count == 0 ? [asset] : [asset, .. floorAssets],
+            // [#923] No drawing, no plates: Labs and Icebreaker publish only a photograph.
+            FloorStackUnavailableReason: model.Variant.SvgPath is null ? RaidText.StackNeedsDrawnMap : null);
         UiActivity.Step("raid:floors");
         var result = _assembler.Build(request);
         UiActivity.Step("raid:assembled");
@@ -3403,11 +3408,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             change.Mode is { } requestedMode &&
             _map.CanStack)
         {
-            var wantsStack = requestedMode == MapSceneMode.FloorStack2D;
-            if (_map.IsStacked != wantsStack)
-            {
-                _map.IsStacked = wantsStack;
-            }
+            ApplyStackChoice(requestedMode == MapSceneMode.FloorStack2D);
         }
 
         if (change.Kind == MapSceneViewChangeKind.SelectFloor &&
@@ -3417,6 +3418,85 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             _ = _map.SelectFloorAsync(selected);
         }
+    }
+
+    /// <summary>
+    /// [#923] "Stack" pressed or released on the strip: the stack on or off, and the artwork it needs.
+    /// </summary>
+    /// <remarks>
+    /// The plates are the drawing (see <see cref="LoadFloorStackAssetsAsync"/>), and on Customs,
+    /// Interchange and most other maps the photograph is what opens. Pressing Stack used to set
+    /// V1's flag and nothing else: the rebuild refused a photograph, put the scene back to flat,
+    /// and the only sentence saying why had left the V2 page with the old Drawing switch
+    /// (3f3622f4). Nor did the flag alone rebuild the scene, so the strip could read "Stack" over
+    /// a flat plan. So a press on a photograph now loads the drawing too, and a press on "2D"
+    /// puts the photograph back if the stack is what took it away. A map with no drawing at all
+    /// never gets here: the scene offers no stack for it (FloorStackUnavailableReason).
+    /// </remarks>
+    private void ApplyStackChoice(bool wantsStack)
+    {
+        if (_map.IsStacked != wantsStack)
+        {
+            _map.IsStacked = wantsStack;
+        }
+
+        var locationId = _map.SelectedLocation?.Id ?? _map.RenderModel?.Location.Id;
+        var step = StackArtworkStepFor(wantsStack, _map.HasArtworkChoice, _map.PrefersDrawing, _drawingChosenForStack, locationId);
+        if (!wantsStack)
+        {
+            _drawingChosenForStack = null;
+        }
+
+        switch (step)
+        {
+            case StackArtworkStep.ChooseDrawing:
+                _drawingChosenForStack = locationId;
+                _map.ToggleArtworkAsync().Observe("raid", "load the drawing for the floor stack");
+                break;
+            case StackArtworkStep.RestorePhoto:
+                _map.ToggleArtworkAsync().Observe("raid", "put the photograph back after the floor stack");
+                break;
+            default:
+                // The flag alone does not rebuild the scene; the plates arrive with the next build.
+                _rebuildRequest.Request();
+                break;
+        }
+    }
+
+    internal enum StackArtworkStep
+    {
+        None,
+        ChooseDrawing,
+        RestorePhoto,
+    }
+
+    /// <summary>
+    /// [#923] What a Stack or 2D press does to the artwork: load the drawing the plates need, put
+    /// back the photograph the stack took away, or leave the player's own choice alone.
+    /// </summary>
+    internal static StackArtworkStep StackArtworkStepFor(
+        bool wantsStack,
+        bool hasArtworkChoice,
+        bool prefersDrawing,
+        string? drawingChosenForStackOn,
+        string? locationId)
+    {
+        if (!hasArtworkChoice)
+        {
+            return StackArtworkStep.None;
+        }
+
+        if (wantsStack)
+        {
+            return prefersDrawing ? StackArtworkStep.None : StackArtworkStep.ChooseDrawing;
+        }
+
+        // Only the photograph this stack replaced, on this map. A drawing the player chose for
+        // themselves, or chose on another map, is theirs.
+        return prefersDrawing && drawingChosenForStackOn is not null &&
+            string.Equals(drawingChosenForStackOn, locationId, StringComparison.Ordinal)
+                ? StackArtworkStep.RestorePhoto
+                : StackArtworkStep.None;
     }
 
     /// <summary>The catalog's own name for a floor the scene only knows as an id.</summary>

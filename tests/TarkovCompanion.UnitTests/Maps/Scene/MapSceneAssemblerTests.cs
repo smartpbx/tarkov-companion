@@ -205,6 +205,34 @@ public sealed class MapSceneAssemblerTests
         Assert.Contains("stable identity", result.UnavailableReason, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void A_host_that_cannot_draw_the_plates_withholds_the_floor_stack_with_its_reason()
+    {
+        // [#923] Labs has floors but only a photograph. Offering "Stack" there took a press that
+        // the next rebuild undid; the scene now says no, with the host's reason, and a SetMode
+        // for it is refused instead of applied.
+        var model = Model([new(MapOverlayKind.Extracts, new(20, 30), "Crossroads", MinimumHeight: 0, MaximumHeight: 0)]);
+        var assembler = new MapSceneAssembler();
+
+        var offered = Assert.IsType<MapSceneSnapshot>(assembler.Build(Request(model)).Scene);
+        var withheld = Assert.IsType<MapSceneSnapshot>(assembler.Build(Request(model) with
+        {
+            FloorStackUnavailableReason = "No floor drawings for this map, only a photograph",
+            RequestedView = Request(model).RequestedView with { Mode = MapSceneMode.FloorStack2D },
+        }).Scene);
+
+        Assert.True(offered.Capabilities.FloorStack2D.IsAvailable);
+        Assert.False(withheld.Capabilities.FloorStack2D.IsAvailable);
+        Assert.Equal("No floor drawings for this map, only a photograph", withheld.Capabilities.FloorStack2D.UnavailableReason);
+        Assert.Equal(MapSceneMode.Flat2D, withheld.View.Mode);
+        var press = MapSceneViewReducer.Apply(withheld, new(
+            Guid.Parse("20000000-0000-0000-0000-000000000923"),
+            withheld.Revision,
+            MapSceneViewChangeKind.SetMode,
+            MapSceneMode.FloorStack2D));
+        Assert.NotEqual(MapSceneViewChangeStatus.Applied, press.Status);
+    }
+
     private static MapSceneBuildRequest Request(MapRenderModel model) => new(
         8,
         model,
