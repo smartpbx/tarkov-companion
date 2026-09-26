@@ -100,6 +100,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 288] "on" when Plan rows include the engine's short reason.</summary>
     public const string PlanLearnMode = "plan.learn-mode";
 
+    /// <summary>[#712 2-3] How long tonight's session is, in minutes; see SessionPlanner. Missing is two hours.</summary>
+    public const string PlanSessionMinutes = "plan.session-minutes";
+
     /// <summary>[#712 0-10] Sound cues and speech as one JSON value; see SoundSettingsStore. Missing is off.</summary>
     public const string SoundSettings = "sound.settings";
 

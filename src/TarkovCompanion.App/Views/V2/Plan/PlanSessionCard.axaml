@@ -1,0 +1,97 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Plan.PlanSessionCard"
+             x:DataType="vm:PlanWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
+             xmlns:l="using:TarkovCompanion.App.Localization">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.v2-session-caps">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="LetterSpacing" Value="1.2" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Border.v2-session-card">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+    <Style Selector="Border.v2-session-chip">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,4" />
+    </Style>
+    <!-- The next raid is outlined like the concept's first chip; the rest are quiet. -->
+    <Style Selector="Border.v2-session-chip.next">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- [#712 2-3] docs/design/v3/v3-squad-ready.png's SESSION strip, for one player on Plan:
+       "You said 2 h", the raids in order, and the quests that only need a trader visit. -->
+  <StackPanel Spacing="10">
+    <Border Classes="v2-session-card" AutomationProperties.AutomationId="v2-plan-session">
+      <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="v2-session-caps" Text="{x:Static l:PlanText.SessionTitle}" VerticalAlignment="Center"
+                     AutomationProperties.HeadingLevel="3" />
+          <TextBlock Grid.Column="1" Classes="v2-label" Text="{x:Static l:PlanText.SessionReplans}" VerticalAlignment="Center" />
+        </Grid>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Classes="v2-body" Text="{x:Static l:PlanText.SessionYouSaid}" VerticalAlignment="Center" />
+          <ComboBox ItemsSource="{Binding SessionLengths}" SelectedItem="{Binding SelectedSessionLength}"
+                    MinWidth="90"
+                    AutomationProperties.AutomationId="v2-plan-session-length"
+                    AutomationProperties.Name="{x:Static l:PlanText.SessionLengthName}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:PlanSessionLengthOption">
+                <TextBlock Text="{Binding Label}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+        <ItemsControl ItemsSource="{Binding SessionRaids}" IsVisible="{Binding HasSessionRaids}"
+                      AutomationProperties.AutomationId="v2-plan-session-raids">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PlanSessionRaidViewModel">
+              <Border Classes="v2-session-chip" Classes.next="{Binding IsNext}">
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Label}" />
+                  <TextBlock Classes="v2-label" Text="{Binding Detail}" IsVisible="{Binding HasDetail}"
+                             TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" Text="{Binding SessionEmpty}" IsVisible="{Binding HasSessionEmpty}" />
+        <TextBlock Classes="v2-label" Text="{Binding SessionProgressLabel}" IsVisible="{Binding HasSessionProgress}"
+                   AutomationProperties.AutomationId="v2-plan-session-progress" />
+        <TextBlock Classes="v2-label" Text="{Binding SessionSummary}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-plan-session-estimate" />
+      </StackPanel>
+    </Border>
+    <Border Classes="v2-session-card" IsVisible="{Binding HasHandIns}" AutomationProperties.AutomationId="v2-plan-hand-ins">
+      <StackPanel Spacing="6">
+        <TextBlock Classes="v2-session-caps" Text="{x:Static l:PlanText.HandInTitle}" AutomationProperties.HeadingLevel="3" />
+        <ItemsControl ItemsSource="{Binding HandIns}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Classes="v2-body" Text="{Binding}" TextWrapping="Wrap" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>

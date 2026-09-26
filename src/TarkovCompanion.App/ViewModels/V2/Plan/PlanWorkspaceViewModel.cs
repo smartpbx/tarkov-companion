@@ -716,7 +716,12 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         EventRuleService? eventRuleService = null,
         LearnModeSetting? learnMode = null,
         // [#780] "Squad has it too" on a quest a squadmate also has active. Optional like the rest.
-        TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed? squadQuests = null)
+        TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed? squadQuests = null,
+        // [#712 2-3] The session strip: the player's own raids, the raid-end edge that re-plans
+        // it, and the hideout's shortfall for loot runs. Optional like the rest.
+        IRaidHistoryService? raidHistory = null,
+        TarkovCompanion.Application.Services.Raids.IRaidEndSignal? raidEnds = null,
+        TarkovCompanion.Application.Services.Catalogs.IRequirementCatalog? hideoutRequirements = null)
     {
         LearnMode = learnMode ?? new();
         // [#902 P8] The quest chip and trader come back after a visit elsewhere and a restart. A
@@ -729,6 +734,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         }
 
         AttachSquadQuests(squadQuests);
+        AttachSession(raidHistory, raidEnds, hideoutRequirements);
         _allergies = allergies;
         _eventRuleService = eventRuleService;
         _paths = paths;
@@ -1352,6 +1358,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
             UiActivity.Step("plan:applyprofile");
             ApplyFilter();
             UiActivity.Step("plan:applyfilter");
+            await RefreshSessionAsync(profile.HideoutStationLevels, cancellationToken).ConfigureAwait(true);
             UpdateGameLogStatus(_questLog?.Reading);
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
             UiActivity.Step("plan:questlayer");
