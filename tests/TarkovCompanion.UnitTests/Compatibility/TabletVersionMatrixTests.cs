@@ -277,5 +277,57 @@ public sealed class TabletVersionMatrixTests
         new TabletMapLootFilter(20_000, "PerSlot"),
         [new TabletMapChoice("customs", "Customs")],
         TabletCaptureReview.Bounded("stash", "snapshot-1", Now, "Stash scan", "2 named", "Keep 1", [new TabletReviewRow("Salewa", "Keep", "Good", "x1", "Screenshot · 93%", "Quest")]),
-        TabletCaptureReview.Bounded("flea", "artifact-1", Now, "Offers for Salewa", "1 row read", null, [new TabletReviewRow("#1 best buy · ₽20,000 each", "Good buy", "Good", "1 unit", "read 97% sure", "Under the average")]));
+        TabletCaptureReview.Bounded("flea", "artifact-1", Now, "Offers for Salewa", "1 row read", null, [new TabletReviewRow("#1 best buy · ₽20,000 each", "Good buy", "Good", "1 unit", "read 97% sure", "Under the average")]),
+        NowPanel());
+
+    /// <summary>
+    /// #712 0-11: a desktop from before the Now panel (or with its flag off) sends no <c>now</c>. The
+    /// current reader takes that as no panel, and the page keeps its old layout (<c>surface.now ?? null</c>).
+    /// </summary>
+    [Fact]
+    public void AnOlderDesktopsSurfaceHasNoNowPanel()
+    {
+        var older = JsonNode.Parse(TabletMapSurfaceJson.Serialize(Surface()))!.AsObject();
+        older.Remove("now");
+
+        var read = TabletMapSurfaceJson.Deserialize(Encoding.UTF8.GetBytes(older.ToJsonString()));
+
+        Assert.NotNull(read);
+        Assert.Null(read.Now);
+        Assert.Null(JsonNode.Parse(TabletMapSurfaceJson.Serialize(Surface() with { Now = null }))!["now"]);
+    }
+
+    /// <summary>#712 0-11: every path of the Now panel today's page reads (index.html takeNow/renderNow/tickNow).</summary>
+    [Fact]
+    public void TheCurrentNowPanelCarriesWhatTodaysPageReads()
+    {
+        string[] reads =
+        [
+            "now.version", "now.phase", "now.tone", "now.because",
+            "now.now.heading", "now.now.headline", "now.now.clock.kind", "now.now.clock.atUtc", "now.now.detail",
+            "now.now.detailSinceUtc", "now.now.note", "now.now.noteIsDone",
+            "now.you.heading", "now.you.where", "now.you.age", "now.you.sinceUtc", "now.you.isStale", "now.you.exit", "now.you.exitNote",
+            "now.squad.heading", "now.squad.empty", "now.squad.emptyHint", "now.squad.rows[].name", "now.squad.rows[].where",
+            "now.squad.rows[].seenUtc", "now.squad.rows[].canPing", "now.squad.rows[].isAway", "now.squad.rows[].colour",
+            "now.next.heading", "now.next.label", "now.next.detail", "now.next.then", "now.next.hint",
+            "now.scan.heading", "now.scan.line", "now.scan.sinceUtc", "now.scan.hint",
+            "now.scan.rows[].verdict", "now.scan.rows[].word", "now.scan.rows[].name", "now.scan.rows[].reason", "now.scan.rows[].value",
+            "now.words.seconds", "now.words.minutes", "now.words.ago", "now.words.ping", "now.words.pingTip",
+        ];
+
+        Assert.Empty(CompatibilityFixtures.Missing(JsonNode.Parse(TabletMapSurfaceJson.Serialize(Surface()))!, reads));
+    }
+
+    private static TabletNowPanel NowPanel() => new TabletNowPanel(
+        TabletNowPanel.CurrentVersion,
+        "InRaid",
+        "Customs",
+        "Normal",
+        new TabletNowBlock("NOW", "{clock} left", new TabletNowClock("left", Now.AddMinutes(20), "Counted", true), "counted from the raid start", null, "Survival counts", true),
+        new TabletNowYou("YOU", "Dorms 3-story", string.Empty, Now, false, "Nearest exit: ZB-1011", "not seen on your extract list"),
+        new TabletNowSquad("SQUAD", [new TabletNowSquadRow("Geo", "Old Gas Station · 140 m NE", Now, true, false, "#6FA8F5")], "No squad sharing", "Share from Team"),
+        new TabletNowNext("NEXT", "Golden Zibbo lighter", "40 m leg", "then: watch", string.Empty),
+        new TabletNowScan("LAST SCAN", "Take 1", Now, string.Empty, [new TabletNowVerdictRow("Take", "TAKE", "Salewa", "Hideout", "₽31k / sq")]),
+        "The game started the raid.",
+        new TabletNowWords("{0} s", "{0} min", "{0} ago", "Ping", "Ping {0}")).Bounded();
 }

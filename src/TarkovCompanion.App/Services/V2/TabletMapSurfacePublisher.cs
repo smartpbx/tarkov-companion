@@ -85,6 +85,9 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private TabletLootResult? _loot;
     private TabletCaptureReview? _stashReview;
     private TabletCaptureReview? _fleaReview;
+    private TabletNowPanel? _now;
+    private readonly TabletNowChangeGate _nowGate = new();
+    private int _nowScheduled;
     private TabletWorkspaceNavigation? _workspaceNavigation;
 
     public TabletMapSurfacePublisher(
@@ -173,6 +176,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 Maps = [.. _cockpit.MapPicker.Select(item => new TabletMapChoice(item.MapId, item.Name))],
                 Stash = Volatile.Read(ref _stashReview),
                 Flea = Volatile.Read(ref _fleaReview),
+                Now = Volatile.Read(ref _now)?.Shifted(_bridge?.RelayClockCorrection ?? TimeSpan.Zero),
             };
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
 
@@ -247,6 +251,44 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         ArgumentNullException.ThrowIfNull(loot);
         Volatile.Write(ref _loot, loot);
         PublishSoon();
+    }
+
+    /// <summary>
+    /// [#712 0-11] The desktop's Now panel for the paired tablets; null takes it away (the flag
+    /// went off). Sent on change only: the panel redraws every second and hands this the same
+    /// payload each time until something it says has changed.
+    /// </summary>
+    /// <returns>Whether this was a change, and so a publish was scheduled.</returns>
+    public bool ShowNow(TabletNowPanel? now)
+    {
+        if (!_nowGate.Offer(now))
+        {
+            return false;
+        }
+
+        Volatile.Write(ref _now, now);
+
+        // Coalesced like a scene rebuild: a situation change and the exits it moves arrive as a
+        // burst, and the tablet wants the last of them.
+        if (Interlocked.Exchange(ref _nowScheduled, 1) == 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(CoalesceFloor, _clock).ConfigureAwait(false);
+                    Interlocked.Exchange(ref _nowScheduled, 0);
+                    await PublishNowAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    Interlocked.Exchange(ref _nowScheduled, 0);
+                    // The desktop's own panel still says it; the tablet catches up on the next change.
+                }
+            });
+        }
+
+        return true;
     }
 
     private void PublishSoon()
