@@ -164,6 +164,31 @@
   "Debrief.RecapRaidClock": "Raid clock: {0:N0} of {1:N0} min used",
   "Debrief.RecapExtractUsed": "Extract used: {0}",
   "Debrief.RecapEndedNear": "Ended near {0}",
+  "Debrief.PatternRaids": {
+    "one": "Your last {1} raid",
+    "other": "Your last {0} {1} raids"
+  },
+  "Debrief.PatternDeaths": {
+    "one": "{0} death",
+    "other": "{0} deaths"
+  },
+  "Debrief.PatternDeathsNear": {
+    "one": "{0} death, {2} near {1}",
+    "other": "{0} deaths, {2} near {1}"
+  },
+  "Debrief.PatternOut": {
+    "one": "{0} out",
+    "other": "{0} out"
+  },
+  "Debrief.PatternExit": {
+    "one": "Usual exit {1}: used {0} time",
+    "other": "Usual exit {1}: used {0} times"
+  },
+  "Debrief.PatternPace": {
+    "one": "Your pace {1:0.0} m/s ({0} leg)",
+    "other": "Your pace {1:0.0} m/s ({0} legs)"
+  },
+  "Debrief.PatternPaceFixed": "Pace: fixed 1.8–3.2 m/s until more trails",
   "Debrief.RecapExtractUnknown": "Extract not recorded",
   "Debrief.RecapLoot": "Loot scanned: {0} in {1}",
   "Debrief.RecapNoLoot": "No loot scanned",

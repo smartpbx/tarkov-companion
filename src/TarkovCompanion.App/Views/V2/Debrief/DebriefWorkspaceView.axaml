@@ -691,6 +691,8 @@
                   <TextBlock Classes="v2-heading-3" Text="{x:Static l:DebriefText.Screenshots}" AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-debrief-muted" Text="{Binding PersonalPatternLine}" TextWrapping="Wrap"
+                           IsVisible="{Binding HasPersonalPatternLine}" AutomationProperties.AutomationId="v2-debrief-personal-pattern" />
                 <StackPanel Spacing="2" IsVisible="{Binding HasSelectedRouteComparison}">
                   <TextBlock Classes="v2-label" Text="{x:Static l:DebriefText.PlannedVsActual}" />
                   <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedRouteComparisonLabel}"
