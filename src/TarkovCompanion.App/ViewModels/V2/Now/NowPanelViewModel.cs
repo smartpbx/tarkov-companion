@@ -32,6 +32,7 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
     private NowLootVerdict? _verdict;
     private NowPanelState _state = new();
     private PreRaidBriefViewModel? _brief;
+    private TimeSpan _leaveMargin = NowPanelState.LeaveMargin;
     private bool _disposed;
 
     public NowPanelViewModel(SituationService? situation, TimeProvider? clock = null, Action<Action>? post = null, bool tick = true)
@@ -40,6 +41,8 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
         _post = post ?? (action => action());
         MoreCommand = new DelegateCommand(() => MoreRequested?.Invoke(this, NowMoreTopic.All));
         WrongCommand = new DelegateCommand(() => MoreRequested?.Invoke(this, NowMoreTopic.Corrections));
+        WrongSideCommand = new DelegateCommand(() => MoreRequested?.Invoke(this, NowMoreTopic.CorrectSide));
+        WrongExitsCommand = new DelegateCommand(() => MoreRequested?.Invoke(this, NowMoreTopic.CorrectExits));
         OpenLootCommand = new DelegateCommand(() => OpenLootRequested?.Invoke(this, EventArgs.Empty));
         _source = situation;
         if (situation is not null)
@@ -105,6 +108,23 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
     /// <summary>Sends a ping at a squadmate's last shared spot; null where there is no squad session.</summary>
     public Func<string, CancellationToken, Task<bool>>? PingMember { get; set; }
 
+    /// <summary>[#712 0-5] Places a squad waypoint at a squadmate's last shared spot (hold or right-click a row).</summary>
+    public Func<string, CancellationToken, Task<bool>>? WaypointMember { get; set; }
+
+    /// <summary>[#712 0-6] The spare minutes the late-raid line adds to the walk (the Leave margin setting).</summary>
+    public TimeSpan LeaveMargin
+    {
+        get => _leaveMargin;
+        set
+        {
+            if (_leaveMargin != value)
+            {
+                _leaveMargin = value;
+                Refresh();
+            }
+        }
+    }
+
     /// <summary>The squadmate's colour on the map, "#RRGGBB", so a row matches its dot.</summary>
     public Func<string, string?>? MemberColour { get; set; }
 
@@ -127,6 +147,12 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
     public ICommand MoreCommand { get; }
 
     public ICommand WrongCommand { get; }
+
+    /// <summary>[#712 0-6] YOU's side chip: Corrections, at the side row.</summary>
+    public ICommand WrongSideCommand { get; }
+
+    /// <summary>[#712 0-6] YOU's exits chip: Corrections, at the offered exits.</summary>
+    public ICommand WrongExitsCommand { get; }
 
     public ICommand OpenLootCommand { get; }
 
@@ -166,9 +192,24 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
             return;
         }
 
-        var state = NowPanelState.Project(_situation, _clock.GetUtcNow(), _exits, _verdict);
+        var state = NowPanelState.Project(_situation, _clock.GetUtcNow(), _exits, _verdict, _leaveMargin);
         UpdateSquad(state.Squad);
         State = state;
+    }
+
+    /// <summary>
+    /// [#712 0-5] A squadmate's ping arrived: their row flashes. The map edge toward it is the
+    /// cockpit's half (SquadPingAttention); only the ping's own sender, never a guess, lights a row.
+    /// </summary>
+    public bool FlashMember(string name)
+    {
+        if (SquadRows.FirstOrDefault(row => string.Equals(row.Name, name, StringComparison.Ordinal)) is not { } row)
+        {
+            return false;
+        }
+
+        row.Pulse();
+        return true;
     }
 
     internal static NowLootVerdict Verdict(LootScanViewModel result, DateTimeOffset receivedUtc)
@@ -242,7 +283,7 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
             var existing = SquadRows.FirstOrDefault(item => string.Equals(item.Name, row.Name, StringComparison.Ordinal));
             if (existing is null)
             {
-                existing = new NowSquadRowViewModel(row.Name, MemberColour?.Invoke(row.Name), _clock, _post, Ping);
+                existing = new NowSquadRowViewModel(row.Name, MemberColour?.Invoke(row.Name), _clock, _post, Ping, Waypoint);
                 SquadRows.Insert(Math.Min(index, SquadRows.Count), existing);
                 existing.Update(row, pulse: false);
                 continue;
@@ -276,6 +317,16 @@ public sealed partial class NowPanelViewModel : BindableViewModel, IDisposable
 
         return sent;
     }
+
+    private async Task<bool> Waypoint(NowSquadRowViewModel row)
+    {
+        if (WaypointMember is not { } place)
+        {
+            return false;
+        }
+
+        return await place(row.Name, CancellationToken.None).ConfigureAwait(true);
+    }
 }
 
 /// <summary>Where More opens the Raid plan cards: each topic is a group of the old sixteen cards.</summary>
@@ -290,6 +341,12 @@ public enum NowMoreTopic
     Corrections,
     Squad,
     Loot,
+
+    /// <summary>[#712 0-6] Corrections, brought to the side row ("wrong?" on YOU's side).</summary>
+    CorrectSide,
+
+    /// <summary>[#712 0-6] Corrections, brought to the offered exits ("wrong?" on YOU's exit).</summary>
+    CorrectExits,
 }
 
 /// <summary>One SQUAD row: what that squadmate's own companion shared, with a Ping and a pulse.</summary>
@@ -301,18 +358,27 @@ public sealed class NowSquadRowViewModel : BindableViewModel, IDisposable
     private readonly TimeProvider _clock;
     private readonly Action<Action> _post;
     private readonly Func<NowSquadRowViewModel, Task<bool>> _ping;
+    private readonly Func<NowSquadRowViewModel, Task<bool>>? _waypoint;
     private NowSquadRow? _row;
     private bool _isPulsing;
     private ITimer? _pulseEnd;
 
-    internal NowSquadRowViewModel(string name, string? colour, TimeProvider clock, Action<Action> post, Func<NowSquadRowViewModel, Task<bool>> ping)
+    internal NowSquadRowViewModel(
+        string name,
+        string? colour,
+        TimeProvider clock,
+        Action<Action> post,
+        Func<NowSquadRowViewModel, Task<bool>> ping,
+        Func<NowSquadRowViewModel, Task<bool>>? waypoint = null)
     {
+        _waypoint = waypoint;
         Name = name;
         Colour = colour ?? "#E0B45C";
         _clock = clock;
         _post = post;
         _ping = ping;
         PingCommand = new AsyncDelegateCommand(PingAsync);
+        WaypointCommand = new AsyncDelegateCommand(WaypointAsync);
     }
 
     public string Name { get; }
@@ -333,6 +399,9 @@ public sealed class NowSquadRowViewModel : BindableViewModel, IDisposable
     public string PingTip => NowText.PingTip(Name);
 
     public ICommand PingCommand { get; }
+
+    /// <summary>[#712 0-5] Hold or right-click: a squad waypoint at this squadmate's last shared spot.</summary>
+    public ICommand WaypointCommand { get; }
 
     /// <summary>Lit for <see cref="PulseLength"/> after the row changed or was pinged.</summary>
     public bool IsPulsing
@@ -379,6 +448,19 @@ public sealed class NowSquadRowViewModel : BindableViewModel, IDisposable
         }
 
         if (await _ping(this).ConfigureAwait(true))
+        {
+            Pulse();
+        }
+    }
+
+    private async Task WaypointAsync()
+    {
+        if (!CanPing || _waypoint is null)
+        {
+            return;
+        }
+
+        if (await _waypoint(this).ConfigureAwait(true))
         {
             Pulse();
         }

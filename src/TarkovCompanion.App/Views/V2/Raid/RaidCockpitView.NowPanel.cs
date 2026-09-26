@@ -1,4 +1,6 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels.V2.Now;
 using TarkovCompanion.App.ViewModels.V2.Raid;
@@ -37,9 +39,22 @@ public sealed partial class RaidCockpitView
                     return;
                 }
 
-                if (topic == NowMoreTopic.Corrections)
+                if (NowPanelHost.IsCorrection(topic))
                 {
                     scroll.ScrollToEnd();
+                    // [#712 0-6] A "wrong?" chip brings its own fact's row into view, not just the card.
+                    var target = topic switch
+                    {
+                        NowMoreTopic.CorrectSide => "v2-raid-correct-side-value",
+                        NowMoreTopic.CorrectExits => "v2-raid-correct-extracts-value",
+                        _ => null,
+                    };
+                    if (target is not null &&
+                        scroll.GetVisualDescendants().OfType<Control>()
+                            .FirstOrDefault(control => AutomationProperties.GetAutomationId(control) == target) is { } row)
+                    {
+                        row.BringIntoView();
+                    }
                 }
                 else
                 {

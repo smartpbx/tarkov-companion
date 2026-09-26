@@ -2290,6 +2290,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         }
 
         ObserveMarkLifetimes(snapshot);
+        ObserveSquadPings(snapshot.Group); // [#712 0-5]
         var raid = snapshot.Raid;
         var group = snapshot.Group;
         ResetLettersForNewRaid(raid);

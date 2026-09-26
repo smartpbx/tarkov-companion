@@ -110,8 +110,15 @@ public sealed class NowPanelHost : BindableViewModel
     public void Refresh() => Changed();
 
     /// <summary>The card ids a topic opens, for the host to reveal.</summary>
-    public static IEnumerable<string> CardsOf(NowMoreTopic topic) =>
-        TopicOfCard.Where(pair => pair.Value == topic).Select(pair => pair.Key);
+    public static IEnumerable<string> CardsOf(NowMoreTopic topic)
+    {
+        var card = IsCorrection(topic) ? NowMoreTopic.Corrections : topic;
+        return TopicOfCard.Where(pair => pair.Value == card).Select(pair => pair.Key);
+    }
+
+    /// <summary>[#712 0-6] Corrections, or one of the facts on it a "wrong?" chip opens it at.</summary>
+    public static bool IsCorrection(NowMoreTopic topic) =>
+        topic is NowMoreTopic.Corrections or NowMoreTopic.CorrectSide or NowMoreTopic.CorrectExits;
 
     /// <summary>Raised on every layout change, for the host's own dependent properties.</summary>
     public event EventHandler? LayoutChanged;

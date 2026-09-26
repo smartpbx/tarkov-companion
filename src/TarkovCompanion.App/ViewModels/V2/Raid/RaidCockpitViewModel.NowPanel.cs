@@ -50,6 +50,8 @@ public sealed partial class RaidCockpitViewModel
             Brief = PreRaidBrief, // [#712 0-9] shown in place of the blocks while matching or loading
             MemberColour = name => _map.GroupColorFor(name) is { Length: 9 } argb ? "#" + argb[3..] : null,
             PingMember = _groupSession is null ? null : PingSquadmateAsync,
+            WaypointMember = _groupSession is null ? null : WaypointSquadmateAsync, // [#712 0-5]
+            LeaveMargin = LeaveMarginChoice.Value, // [#712 0-6]
         };
         NowHost.Panel = panel;
         panel.SetExits(NowExits());
@@ -113,7 +115,7 @@ public sealed partial class RaidCockpitViewModel
             cards.FirstOrDefault(card => card.Id == id)?.Reveal();
         }
 
-        if (topic == NowMoreTopic.Corrections)
+        if (NowPanelHost.IsCorrection(topic))
         {
             Corrections.IsOpen = true;
         }

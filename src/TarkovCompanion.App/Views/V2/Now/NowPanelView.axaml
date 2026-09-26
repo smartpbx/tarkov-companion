@@ -96,6 +96,9 @@
     <Style Selector="Border.now-pulse.now-lit">
       <Setter Property="Opacity" Value="1" />
     </Style>
+    <Style Selector="Border.now-pulse.now-tint.now-lit">
+      <Setter Property="Opacity" Value="0.16" />
+    </Style>
     <Style Selector="Window.v2-motion-reduced Border.now-pulse">
       <Setter Property="Transitions">
         <Transitions />
@@ -108,6 +111,12 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.now-squad-row:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.now-squad-row:disabled">
+      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Button.now-wrong">
       <Setter Property="Background" Value="Transparent" />
@@ -178,6 +187,9 @@
                        AutomationProperties.AutomationId="v2-now-clock" />
             <TextBlock Classes="now-note" FontSize="{DynamicResource V2.Type.Heading3.Size}" LineHeight="{DynamicResource V2.Type.Heading3.LineHeight}" FontWeight="SemiBold" IsVisible="{Binding State.IsLate}"
                        Text="{Binding State.NowNote}" AutomationProperties.AutomationId="v2-now-leave" />
+            <!-- [#712 0-6] The leave time is a model, so its label is on screen with it (the glance ratchet). -->
+            <TextBlock Classes="now-small" Text="{Binding State.LeaveEstimate}" IsVisible="{Binding State.HasLeaveEstimate}"
+                       AutomationProperties.AutomationId="v2-now-leave-estimate" />
             <!-- [#712 0-7] The leave line names an exit; while YOU's exit line is hidden, its "not seen" goes here. -->
             <TextBlock Classes="now-small" Text="{Binding State.YouExitNote}" IsVisible="{Binding ShowsLeaveExitNote}" />
             <TextBlock Classes="now-small" IsVisible="{Binding State.HasNowDetail}" Text="{Binding State.NowDetail}" />
@@ -221,11 +233,19 @@
                 <TextBlock Classes="now-small" Text="{Binding State.YouExitNote}" IsVisible="{Binding State.HasYouExitNote}" />
               </StackPanel>
             </Grid>
-            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0" IsVisible="{Binding ShowsWrong}">
-              <Button Classes="now-wrong" Content="{x:Static l:NowText.Wrong}" Command="{Binding WrongCommand}"
-                      AutomationProperties.AutomationId="v2-now-wrong" />
-              <TextBlock Classes="now-small" VerticalAlignment="Center" Text="{x:Static l:NowText.WrongDetail}" IsVisible="{Binding ShowsHints}" />
-            </StackPanel>
+            <!-- [#712 0-6] "wrong?" chips on the facts that have a correction: side and the offered
+                 exits each open Corrections at their own row. Floor has no correction yet: no chip. -->
+            <WrapPanel ItemSpacing="8" LineSpacing="6" Margin="0,8,0,0" IsVisible="{Binding ShowsWrong}">
+              <TextBlock Classes="now-small" VerticalAlignment="Center" Text="{x:Static l:NowText.Wrong}" />
+              <Button Classes="now-wrong" Content="{Binding State.YouSide}" Command="{Binding WrongSideCommand}"
+                      ToolTip.Tip="{x:Static l:NowText.WrongSideTip}"
+                      AutomationProperties.Name="{x:Static l:NowText.WrongSideTip}"
+                      AutomationProperties.AutomationId="v2-now-wrong-side" />
+              <Button Classes="now-wrong" Content="{x:Static l:NowText.WrongExits}" Command="{Binding WrongExitsCommand}"
+                      ToolTip.Tip="{x:Static l:NowText.WrongExitsTip}"
+                      AutomationProperties.Name="{x:Static l:NowText.WrongExitsTip}"
+                      AutomationProperties.AutomationId="v2-now-wrong-exits" />
+            </WrapPanel>
           </StackPanel>
         </Border>
 
@@ -286,7 +306,17 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="now:NowSquadRowViewModel">
+                  <!-- [#712 0-5] The row is the button: a tap pings that squadmate's last shared spot,
+                       a hold or a right-click places a squad waypoint there (NowPanelView.axaml.cs). -->
+                  <Button Classes="now-link now-squad-row" IsEnabled="{Binding CanPing}" Margin="-12,0,0,0" Padding="12,0,0,0"
+                          InputElement.IsHoldWithMouseEnabled="True" Click="SquadRowClick" Holding="SquadRowHolding"
+                          ContextRequested="SquadRowContextRequested"
+                          ToolTip.Tip="{Binding PingTip}" AutomationProperties.Name="{Binding PingTip}"
+                          AutomationProperties.AutomationId="v2-now-squad-ping">
                   <Panel>
+                    <!-- Inside the row's own bounds: the row is a button now, and a button clips what spills out. -->
+                    <Border Classes="now-pulse now-tint" Classes.now-lit="{Binding IsPulsing}" CornerRadius="6"
+                            Margin="-12,-3,0,-3" Background="{Binding Colour}" />
                     <Border Classes="now-pulse" Classes.now-lit="{Binding IsPulsing}" Width="3" CornerRadius="2"
                             HorizontalAlignment="Left" Margin="-12,0,0,0" Background="{Binding Colour}" />
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" MinHeight="30">
@@ -299,13 +329,11 @@
                       </TextBlock>
                       <TextBlock Grid.Column="2" Classes="now-note" VerticalAlignment="Center" Foreground="{DynamicResource V2.Brush.TextSecondary}"
                                  Text="{Binding Age}" />
-                      <Button Grid.Column="3" Classes="now-ping" VerticalAlignment="Center" IsVisible="{Binding CanPing}"
-                              Command="{Binding PingCommand}" ToolTip.Tip="{Binding PingTip}"
-                              AutomationProperties.Name="{Binding PingTip}" AutomationProperties.AutomationId="v2-now-squad-ping">
-                        <Path Classes="v2-icon v2-icon-sm v2-icon-action" Data="{DynamicResource V2.Icon.Ping}" />
-                      </Button>
+                      <Path Grid.Column="3" Classes="v2-icon v2-icon-sm v2-icon-action" VerticalAlignment="Center"
+                            IsVisible="{Binding CanPing}" Data="{DynamicResource V2.Icon.Ping}" />
                     </Grid>
                   </Panel>
+                  </Button>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>

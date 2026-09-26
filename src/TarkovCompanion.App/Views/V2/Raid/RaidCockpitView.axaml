@@ -24,6 +24,21 @@
   </UserControl.Resources>
   <UserControl.Styles>
     <!-- A context-panel section: a card with the concept's cyan leading edge. -->
+    <!-- [#712 0-5] The squad ping edge: dark until lit, then fades back out. -->
+    <Style Selector="Border.v2-raid-edge">
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Transitions">
+        <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.4" /></Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.v2-raid-edge.lit">
+      <Setter Property="Opacity" Value="0.9" />
+    </Style>
+    <Style Selector="Window.v2-motion-reduced Border.v2-raid-edge">
+      <Setter Property="Transitions">
+        <Transitions />
+      </Setter>
+    </Style>
     <Style Selector="Border.v2-raid-section">
       <Setter Property="BorderThickness" Value="3,1,1,1" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Divider}" />
@@ -284,6 +299,14 @@
                                        ModeClicked="RendererModeClicked" />
             </prim:StagedHost>
           </ContentControl>
+          <!-- [#712 0-5] A squadmate's new ping lights the map edge toward it for two seconds, in their colour. -->
+          <Panel DataContext="{Binding SquadEdge}" x:DataType="vm:SquadEdgePulseViewModel" IsHitTestVisible="False"
+                 AutomationProperties.AutomationId="v2-raid-squad-edge">
+            <Border Classes="v2-raid-edge" Classes.lit="{Binding IsTop}" VerticalAlignment="Top" Height="8" Background="{Binding Colour}" />
+            <Border Classes="v2-raid-edge" Classes.lit="{Binding IsRight}" HorizontalAlignment="Right" Width="8" Background="{Binding Colour}" />
+            <Border Classes="v2-raid-edge" Classes.lit="{Binding IsBottom}" VerticalAlignment="Bottom" Height="8" Background="{Binding Colour}" />
+            <Border Classes="v2-raid-edge" Classes.lit="{Binding IsLeft}" HorizontalAlignment="Left" Width="8" Background="{Binding Colour}" />
+          </Panel>
           <!-- The only thing on the page when there is no map: the renderer, and its own
                background-status line with it, is collapsed above. Named for automation so the
                reason reaches a screen reader rather than being a card with text in it. -->
@@ -1312,6 +1335,19 @@
                            Classes.v2-raid-side-unknown="{Binding IsExtractSideUnknown}"
                            AutomationProperties.AutomationId="v2-raid-extract-side"
                            IsVisible="{Binding HasMapExtracts}" TextWrapping="Wrap" />
+                <!-- [#712 0-6] The spare minutes the Now panel's late-raid line adds to the walk: set once. -->
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6" ToolTip.Tip="{x:Static l:NowText.MarginTip}"
+                      AutomationProperties.AutomationId="v2-raid-leave-margin">
+                  <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:NowText.MarginLabel}" />
+                  <Button Grid.Column="1" Classes="v2-target v2-raid-follow-step" Content="−" Command="{Binding LessLeaveMarginCommand}"
+                          AutomationProperties.Name="{x:Static l:NowText.MarginLess}"
+                          AutomationProperties.AutomationId="v2-raid-leave-margin-less" />
+                  <TextBlock Grid.Column="2" Classes="v2-body" VerticalAlignment="Center" MinWidth="44" TextAlignment="Center"
+                             Text="{Binding LeaveMarginLabel}" />
+                  <Button Grid.Column="3" Classes="v2-target v2-raid-follow-step" Content="+" Command="{Binding MoreLeaveMarginCommand}"
+                          AutomationProperties.Name="{x:Static l:NowText.MarginMore}"
+                          AutomationProperties.AutomationId="v2-raid-leave-margin-more" />
+                </Grid>
                 <!-- While a raid is running, the legacy extract matcher's own offered list (with its
                      confidence) comes first. -->
                 <ItemsControl ItemsSource="{Binding Extracts}" IsVisible="{Binding HasExtracts}">

@@ -77,6 +77,19 @@ internal static class NowPanelDemo
             pump(20);
         }
 
+        // [#712 0-5] --now-squad-ping: a squadmate's ping arrives through the runtime store, the
+        // way the relay's snapshot lands, so the row flash and the map edge come from the real path.
+        if (args.Contains("--now-squad-ping") &&
+            store.Current.Group.Members.FirstOrDefault(member => member.Position is not null && member.MapId is not null) is { } member)
+        {
+            var at = member.Position!.Value;
+            var ping = new TarkovCompanion.Application.Services.Group.GroupPingView(
+                990_001, member.Name, member.MapId!, at.X + 15, at.Y, at.Z - 15, null, DateTimeOffset.UtcNow);
+            store.Update(snapshot => snapshot with { Group = snapshot.Group with { Pings = [.. snapshot.Group.Pings, ping] } });
+            pump(20);
+            Console.WriteLine($"Squad ping from {member.Name}: edge={(shell?.RaidCockpit as RaidCockpitViewModel)?.SquadEdge.Edge}");
+        }
+
         if (shell?.RaidCockpit is RaidCockpitViewModel shown)
         {
             Console.WriteLine($"Now panel: shown={shown.NowHost.ShowsNowPanel} phase={shown.NowHost.Panel?.Situation.Phase.Value} " +

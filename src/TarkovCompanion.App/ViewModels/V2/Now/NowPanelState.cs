@@ -73,7 +73,7 @@ public sealed record NowPanelState
     /// <summary>The run-through rule: under this much raid time a survival counts as a run-through.</summary>
     public static readonly TimeSpan RunThrough = TimeSpan.FromMinutes(7);
 
-    /// <summary>Spare time on top of the walk. #712 0-6 makes it a setting ("the margin is set once").</summary>
+    /// <summary>Spare time on top of the walk by default; #712 0-6 makes it a setting (LeaveMarginSetting).</summary>
     public static readonly TimeSpan LeaveMargin = TimeSpan.FromMinutes(2);
 
     /// <summary>A screenshot older than this dims YOU: where you were, not where you are.</summary>
@@ -105,6 +105,14 @@ public sealed record NowPanelState
     public string NowNote { get; init; } = string.Empty;
 
     public bool HasNowNote => NowNote.Length > 0;
+
+    /// <summary>[#712 0-6] The leave line is a model (walk pace, last screenshot): its label, shown with it.</summary>
+    public bool HasLeaveEstimate => IsLate && HasNowNote;
+
+    public string LeaveEstimate => HasLeaveEstimate ? NowText.LeaveEstimate : string.Empty;
+
+    /// <summary>[#712 0-6] YOU's side "wrong?" chip: the side the raid is being read as.</summary>
+    public string YouSide { get; init; } = string.Empty;
 
     /// <summary>The run-through time has passed: the note carries a check.</summary>
     public bool NowNoteIsDone { get; init; }
@@ -212,7 +220,8 @@ public sealed record NowPanelState
         Situation situation,
         DateTimeOffset nowUtc,
         IReadOnlyList<NowExit>? exits = null,
-        NowLootVerdict? verdict = null)
+        NowLootVerdict? verdict = null,
+        TimeSpan? leaveMargin = null)
     {
         ArgumentNullException.ThrowIfNull(situation);
         var phase = situation.Phase.Value;
@@ -245,9 +254,10 @@ public sealed record NowPanelState
             ShowsNext = !focus && phase is SituationPhase.InRaid or SituationPhase.Matching or SituationPhase.Loading,
             ShowsScan = true,
             IsVerdictFocus = focus,
+            YouSide = NowText.WrongSide(situation.Side?.Value ?? SituationSide.Unknown),
         };
         state = state with { SquadLine = JoinSquad(state.Squad) };
-        state = WithNow(state, situation, nowUtc, exit);
+        state = WithNow(state, situation, nowUtc, exit, leaveMargin ?? LeaveMargin);
         state = WithYou(state, situation.You, nowUtc, exit);
         state = WithNext(state, situation.Next, situation.Then);
         return WithScan(state, situation.LastScan, shownVerdict, raidStart, nowUtc);
@@ -275,7 +285,7 @@ public sealed record NowPanelState
             : string.Create(CultureInfo.InvariantCulture, $"{(int)value.TotalMinutes}:{value.Seconds:00}");
     }
 
-    private static NowPanelState WithNow(NowPanelState state, Situation situation, DateTimeOffset nowUtc, NowExit? exit)
+    private static NowPanelState WithNow(NowPanelState state, Situation situation, DateTimeOffset nowUtc, NowExit? exit, TimeSpan margin)
     {
         var phase = situation.Phase.Value;
         if (phase != SituationPhase.InRaid)
@@ -328,10 +338,10 @@ public sealed record NowPanelState
             if (exit?.Metres is { } metres)
             {
                 var walk = Walk(metres);
-                var leaveBy = nowUtc + timeLeft - TimeSpan.FromMinutes(walk) - LeaveMargin;
+                var leaveBy = LeaveBy(nowUtc, timeLeft, walk, margin);
                 return leaveBy <= nowUtc
                     ? state with { Tone = NowTone.Urgent, NowNote = NowText.LeaveNow(exit.Name, walk) }
-                    : state with { NowNote = NowText.LeaveBy(exit.Name, LocalTime.ShortTime(leaveBy), walk, (int)LeaveMargin.TotalMinutes) };
+                    : state with { NowNote = NowText.LeaveBy(exit.Name, LocalTime.ShortTime(leaveBy), walk, (int)margin.TotalMinutes) };
             }
 
             return state;
@@ -514,6 +524,13 @@ public sealed record NowPanelState
         ScanContext.ExtractList => NowText.ScanExtractList,
         _ => NowText.ScreenOther,
     };
+
+    /// <summary>
+    /// [#712 0-6] When to set off: the raid's end, less the walk and the margin. A model, not a
+    /// reading: the walk is the careful pace over the straight line from the last screenshot.
+    /// </summary>
+    internal static DateTimeOffset LeaveBy(DateTimeOffset nowUtc, TimeSpan timeLeft, int walkMinutes, TimeSpan margin) =>
+        nowUtc + timeLeft - TimeSpan.FromMinutes(walkMinutes) - (margin < TimeSpan.Zero ? TimeSpan.Zero : margin);
 
     /// <summary>Minutes on foot at the careful pace, the suggested routes' own allowance for obstacles.</summary>
     internal static int Walk(double metres) =>
