@@ -21,6 +21,7 @@ using TarkovCompanion.App.Views;
 using TarkovCompanion.App.Views.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Recommendations;
+using TarkovCompanion.Core.Domain.Personalization;
 
 namespace TarkovCompanion.App;
 
@@ -231,11 +232,30 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             services.GetRequiredService<PopupNotificationHost>()
                 .Attach(new WindowNotificationManager(window) { Position = NotificationPosition.BottomRight, MaxItems = 3 });
 
-            // The window closing is the application going quiet, not the application stopping:
-            // a companion that has to be relaunched to tell you anything cannot tell you anything.
-            // Only for an ordinary player launch with a tray — verification and --page launches
-            // still need CloseMainWindow to end the process (see CloseToTrayDecision).
-            _closesToTray = CloseToTrayDecision.ShouldCloseToTray(_tray.IsAvailable, options);
+            // Close-to-tray defaults on but is a player choice under Appearance & Window (#917).
+            // The launch decision remains the hard outer gate: a saved preference may never make
+            // verification, a gallery, or another tool launch survive CloseMainWindow.
+            var launchAllowsCloseToTray = CloseToTrayDecision.ShouldCloseToTray(_tray.IsAvailable, options);
+            void ApplyCloseToTray(WorkspacePreferences preferences)
+            {
+                _closesToTray = launchAllowsCloseToTray && preferences.CloseToTray;
+                desktop.ShutdownMode = _closesToTray
+                    ? ShutdownMode.OnExplicitShutdown
+                    : ShutdownMode.OnLastWindowClose;
+            }
+
+            ApplyCloseToTray(_preferences?.Current ?? WorkspacePreferences.Default);
+            if (_preferences is { } preferences)
+            {
+                preferences.Changed += (_, current) => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_stopping.IsCancellationRequested)
+                    {
+                        ApplyCloseToTray(current);
+                    }
+                });
+            }
+
             window.Closing += (_, args) =>
             {
                 // Already hidden under OnExplicitShutdown: let a second close (or Quit) finish.
@@ -255,13 +275,6 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // [#453] Stamped so an ordinary exit can be timed from the log: from here to "Desktop
             // lifetime returned" is the interface letting go, and "Teardown finished" the rest.
             window.Closed += (_, _) => CrashLog.Write("lifecycle", "Main window closed.");
-
-            if (_closesToTray)
-            {
-                // Otherwise hiding the only window would end the process before the tray icon
-                // had a chance to be pressed.
-                desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            }
 
             _notifications = services.GetRequiredService<NotificationBridge>();
             _notifications.Raised += (_, _) => _tray?.Update(services

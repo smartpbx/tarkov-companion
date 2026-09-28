@@ -4,6 +4,7 @@ using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.Application.Services.Workspaces;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
 
@@ -110,6 +111,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
     };
 
     private readonly Action<V2RouteId> _navigate;
+    private IWorkspaceLayoutStore? _layout;
     private V2SetupSection _selected = V2SetupSection.Overview;
 
     public V2SetupWorkspaceViewModel(
@@ -190,6 +192,34 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
     public SetupNotificationsViewModel? Notifications { get; private set; }
 
     public bool HasNotifications => Notifications is not null;
+
+    /// <summary>
+    /// Remembers the last Setup section in the shared layout store (#917). Attached after the
+    /// shell constructs this adapter so lightweight Setup tests need no persistence service.
+    /// </summary>
+    public void AttachLayout(IWorkspaceLayoutStore layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        if (ReferenceEquals(_layout, layout))
+        {
+            return;
+        }
+
+        _layout = layout;
+        RestoreLastSection();
+        WorkspaceLayoutReplaced.Reread(layout, RestoreLastSection);
+    }
+
+    private void RestoreLastSection()
+    {
+        var stored = _layout?.Get(WorkspaceLayoutKeys.SetupLastSection);
+        var section = Enum.TryParse<V2SetupSection>(stored, ignoreCase: false, out var parsed)
+            && Enum.IsDefined(parsed)
+            && Sections.Any(tab => tab.Section == parsed)
+                ? parsed
+                : V2SetupSection.Overview;
+        Selected = section;
+    }
 
     /// <summary>Screenshot onboarding in Progress, or null in a shell without runtime services.</summary>
     public QuestScreenshotSyncViewModel? QuestSync { get; private set; }
@@ -462,16 +492,6 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
 
     public string LogLabel => SetupText.DiagnosticsLogLabel;
     public string RelayNote => SetupText.DiagnosticsRelayNote;
-    public string ExchangeTitle => SetupText.ProgressExchangeTitle;
-    public string ExchangeNote => SetupText.ProgressExchangeNote;
-    public string ExchangePathPlaceholder => SetupText.ProgressExchangePath;
-    public string ExportLabel => SetupText.ProgressExport;
-    public string PreviewImportLabel => SetupText.ProgressPreview;
-    public string KeepLocalLabel => SetupText.ProgressKeepLocal;
-    public string UseIncomingLabel => SetupText.ProgressUseIncoming;
-    public string ApplyImportLabel => SetupText.ProgressApply;
-    public string UndoImportLabel => SetupText.ProgressUndo;
-    public string ImportHistoryTitle => SetupText.ProgressHistoryTitle;
     public string TrackerTitle => SetupText.ProgressTrackerTitle;
     public string TrackerNote => SetupText.ProgressTrackerNote;
     public string TrackerTokenPlaceholder => SetupText.ProgressTrackerToken;
@@ -534,6 +554,9 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
                 case V2SetupSection.AppearanceWindow:
                     Admin?.Displays.RefreshCommand.Execute(null);
                     break;
+                case V2SetupSection.ProfileProgress:
+                    Shell?.PlanWorkspace?.LoadAsync().Observe("setup", "load profile progress");
+                    break;
                 case V2SetupSection.About:
                     Admin?.About.Refresh();
                     break;
@@ -560,6 +583,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
     public void Select(V2SetupSection section)
     {
         Selected = section;
+        _layout?.Set(WorkspaceLayoutKeys.SetupLastSection, section.ToString());
         if (section == V2SetupSection.DataNetwork)
         {
             if (QuestCoverage is { } coverage)

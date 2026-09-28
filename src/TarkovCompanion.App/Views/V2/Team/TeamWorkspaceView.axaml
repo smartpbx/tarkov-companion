@@ -6,6 +6,7 @@
              xmlns:l="using:TarkovCompanion.App.Localization"
              xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet"
+             xmlns:setupVm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
              xmlns:team="using:TarkovCompanion.App.Views.V2.Team">
   <UserControl.Resources>
@@ -781,6 +782,36 @@
                             AutomationProperties.AutomationId="v2-team-send-to-tablet"
                             IsEnabled="{Binding Pairing.CanSendMapToTablet}"
                             Command="{Binding Pairing.SendMapToTabletCommand}" />
+                  </Grid>
+                </Border>
+
+                <!-- #917: this flag changes the cards sent to paired tablets, so Devices is its
+                     one editable home. Diagnostics no longer carries a second switch. -->
+                <Border Classes="v2-team-row" IsVisible="{Binding HasTabletReviewCards}"
+                        AutomationProperties.AutomationId="v2-team-tablet-review-cards">
+                  <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12"
+                        DataContext="{Binding TabletReviewCards}"
+                        x:DataType="setupVm:SetupFeatureFlagRowViewModel">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
+                      <TextBlock Classes="v2-label" Text="{Binding Description}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding DetailLine}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                      <TextBlock Classes="v2-label" HorizontalAlignment="Right" Text="{Binding SourceLabel}" />
+                      <TextBlock Classes="v2-label v2-team-warning-text" HorizontalAlignment="Right"
+                                 IsVisible="{Binding WaitsForRestart}" Text="{Binding RestartNote}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Classes="v2-team-plain" VerticalAlignment="Center"
+                            IsVisible="{Binding IsOverridden}"
+                            AutomationProperties.AutomationId="{Binding ResetAutomationId}"
+                            Content="{x:Static l:SetupText.FlagsReset}" Command="{Binding ResetCommand}" />
+                    <ToggleSwitch Grid.Column="3" Classes="v2-team-switch" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsOn, Mode=OneWay}"
+                                  OnContent="{x:Static l:SetupText.FlagsOn}" OffContent="{x:Static l:SetupText.FlagsOff}"
+                                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                                  AutomationProperties.Name="{Binding Title}"
+                                  Command="{Binding ToggleCommand}" />
                   </Grid>
                 </Border>
 

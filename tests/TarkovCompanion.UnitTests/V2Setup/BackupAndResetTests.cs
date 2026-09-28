@@ -163,8 +163,8 @@ public sealed class BackupAndResetTests : IDisposable
         await ((AsyncDelegateCommand)app.Admin.ResetSectionCommand).ExecuteAsync();
         await ((AsyncDelegateCommand)app.Admin.ConfirmCommand).ExecuteAsync();
 
-        // Updates & Diagnostics holds the flags.
-        Assert.All(app.Flags.States, state => Assert.Equal(FeatureFlagSource.RingDefault, state.Source));
+        // #917: flags now live on Raid and Team, so Diagnostics cannot reset them as a group.
+        Assert.Contains(app.Flags.States, state => state.Source == FeatureFlagSource.Override);
         // Not the rest: Loot scan moved to Game & Capture with the screenshots it reads (#902 P6).
         Assert.NotNull(app.Layout.Get(WorkspaceLayoutKeys.LootOnTabletOnly));
         Assert.Equal("on", app.Layout.Get(WorkspaceLayoutKeys.PlanLearnMode));
@@ -287,7 +287,7 @@ public sealed class BackupAndResetTests : IDisposable
         Assert.True(admin.ShowsBackup);
         Assert.True(admin.IsVisible);
 
-        foreach (var section in new[] { V2SetupSection.GameCapture, V2SetupSection.ProfileProgress, V2SetupSection.Notifications, V2SetupSection.AppearanceWindow, V2SetupSection.DataNetwork, V2SetupSection.UpdatesDiagnostics })
+        foreach (var section in new[] { V2SetupSection.GameCapture, V2SetupSection.ProfileProgress, V2SetupSection.Notifications, V2SetupSection.AppearanceWindow, V2SetupSection.DataNetwork })
         {
             admin.SetCurrentSection(section);
             Assert.True(admin.CanResetSection, section.ToString());
@@ -296,6 +296,9 @@ public sealed class BackupAndResetTests : IDisposable
 
         admin.SetCurrentSection(V2SetupSection.Overview);
         Assert.False(admin.IsVisible);
+
+        admin.SetCurrentSection(V2SetupSection.UpdatesDiagnostics);
+        Assert.False(admin.CanResetSection);
     }
 
     /// <summary>
@@ -323,7 +326,7 @@ public sealed class BackupAndResetTests : IDisposable
 
         // Each section with a switch of its own resets something; the other two have none to reset.
         Assert.Equal(
-            [V2SetupSection.GameCapture, V2SetupSection.ProfileProgress, V2SetupSection.Notifications, V2SetupSection.AppearanceWindow, V2SetupSection.DataNetwork, V2SetupSection.UpdatesDiagnostics],
+            [V2SetupSection.GameCapture, V2SetupSection.ProfileProgress, V2SetupSection.Notifications, V2SetupSection.AppearanceWindow, V2SetupSection.DataNetwork],
             tabs.Where(SettingsRegistry.HasSettings).Order());
     }
 

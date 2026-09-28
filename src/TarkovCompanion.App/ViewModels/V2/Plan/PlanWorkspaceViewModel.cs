@@ -786,6 +786,7 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         ExportCommand = new AsyncDelegateCommand(() => ExportAsync(CancellationToken.None));
         OpenHideoutCommand = new DelegateCommand(() => OpenHideoutRequested?.Invoke(this, EventArgs.Empty));
+        OpenProfileProgressCommand = new DelegateCommand(() => OpenProfileProgressRequested?.Invoke(this, EventArgs.Empty));
         // The map catalog usually finishes loading after the first quest board read; the groups
         // are named from it, so rebuild them when it arrives rather than showing catalog ids.
         _map.PropertyChanged += (_, e) =>
@@ -810,6 +811,9 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
     /// <summary>Raised when the Hideout card asks the shell for the Plan route's Hideout tab.</summary>
     public event EventHandler<EventArgs>? OpenHideoutRequested;
+
+    /// <summary>[#917] Raised when Plan's level link asks for its one home in Setup.</summary>
+    public event EventHandler<EventArgs>? OpenProfileProgressRequested;
 
     public IReadOnlyList<PlanMapGroupViewModel> Groups
     {
@@ -1192,6 +1196,9 @@ public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 
     /// <summary>Copies the plan as text, and writes it beside the other exports.</summary>
     public AsyncDelegateCommand ExportCommand { get; }
+
+    /// <summary>Opens Setup › Profile &amp; Progress, where level and loyalty are edited.</summary>
+    public ICommand OpenProfileProgressCommand { get; }
 
     /// <summary>
     /// Where a copied plan goes. The view supplies it; without one, Export still writes its file.

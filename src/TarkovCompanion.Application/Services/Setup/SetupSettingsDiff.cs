@@ -9,6 +9,7 @@ public enum SetupSettingsField
     Spacing,
     ReducedMotion,
     FocusIndicator,
+    CloseToTray,
     SquadmateMarks,
     DebriefReady,
     DataRefreshFailed,
@@ -128,6 +129,7 @@ public static class SetupSettingsDiff
         Add(SetupSettingsField.Spacing, current.Appearance.Density, incoming.Appearance.Density);
         Add(SetupSettingsField.ReducedMotion, current.Appearance.ReduceMotion, incoming.Appearance.ReduceMotion);
         Add(SetupSettingsField.FocusIndicator, current.Appearance.FocusAlwaysVisible, incoming.Appearance.FocusAlwaysVisible);
+        Add(SetupSettingsField.CloseToTray, current.Appearance.CloseToTray, incoming.Appearance.CloseToTray);
 
         Add(SetupSettingsField.SquadmateMarks, current.Notifications.SquadMark, incoming.Notifications.SquadMark);
         Add(SetupSettingsField.DebriefReady, current.Notifications.DebriefReady, incoming.Notifications.DebriefReady);

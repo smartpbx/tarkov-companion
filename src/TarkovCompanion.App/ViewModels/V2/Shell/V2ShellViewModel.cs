@@ -26,6 +26,7 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
@@ -215,7 +216,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         SetupFeatureFlagsViewModel? featureFlags = null, // #314: Setup › Diagnostics' feature flags.
         LearnModeSetting? learnMode = null,
         TarkovCompanion.Application.Services.Situations.SituationService? situation = null, // [#712 0-2] ADR 0022
-        TarkovCompanion.App.ViewModels.V2.Ask.AskViewModel? ask = null) // [#712 2-5] the palette's Ask mode
+        TarkovCompanion.App.ViewModels.V2.Ask.AskViewModel? ask = null, // [#712 2-5] the palette's Ask mode
+        IWorkspaceLayoutStore? layout = null) // [#917] Setup's last-open section.
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -247,11 +249,19 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         ReleaseExperience = releaseExperience;
+        if (layout is not null) { SetupWorkspace?.AttachLayout(layout); }
         SetupWorkspace?.AttachPairing(_companionPairing);
         SetupWorkspace?.AttachShell(this); if (learnMode is not null) { SetupWorkspace?.AttachLearnMode(learnMode); } // [#902 P6]
         // [#314] The language picker writes where composition read the language from.
         if (TarkovCompanion.App.Localization.UiCulturePreference.ConfigDirectory is { } configDirectory) { SetupWorkspace?.AttachLanguage(new SetupLanguageViewModel(configDirectory, IsDeveloperMode)); }
-        if (featureFlags is not null) { SetupWorkspace?.AttachFeatureFlags(featureFlags); }
+        if (featureFlags is not null)
+        {
+            SetupWorkspace?.AttachFeatureFlags(featureFlags);
+            if (featureFlags.TabletReviewCards is { } tabletReviewCards)
+            {
+                _team?.AttachTabletReviewCards(tabletReviewCards);
+            }
+        }
         if (situation is not null) { raidCockpit?.AttachSituation(situation); if (IsDeveloperMode) { SetupWorkspace?.AttachSituation(new SituationDiagnosticsViewModel(situation, clock, action => Avalonia.Threading.Dispatcher.UIThread.Post(action))); } } // [#712 0-2]
         if (situation is not null) { WireNowPanel(); } // [#712 0-4]
         if (ask is not null) { AttachAsk(ask); } // [#712 2-5]
@@ -573,6 +583,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             _plan.ShowOnMapRequested += PlanShowOnMapRequested;
             // V2 rough package 17: the Plan page's Hideout card opens the Hideout tab.
             _plan.OpenHideoutRequested += PlanOpenHideoutRequested;
+            _plan.OpenProfileProgressRequested += PlanOpenProfileProgressRequested;
         }
 
         if (RaidCockpitWorkspace is { } raidMap)
@@ -1688,6 +1699,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private void PlanShowOnMapRequested(object? sender, EventArgs e) => GoTo(V2Routes.Raid);
 
     private void PlanOpenHideoutRequested(object? sender, EventArgs e) => GoTo(V2Routes.Hideout);
+
+    private void PlanOpenProfileProgressRequested(object? sender, EventArgs e)
+    {
+        GoTo(V2Routes.Setup);
+        SetupWorkspace?.Select(V2SetupSection.ProfileProgress);
+    }
 
     private void RaidOpenDataPrivacyRequested(object? sender, EventArgs e)
     {
@@ -3627,6 +3644,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             _plan.ShowOnMapRequested -= PlanShowOnMapRequested;
             _plan.OpenHideoutRequested -= PlanOpenHideoutRequested;
+            _plan.OpenProfileProgressRequested -= PlanOpenProfileProgressRequested;
         }
 
         if (RaidCockpitWorkspace is { } raidMap)

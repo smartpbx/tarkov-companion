@@ -21,6 +21,7 @@ public sealed class WorkspacePreferenceTests
         Assert.Equal(InterfaceDensity.Standard, defaults.Density);
         Assert.False(defaults.ReduceMotion);
         Assert.False(defaults.FocusAlwaysVisible);
+        Assert.True(defaults.CloseToTray);
     }
 
     [Theory]
@@ -62,7 +63,8 @@ public sealed class WorkspacePreferenceTests
             175,
             InterfaceDensity.Comfortable,
             ReduceMotion: true,
-            FocusAlwaysVisible: true);
+            FocusAlwaysVisible: true,
+            CloseToTray: false);
 
         await store.SaveAsync(wanted, CancellationToken.None);
         var reopened = new JsonFileWorkspacePreferenceStore(directory.File("preferences.json"));
@@ -83,6 +85,7 @@ public sealed class WorkspacePreferenceTests
         var stored = await new JsonFileWorkspacePreferenceStore(path).GetAsync(CancellationToken.None);
 
         Assert.False(stored.FocusAlwaysVisible);
+        Assert.True(stored.CloseToTray);
     }
 
     [Fact]
@@ -97,7 +100,7 @@ public sealed class WorkspacePreferenceTests
 
         var written = await File.ReadAllTextAsync(path, CancellationToken.None);
         Assert.Contains("\"theme\": \"Light\"", written, StringComparison.Ordinal);
-        Assert.Contains("\"schemaVersion\": 1", written, StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\": 2", written, StringComparison.Ordinal);
     }
 
     [Theory]

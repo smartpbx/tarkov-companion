@@ -46,6 +46,19 @@ public sealed class SetupSettingsExportTests
     }
 
     [Fact]
+    public void Close_to_tray_is_part_of_the_appearance_diff()
+    {
+        var current = SetupSettingsSnapshot.Default;
+        var incoming = current with { Appearance = current.Appearance with { CloseToTray = false } };
+
+        var entry = SetupSettingsDiffRow.From(Assert.Single(SetupSettingsDiff.Compare(current, incoming)));
+
+        Assert.Equal("Close to tray", entry.Field);
+        Assert.Equal("On", entry.CurrentValue);
+        Assert.Equal("Off", entry.NewValue);
+    }
+
+    [Fact]
     public void AnEnumReadsAsWordsNotPascalCase()
     {
         var current = SetupSettingsSnapshot.Default;
@@ -76,7 +89,7 @@ public sealed class SetupSettingsExportTests
     public void ExportRoundTripsThroughValidate()
     {
         var snapshot = new SetupSettingsSnapshot(
-            new WorkspacePreferences(AppearanceTheme.Light, ColorVisionMode.RedGreenSafe, 150, InterfaceDensity.Compact, true, true),
+            new WorkspacePreferences(AppearanceTheme.Light, ColorVisionMode.RedGreenSafe, 150, InterfaceDensity.Compact, true, true, CloseToTray: false),
             new NotificationSettings { SquadMark = false, ShowsDesktopPopup = true },
             new ScreenshotRetentionSettings(true, 48));
 

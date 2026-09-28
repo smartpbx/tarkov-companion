@@ -111,6 +111,18 @@
                       AutomationProperties.AutomationId="v2-setup-appearance-focus"
                       AutomationProperties.Name="{Binding FocusLabel}" />
       </Grid>
+      <!-- #917: close-to-tray is a window behaviour, not an implicit permanent policy. It remains
+           unavailable to gallery/tool launches even when this stored preference is on. -->
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding CloseToTrayLabel}" />
+          <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding CloseToTrayHint}" />
+        </StackPanel>
+        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="" OffContent=""
+                      IsChecked="{Binding CloseToTray, Mode=OneWay}" Command="{Binding CloseToTrayCommand}"
+                      AutomationProperties.AutomationId="v2-setup-close-to-tray"
+                      AutomationProperties.Name="{Binding CloseToTrayLabel}" />
+      </Grid>
     </StackPanel>
 
     <!-- Live preview strip: real, themed controls, so every choice above redraws something here

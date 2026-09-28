@@ -20,6 +20,13 @@ public sealed class SetupFeatureFlagsViewModel : BindableViewModel
     {
         _flags = flags ?? throw new ArgumentNullException(nameof(flags));
         Rows = _flags.States.Select(state => new SetupFeatureFlagRowViewModel(_flags, state.Flag)).ToArray();
+        TabletReviewCards = Rows.FirstOrDefault(row => row.Key == Flag.TabletReviewCards.Key);
+        // Draw and tablet cards now live beside the features they control (#911/#917). The flags
+        // left here are developer/rough-ring experiments whose only player-facing home is still
+        // Diagnostics; showing the first two here as well would make two homes for one setting.
+        DiagnosticRows = Rows
+            .Where(row => row.Key is not "draw-mode" and not "tablet-review-cards")
+            .ToArray();
         Refresh();
         _flags.Changed += (_, _) => Refresh();
     }
@@ -29,6 +36,10 @@ public sealed class SetupFeatureFlagsViewModel : BindableViewModel
     public string RingLine => SetupText.FlagsRingLine(RingName(_flags.Ring));
 
     public IReadOnlyList<SetupFeatureFlagRowViewModel> Rows { get; }
+
+    public IReadOnlyList<SetupFeatureFlagRowViewModel> DiagnosticRows { get; }
+
+    public SetupFeatureFlagRowViewModel? TabletReviewCards { get; }
 
     internal static string RingName(ReleaseRing ring) => ring switch
     {

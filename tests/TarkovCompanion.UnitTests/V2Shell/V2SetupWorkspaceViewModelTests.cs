@@ -1,5 +1,6 @@
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Setup;
+using TarkovCompanion.Application.Services.Workspaces;
 
 namespace TarkovCompanion.UnitTests.V2Shell;
 
@@ -35,6 +36,25 @@ public sealed class V2SetupWorkspaceViewModelTests
         workspace.Select(section);
 
         Assert.Equal(section, Assert.Single(workspace.Sections, tab => tab.IsCurrent).Section);
+    }
+
+    [Fact]
+    public void TheLastSectionSurvivesARecreatedWorkspaceAndResetReturnsToOverview()
+    {
+        var layout = new MemoryLayout();
+        var first = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
+        first.AttachLayout(layout);
+        first.Select(V2SetupSection.ProfileProgress);
+
+        var afterRestart = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
+        afterRestart.AttachLayout(layout);
+
+        Assert.Equal("ProfileProgress", layout.Get(WorkspaceLayoutKeys.SetupLastSection));
+        Assert.True(afterRestart.IsProfileProgressSelected);
+
+        layout.Replace(new Dictionary<string, string>());
+
+        Assert.True(afterRestart.IsOverviewSelected);
     }
 
     [Fact]
@@ -113,9 +133,7 @@ public sealed class V2SetupWorkspaceViewModelTests
         {
             workspace.FolderPlaceholder, workspace.ScanHint, workspace.OfflineNote, workspace.RetentionValueLabel,
             workspace.RecycleNote, workspace.ScaleHint, workspace.ScaleScope, workspace.LogLabel, workspace.RelayNote,
-            workspace.ExchangeTitle, workspace.ExchangeNote, workspace.ExchangePathPlaceholder, workspace.ExportLabel,
-            workspace.PreviewImportLabel, workspace.KeepLocalLabel, workspace.UseIncomingLabel, workspace.ApplyImportLabel,
-            workspace.UndoImportLabel, workspace.ImportHistoryTitle, workspace.TrackerTitle, workspace.TrackerNote,
+            workspace.TrackerTitle, workspace.TrackerNote,
             workspace.TrackerTokenPlaceholder, workspace.TrackerConnectLabel, workspace.TrackerRefreshLabel,
             workspace.TrackerDisconnectLabel,
         };
@@ -139,5 +157,29 @@ public sealed class V2SetupWorkspaceViewModelTests
         Assert.Equal(
             Enum.GetValues<V2SetupSection>().Where(section => offersChecklist || section != V2SetupSection.TestChecklist),
             workspace.Sections.Select(section => section.Section));
+    }
+
+    private sealed class MemoryLayout : IWorkspaceLayoutStore
+    {
+        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+
+        public string? Get(string key) => _values.GetValueOrDefault(key);
+
+        public void Set(string key, string value) => _values[key] = value;
+
+        public IReadOnlyDictionary<string, string> Entries => _values;
+
+        public event EventHandler? Replaced;
+
+        public void Replace(IReadOnlyDictionary<string, string> entries)
+        {
+            _values.Clear();
+            foreach (var entry in entries)
+            {
+                _values[entry.Key] = entry.Value;
+            }
+
+            Replaced?.Invoke(this, EventArgs.Empty);
+        }
     }
 }
