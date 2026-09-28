@@ -2,7 +2,6 @@ using TarkovCompanion.App.Localization;
 using System.Globalization;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
-using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -115,13 +114,11 @@ public sealed class GroupPageViewModel : PageViewModel
     }
 
     /// <summary>
-    /// This player's own level, faction and scav timer, from the same place.
+    /// This player's own level and faction, from the same place.
     /// </summary>
     /// <remarks>
-    /// The same asymmetry as the kit. GroupNotificationParser has read Side, Level and
-    /// SavageLockTime since it was written and every one of them describes somebody else — so
-    /// the Quests level is typed by hand, the profile's faction is never set, and a player's
-    /// own scav cooldown appears nowhere, while four other people's games have all three.
+    /// The same asymmetry as the kit. GroupNotificationParser reads Side and Level for another
+    /// player, while the local player's own notification does not provide them.
     /// </remarks>
     public string MyProfile
     {
@@ -287,16 +284,13 @@ public sealed class GroupPageViewModel : PageViewModel
     /// What the group knows about this player that their own game will not say.
     /// </summary>
     /// <remarks>
-    /// Empty rather than a row of "not known" when nobody has said anything. Three blank fields
+    /// Empty rather than a row of "not known" when nobody has said anything. Two blank fields
     /// is a panel that looks broken; an absent panel is one that has nothing to add yet, which
     /// is the truth until a squadmate is also running this.
-    ///
-    /// A scav timer already in the past is left out rather than shown as a negative wait. The
-    /// answer then is "now", and the player can see that by looking at the game.
     /// </remarks>
     internal static string DescribeMe(GroupSnapshot group)
     {
-        var parts = new List<string>(3);
+        var parts = new List<string>(2);
         if (group.MyLevel is { } level)
         {
             parts.Add(TeamText.Level(level));
@@ -305,11 +299,6 @@ public sealed class GroupPageViewModel : PageViewModel
         if (group.MySide is { Length: > 0 } side)
         {
             parts.Add(side);
-        }
-
-        if (group.MyScavLockedUntil is { } until && until > DateTimeOffset.UtcNow)
-        {
-            parts.Add(TeamText.ScavAvailableAt(LocalTime.ShortTime(until)));
         }
 
         return parts.Count == 0 ? string.Empty : string.Join(" · ", parts);

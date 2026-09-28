@@ -80,10 +80,11 @@ passing CI run is separate automated evidence and proves only what its named pat
   the voluntarily shared room, not detected enemies. Historical/modelled traffic remains allowed
   only when it is sourced, timestamped, covered, confidence-bearing, versioned, and presented as
   non-live.
-- **Separate current conflict:** `GroupSessionService` transmits a pruned subset of party-member
-  log data. That is not live enemy tracking, but it conflicts with the current `docs/SAFETY.md`
-  prohibition on transmitting other players' log-derived data and is OPEN as
-  RISK-RELAY-OBSERVED-DATA-POLICY. This review does not reinterpret that rule away.
+- **Separate consent boundary:** `GroupSessionService` transmits current party-visible kit,
+  level and side observations only after the player joins a keyed relay room. `docs/SAFETY.md`
+  and ADR 0022 explicitly permit that bounded room exchange. The relay rejects out-of-room
+  names, strips the legacy scav cooldown, retains live state only in memory and expires it with
+  the publisher. This is party coordination, not live enemy tracking.
 - **Reviewed:** strategy/domain contracts, `GroupSessionService.cs`, `GroupContracts.cs`,
   `GroupRooms.cs`, `docs/SAFETY.md`.
 - **Verdict:** **Held for the no-live-enemy boundary in current source; the generic V2 evidence

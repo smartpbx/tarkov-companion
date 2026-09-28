@@ -30,8 +30,8 @@ public static class TeamText
     public static string GroupKey => UiText.Get("Team.GroupKey");
     public static string GroupKeyHint => UiText.Get("Team.GroupKeyHint");
     public static string WhatYouShare => UiText.Get("Team.WhatYouShare");
-    public static string MyLoadoutToggle => UiText.Get("Team.MyLoadoutToggle");
-    public static string ShareMyLoadout => UiText.Get("Team.ShareMyLoadout");
+    public static string PartyKitConsent => UiText.Get("Team.PartyKitConsent");
+    public static string PartyKitReaders => UiText.Get("Team.PartyKitReaders");
     public static string MyQuestProgressToggle => UiText.Get("Team.MyQuestProgressToggle");
     public static string ShareMyQuestProgress => UiText.Get("Team.ShareMyQuestProgress");
     public static string ShareQuestsHint => UiText.Get("Team.ShareQuestsHint");

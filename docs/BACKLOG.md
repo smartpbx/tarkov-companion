@@ -24,9 +24,10 @@ from. Ordered by how much it changes what he sees. Delete an entry when it ships
       the map say which building you are standing in. What is missing is artwork for the inside
       of one, which no feed publishes, so this is the same blocked-on-a-source problem as the
       extract picture above rather than a modelling problem.
-- [ ] **3D view and 3D tracking.** Now
-      [#151](https://github.com/smartpbx/tarkov-companion/issues/151), which carries what Geo
-      actually built and what it would take here.
+- [ ] **3D view and 3D tracking.** The investigation is
+      [#151](https://github.com/smartpbx/tarkov-companion/issues/151); the still-unimplemented
+      renderer/content outcome belongs to
+      [#306](https://github.com/smartpbx/tarkov-companion/issues/306).
 
 ## Scanning
 
@@ -61,6 +62,8 @@ visible.
 - Map labels that overlapped and clipped, the floor following the player's height, the stacked
   floor view, exits drawn per faction, and exit conditions on the card.
 - A public hostname for the relay, and the relay mirroring the game catalog so five clients no
-  longer each pull the same several megabytes from upstream. The schema half of that is
-  [#119](https://github.com/smartpbx/tarkov-companion/issues/119).
+  longer each pull the same several megabytes from upstream. A project-owned replacement schema
+  was explicitly closed as not planned in
+  [#119](https://github.com/smartpbx/tarkov-companion/issues/119); runtime compatibility stays
+  with the upstream shape.
 - The relay's second screen, its operator panel, and problem reports that become issues.

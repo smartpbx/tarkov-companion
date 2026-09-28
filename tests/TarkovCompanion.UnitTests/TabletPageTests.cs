@@ -116,14 +116,11 @@ public sealed class TabletPageTests
     }
 
     [Fact]
-    public void ControlOffersOnlyTheThreeDesktopCaptureIntents()
+    public void ControlDoesNotOfferObsoleteCaptureArming()
     {
-        Assert.Contains("id=\"capturePicker\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("data-intent=\"Loot\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("data-intent=\"Stash\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("data-intent=\"Flea\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("type: \"requestCaptureIntent\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("$(\"capturePicker\").hidden = mode !== \"Control\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("id=\"capturePicker\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("Arm capture", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("type: \"requestCaptureIntent\"", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]

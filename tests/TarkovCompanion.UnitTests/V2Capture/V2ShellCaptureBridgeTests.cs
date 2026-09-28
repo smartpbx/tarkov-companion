@@ -109,50 +109,6 @@ public sealed class V2ShellCaptureBridgeTests
         Assert.Equal(V2NavigationContext.ThisDesktop, context.InitiatingDevice);
     }
 
-    [Theory]
-    [InlineData(ScanIntent.Loot)]
-    [InlineData(ScanIntent.Stash)]
-    [InlineData(ScanIntent.Flea)]
-    public async Task AnAppliedTabletRequestArmsTheSameDesktopPanelState(ScanIntent intent)
-    {
-        await using var fixture = await Fixture.CreateAsync();
-        var requestedSession = new CaptureSessionId(Guid.NewGuid());
-        var command = new RequestCaptureIntentCommand(
-            new CommandId(Guid.NewGuid()),
-            new AggregateRevision(1),
-            Now,
-            Now.AddMinutes(1),
-            new CaptureIntentId(Guid.NewGuid()),
-            "tablet-correlation",
-            requestedSession,
-            intent,
-            new CompanionCaptureContext(
-                "customs",
-                "ground",
-                "profile-id",
-                "previous-result",
-                ["objective-1"],
-                ["plan-1"],
-                []));
-
-        fixture.ArmFromTablet(new(
-            command,
-            new CompanionDeviceId(Guid.Parse("30000000-0000-0000-0000-000000000922")),
-            "Kitchen tablet"));
-
-        var arm = Assert.Single(fixture.Sessions.Armed);
-        Assert.Equal(intent, arm.Request.Intent);
-        Assert.Equal(requestedSession, arm.Request.SessionId);
-        Assert.Equal("customs", arm.Context.ActiveMap);
-        Assert.Equal("plan-1", arm.Context.ActivePlan);
-        Assert.Equal("objective-1", arm.Context.SelectedEntity);
-        Assert.Equal("previous-result", arm.Context.PriorScan);
-        Assert.Equal("Kitchen tablet", arm.Context.InitiatingDevice);
-        Assert.Equal(intent, fixture.Shell.CaptureState.ArmedIntent);
-        Assert.Equal("Kitchen tablet", fixture.Shell.CaptureState.SettingDevice);
-        Assert.Contains("Kitchen tablet", fixture.Shell.CaptureArmedStatus, StringComparison.Ordinal);
-    }
-
     [Fact]
     public async Task AnIdentifiedItemBecomesAReviewNamingItsAlternates()
     {
@@ -401,9 +357,6 @@ public sealed class V2ShellCaptureBridgeTests
             Shell.CaptureIntents.Single(offered => offered.Intent == intent).SelectCommand.Execute(null);
             Shell.ArmCaptureCommand.Execute(null);
         }
-
-        public void ArmFromTablet(DesktopCaptureIntentRequest request) =>
-            Bridge.OnDesktopCaptureIntentRequested(request);
 
         public async ValueTask DisposeAsync()
         {

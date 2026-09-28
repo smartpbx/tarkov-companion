@@ -10,11 +10,18 @@ namespace TarkovCompanion.Application.Services.Group;
 /// Off by default and off after an upgrade, because turning it on changes what this
 /// application does with the player's data in a way no default should decide for them.
 /// </remarks>
-/// <param name="IsEnabled">Whether anything is sent at all.</param>
+/// <param name="IsEnabled">
+/// Whether this installation has joined the keyed room. Joining consents to publish current
+/// party-visible kit/profile observations as well as this player's own room state.
+/// </param>
 /// <param name="ServerUri">The group's own server. There is no default and no hosted service.</param>
 /// <param name="DisplayName">The name the others see. Whatever the player types.</param>
 /// <param name="Key">The one thing the group agrees between themselves.</param>
-/// <param name="SharesLoadout">Whether the kit they are carrying goes too.</param>
+/// <param name="SharesLoadout">
+/// Legacy settings slot for a future own-loadout source. The current app cannot truthfully read
+/// its own carried kit, does not expose this switch, and always publishes an empty own-loadout.
+/// It does not control party observations: joining the room is the consent for those.
+/// </param>
 /// <param name="SharesQuests">Whether the quests they are working on go too.</param>
 public sealed record GroupSharingSettings(
     bool IsEnabled,
@@ -432,13 +439,13 @@ public sealed record GroupSnapshot(
     public IReadOnlyList<string> MyLoadout { get; init; } = [];
 
     /// <summary>
-    /// This player's own level, faction and scav timer, as their squadmates' games saw them.
+    /// This player's own level and faction, as their squadmates' games saw them.
     /// </summary>
     /// <remarks>
     /// The same asymmetry as the kit, and the same route back. The Quests level is typed by
-    /// hand because nothing could read it; the profile's faction is never set; and a player's
-    /// own scav cooldown appears nowhere in this application — while every squadmate's game
-    /// has written all three down about them.
+    /// hand because nothing could read it and the profile's faction is never set. Scav cooldown
+    /// is deliberately not relayed: unlike the kit, level and side, it is not ordinary
+    /// party-visible loading-screen information.
     ///
     /// Null until somebody else in the same party is also running this companion, which is the
     /// same condition MyLoadout has always carried.

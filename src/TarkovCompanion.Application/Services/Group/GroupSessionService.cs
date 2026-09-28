@@ -933,10 +933,10 @@ public sealed class GroupSessionService : IAsyncDisposable
             ? await _quests.GetAsync(cancellationToken).ConfigureAwait(false)
             : SharedQuests.None;
         // What this game has said about the others, which is the one thing each of them cannot
-        // read about themselves. Sent whenever sharing is on, because it is the only route any
-        // of them has to their own kit. It is the whole in-game party, strangers from
-        // matchmaking included; the relay drops anybody not in the room only after it arrives.
-        // The loadout switch governs what is said about the sender, not about others.
+        // read about themselves. Joining the keyed room is explicit consent to send this
+        // party-visible kit/profile data. The local read can include matchmaking strangers;
+        // the relay accepts only observations naming members already present in this room and
+        // repeats that pruning on every read.
         var observed = _kits is null
             ? []
             : await _kits.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -1039,9 +1039,9 @@ public sealed class GroupSessionService : IAsyncDisposable
                 {
                     Level = kit.Level,
                     Side = kit.Side,
-                    ScavLockedUntil = kit.ScavLockedUntilUnix is { } unix
-                        ? DateTimeOffset.FromUnixTimeSeconds(unix)
-                        : null,
+                    // Older relays may echo this legacy value. Current clients deliberately
+                    // ignore it because scav cooldown is not party-visible loading-screen data.
+                    ScavLockedUntil = null,
                 })
                 .ToArray())
             .ToArray();
@@ -1192,15 +1192,10 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// <remarks>
     /// Deliberately one method and deliberately explicit. Somebody asking "what does this send
     /// about me" deserves an answer they can read, and the answer is this and nothing else.
-    /// The player's own loadout and quests are each behind their own switch, so agreeing to share
-    /// a position is not agreeing to share a kit.
-    ///
-    /// Observed is behind no switch. What this game logged about the rest of the in-game party
-    /// (kit, level, side, scav timer) goes to the relay whenever sharing is on, whatever the
-    /// people it describes chose. The relay returns every entry naming somebody in the room to
-    /// every holder of the room key, and Fill below shows the observed kit as other members'
-    /// loadouts, so it is not handed only to the person it is about. docs/SAFETY.md does not
-    /// allow that yet; it is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
+    /// Quests remain behind their own switch. Joining the keyed room is the consent for current
+    /// party-visible kit, level and side observations: the relay returns entries naming somebody
+    /// present in the room to every holder of the room key, including a paired second screen.
+    /// Scav cooldown is accepted only for wire compatibility and is never sent here.
     /// </remarks>
     private static MemberStateDto Describe(
         ApplicationRuntimeSnapshot snapshot,
@@ -1223,7 +1218,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             position?.Position.Z,
             position?.HeadingDegrees,
             position is null ? null : Math.Max(0, (now - position.Timestamp.ToUniversalTime()).TotalSeconds),
-            settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
+            // No truthful own-loadout source exists. The group reconstructs it from the
+            // party-visible observations below, so this compatibility slot remains empty.
+            [],
             sharedQuests.Names)
         {
             // The same quests the names above are the head of, by catalog id. Names are for
@@ -1241,7 +1238,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 {
                     Level = kit.Level,
                     Side = kit.Side,
-                    ScavLockedUntilUnix = kit.ScavLockedUntil?.ToUnixTimeSeconds(),
+                    ScavLockedUntilUnix = null,
                 })
                 .ToArray(),
             Trail = hasLeft ? [] : DescribeTrail(snapshot, now),
@@ -1320,22 +1317,6 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// answers nothing quickly.
     /// </remarks>
     private const int MaximumTrailPoints = 10;
-
-    /// <summary>
-    /// What the player is carrying, as far as the companion knows it.
-    /// </summary>
-    /// <remarks>
-    /// The game writes the player's own inventory nowhere the companion can read, which
-    /// docs/research/EFT_LOG_FACTS.md records in full, so there is still nothing honest to
-    /// send. A squadmate running a companion that reads its quick bar out of a screenshot does
-    /// share a kit, which is why one member of a group can show one and another cannot; that
-    /// is the same reading, from the same picture, that #35 is for.
-    ///
-    /// The switch sends an empty list rather than pretending. The Group page says so beside
-    /// it, because a switch that silently does nothing is worse than one that is not there.
-    /// </remarks>
-    private static IReadOnlyList<string> DescribeLoadout(ApplicationRuntimeSnapshot snapshot) => [];
-
 
     /// <summary>
     /// Fills in a member's kit from whoever could see it, when they could not see it themselves.

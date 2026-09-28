@@ -10,6 +10,12 @@
           <StackPanel Spacing="10">
             <TextBlock Classes="label" Text="Your group" />
             <CheckBox Content="Share this session" IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+            <TextBlock Classes="caption"
+                       TextWrapping="Wrap"
+                       Text="Joining shares your room state and party-visible kit, level and side for room members." />
+            <TextBlock Classes="caption"
+                       TextWrapping="Wrap"
+                       Text="Everyone with the key, including paired tablets, can read it until you leave." />
 
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Server address" />
@@ -39,9 +45,8 @@
                        Text="Read off a squadmate's game, not yours · matched on your in-game nickname"
                        TextWrapping="Wrap" />
             <!-- The same asymmetry as the kit, and the same route back. Every squadmate's game
-                 has written this player's level, side and scav timer down; their own game has
-                 not, which is why the Quests level is typed by hand and the scav cooldown
-                 appears nowhere else in the application.
+                 has written this player's level and side down; their own game has not, which
+                 is why the Quests level is typed by hand.
 
                  Absent rather than three rows of "not known": a blank panel looks broken, and
                  an absent one has nothing to add yet — which is the truth until somebody else

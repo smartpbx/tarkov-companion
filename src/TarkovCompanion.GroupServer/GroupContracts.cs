@@ -6,11 +6,11 @@ namespace TarkovCompanion.GroupServer;
 /// One member's own state, as they choose to publish it.
 /// </summary>
 /// <remarks>
-/// Every field here describes the sender except Observed, which carries what the sender's game
-/// logged about the rest of their in-game party. The relay drops entries naming nobody in the
-/// room, then returns the rest to every key holder who reads the room, not only to the person
-/// each entry names. docs/SAFETY.md does not currently allow sending that at all; the conflict
-/// is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
+/// Every field here describes the sender except Observed, which carries party-visible kit,
+/// level and side facts the sender's game logged about the rest of their in-game party. Joining
+/// the keyed room is explicit consent for that exchange. The relay drops entries naming nobody
+/// currently in the room, then returns the rest to every holder of the room key, not only to the
+/// person each entry names.
 ///
 /// This is a deliberate departure from the desktop application's usual promise that nothing
 /// from the game's logs leaves the machine. It is the whole point of the feature, it happens
@@ -263,12 +263,11 @@ public sealed record GroupMemberState(
     /// So nobody can see their own kit and everybody can see everybody else's. Published here,
     /// the group can hand each member back the one thing they cannot read.
     ///
-    /// Only the party the game has already told them about, and only the slots the Squad page
-    /// already shows. This adds no new reading of anybody's data, but it does transmit it: what
-    /// was on one screen crosses the relay, and GroupRooms.Read hands it to every member's
-    /// exchange and to a keyed GET /state, so every holder of the room key can read whatever was
-    /// observed about anybody in the room, not just the person it is about. docs/SAFETY.md
-    /// rule 1 does not yet permit that (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
+    /// Only the party the game has already told them about, and only the slots and profile facts
+    /// a party ordinarily sees while assembling. This adds no new reading of anybody's data, but
+    /// it does transmit it: what was on one screen crosses the relay, and GroupRooms.Read hands
+    /// it to every member's exchange and to a keyed GET /state. Every holder of the room key can
+    /// therefore read observations about anybody present in the room, not just the person named.
     /// </remarks>
     [JsonPropertyName("observed")]
     public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
@@ -492,9 +491,9 @@ public sealed record GroupObservedMember(
     /// <remarks>
     /// The same asymmetry the loadout exploits, and the same exposure: the relay keeps it only
     /// while the nickname it describes is in the room, and then returns it to every holder of
-    /// the room key, not only to the player it describes. A member outside the sender's in-game
-    /// party, or a second screen reading GET /state, receives it too, although their own screen
-    /// never showed it (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
+    /// the room key, not only to the player it describes. That room-wide visibility is part of
+    /// joining the room and is disclosed in the client. A second screen using the room key sees
+    /// it too.
     ///
     /// Init properties so a client that predates them still parses, and so a client that does
     /// not send them is not refused.
@@ -505,10 +504,10 @@ public sealed record GroupObservedMember(
     [JsonPropertyName("side")]
     public string? Side { get; init; }
 
-    /// <summary>When this player's scav is available again, as a Unix second.</summary>
+    /// <summary>Legacy wire slot for when this player's scav is available again.</summary>
     /// <remarks>
-    /// Seconds rather than a formatted time, because the receiver renders it in their own
-    /// locale and a string would have arrived in the sender's.
+    /// Accepted so older clients remain wire-compatible, then cleared by GroupRooms before
+    /// storage or return. A scav cooldown is not ordinary party-visible loading-screen data.
     /// </remarks>
     [JsonPropertyName("scavLockedUntil")]
     public long? ScavLockedUntilUnix { get; init; }

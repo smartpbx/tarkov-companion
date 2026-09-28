@@ -65,6 +65,41 @@ public sealed class AppDataPathsTests
         }
     }
 
+    /// <summary>The headless Linux self-test must never put live state beside the checkout.</summary>
+    /// <remarks>
+    /// Some service processes return an empty LocalApplicationData special folder. The old path
+    /// construction accepted it and made <c>TarkovCompanion</c> relative to the current directory;
+    /// running the documented self-test from the repository therefore dirtied the repository with
+    /// a database, profile and logs. Whatever environment this test host supplies, the resolved
+    /// default is now absolute.
+    /// </remarks>
+    [Fact]
+    public void TheDefaultDataRootIsAbsolute()
+    {
+        Assert.True(Path.IsPathFullyQualified(AppDataPaths.Resolve().Root));
+    }
+
+    [Fact]
+    public void ARelativeXdgDataRootCannotReintroduceAWorkingDirectoryPath()
+    {
+        var selected = AppDataPaths.ChooseLocalApplicationData(
+            local: null,
+            xdg: "relative-data",
+            profile: "/users/player",
+            isWindows: false);
+
+        Assert.Equal("/users/player/.local/share", selected);
+    }
+
+    [Fact]
+    public void NoAbsolutePerUserLocationFailsClearly()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            AppDataPaths.ChooseLocalApplicationData(null, "relative-data", "relative-profile", isWindows: false));
+
+        Assert.Contains("absolute", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// #309: Debug Capture was decided against (docs/adr/0020). The folder it would have used is gone, so
     /// nothing in the data root is set aside for retained pixels, and a later change that adds one has to

@@ -6,18 +6,17 @@ namespace TarkovCompanion.Application.Services.Group;
 public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout)
 {
     /// <summary>
-    /// The three things the game tells everybody about somebody except that somebody.
+    /// Profile facts the game tells everybody about somebody except that somebody.
     /// </summary>
     /// <remarks>
     /// The same asymmetry the kit exploits. GroupNotificationParser.ReadMemberUpdate has read
     /// Side, Level and SavageLockTime since it was written, and every one of them describes
     /// another player — a member's own notifications carry a bare profile id.
     ///
-    /// So the level on the Quests page is typed by hand, the profile's faction is never set,
-    /// and a player's own scav cooldown appears nowhere in the application, while four other
-    /// people's games have all three written down.
-    ///
-    /// Init properties so a client that predates them still parses, exactly like the kit.
+    /// So the level on the Quests page is typed by hand and the profile's faction is never
+    /// set, while four other people's games have both written down. ScavLockedUntil remains in
+    /// the record only to parse older relays; current clients and relays do not publish it
+    /// because a scav cooldown is not party-visible loading-screen information.
     /// </remarks>
     public int? Level { get; init; }
 
@@ -28,8 +27,7 @@ public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout)
     /// <summary>Whether this observation is worth publishing at all.</summary>
     /// <remarks>
     /// A member with no readable gear used to be dropped outright, which would now drop their
-    /// level and scav timer with it. The test is whether anything is known, not whether the
-    /// kit is.
+    /// level and side with it. The test is whether anything is known, not whether the kit is.
     /// </remarks>
     public bool HasAnything => Loadout.Count > 0 || Level is not null || Side is not null || ScavLockedUntil is not null;
 }
@@ -47,10 +45,10 @@ public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout)
 /// group, that asymmetry cancels out: a squadmate running this companion is already reading
 /// your weapon, armour, rig and backpack out of their own logs, and can simply say so.
 ///
-/// This adds no new reading of anybody's data, but it transmits it. What is on one player's
-/// Squad page crosses the relay, which returns it to every holder of the room key rather than
-/// only to the person it is about; GroupSessionService also uses it to fill in other members'
-/// kit. docs/SAFETY.md rule 1 does not yet permit that (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
+/// Joining a keyed relay room is the explicit opt-in for this transmission. What is on one
+/// player's Squad page crosses the relay and may be read by every holder of the room key,
+/// including a paired second screen. The relay keeps only observations naming members currently
+/// in that room, stores them only in memory, and expires them with the publisher.
 /// </remarks>
 public static class GroupKitMirror
 {
@@ -107,11 +105,10 @@ public static class GroupKitMirror
             {
                 Level = member.Level,
                 Side = member.Side,
-                ScavLockedUntil = member.ScavLockedUntil,
             };
 
             // A member with no readable gear was dropped outright, which would now drop their
-            // level and scav timer with it.
+            // level and side with it.
             if (entry.HasAnything)
             {
                 observed.Add(entry);
@@ -165,9 +162,9 @@ public static class GroupKitMirror
     /// entirely.
     ///
     /// The first observation that carries each field wins, taken independently. Two squadmates
-    /// may have seen this player at different moments — one with a level and no scav timer,
-    /// the other the reverse — and taking the first entry whole would discard half of what the
-    /// group actually knows.
+    /// may have seen this player at different moments — one with a level and no kit, the other
+    /// the reverse — and taking the first entry whole would discard half of what the group
+    /// actually knows. The scav field is retained only for old-wire parsing.
     /// </remarks>
     public static ObservedKit? FindAll(
         IEnumerable<IReadOnlyList<ObservedKit>> published,

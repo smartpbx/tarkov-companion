@@ -31,8 +31,13 @@ already legitimately encountered:
 
 Three rules apply whenever this data is read:
 
-1. **Never transmitted.** It is read locally, displayed locally, and never uploaded, bundled,
-   attached to a diagnostic report, or written into an exported file.
+1. **Local unless a keyed group is joined.** It is not uploaded, bundled, attached to a
+   diagnostic report, or written into an exported file. The sole transmission exception is an
+   explicitly enabled group session: joining its keyed room consents to share current
+   party-visible kit, level, and side observations about people who have also joined that room.
+   Every room-key holder, including a paired second screen, may receive those observations. The
+   stock relay keeps them in memory only, drops names not currently in the room, strips scav
+   cooldowns and other non-party-visible fields, and expires them with the publisher.
 2. **Never attributed wrongly.** Another player's record is never displayed or stored as
    though it were the player's own. Where the source cannot distinguish the two, neither is
    shown.
@@ -78,6 +83,9 @@ audio, and the extract-deadline cue is a tone, never a spoken time that could pa
 - Deterministic tests assert that strategy inputs have no live-enemy concept.
 - Captures are never retained by default. The shareable desktop support bundle is a closed projection that excludes tokens, paths, names, coordinates, screenshots/OCR, logs, and free-form details; the relay must independently enforce that schema before the end-to-end report risk can close. Self-test output is local diagnostic data and may contain local paths.
 - No telemetry or screenshot upload SDK is included.
+- Party-observation relay tests prove that an out-of-room nickname is rejected on arrival, a
+  departed nickname is pruned on read, legacy scav-cooldown values are cleared, and live member
+  state is never persisted by the stock relay.
 - The optional TarkovTracker adapter exposes only canonical HTTPS `GET /token`
   and `GET /progress`; redirects, team access, HTTP mutation, uploads, and
   automatic apply are absent. Composition and status checks are offline, and a
