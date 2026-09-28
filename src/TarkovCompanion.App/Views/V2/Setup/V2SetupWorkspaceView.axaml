@@ -49,6 +49,7 @@
       </ItemsControl.ItemTemplate>
     </ItemsControl>
     <ScrollViewer Grid.Row="1" x:Name="SectionScroller" HorizontalScrollBarVisibility="Disabled"
+                  IsVisible="{Binding !IsTestChecklistSelected}"
                   AutomationProperties.AutomationId="v2-setup-scroller">
       <StackPanel Classes="v2-stack" Margin="16,4,16,16">
         <StackPanel Classes="v2-stack" IsVisible="{Binding IsOverviewSelected}">
@@ -661,13 +662,6 @@
           </StackPanel>
         </Border>
 
-        <!-- Dev and rough builds: every feature to try by hand, with results to copy into an issue. -->
-        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsTestChecklistSelected}">
-          <Panel IsVisible="{Binding HasTestChecklist}">
-            <setup:TestChecklistView DataContext="{Binding TestChecklist}" />
-          </Panel>
-        </Border>
-
         <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
           <Panel IsVisible="{Binding HasAdmin}">
             <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
@@ -682,5 +676,12 @@
         </Panel>
       </StackPanel>
     </ScrollViewer>
+    <!-- Dev and rough builds: every feature to try by hand, with results to copy into an issue. It sits
+         outside the scroller and fills the width: its list scrolls on its own beside a fixed rail. -->
+    <Border Grid.Row="1" Classes="v2-card" Margin="16,4,16,16" IsVisible="{Binding IsTestChecklistSelected}">
+      <Panel IsVisible="{Binding HasTestChecklist}">
+        <setup:TestChecklistView DataContext="{Binding TestChecklist}" />
+      </Panel>
+    </Border>
   </Grid>
 </UserControl>

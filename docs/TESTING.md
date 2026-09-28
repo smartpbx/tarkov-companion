@@ -51,7 +51,7 @@ The self-test builds the production composition root with networking forcibly di
 
 ## Hand testing
 
-Dev and rough builds have Setup › Test checklist (flag `test-checklist`): one item per feature, read from `src/TarkovCompanion.App/Assets/TestChecklist/NN-*.json` (schema in `TestChecklistCatalog`), results in `Config/test-checklist-results.json`, copied out as Markdown.
+Dev and rough builds have Setup › Test checklist (flag `test-checklist`): one item per feature, read from `src/TarkovCompanion.App/Assets/TestChecklist/NN-*.json` (schema in `TestChecklistCatalog`), results in `Config/test-checklist-results.json`, copied out as Markdown. Done items fold to one line; the rail beside the list has search, Next untested, the status and needs filters (No game needed, Squad or tablet) and each area's tested/total.
 
 ## Runtime-composition coverage
 

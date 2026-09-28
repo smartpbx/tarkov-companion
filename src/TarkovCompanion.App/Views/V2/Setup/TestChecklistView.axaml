@@ -36,160 +36,260 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <!-- Next untested and an area jump land on an item: it takes the action border until the next one. -->
+    <Style Selector="Border.v2-card.tc-current">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="TextBlock.tc-works">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Button.tc-area">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+    <Style Selector="Button.tc-area:disabled">
+      <Setter Property="Opacity" Value="0.45" />
+    </Style>
+    <Style Selector="TextBlock.tc-complete">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
   </UserControl.Styles>
 
-  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-test-checklist">
-    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-      <StackPanel Spacing="4">
-        <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
-        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ProgressLine}"
-                   AutomationProperties.AutomationId="v2-test-checklist-progress"
-                   AutomationProperties.LiveSetting="Polite" />
-        <TextBlock Classes="v2-label" Text="{Binding Intro}" TextWrapping="Wrap" />
-      </StackPanel>
-      <WrapPanel Grid.Column="1" Classes="v2-toolbar" VerticalAlignment="Top">
-        <Button Classes="v2-target primary" Content="{x:Static l:TestChecklistText.Copy}" Command="{Binding CopyCommand}"
-                AutomationProperties.AutomationId="v2-test-checklist-copy" />
-        <Button Classes="v2-target" Content="{x:Static l:TestChecklistText.Export}" Command="{Binding ExportCommand}"
-                AutomationProperties.AutomationId="v2-test-checklist-export" />
-        <Button Classes="v2-target" Content="{x:Static l:TestChecklistText.Clear}" Command="{Binding ClearCommand}"
-                IsEnabled="{Binding !IsConfirmingClear}"
-                AutomationProperties.AutomationId="v2-test-checklist-clear" />
-      </WrapPanel>
-    </Grid>
-
-    <Border Classes="v2-card" IsVisible="{Binding IsConfirmingClear}" BorderBrush="{DynamicResource V2.Brush.Warning}"
-            AutomationProperties.AutomationId="v2-test-checklist-clear-confirm">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-        <TextBlock Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap" Text="{x:Static l:TestChecklistText.ClearConfirm}" />
-        <WrapPanel Grid.Column="1" Classes="v2-toolbar">
-          <Button Classes="v2-target" Content="{x:Static l:TestChecklistText.ClearNo}" Command="{Binding CancelClearCommand}" />
-          <Button Classes="v2-target primary" Content="{x:Static l:TestChecklistText.ClearYes}" Command="{Binding ConfirmClearCommand}"
-                  AutomationProperties.AutomationId="v2-test-checklist-clear-yes" />
+  <!-- The list scrolls on its own and the rail beside it stays put, so the filters, search and Next
+       untested are always in reach. The page is hosted outside Setup's scroller for that reason. -->
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12" AutomationProperties.AutomationId="v2-test-checklist">
+    <StackPanel Classes="v2-stack">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ProgressLine}"
+                     AutomationProperties.AutomationId="v2-test-checklist-progress"
+                     AutomationProperties.LiveSetting="Polite" />
+          <TextBlock Classes="v2-label" Text="{Binding Intro}" TextWrapping="Wrap" />
+        </StackPanel>
+        <WrapPanel Grid.Column="1" Classes="v2-toolbar" VerticalAlignment="Top">
+          <Button Classes="v2-target primary" Content="{x:Static l:TestChecklistText.Copy}" Command="{Binding CopyCommand}"
+                  AutomationProperties.AutomationId="v2-test-checklist-copy" />
+          <Button Classes="v2-target" Content="{x:Static l:TestChecklistText.Export}" Command="{Binding ExportCommand}"
+                  AutomationProperties.AutomationId="v2-test-checklist-export" />
+          <Button Classes="v2-target" Content="{x:Static l:TestChecklistText.Clear}" Command="{Binding ClearCommand}"
+                  IsEnabled="{Binding !IsConfirmingClear}"
+                  AutomationProperties.AutomationId="v2-test-checklist-clear" />
         </WrapPanel>
       </Grid>
-    </Border>
 
-    <TextBlock Classes="v2-label" IsVisible="{Binding HasActionStatus}" Text="{Binding ActionStatus}"
-               AutomationProperties.LiveSetting="Polite" />
-    <StackPanel Spacing="2" IsVisible="{Binding HasProblems}" AutomationProperties.AutomationId="v2-test-checklist-problems">
-      <TextBlock Classes="v2-body" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}" Text="{Binding ProblemLine}" />
-      <SelectableTextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ProblemDetails}" />
+      <Border Classes="v2-card" IsVisible="{Binding IsConfirmingClear}" BorderBrush="{DynamicResource V2.Brush.Warning}"
+              AutomationProperties.AutomationId="v2-test-checklist-clear-confirm">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <TextBlock Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap" Text="{x:Static l:TestChecklistText.ClearConfirm}" />
+          <WrapPanel Grid.Column="1" Classes="v2-toolbar">
+            <Button Classes="v2-target" Content="{x:Static l:TestChecklistText.ClearNo}" Command="{Binding CancelClearCommand}" />
+            <Button Classes="v2-target primary" Content="{x:Static l:TestChecklistText.ClearYes}" Command="{Binding ConfirmClearCommand}"
+                    AutomationProperties.AutomationId="v2-test-checklist-clear-yes" />
+          </WrapPanel>
+        </Grid>
+      </Border>
+
+      <TextBlock Classes="v2-label" IsVisible="{Binding HasActionStatus}" Text="{Binding ActionStatus}"
+                 AutomationProperties.LiveSetting="Polite" />
+      <StackPanel Spacing="2" IsVisible="{Binding HasProblems}" AutomationProperties.AutomationId="v2-test-checklist-problems">
+        <TextBlock Classes="v2-body" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}" Text="{Binding ProblemLine}" />
+        <SelectableTextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ProblemDetails}" />
+      </StackPanel>
     </StackPanel>
 
-    <ItemsControl ItemsSource="{Binding Filters}"
-                  AutomationProperties.AccessibilityView="Control"
-                  AutomationProperties.Name="{x:Static l:TestChecklistText.Filters}">
-      <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="4" /></ItemsPanelTemplate>
-      </ItemsControl.ItemsPanel>
-      <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="vm:TestChecklistFilterViewModel">
-          <Button Classes="v2-target v2-chip" Classes.v2-selected="{Binding IsCurrent}"
-                  Content="{Binding Label}" Command="{Binding SelectCommand}"
-                  AutomationProperties.AutomationId="{Binding AutomationId}" />
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
+    <TextBlock Grid.Row="1" Classes="v2-body" IsVisible="{Binding ShowsNothing}" Text="{Binding NothingLine}" />
 
-    <TextBlock Classes="v2-body" IsVisible="{Binding ShowsNothing}" Text="{Binding NothingLine}" />
+    <Grid Grid.Row="2" ColumnDefinitions="*,300" ColumnSpacing="16">
+      <!-- One flat run of headings and items, virtualised: with 559 items it realises about four cards
+           and opens in under 300 ms headless (TestChecklistShippedViewTests). -->
+      <ScrollViewer x:Name="ListScroller" HorizontalScrollBarVisibility="Disabled"
+                    AutomationProperties.AutomationId="v2-test-checklist-list">
+        <ItemsControl x:Name="RowList" ItemsSource="{Binding Rows}" Margin="0,0,12,0">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.DataTemplates>
+            <DataTemplate DataType="vm:TestChecklistAreaViewModel">
+              <Grid ColumnDefinitions="*,Auto" Margin="0,10,0,8" AutomationProperties.AutomationId="{Binding AutomationId}">
+                <TextBlock Classes="v2-heading-3" Text="{Binding Name}" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Bottom" Text="{Binding CountLine}" />
+              </Grid>
+            </DataTemplate>
+            <DataTemplate DataType="vm:TestChecklistItemViewModel">
+              <Panel Margin="0,0,0,8" AutomationProperties.AutomationId="{Binding AutomationId}">
+                <!-- Works or Skipped on this build: one line, opened again with Edit. -->
+                <Border Classes="v2-card" Classes.tc-current="{Binding IsCurrent}" Padding="14,4" IsVisible="{Binding IsCompact}"
+                        AutomationProperties.AutomationId="v2-test-checklist-row">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Feature}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Classes="v2-label" Classes.tc-works="{Binding IsWorks}" FontWeight="SemiBold"
+                               VerticalAlignment="Center" Text="{Binding StatusWord}" />
+                    <Button Grid.Column="2" Classes="v2-target" Content="{x:Static l:TestChecklistText.Edit}" Command="{Binding ToggleCommand}"
+                            AutomationProperties.Name="{Binding Feature}"
+                            AutomationProperties.AutomationId="v2-test-checklist-edit" />
+                  </Grid>
+                </Border>
+          <Border Classes="v2-card" Classes.tc-current="{Binding IsCurrent}" Padding="14,12" IsVisible="{Binding IsFull}">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Feature}" TextWrapping="Wrap" />
+                  <WrapPanel>
+                    <Border Classes="tc-chip tc-retest" IsVisible="{Binding NeedsRetest}">
+                      <TextBlock Text="{x:Static l:TestChecklistText.Retest}" />
+                    </Border>
+                    <ItemsControl ItemsSource="{Binding Needs}" IsVisible="{Binding HasNeeds}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                          <Border Classes="tc-chip"><TextBlock Text="{Binding}" /></Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Border Classes="tc-chip" IsVisible="{Binding HasFlag}">
+                      <TextBlock Text="{Binding FlagLine}" />
+                    </Border>
+                  </WrapPanel>
+                </StackPanel>
+                <WrapPanel Grid.Column="1" Classes="v2-toolbar" VerticalAlignment="Top">
+                  <Button Classes="v2-target" IsVisible="{Binding CanFold}"
+                          Content="{x:Static l:TestChecklistText.Fold}" Command="{Binding ToggleCommand}"
+                          AutomationProperties.AutomationId="v2-test-checklist-fold" />
+                  <Button Classes="v2-target"
+                          IsVisible="{Binding CanGoThere}"
+                          Content="{x:Static l:TestChecklistText.GoThere}" Command="{Binding GoThereCommand}"
+                          AutomationProperties.Name="{Binding Feature}" />
+                </WrapPanel>
+              </Grid>
+              <ItemsControl ItemsSource="{Binding Steps}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:TestChecklistStepRow">
+                    <Grid ColumnDefinitions="24,*">
+                      <TextBlock Classes="v2-label" Text="{Binding Number}" />
+                      <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Text}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-label" Text="{x:Static l:TestChecklistText.Expect}" />
+                <TextBlock Classes="v2-body" Text="{Binding Expect}" TextWrapping="Wrap" />
+              </StackPanel>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <WrapPanel Classes="v2-toolbar" VerticalAlignment="Top"
+                           AutomationProperties.Name="{x:Static l:TestChecklistText.StatusGroup}">
+                  <Button Classes="v2-target v2-choice tc-works" Classes.selected="{Binding IsWorks}"
+                          Content="{x:Static l:TestChecklistText.Works}" Command="{Binding WorksCommand}"
+                          AutomationProperties.AutomationId="v2-test-checklist-works" />
+                  <Button Classes="v2-target v2-choice tc-broken" Classes.selected="{Binding IsBroken}"
+                          Content="{x:Static l:TestChecklistText.Broken}" Command="{Binding BrokenCommand}"
+                          AutomationProperties.AutomationId="v2-test-checklist-broken" />
+                  <Button Classes="v2-target v2-choice tc-needs-work" Classes.selected="{Binding IsNeedsWork}"
+                          Content="{x:Static l:TestChecklistText.NeedsWork}" Command="{Binding NeedsWorkCommand}"
+                          AutomationProperties.AutomationId="v2-test-checklist-needs-work" />
+                  <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsSkipped}"
+                          Content="{x:Static l:TestChecklistText.Skip}" Command="{Binding SkipCommand}"
+                          AutomationProperties.AutomationId="v2-test-checklist-skip" />
+                </WrapPanel>
+                <TextBox Grid.Column="1" Classes="v2-field-input" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="36" MaxHeight="120"
+                         Text="{Binding Note}" PlaceholderText="{x:Static l:TestChecklistText.NoteHint}"
+                         AutomationProperties.Name="{x:Static l:TestChecklistText.Note}"
+                         AutomationProperties.AutomationId="v2-test-checklist-note" />
+              </Grid>
+              <TextBlock Classes="v2-label" IsVisible="{Binding HasRecordedLine}" Text="{Binding RecordedLine}" />
+              <TextBlock Classes="v2-label" IsVisible="{Binding HasRefs}" Text="{Binding RefsLine}" Opacity="0.8" />
+              <TextBlock Classes="v2-label" Foreground="{DynamicResource V2.Brush.Danger}"
+                         IsVisible="{Binding SaveError, Converter={x:Static ObjectConverters.IsNotNull}}" Text="{Binding SaveError}" />
+            </StackPanel>
+          </Border>
+              </Panel>
+            </DataTemplate>
+          </ItemsControl.DataTemplates>
+        </ItemsControl>
+      </ScrollViewer>
 
-    <ItemsControl ItemsSource="{Binding Areas}">
-      <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate><StackPanel Spacing="18" /></ItemsPanelTemplate>
-      </ItemsControl.ItemsPanel>
-      <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="vm:TestChecklistAreaViewModel">
-          <StackPanel Spacing="8">
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="v2-heading-3" Text="{Binding Name}" AutomationProperties.HeadingLevel="3" />
-              <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Bottom" Text="{Binding CountLine}" />
-            </Grid>
-            <ItemsControl ItemsSource="{Binding Items}">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:TestChecklistItemViewModel">
-                  <Border Classes="v2-card" Padding="14,12" AutomationProperties.AutomationId="{Binding AutomationId}">
-                    <StackPanel Spacing="8">
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel Spacing="4">
-                          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Feature}" TextWrapping="Wrap" />
-                          <WrapPanel>
-                            <Border Classes="tc-chip tc-retest" IsVisible="{Binding NeedsRetest}">
-                              <TextBlock Text="{x:Static l:TestChecklistText.Retest}" />
-                            </Border>
-                            <ItemsControl ItemsSource="{Binding Needs}" IsVisible="{Binding HasNeeds}">
-                              <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                              </ItemsControl.ItemsPanel>
-                              <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                  <Border Classes="tc-chip"><TextBlock Text="{Binding}" /></Border>
-                                </DataTemplate>
-                              </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Border Classes="tc-chip" IsVisible="{Binding HasFlag}">
-                              <TextBlock Text="{Binding FlagLine}" />
-                            </Border>
-                          </WrapPanel>
-                        </StackPanel>
-                        <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Top"
-                                IsVisible="{Binding CanGoThere}"
-                                Content="{x:Static l:TestChecklistText.GoThere}" Command="{Binding GoThereCommand}"
-                                AutomationProperties.Name="{Binding Feature}" />
-                      </Grid>
-                      <ItemsControl ItemsSource="{Binding Steps}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate x:DataType="vm:TestChecklistStepRow">
-                            <Grid ColumnDefinitions="24,*">
-                              <TextBlock Classes="v2-label" Text="{Binding Number}" />
-                              <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Text}" TextWrapping="Wrap" />
-                            </Grid>
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
-                      <StackPanel Spacing="2">
-                        <TextBlock Classes="v2-label" Text="{x:Static l:TestChecklistText.Expect}" />
-                        <TextBlock Classes="v2-body" Text="{Binding Expect}" TextWrapping="Wrap" />
-                      </StackPanel>
-                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                        <WrapPanel Classes="v2-toolbar" VerticalAlignment="Top"
-                                   AutomationProperties.Name="{x:Static l:TestChecklistText.StatusGroup}">
-                          <Button Classes="v2-target v2-choice tc-works" Classes.selected="{Binding IsWorks}"
-                                  Content="{x:Static l:TestChecklistText.Works}" Command="{Binding WorksCommand}"
-                                  AutomationProperties.AutomationId="v2-test-checklist-works" />
-                          <Button Classes="v2-target v2-choice tc-broken" Classes.selected="{Binding IsBroken}"
-                                  Content="{x:Static l:TestChecklistText.Broken}" Command="{Binding BrokenCommand}"
-                                  AutomationProperties.AutomationId="v2-test-checklist-broken" />
-                          <Button Classes="v2-target v2-choice tc-needs-work" Classes.selected="{Binding IsNeedsWork}"
-                                  Content="{x:Static l:TestChecklistText.NeedsWork}" Command="{Binding NeedsWorkCommand}"
-                                  AutomationProperties.AutomationId="v2-test-checklist-needs-work" />
-                          <Button Classes="v2-target v2-choice" Classes.selected="{Binding IsSkipped}"
-                                  Content="{x:Static l:TestChecklistText.Skip}" Command="{Binding SkipCommand}"
-                                  AutomationProperties.AutomationId="v2-test-checklist-skip" />
-                        </WrapPanel>
-                        <TextBox Grid.Column="1" Classes="v2-field-input" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="36" MaxHeight="120"
-                                 Text="{Binding Note}" PlaceholderText="{x:Static l:TestChecklistText.NoteHint}"
-                                 AutomationProperties.Name="{x:Static l:TestChecklistText.Note}"
-                                 AutomationProperties.AutomationId="v2-test-checklist-note" />
-                      </Grid>
-                      <TextBlock Classes="v2-label" IsVisible="{Binding HasRecordedLine}" Text="{Binding RecordedLine}" />
-                      <TextBlock Classes="v2-label" IsVisible="{Binding HasRefs}" Text="{Binding RefsLine}" Opacity="0.8" />
-                      <TextBlock Classes="v2-label" Foreground="{DynamicResource V2.Brush.Danger}"
-                                 IsVisible="{Binding SaveError, Converter={x:Static ObjectConverters.IsNotNull}}" Text="{Binding SaveError}" />
+      <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled"
+                    AutomationProperties.AutomationId="v2-test-checklist-rail"
+                    AutomationProperties.LandmarkType="Navigation"
+                    AutomationProperties.Name="{x:Static l:TestChecklistText.Areas}">
+        <StackPanel Spacing="10" Margin="0,0,10,0">
+          <TextBox Classes="v2-field-input" Text="{Binding Search}" PlaceholderText="{x:Static l:TestChecklistText.SearchHint}"
+                   AutomationProperties.Name="{x:Static l:TestChecklistText.Search}"
+                   AutomationProperties.AutomationId="v2-test-checklist-search" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Button Classes="v2-target primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                    Content="{x:Static l:TestChecklistText.NextUntested}" Command="{Binding NextUntestedCommand}"
+                    AutomationProperties.AutomationId="v2-test-checklist-next" />
+            <Button Grid.Column="1" Classes="v2-target v2-chip" Classes.v2-selected="{Binding ExpandAll}"
+                    Content="{x:Static l:TestChecklistText.ExpandAll}" Command="{Binding ExpandAllCommand}"
+                    AutomationProperties.AutomationId="v2-test-checklist-expand-all" />
+          </Grid>
+          <TextBlock Classes="v2-label" Text="{x:Static l:TestChecklistText.Filters}" />
+          <ItemsControl ItemsSource="{Binding Filters}"
+                        AutomationProperties.AccessibilityView="Control"
+                        AutomationProperties.Name="{x:Static l:TestChecklistText.Filters}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="4" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TestChecklistFilterViewModel">
+                <Button Classes="v2-target v2-chip" Classes.v2-selected="{Binding IsCurrent}"
+                        Content="{Binding Label}" Command="{Binding SelectCommand}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="v2-label" Text="{x:Static l:TestChecklistText.NeedFilters}" />
+          <ItemsControl ItemsSource="{Binding NeedFilters}"
+                        AutomationProperties.AccessibilityView="Control"
+                        AutomationProperties.Name="{x:Static l:TestChecklistText.NeedFilters}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="4" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TestChecklistNeedFilterViewModel">
+                <Button Classes="v2-target v2-chip" Classes.v2-selected="{Binding IsCurrent}"
+                        Content="{Binding Label}" Command="{Binding SelectCommand}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="v2-label" Text="{x:Static l:TestChecklistText.Areas}" AutomationProperties.HeadingLevel="3" />
+          <ItemsControl ItemsSource="{Binding Rail}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TestChecklistAreaViewModel">
+                <Button Classes="v2-target tc-area" Command="{Binding JumpCommand}" IsEnabled="{Binding IsShown}"
+                        AutomationProperties.Name="{Binding Name}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <StackPanel Spacing="0" VerticalAlignment="Center">
+                      <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <WrapPanel IsVisible="{Binding HasBroken}">
+                        <TextBlock Classes="v2-label" Foreground="{DynamicResource V2.Brush.Danger}" Text="{Binding BrokenLine}" />
+                      </WrapPanel>
+                      <WrapPanel IsVisible="{Binding HasNeedsWork}">
+                        <TextBlock Classes="v2-label" Foreground="{DynamicResource V2.Brush.Warning}" Text="{Binding NeedsWorkLine}" />
+                      </WrapPanel>
                     </StackPanel>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
-  </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="v2-label" Classes.tc-complete="{Binding IsComplete}"
+                               VerticalAlignment="Center" Text="{Binding RailCount}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Grid>
 </UserControl>
