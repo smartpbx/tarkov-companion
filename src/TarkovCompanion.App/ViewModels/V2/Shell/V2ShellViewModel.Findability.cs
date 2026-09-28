@@ -36,7 +36,7 @@ public sealed partial class V2ShellViewModel
     /// <summary>The palette's rows for <see cref="V2SettingsIndex.All"/>.</summary>
     public IReadOnlyList<V2ShellCommandViewModel> SettingItems => _settingItems ??=
     [
-        .. V2SettingsIndex.All.Select(entry => new V2ShellCommandViewModel(
+        .. V2SettingsIndex.All.Where(entry => entry.Flag is null || TarkovCompanion.App.Services.FeatureFlags.AppFeatureFlags.Current.IsOn(entry.Flag)).Select(entry => new V2ShellCommandViewModel(
             new V2ShellCommand($"setting.{entry.Id}", entry.LabelKey, V2ShellCommandKind.Navigate, null, entry.Route),
             new DelegateCommand(() => OpenSetting(entry)))
         {

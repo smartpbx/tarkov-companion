@@ -42,6 +42,9 @@ public enum V2SetupSection
 
     /// <summary>What the app is, its notices, and Backup &amp; reset.</summary>
     About,
+
+    /// <summary>Every feature to try by hand, with results to copy; only while the test-checklist flag is on.</summary>
+    TestChecklist,
 }
 
 /// <summary>One clickable section tab, the same shape as the shell's other selectable rows.</summary>
@@ -147,6 +150,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
             new(V2SetupSection.DataNetwork, "V2.Setup.Section.DataNetwork", Select),
             new(V2SetupSection.UpdatesDiagnostics, "V2.Setup.Section.UpdatesDiagnostics", Select),
             new(V2SetupSection.About, "V2.Setup.Section.About", Select),
+            .. OffersTestChecklist ? [new V2SetupSectionTabViewModel(V2SetupSection.TestChecklist, "V2.Setup.Section.TestChecklist", Select)] : Array.Empty<V2SetupSectionTabViewModel>(),
         ];
         Sections[0].IsCurrent = true;
         // #292: paths are hidden until asked for, and every path Setup prints goes through this one gate.
@@ -513,6 +517,7 @@ public sealed partial class V2SetupWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(IsDataNetworkSelected));
             OnPropertyChanged(nameof(IsUpdatesDiagnosticsSelected));
             OnPropertyChanged(nameof(IsAboutSelected));
+            OnPropertyChanged(nameof(IsTestChecklistSelected));
             // Ages and monitors are read when the page is opened, not carried from the last visit.
             switch (value)
             {

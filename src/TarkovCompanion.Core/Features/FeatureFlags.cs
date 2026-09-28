@@ -106,7 +106,20 @@ public static class Flag
         // Read whenever the Raid page's right column is laid out, so a switch in Setup applies at once.
         NeedsRestart: false);
 
-    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, PreRaidBrief, NowPanel];
+    /// <summary>Setup's hand-test checklist: every feature to try, with results to copy into an issue.</summary>
+    public static readonly FeatureFlagDefinition TestChecklist = new(
+        "test-checklist",
+        "Test checklist",
+        "Setup's list of features to try by hand, with results you can copy. Off hides it.",
+        OwnerIssue: 712,
+        OnInDev: true,
+        OnInRough: true,
+        // A tester's tool: a stable build is what the testing was for.
+        OnInStable: false,
+        // Setup builds its section tabs once, as it starts.
+        NeedsRestart: true);
+
+    public static IReadOnlyList<FeatureFlagDefinition> All { get; } = [DrawMode, TabletReviewCards, PreRaidBrief, NowPanel, TestChecklist];
 }
 
 /// <summary>Whether a feature is on for this run.</summary>

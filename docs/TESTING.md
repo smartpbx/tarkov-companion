@@ -49,6 +49,10 @@ dotnet run --project src/TarkovCompanion.App -- \
 
 The self-test builds the production composition root with networking forcibly disabled and initializes the persistent database selected by the application's data-path policy. Its JSON reports actual database readiness/path, normalized cache count and availability, profile loading, configured `json.tarkov.dev` services, production OCR-provider presence, diagnostic configuration, writable paths, platform/runtime, and safety invariants. An empty cache and an intentionally absent production OCR provider are nonrequired unavailable states; missing EFT install, log, or screenshot paths are reported as state and do not fail an otherwise healthy offline self-test.
 
+## Hand testing
+
+Dev and rough builds have Setup › Test checklist (flag `test-checklist`): one item per feature, read from `src/TarkovCompanion.App/Assets/TestChecklist/NN-*.json` (schema in `TestChecklistCatalog`), results in `Config/test-checklist-results.json`, copied out as Markdown.
+
 ## Runtime-composition coverage
 
 `RuntimeCompositionTests` constructs the same dependency-injection graph used by the executable with isolated data roots and deterministic HTTP handlers. It proves that:

@@ -18,7 +18,11 @@ public sealed record V2SettingEntry(
     V2RouteId Route,
     V2SetupSection? Section,
     string Target,
-    params string[] Keywords);
+    params string[] Keywords)
+{
+    /// <summary>The feature flag the row sits behind; the palette offers it only while that is on.</summary>
+    public TarkovCompanion.Core.Features.FeatureFlagDefinition? Flag { get; init; }
+}
 
 /// <summary>
 /// Every setting a player can change, listed once, so Ctrl+K finds "local only" or "quiet hours"
@@ -96,6 +100,7 @@ public static class V2SettingsIndex
         Setup("tablet-cards", "V2.Shell.Setting.TabletCards", V2SetupSection.UpdatesDiagnostics, "v2-setup-flag-tablet-review-cards", "tablet", "stash", "flea", "feature flag"),
         Setup("self-test", "V2.Shell.Setting.SelfTest", V2SetupSection.UpdatesDiagnostics, "v2-selftest-run", "diagnostics", "check"),
         Setup("report-problem", "V2.Shell.Setting.ReportProblem", V2SetupSection.UpdatesDiagnostics, "v2-setup-report-review", "bug", "feedback", "diagnostics"),
+        Setup("test-checklist", "V2.Shell.Setting.TestChecklist", V2SetupSection.TestChecklist, "v2-test-checklist-progress", "checklist", "test", "qa", "bugs", "results") with { Flag = TarkovCompanion.Core.Features.Flag.TestChecklist },
 
         // About
         Setup("settings-backup", "V2.Shell.Setting.SettingsBackup", V2SetupSection.About, "v2-setup-backup", "export", "import", "reset everything", "defaults"),

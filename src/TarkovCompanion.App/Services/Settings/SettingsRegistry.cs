@@ -106,6 +106,7 @@ public static class SettingsRegistry
         [typeof(IEventCatalog)] = "Event definitions: data.",
         [typeof(IEventAuthoring)] = "Event definitions: data.",
         [typeof(TarkovCompanion.App.ViewModels.V2.Debrief.DebriefSavedViewStore)] = "Named Debrief views the player saved: data, kept in the workspace layout.",
+        [typeof(TarkovCompanion.App.Services.TestChecklist.TestChecklistResultsStore)] = "Hand-test results and notes: data; Clear results is its reset.",
         [typeof(TarkovCompanion.Core.Domain.Recognition.Learning.ICorrectionMemoryStore)] =
             "Icons and names learned from corrections: this PC's data, never exported; Setup deletes it.",
     };

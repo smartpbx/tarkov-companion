@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "checklist.open",
+      "area": "Test checklist",
+      "feature": "Open the checklist",
+      "needs": [],
+      "steps": [
+        "Open Setup",
+        "Choose the Test checklist tab, last in the row"
+      ],
+      "expect": "A line such as '0 of 180 tested · 0 broken · 0 need work', then the items grouped under area headings, each with steps and 'You should see'.",
+      "goTo": "#/setup",
+      "flag": "test-checklist"
+    },
+    {
+      "id": "checklist.find-with-ctrl-k",
+      "area": "Test checklist",
+      "feature": "Find it with Ctrl+K",
+      "needs": [],
+      "steps": [
+        "Press Ctrl+K",
+        "Type checklist",
+        "Choose Test checklist"
+      ],
+      "expect": "Setup opens on the Test checklist tab.",
+      "flag": "test-checklist"
+    },
+    {
+      "id": "checklist.mark-and-note",
+      "area": "Test checklist",
+      "feature": "A result and a note are kept",
+      "needs": [],
+      "steps": [
+        "Press Broken on any item",
+        "Type a note under it",
+        "Close the companion and start it again",
+        "Open Setup › Test checklist"
+      ],
+      "expect": "The item still reads Broken with your note, and the top line counts it as tested and broken.",
+      "goTo": "#/setup",
+      "flag": "test-checklist"
+    },
+    {
+      "id": "checklist.filters",
+      "area": "Test checklist",
+      "feature": "Filters",
+      "needs": [],
+      "steps": [
+        "Mark one item Broken and one Needs work",
+        "Press Broken in the filter row, then Needs work, then Untested"
+      ],
+      "expect": "Each filter shows only its items and its count; All shows everything again. Retest lists items recorded on an earlier build.",
+      "goTo": "#/setup",
+      "flag": "test-checklist"
+    },
+    {
+      "id": "checklist.copy-and-export",
+      "area": "Test checklist",
+      "feature": "Copy and export the results",
+      "needs": [],
+      "steps": [
+        "Press Copy results and paste into a text editor",
+        "Press Export… and save the file"
+      ],
+      "expect": "Markdown with the build, the time in your clock, a summary, then Broken and Needs work items with notes and steps, then Untested, Works and Skipped. The saved .md file holds the same text.",
+      "goTo": "#/setup",
+      "flag": "test-checklist"
+    },
+    {
+      "id": "checklist.clear",
+      "area": "Test checklist",
+      "feature": "Clear results asks first",
+      "needs": [],
+      "steps": [
+        "Press Clear results",
+        "Press Keep them",
+        "Press Clear results again, then Clear all"
+      ],
+      "expect": "Keep them changes nothing. Clear all puts every item back to untested with no notes, and the top line reads 0 tested.",
+      "goTo": "#/setup",
+      "flag": "test-checklist"
+    }
+  ]
+}
