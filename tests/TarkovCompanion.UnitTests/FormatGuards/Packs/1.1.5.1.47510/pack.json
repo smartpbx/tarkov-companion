@@ -161,6 +161,10 @@
       "header": "Recognised",
       "notification": "Neutral",
       "expect": {
+        "eftLog": {
+          "state": "LoadingRaid",
+          "isPractice": true
+        },
         "phase": "MatchingCompleted"
       },
       "note": "An offline or transit raid: matching is over, but there is no queue time."

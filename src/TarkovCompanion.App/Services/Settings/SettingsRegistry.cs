@@ -94,6 +94,7 @@ public static class SettingsRegistry
     {
         [typeof(IEftPathOverrideStore)] = "A folder on this PC; on another PC it points nowhere.",
         [typeof(IDesktopWindowPlacementStore)] = "Where the window sits on this PC's monitors.",
+        [typeof(ICaptureTargetCalibrationStore)] = "A crop tied to this PC's monitor, DPI and game-window geometry.",
         [typeof(ILoadoutPresetStore)] = "Loadouts the player built: their data, not a choice of behaviour.",
         [typeof(IRaidMarkStore)] = "Marks placed during raids: data.",
         [typeof(IUserQuestMarkStore)] = "Objective markers the player placed: data.",

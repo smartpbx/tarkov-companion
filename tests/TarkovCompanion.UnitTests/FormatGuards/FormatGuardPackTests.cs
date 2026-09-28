@@ -82,6 +82,10 @@ public sealed class FormatGuardPackTests
             Assert.Equal(Text(raid, "eventId"), evidence.EventId);
             Assert.Equal(Flag(raid, "startsNewRaid"), evidence.StartsNewRaid);
             Assert.Equal(Flag(raid, "endsOnlyARaidWithoutId"), evidence.EndsOnlyARaidWithoutId);
+            if (raid.TryGetProperty("isPractice", out var practice))
+            {
+                Assert.Equal(practice.ValueKind == JsonValueKind.True, evidence.IsPractice);
+            }
         }
         else
         {
