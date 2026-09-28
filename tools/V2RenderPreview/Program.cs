@@ -632,6 +632,16 @@ internal static class Program
                 Pump(20);
             }
 
+            // --test-checklist-demo: Setup › Test checklist with a Broken item and its note, a Needs work and a Works.
+            if (args.Contains("--test-checklist-demo") && shell?.SetupWorkspace?.TestChecklist is { Items.Count: >= 3 } checklist)
+            {
+                checklist.Items[1].Note = "Typed checklist and got nothing back";
+                checklist.Items[1].Mark(TarkovCompanion.App.Services.TestChecklist.TestStatus.Broken);
+                checklist.Items[2].Mark(TarkovCompanion.App.Services.TestChecklist.TestStatus.NeedsWork);
+                checklist.Items[0].Mark(TarkovCompanion.App.Services.TestChecklist.TestStatus.Works);
+                Pump(20);
+            }
+
             // [#712 0-10] --sound-on: the Sound card with the master switch on (it starts off).
             if (args.Contains("--sound-on"))
             {

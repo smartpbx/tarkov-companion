@@ -36,7 +36,7 @@ public sealed class V2SettingsIndexLandingTests
         var misses = await RunAsync((shell, window) =>
         {
             var missed = new List<string>();
-            foreach (var entry in V2SettingsIndex.All.Where(entry => entry.Section is not null))
+            foreach (var entry in V2SettingsIndex.All.Where(entry => entry.Section is not null && (entry.Flag is null || TarkovCompanion.App.Services.FeatureFlags.AppFeatureFlags.Current.IsOn(entry.Flag))))
             {
                 shell.OpenSetting(entry);
                 Dispatcher.UIThread.RunJobs();

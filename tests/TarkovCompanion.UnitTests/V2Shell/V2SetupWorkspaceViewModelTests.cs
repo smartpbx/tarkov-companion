@@ -130,9 +130,14 @@ public sealed class V2SetupWorkspaceViewModelTests
     {
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
 
+        // Test checklist is a ninth, last, only while its flag is on (dev and rough builds).
+        string[] expected = ["Overview", "Game & Capture", "Profile & Progress", "Notifications", "Appearance & Window", "Data & Network", "Updates & Diagnostics", "About"];
+        var offersChecklist = V2SetupWorkspaceViewModel.OffersTestChecklist;
         Assert.Equal(
-            ["Overview", "Game & Capture", "Profile & Progress", "Notifications", "Appearance & Window", "Data & Network", "Updates & Diagnostics", "About"],
+            offersChecklist ? [.. expected, "Test checklist"] : expected,
             workspace.Sections.Select(section => section.Label));
-        Assert.Equal(Enum.GetValues<V2SetupSection>(), workspace.Sections.Select(section => section.Section));
+        Assert.Equal(
+            Enum.GetValues<V2SetupSection>().Where(section => offersChecklist || section != V2SetupSection.TestChecklist),
+            workspace.Sections.Select(section => section.Section));
     }
 }

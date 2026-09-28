@@ -629,6 +629,17 @@
             <Panel IsVisible="{Binding HasSituation}">
               <setup:V2SituationDiagnosticsView DataContext="{Binding Situation}" />
             </Panel>
+            <!-- The hand-test checklist has its own section; this is the way to it from Diagnostics. -->
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="{Binding HasTestChecklist}"
+                  AutomationProperties.AutomationId="v2-setup-test-checklist-entry">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-label" Text="{Binding TestChecklistHeading}" AutomationProperties.HeadingLevel="2" />
+                <TextBlock Classes="v2-body" Text="{Binding TestChecklist.ProgressLine, FallbackValue=''}" />
+              </StackPanel>
+              <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
+                      Content="{Binding OpenTestChecklistLabel}" Command="{Binding OpenTestChecklistCommand}"
+                      AutomationProperties.AutomationId="v2-setup-open-test-checklist" />
+            </Grid>
             <StackPanel Classes="v2-field">
               <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
               <TextBlock Classes="v2-body" Text="{Binding CompanionLogPath.Text}" TextWrapping="Wrap" />
@@ -648,6 +659,13 @@
             <!-- Where a report goes, said at the button that sends it, as V1 does. -->
             <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
           </StackPanel>
+        </Border>
+
+        <!-- Dev and rough builds: every feature to try by hand, with results to copy into an issue. -->
+        <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsTestChecklistSelected}">
+          <Panel IsVisible="{Binding HasTestChecklist}">
+            <setup:TestChecklistView DataContext="{Binding TestChecklist}" />
+          </Panel>
         </Border>
 
         <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
