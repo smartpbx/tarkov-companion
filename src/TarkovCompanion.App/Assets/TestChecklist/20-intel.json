@@ -1,0 +1,832 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "intel.items.landing",
+      "area": "Intel",
+      "feature": "Landing sections before a search",
+      "needs": [],
+      "steps": [
+        "Open Intel with the search box empty.",
+        "Look at the results column."
+      ],
+      "expect": "The column shows whichever of \"Needed now\", \"Pinned\", \"Recently opened\" and \"Highest value\" have rows; empty sections are hidden, not drawn as blank headings. Each row shows name, category and size, and a price.",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.items.search",
+      "area": "Intel",
+      "feature": "Item search",
+      "needs": [],
+      "steps": [
+        "Click the box that says \"Search items, ammo, keys…\".",
+        "Type a partial name such as salewa and press Enter."
+      ],
+      "expect": "Matching items are listed with a count such as \"12 results\", each row showing name, category · size, price and a per-slot value. The first result opens in the detail pane without clicking it, and focus stays in the search box.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.search-no-match",
+      "area": "Intel",
+      "feature": "Search with no match",
+      "needs": [],
+      "steps": [
+        "In the Intel search box, type a nonsense word such as zzqxv.",
+        "Press Enter."
+      ],
+      "expect": "The list shows \"No local item matched that query.\" and no rows; the previous selection, if any, is not replaced by a wrong item.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.matched-as",
+      "area": "Intel",
+      "feature": "Match on a short name or other text",
+      "needs": [],
+      "steps": [
+        "Search Intel for a short name that differs from the full name (for example a key's short name).",
+        "Look at the rows under the item names."
+      ],
+      "expect": "Rows whose full name did not contain the typed text show \"Matched “...”\" naming the text that matched; rows matched on their own name show no such line.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.clear-search",
+      "area": "Intel",
+      "feature": "Clear search",
+      "needs": [],
+      "steps": [
+        "Run any Intel search that returns results.",
+        "Click the clear (X) button in the search box, tooltip \"Clear search\"."
+      ],
+      "expect": "The box empties, the results and the count disappear, and the landing sections (\"Needed now\", \"Recently opened\"...) come back. The clear button is hidden again while the box is empty.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.kind-chips",
+      "area": "Intel",
+      "feature": "Kind chips: All, Items, Ammo, Keys",
+      "needs": [],
+      "steps": [
+        "Search Intel for a word that matches several kinds, such as 5.45 or key.",
+        "Click \"Ammo\", then \"Keys\", then \"Items\", then \"All\"."
+      ],
+      "expect": "Each chip keeps only hits of that kind and the result count changes to match; \"All\" shows every hit again. The selected chip is highlighted.",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.items.kind-chip-empty",
+      "area": "Intel",
+      "feature": "Kind chip with no hits offers Show all",
+      "needs": [],
+      "steps": [
+        "Search Intel for an item name that only matches items (for example bolts).",
+        "Click the \"Keys\" chip."
+      ],
+      "expect": "The list reads \"No results of this kind\" with a \"Show all\" button; clicking \"Show all\" switches back to \"All\" and the hits return.",
+      "goTo": "#/intel",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "intel.items.sort",
+      "area": "Intel",
+      "feature": "Result ordering",
+      "needs": [],
+      "steps": [
+        "Search Intel for a broad word that returns many items.",
+        "Under \"Sort\", click \"Price\", then \"Per slot\", then \"Name\", then \"Relevance\"."
+      ],
+      "expect": "\"Price\" orders highest best price first, \"Per slot\" highest value per slot first, \"Name\" alphabetical, and \"Relevance\" restores the search's own order. Items with no price sort to the bottom for Price and Per slot.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.remembered-filters",
+      "area": "Intel",
+      "feature": "Kind chip and sort are remembered",
+      "needs": [],
+      "steps": [
+        "On Intel, pick the \"Ammo\" kind chip and the \"Name\" sort.",
+        "Go to another workspace, then come back to Intel and search again.",
+        "Close and restart the companion, then search again."
+      ],
+      "expect": "The \"Ammo\" chip and \"Name\" sort are still selected after the visit elsewhere and after the restart.",
+      "goTo": "#/intel",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "intel.items.ctrl-f",
+      "area": "Intel",
+      "feature": "Ctrl+F focuses the search box",
+      "needs": [],
+      "steps": [
+        "Go to any workspace other than Intel, for example Plan.",
+        "Click an empty part of the page so no text box has focus, then press Ctrl+F."
+      ],
+      "expect": "The companion switches to Intel and the caret is in the \"Search items, ammo, keys…\" box, ready to type.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "intel.items.detail-header",
+      "area": "Intel",
+      "feature": "Selected item header and facts",
+      "needs": [],
+      "steps": [
+        "Search Intel and click a result row.",
+        "Look at the detail pane."
+      ],
+      "expect": "The pane shows the item name as a heading, its category/size subtitle, a grid of its footprint, the catalog description where it has one, and a \"Key info\" list (for example \"Short name\", \"Category\", \"Size\"). A close (X) button with tooltip \"Close Intel\" is at the top right.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.close-detail",
+      "area": "Intel",
+      "feature": "Close the selected item",
+      "needs": [],
+      "steps": [
+        "Open an item in Intel.",
+        "Click the X \"Close Intel\" button, then open another item and press Escape."
+      ],
+      "expect": "Both ways close the item: the detail pane returns to \"Select an item to see its prices and what needs it.\" and the right-hand context column disappears. The search results stay listed.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.verdict",
+      "area": "Intel",
+      "feature": "Keep or sell verdict",
+      "needs": [],
+      "steps": [
+        "Open an item that an active quest or a hideout upgrade needs.",
+        "Open an item nothing needs, such as a common barter item you have no quest for.",
+        "Compare the top card of the right-hand column for each."
+      ],
+      "expect": "The needed item shows a keep headline (for example \"Keep 3\" or \"Keep for quests\" or the advice engine's verdict with a reason line under it) and ticked need lines such as \"2 needed for your active quests\". The unneeded item shows \"Not needed\" or the advice verdict, and its need lines are marked inactive. The card ends with \"Best sale: ...\".",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.keep-detail",
+      "area": "Intel",
+      "feature": "Should I keep it: named quests and hideout levels",
+      "needs": [],
+      "steps": [
+        "Open an item that an active quest or hideout station needs.",
+        "Find the \"Should I keep it\" card in the right column."
+      ],
+      "expect": "The card names each quest as \"<quest> · N needed\" (with \"· found in raid\" where the quest requires it) and each hideout station as \"<station> level N · N needed\". The counts agree with the verdict card above it.",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.items.found-in-raid",
+      "area": "Intel",
+      "feature": "Found in raid need line",
+      "needs": [],
+      "steps": [
+        "Open an item that an active quest requires found in raid.",
+        "Read the verdict card's need lines."
+      ],
+      "expect": "An extra line \"N must be found in raid\" appears with a tick; items with no found-in-raid requirement do not show this line.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.prices-flea-trader",
+      "area": "Intel",
+      "feature": "Prices card: flea beside best trader, with age",
+      "needs": [],
+      "steps": [
+        "Open an item that sells on the flea market.",
+        "Look at the \"Prices\" card."
+      ],
+      "expect": "The left figure is the flea price captioned \"Flea market\" with \"Updated <age>\" under it (for example \"Updated 2 h ago\" or \"Updated just now\"); the right figure is the best trader price with the trader's name and \"Best trader\". Nothing claims to be a live market price.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.not-on-flea",
+      "area": "Intel",
+      "feature": "Item that cannot be sold on flea",
+      "needs": [],
+      "steps": [
+        "Search Intel for an item banned from the flea market (for example a quest item or a flea-banned key).",
+        "Look at the \"Prices\" card."
+      ],
+      "expect": "The flea figure reads \"Not sold on flea\" instead of a number, the best trader price still shows if a trader buys it, and \"Best sale\" names the trader.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.price-history",
+      "area": "Intel",
+      "feature": "24-hour band and local 7-day history",
+      "needs": [],
+      "steps": [
+        "Open an item with a flea price.",
+        "Read the \"Last 24 hours\" and \"Last 7 days\" rows in the \"Prices\" card.",
+        "Leave the companion running through a few catalog refreshes and reopen the item."
+      ],
+      "expect": "\"Last 24 hours\" shows \"low – high · avg\" from the catalog. \"Last 7 days\" is built from prices stored on this PC: \"1 price so far\" on a fresh install, then \"low ... · avg ... · high ...\" once more observations exist.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.per-slot-and-fee",
+      "area": "Intel",
+      "feature": "Value per slot and flea listing fee",
+      "needs": [],
+      "steps": [
+        "Open an item that sells on the flea market.",
+        "Read the \"Value per slot\" and \"Flea listing fee\" rows in the \"Prices\" card."
+      ],
+      "expect": "\"Value per slot\" shows \"₽N / slot\" (the best price divided by the item's slots). \"Flea listing fee\" shows a rouble figure worked out from the catalog, or \"Unknown: no live flea rate cached\" when no fee rate has been synced; it is never blank.",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.items.where-to-sell",
+      "area": "Intel",
+      "feature": "Where to sell: every channel compared",
+      "needs": [],
+      "steps": [
+        "Open an item that both the flea and several traders buy.",
+        "Read the \"Where to sell\" list at the bottom of the \"Prices\" card."
+      ],
+      "expect": "The flea and each trader are listed with a value and a bar sized against the best of them; the best channel is marked, and channels that cannot take it are shown as unavailable. The best entry matches the \"Best sale: ...\" line in the verdict card.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.selling-comparison",
+      "area": "Intel",
+      "feature": "Selling comparison for items you hold",
+      "needs": [
+        "stash-screenshot"
+      ],
+      "steps": [
+        "Scan a stash page on Stash so the companion has counts for items you own.",
+        "Open one of those items in Intel."
+      ],
+      "expect": "The \"Prices\" card shows a line like \"You hold 4 · Sell on flea at ₽X nets ₽Y after fee vs ₽Z <trader>\" (or \"· no trader offer\"). An item you do not hold shows no such line.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.where-to-buy",
+      "area": "Intel",
+      "feature": "Where to buy: trader cash and barter sources",
+      "needs": [],
+      "steps": [
+        "Open an item that traders sell, for example a common medical item.",
+        "Read the \"Where to buy\" card in the right column."
+      ],
+      "expect": "Each source names the trader, its requirement line, and its cost: a rouble price for cash offers, or \"N × item + ...\" for barters. An item no trader sells reads \"No trader source in the catalog.\"",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.where-to-buy-gated",
+      "area": "Intel",
+      "feature": "Where to buy: gated sources dimmed and listed last",
+      "needs": [],
+      "steps": [
+        "On Plan, set a trader's loyalty level low (for example LL1).",
+        "Open an item that trader only sells at a higher loyalty level or after a quest.",
+        "Read the \"Where to buy\" card."
+      ],
+      "expect": "Sources you can use now show \"Available now\" and are listed first, cheapest first. Sources you cannot use are drawn dimmed, listed after them, and say why, for example \"LL3 Prapor\" or \"after quest <name>\".",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.acquisition-chain",
+      "area": "Intel",
+      "feature": "Cheapest way (acquisition chain) in item detail",
+      "needs": [],
+      "steps": [
+        "Open an item that can be crafted or bartered for, for example a hideout craft output.",
+        "Scroll the detail pane to the \"Cheapest way\" panel."
+      ],
+      "expect": "The panel shows \"Planning chain…\" briefly, then a total (\"Total ₽N\") and ordered steps labelled \"Buy\", \"Craft\" or \"Barter for\" with each step's source and cost, and \"Prices through <time>\". An item with no priced route reads \"No priced route is available for this profile.\"",
+      "goTo": "#/intel",
+      "refs": [
+        "#307"
+      ]
+    },
+    {
+      "id": "intel.items.made-by-used-in",
+      "area": "Intel",
+      "feature": "Made by and Used in",
+      "needs": [],
+      "steps": [
+        "Open an item that a craft produces and that is an input to another craft or barter.",
+        "Scroll the detail pane to \"Made by\" and \"Used in\"."
+      ],
+      "expect": "Each section lists the crafts/barters with their inputs and a profit figure. An item nothing makes shows \"Nothing in the catalog makes this.\"; one nothing uses shows \"Nothing in the catalog uses this.\"",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.items.key-opens",
+      "area": "Intel",
+      "feature": "Key detail: what it opens",
+      "needs": [],
+      "steps": [
+        "Search Intel for a key, for example Dorms room 314 marked key, and open it.",
+        "Read the \"Opens\" card in the right column."
+      ],
+      "expect": "The card names the key's map and lists the locks it opens. A key with no cached lock data reads \"Not in the catalog yet\" instead of an empty list.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.ammo-ballistics",
+      "area": "Intel",
+      "feature": "Ammo detail: ballistics and armor ratings",
+      "needs": [],
+      "steps": [
+        "Search Intel for an ammo round, for example 5.45x39mm BS, and open it.",
+        "Read the \"Ballistics\" card."
+      ],
+      "expect": "The card shows the \"Caliber\", \"Damage\", \"Penetration\" and \"Tier\" values, a line of advice, and an \"Against armor\" list \"Class 1\" to \"Class 6\" each rated Poor, Limited, Fair, Good or Excellent in matching colours.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.wiki",
+      "area": "Intel",
+      "feature": "Wiki link",
+      "needs": [],
+      "steps": [
+        "Open any common item in Intel.",
+        "Click \"Wiki\" in the verdict card."
+      ],
+      "expect": "The item's wiki page opens in the default browser. Items with no wiki link show no \"Wiki\" button.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.items.event-state",
+      "area": "Intel",
+      "feature": "Seasonal event state on items",
+      "needs": [],
+      "steps": [
+        "On Plan > Events, name an event and mark one item \"Allergic\" and another \"Safe\".",
+        "Search Intel for both items."
+      ],
+      "expect": "The Allergic item shows a clear \"Allergic\" chip on its result row and at the top of its detail; the Safe item shows a quiet \"Safe\" label. Items outside the event show neither.",
+      "goTo": "#/plan/events",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.address.pin",
+      "area": "Intel",
+      "feature": "Pin an item to the landing page",
+      "needs": [],
+      "steps": [
+        "Open an item in Intel and press Ctrl+D.",
+        "Clear the search box to return to the landing sections."
+      ],
+      "expect": "The companion announces \"Pinned\" and the item appears under \"Pinned\". Pressing Ctrl+D again on that item announces \"Unpinned\" and removes it.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.address.recent",
+      "area": "Intel",
+      "feature": "Recently opened",
+      "needs": [],
+      "steps": [
+        "Open three different items in Intel one after another.",
+        "Clear the search box."
+      ],
+      "expect": "\"Recently opened\" lists those items, the most recent first.",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.address.copy-open",
+      "area": "Intel",
+      "feature": "Copy and reopen an item's address",
+      "needs": [],
+      "steps": [
+        "Open an item in Intel and press Ctrl+L.",
+        "Close the item, press Ctrl+K, paste the copied address into the palette and press Enter."
+      ],
+      "expect": "Ctrl+L announces \"Address copied\" and the clipboard holds an Intel item address (it contains intel/item/). Opening it from the palette shows the same item in Intel.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.compare.add",
+      "area": "Intel",
+      "feature": "Add items to compare",
+      "needs": [],
+      "steps": [
+        "Open an item in Intel and click \"Compare\" in its header.",
+        "Open a second item of the same kind and click \"Compare\" again."
+      ],
+      "expect": "After the first, a tray above the detail shows the item as a removable chip and reads \"Add one more to compare\"; the header button now reads \"Comparing\". After the second, the tray reads \"Compare\" and offers \"Compare 2\" and \"Clear\".",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.compare.table",
+      "area": "Intel",
+      "feature": "Compare side by side",
+      "needs": [],
+      "steps": [
+        "Add two or three ammo rounds to compare.",
+        "Click \"Compare 3\" (or \"Compare 2\") in the tray.",
+        "Click \"Back to item\"."
+      ],
+      "expect": "A table headed \"Ammo side by side\" shows one column per round with the best value in each row marked with a check. \"Back to item\" returns to the open item; the tray keeps its entries.",
+      "goTo": "#/intel",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.compare.full-and-mixed",
+      "area": "Intel",
+      "feature": "Compare limit and mixed kinds",
+      "needs": [],
+      "steps": [
+        "Add three items to compare, then open a fourth item.",
+        "Clear the tray, add one key and one ammo round, and open the comparison."
+      ],
+      "expect": "With three in the tray the fourth item's button reads \"Compare full\" and its tooltip \"Compare holds 3 items\"; it adds nothing. The mixed comparison is headed \"Items side by side\" with the note \"Different kinds, compared as items.\"",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.compare.remove-clear",
+      "area": "Intel",
+      "feature": "Remove from and clear the compare tray",
+      "needs": [],
+      "steps": [
+        "Add two items to compare.",
+        "Click the X on one tray chip, then click \"Clear\"."
+      ],
+      "expect": "The chip's tooltip reads \"Remove <name> from compare\" and removing it leaves one entry with \"Add one more to compare\". \"Clear\" empties the tray and hides it.",
+      "goTo": "#/intel"
+    },
+    {
+      "id": "intel.ammo.calibers",
+      "area": "Intel",
+      "feature": "Caliber list and filter",
+      "needs": [],
+      "steps": [
+        "Open Intel > Ammo.",
+        "Type a caliber fragment such as 7.62 into \"Filter calibers\"."
+      ],
+      "expect": "The left column lists calibers, each with \"N round(s) · best penetration N\", and narrows as you type. The first caliber opens by itself on arrival, and the status line reads \"N calibers · N rounds\".",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.ranked",
+      "area": "Intel",
+      "feature": "Rounds ranked by penetration",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, pick a caliber such as 5.45x39mm.",
+        "Keep the order on \"Best first\" and read the table."
+      ],
+      "expect": "The table (ROUND, DAMAGE, PEN, ARMOR DMG, FRAG, TIER, CLASS 1–6) lists the rounds highest penetration first, ties broken by damage, each with a rank \"#1 of N\". The first round is selected and described in the right panel.",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.order",
+      "area": "Intel",
+      "feature": "Order chips",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, pick a caliber.",
+        "Under \"Order\", click \"Penetration\", \"Damage\", \"Name\", then \"Best first\"."
+      ],
+      "expect": "\"Damage\" reorders highest damage first, \"Name\" alphabetical, \"Penetration\" highest penetration first, and \"Best first\" returns to the ranked order. The rank labels (\"#N of N\") do not change with the order.",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.beats",
+      "area": "Intel",
+      "feature": "Beats filter by armor class",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, pick a caliber.",
+        "Under \"Beats\", click \"Class 4\", then \"Any armor\"."
+      ],
+      "expect": "\"Class 4\" keeps only rounds rated Good or Excellent against class 4 and the count reads \"N of M rounds\"; \"Any armor\" shows them all again.",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.beats-none",
+      "area": "Intel",
+      "feature": "Beats filter that empties the table",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, pick a weak caliber such as 9x18mm Makarov.",
+        "Click \"Class 6\" under \"Beats\"."
+      ],
+      "expect": "The table reads \"No round in this caliber beats class 6.\" with a \"Show all\" button; clicking it resets the filter to \"Any armor\" and the rounds return.",
+      "goTo": "#/intel/ammo",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "intel.ammo.round-panel",
+      "area": "Intel",
+      "feature": "Selected round panel",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, click a round in the table.",
+        "Read the right panel."
+      ],
+      "expect": "The panel shows the round name, its rank, practical advice, an \"Against armor\" list rated per class, a \"Round\" section with \"Tier\" and traits (velocity, recoil, tracer or subsonic where stated), and a source line \"json.tarkov.dev · <time> · confidence N%\".",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.heuristic-label",
+      "area": "Intel",
+      "feature": "Armor ratings labelled heuristic in Learn mode",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, switch \"Learn\" on.",
+        "Read the rows in the table and the selected round's panel."
+      ],
+      "expect": "Each row and the panel carry an explanation beginning \"Heuristic, not a live detection:\" that says penetration is compared with armor class x 10. Switching \"Learn\" off hides these lines.",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.open-in-intel",
+      "area": "Intel",
+      "feature": "Prices and needs from Ammo",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, select a round.",
+        "Click \"Prices and needs\" in the right panel."
+      ],
+      "expect": "The round opens in the Intel item detail with its prices, verdict and ballistics card.",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.ammo.owned",
+      "area": "Intel",
+      "feature": "Owned rounds",
+      "needs": [
+        "stash-screenshot"
+      ],
+      "steps": [
+        "Before any stash scan, open Intel > Ammo and select a round.",
+        "Scan an ammo case or stash page holding rounds on Stash, then return to Intel > Ammo."
+      ],
+      "expect": "Before a scan the panel reads \"Owned: not scanned. Stash › Ammo cases.\" After the scan, calibers and rounds you hold show \"N owned\", and the selected round reads \"You own N rounds.\" (or \"You own none.\").",
+      "goTo": "#/intel/ammo",
+      "refs": [
+        "#283"
+      ]
+    },
+    {
+      "id": "intel.ammo.reload",
+      "area": "Intel",
+      "feature": "Reload the ammunition table",
+      "needs": [],
+      "steps": [
+        "On Intel > Ammo, click the reload button (tooltip \"Reload\").",
+        "Watch the status line."
+      ],
+      "expect": "The status briefly reads \"Reading the ammunition table…\" and then returns to \"N calibers · N rounds\" with the caliber list and table filled again.",
+      "goTo": "#/intel/ammo"
+    },
+    {
+      "id": "intel.keys.list",
+      "area": "Intel",
+      "feature": "Key list with verdict and facts",
+      "needs": [],
+      "steps": [
+        "Open Intel > Keys.",
+        "Read a few rows."
+      ],
+      "expect": "Each row shows the key name, a verdict (\"Keep\", \"Keep for later\" or \"Sell\"), then map · locks · uses and a cost. The status line reads \"N cached keys · N to keep · N to sell\". The first key is selected automatically.",
+      "goTo": "#/intel/keys"
+    },
+    {
+      "id": "intel.keys.filter",
+      "area": "Intel",
+      "feature": "Filter keys by name or map",
+      "needs": [],
+      "steps": [
+        "On Intel > Keys, type a map name such as Customs into \"Filter keys by name or map\".",
+        "Clear it and type part of a key name."
+      ],
+      "expect": "The list narrows to keys whose name or map matches; clearing the box brings back every key.",
+      "goTo": "#/intel/keys"
+    },
+    {
+      "id": "intel.keys.verdict-chips",
+      "area": "Intel",
+      "feature": "Verdict chips",
+      "needs": [],
+      "steps": [
+        "Open Intel > Keys.",
+        "Click \"Keep\", \"Keep for later\", \"Sell\", then \"All\"."
+      ],
+      "expect": "Each chip keeps only keys with that verdict and a count \"N of M keys\" appears; \"All\" shows every key. If the selected key is hidden, the first key still shown is selected instead.",
+      "goTo": "#/intel/keys"
+    },
+    {
+      "id": "intel.keys.reason",
+      "area": "Intel",
+      "feature": "Why a key is keep or sell",
+      "needs": [],
+      "steps": [
+        "On Intel > Keys, select a key marked \"Sell\" and then one marked \"Keep\".",
+        "Read the text under the verdict in the right panel."
+      ],
+      "expect": "The panel explains the call in plain words, such as \"dearer than N% of priced keys\", \"a hideout build asks for it\", or \"the market prices it in the middle, so this is your call\". A key with no price says \"no price is cached, so nothing here can rank it\".",
+      "goTo": "#/intel/keys"
+    },
+    {
+      "id": "intel.keys.opens",
+      "area": "Intel",
+      "feature": "Key panel: map, locks, uses, cost and locks opened",
+      "needs": [],
+      "steps": [
+        "On Intel > Keys, select a key.",
+        "Read the \"Key\" and \"Locks opened\" sections of the right panel."
+      ],
+      "expect": "\"Key\" lists \"Map\", \"Locks\", \"Uses\" and \"Cost\" (\"No use limit is stated\" or \"No price is cached\" where the catalog lacks them), \"Locks opened\" lists each lock by the source's identifier, and a source line reads \"json.tarkov.dev · <time>\". \"Prices and needs\" opens the key in Intel.",
+      "goTo": "#/intel/keys"
+    },
+    {
+      "id": "intel.keys.owned",
+      "area": "Intel",
+      "feature": "Keys you own",
+      "needs": [
+        "stash-screenshot"
+      ],
+      "steps": [
+        "Before any stash scan, click the \"You own\" chip on Intel > Keys.",
+        "Scan a key case or stash page on Stash, then return and click \"You own\" again."
+      ],
+      "expect": "Before a scan the list reads \"No stash scan yet. Scan your key cases on Stash to see the keys you own.\" After the scan it lists only keys you hold, rows show \"Owned\" or \"Owned ×N\", and the panel says \"You own it.\" or \"You own N.\"",
+      "goTo": "#/intel/keys",
+      "refs": [
+        "#283"
+      ]
+    },
+    {
+      "id": "intel.flea.lookup",
+      "area": "Intel",
+      "feature": "Flea lookup: price, best sale, band, per slot",
+      "needs": [],
+      "steps": [
+        "Open Intel > Flea and type an item into \"Look up an item's value\".",
+        "Press Enter and read the result rows."
+      ],
+      "expect": "Each row shows the item title and flea price, the best sale (\"Best ₽N on the flea\" or \"Best ₽N at <trader>\"), a value per slot, the 24h band (\"24h ₽A to ₽B · average ₽C\"), its size, and a 7 d line. Before any lookup the page shows the hint \"Look up an item for its flea price, its best sale and what a slot of it is worth.\"",
+      "goTo": "#/intel/flea"
+    },
+    {
+      "id": "intel.flea.observed-prices",
+      "area": "Intel",
+      "feature": "Stored price observations",
+      "needs": [],
+      "steps": [
+        "On Intel > Flea, look up an item and click its row.",
+        "Read the \"Observed prices\" section in the right panel."
+      ],
+      "expect": "It lists prices stored on this PC with when each was observed, or \"No stored observations for <item> yet.\" on a fresh install. The panel also shows the item's source line \"json.tarkov.dev · <time>\".",
+      "goTo": "#/intel/flea"
+    },
+    {
+      "id": "intel.flea.sold-while-playing",
+      "area": "Intel",
+      "feature": "Sold while you were playing",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Start the companion, then list an item on the flea market in the game and wait for it to sell.",
+        "Open Intel > Flea and read \"Sold while you were playing\"."
+      ],
+      "expect": "The sale appears with the item, quantity and the time it was reported. Before anything sells, the section reads \"Nothing sold since the companion started\".",
+      "goTo": "#/intel/flea"
+    },
+    {
+      "id": "intel.flea.photographed-offers",
+      "area": "Intel",
+      "feature": "Photographed flea offers: when seen",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "In the game, open the flea market on an item's offer list and press the game's screenshot key.",
+        "Watch the companion switch to Intel > Flea.",
+        "Wait more than five minutes and look again."
+      ],
+      "expect": "A card \"Offers for <item>\" appears above the lookup with \"Offers as seen at <time>\"; after five minutes it reads \"... · N min ago, may be gone\". The offers are never described as live.",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#284"
+      ]
+    },
+    {
+      "id": "intel.flea.photographed-reasons",
+      "area": "Intel",
+      "feature": "Photographed offers: ranking and plain reasons",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Take a flea screenshot of an item's offer list in the game.",
+        "Read the rows and the summary on the \"Offers for <item>\" card on Intel > Flea."
+      ],
+      "expect": "Each row shows its price, stack and condition and a verdict (\"Good buy\", \"Under average\", \"Over average\" or \"No comparison\") with a short reason such as \"to Therapist\" or \"Price read uncertain · check\". The summary reads \"N rows read · N would pay to resell\" and a line names the best trader and the 24 h average after the flea fee.",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#284",
+        "#842"
+      ]
+    },
+    {
+      "id": "intel.crafts.list",
+      "area": "Intel",
+      "feature": "Crafts and barters list",
+      "needs": [],
+      "steps": [
+        "Open Intel > Crafts.",
+        "Read a few rows."
+      ],
+      "expect": "Each row is labelled \"Craft\" or \"Barter\" with its inputs, the output item, the station or trader and level, the duration for crafts, readiness (\"Ready\", \"Locked\" or \"Level unknown\") and \"Profit ₽N\" or \"Profit unknown\".",
+      "goTo": "#/intel/crafts",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "intel.crafts.search-sort",
+      "area": "Intel",
+      "feature": "Search and sort crafts",
+      "needs": [],
+      "steps": [
+        "On Intel > Crafts, type an item into \"Search by input or output item…\".",
+        "Under \"Sort\", click \"Profit\", \"Duration\" and \"Name\"."
+      ],
+      "expect": "Only rows with that item as input or output remain. \"Profit\" orders highest profit first, \"Duration\" longest first, \"Name\" alphabetical. A search nothing matches shows \"No crafts or barters match.\"",
+      "goTo": "#/intel/crafts"
+    },
+    {
+      "id": "intel.crafts.ready-now",
+      "area": "Intel",
+      "feature": "I can do this now",
+      "needs": [],
+      "steps": [
+        "On Plan and Hideout, record your trader loyalty and station levels.",
+        "On Intel > Crafts, switch on \"I can do this now\"."
+      ],
+      "expect": "Only rows marked \"Ready\" remain. Rows whose level is not on record are not shown, and a note reads \"N more unknown, not shown\". Locked rows show \"you: Level N\" or \"you: Loyalty N\" beside \"Locked\" when the chip is off.",
+      "goTo": "#/intel/crafts"
+    },
+    {
+      "id": "intel.crafts.level-fix",
+      "area": "Intel",
+      "feature": "Missing levels: links to set them",
+      "needs": [],
+      "steps": [
+        "On a profile with no trader or hideout levels recorded, open Intel > Crafts.",
+        "Switch on \"I can do this now\"."
+      ],
+      "expect": "The empty list says how many rows \"need your trader or hideout levels before they can be checked\" and offers \"Set trader levels\" (opens Plan) and/or \"Set hideout levels\" (opens Hideout).",
+      "goTo": "#/intel/crafts",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "intel.crafts.chain-and-output",
+      "area": "Intel",
+      "feature": "Cheapest way and output link from a craft",
+      "needs": [],
+      "steps": [
+        "On Intel > Crafts, click \"Cheapest way\" on a row.",
+        "Click \"Close chain\", then click the row's output item button."
+      ],
+      "expect": "\"Cheapest way\" opens the chain panel for the output with a total and steps; \"Close chain\" hides it. The output button opens that item in the Intel detail.",
+      "goTo": "#/intel/crafts",
+      "refs": [
+        "#307"
+      ]
+    }
+  ]
+}

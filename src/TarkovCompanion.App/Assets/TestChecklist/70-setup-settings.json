@@ -1,0 +1,966 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "setup.overview.sections",
+      "area": "Setup",
+      "feature": "Eight section tabs",
+      "needs": [],
+      "steps": [
+        "Open Setup.",
+        "Read the tabs along the top, then click each one in turn.",
+        "Scroll to the foot of a long section such as Data & Network."
+      ],
+      "expect": "Eight tabs in this order: Overview, Game & Capture, Profile & Progress, Notifications, Appearance & Window, Data & Network, Updates & Diagnostics, About. Clicking a tab shows that section only and marks the tab selected. The tabs stay in view while the section scrolls.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.overview.get-ready",
+      "area": "Setup",
+      "feature": "Get ready steps and Fix buttons",
+      "needs": [],
+      "steps": [
+        "Open Setup, Overview.",
+        "Read the \"Get ready\" list and \"System health\".",
+        "If a step shows \"Fix\" or \"Check\", click it."
+      ],
+      "expect": "Each step shows Ready, Fix, Check or Optional. Fix on the game log, screenshots or text recognition step opens Game & Capture; Fix on game data opens Data & Network. When everything is ready the subtitle reads \"Everything checks out. Pick a map and plan your raid.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.overview.privacy",
+      "area": "Setup",
+      "feature": "Privacy at a glance",
+      "needs": [],
+      "steps": [
+        "Open Setup, Overview.",
+        "Read \"Privacy at a glance\".",
+        "Click \"Review privacy\"."
+      ],
+      "expect": "The card shows \"Screenshot cleanup: On\" or \"Screenshot cleanup: Off\" and either \"Network: Local only\" or \"Network: N of M on\" matching Data & Network. \"Review privacy\" opens the Data & Network section.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.capture.folders-auto",
+      "area": "Setup",
+      "feature": "Game folders found automatically",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Leave \"Screenshot folder\" and \"Log folder\" empty (placeholder \"Leave blank to find it automatically\").",
+        "Open Setup, Game & Capture.",
+        "Read the lines under \"Game folders\"."
+      ],
+      "expect": "The line under \"Game folders\" reads \"Screenshots <folder> · logs <folder>\" naming the folders actually being watched, and the status reads \"Found on their own\". If one is missing it says \"no log folder\" or \"no screenshot folder\" instead of guessing.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.capture.screenshot-folder",
+      "area": "Setup",
+      "feature": "Screenshot folder override",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Open Setup, Game & Capture.",
+        "Type a folder into \"Screenshot folder\".",
+        "Click elsewhere so the field loses focus (there is no Save button).",
+        "Press the game's screenshot key once."
+      ],
+      "expect": "The status changes to \"Set by you\" and the watched line names the typed screenshot folder straight away, without a restart. The new screenshot is picked up from that folder. Clearing the field and leaving it goes back to automatic discovery.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.capture.log-folder",
+      "area": "Setup",
+      "feature": "Log folder override",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Open Setup, Game & Capture.",
+        "Type a folder into \"Log folder\".",
+        "Click elsewhere so the field loses focus.",
+        "Start the game or change screens so it writes a log line."
+      ],
+      "expect": "The status reads \"Set by you\" and the watched line names the typed log folder at once. Raid state on the Raid page follows logs from that folder.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.capture.recognition",
+      "area": "Setup",
+      "feature": "Recognition provider line",
+      "needs": [],
+      "steps": [
+        "Open Setup, Game & Capture.",
+        "Read the \"Recognition\" block."
+      ],
+      "expect": "It names the text recogniser actually in use (Windows built-in when available) and the scan provider. A warning line appears only when the chosen recogniser needs a runtime that is not installed.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.capture.shortcut",
+      "area": "Setup",
+      "feature": "Capture shortcut switch",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup, Game & Capture.",
+        "Read the line \"Alt+Shift+C captures the game window. Turn it off if it clashes with a Windows shortcut.\"",
+        "Turn the switch beside it off, then press Alt+Shift+C.",
+        "Turn it back on and press Alt+Shift+C with the game open."
+      ],
+      "expect": "Off: Alt+Shift+C does nothing in the companion. On: it captures the game window. The switch matches the command palette's and the Capture dialog's switch.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.profile.create",
+      "area": "Setup",
+      "feature": "Create a profile",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress.",
+        "Under \"New profile\", type a \"Name\" and a \"Wipe\", pick a \"Game mode\" (PvP, PvE or Seasonal).",
+        "Click \"Create and switch\"."
+      ],
+      "expect": "The message \"Created <name> and switched to it.\" appears, the new profile is in the list marked Active, and the game-data line changes to that profile's mode.",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.switch",
+      "area": "Setup",
+      "feature": "Switch profile",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress with two or more profiles.",
+        "Click \"Switch to\" on a profile that is not active.",
+        "Open Plan and Intel."
+      ],
+      "expect": "\"Switched to <name>.\" appears, the Active badge moves, and Plan and Intel show that profile's quests, hideout and wishlist, and its game mode's data.",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.edit-archive",
+      "area": "Setup",
+      "feature": "Edit, archive and restore a profile",
+      "needs": [],
+      "steps": [
+        "Click \"Edit\" on a profile, change \"Game mode\", \"Wipe\" or \"Time zone\", click \"Save\".",
+        "Click \"Archive\" on a profile that is not active.",
+        "Tick \"Show archived\", then click \"Restore\" on it."
+      ],
+      "expect": "Save shows \"Updated <name>.\" and the row summary changes. Archive shows \"Archived <name>.\" and hides it until \"Show archived\" is ticked. Restore shows \"Restored <name>.\" and it is back in the list.",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.compare",
+      "area": "Setup",
+      "feature": "Compare profiles",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress with two profiles.",
+        "Under \"Compare profiles\", pick one profile on each side."
+      ],
+      "expect": "Rows for Game mode, Wipe, Level, Quests completed, Hideout levels and Keys owned show both values side by side. Nothing switches or changes. With only one profile it says \"Add a second profile to compare.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.game-mode-follow",
+      "area": "Setup",
+      "feature": "Profile follows the game mode",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Have a PvP and a PvE profile.",
+        "With the PvP profile active, start the game in PvE mode.",
+        "Read the notice that appears, then click \"Undo\"."
+      ],
+      "expect": "A notice reads \"The game is in PvE. Switched to <profile>.\" and the PvE profile becomes active. Undo switches back. With no PvE profile it reads \"The game is in PvE. No PvE profile yet.\" with a \"Create\" button.",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.transfer-export",
+      "area": "Setup",
+      "feature": "Export a profile to a file",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress, \"Move progress\".",
+        "Type a path into \"Profile file\".",
+        "Click \"Export this profile\"."
+      ],
+      "expect": "The status reads \"Exported to <file>\" and the file exists. With the path empty it says \"Enter the path of a profile file first.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.transfer-import",
+      "area": "Setup",
+      "feature": "Import a profile file with preview",
+      "needs": [],
+      "steps": [
+        "Enter the path of an exported profile file in \"Profile file\".",
+        "Choose \"Into this profile\" or \"As a new profile\" and click \"Preview import\".",
+        "Read the change list, then click \"Import\" (or \"Cancel\")."
+      ],
+      "expect": "A preview heading and a list of each area with its value now and after appears before anything is written. Cancel changes nothing. Import shows \"Imported into <profile>.\" A file of another game mode is refused with a line saying to import it as a new profile.",
+      "goTo": "#/setup",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "setup.profile.horizons",
+      "area": "Setup",
+      "feature": "Recommendation horizons",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress, \"Recommendations\".",
+        "Under \"Quest needs\" choose \"Next only\", then under \"Hideout needs\" choose \"All\".",
+        "Open Keep or Plan and look at keep, sell and use-soon advice."
+      ],
+      "expect": "The chosen button shows a tick. Advice changes to count only the next quest's needs and every hideout need. The choice survives a restart.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.profile.learn-mode",
+      "area": "Setup",
+      "feature": "Explain recommendations switch",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress.",
+        "Turn on \"Explain recommendations\".",
+        "Open Plan, Intel or Keep."
+      ],
+      "expect": "A line under advice says why it was given. Turning it off removes the lines. It is the same setting as Plan's Learn chip, so both show the same state.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.profile.tracker-connect",
+      "area": "Setup",
+      "feature": "TarkovTracker connect (optional)",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress, \"TarkovTracker import\".",
+        "Paste a token into the field (placeholder \"Paste a PVP_, PVE_, or SZN_ token with GP permission\").",
+        "Click \"Connect and validate\"."
+      ],
+      "expect": "The status reads \"Token checked and saved\" then \"Connected · <mode>\" with a read quota line. The token field empties and the token is never shown again. A bad token reads \"Not connected · <reason>\". Skipping this leaves the app fully usable.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.profile.tracker-refresh",
+      "area": "Setup",
+      "feature": "TarkovTracker refresh and disconnect",
+      "needs": [],
+      "steps": [
+        "With TarkovTracker connected, click \"Refresh and preview\".",
+        "Review the preview, then click \"Disconnect and delete token\"."
+      ],
+      "expect": "Refresh shows \"Fetched · review it, then apply\" (or \"Unchanged since last time · still counted against your quota\") and a preview; nothing is applied yet. Disconnect shows \"Disconnected · token deleted\" and Connect is available again. Nothing is ever written back to TarkovTracker.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.profile.quest-export",
+      "area": "Setup",
+      "feature": "Export quest progress JSON",
+      "needs": [],
+      "steps": [
+        "Open Setup, Profile & Progress, expand \"Merge a quest file, with conflicts and undo\".",
+        "Type a path into the field (placeholder \"Quest progress JSON file path\").",
+        "Click \"Export\"."
+      ],
+      "expect": "The status reads \"Exported N records\" and the JSON file exists at that path.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.profile.quest-import",
+      "area": "Setup",
+      "feature": "Import quest progress with preview and confirm",
+      "needs": [],
+      "steps": [
+        "Enter the path of a quest progress JSON file.",
+        "Click \"Preview import\" and read the summary and rows.",
+        "If there are conflicts, click \"Keep local conflicts\" or \"Use incoming conflicts\".",
+        "Click \"Apply confirmed preview\", then \"Undo last import\"."
+      ],
+      "expect": "Preview reads \"JSON file · N safe · N conflicts · N unchanged · N unresolved\" with a row per record showing Local and Incoming values; nothing changes until Apply. Apply reads \"Applied N · kept N local · N unresolved\" and adds a history entry. Undo reads \"Undid N changes\". Nothing missing from the file is deleted.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.notify.rows",
+      "area": "Setup",
+      "feature": "Notification switches and Test this",
+      "needs": [],
+      "steps": [
+        "Open Setup, Notifications.",
+        "For each row (Squadmate marks, Debrief ready, Data refresh failed, Update ready, Relay unreachable, Flea offer sold) click \"Test this\".",
+        "Turn one row Off and click \"Test this\" again."
+      ],
+      "expect": "Each row says when it fires and whether \"During a raid too\" or \"After the raid\". Test this sends a sample marked \"(Test)\" to the tray and Recent notifications. The On/Off switch state is kept after a restart.",
+      "goTo": "#/setup",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.notify.popup-quiet",
+      "area": "Setup",
+      "feature": "Pop-up and quiet hours",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup, Notifications.",
+        "Turn on \"Show a pop-up as well\" and click \"Test this\" on any row.",
+        "Turn on \"Quiet hours\", set From and to around the current hour, and test again."
+      ],
+      "expect": "With the pop-up on, a Windows notification appears (outside a raid). Inside quiet hours no pop-up appears but the tray still counts it. The From and to lists are disabled while Quiet hours is off.",
+      "goTo": "#/setup",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.notify.recent",
+      "area": "Setup",
+      "feature": "Recent notifications list",
+      "needs": [],
+      "steps": [
+        "Trigger a test notification from Setup, Notifications.",
+        "Scroll to \"Recent notifications\"."
+      ],
+      "expect": "The notification is listed with its time, title and body. Before any notification it reads \"None since the companion started.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.appearance.scale",
+      "area": "Setup",
+      "feature": "Interface scale to 200%",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window.",
+        "Click \"Larger\" until it stops, then \"Smaller\" until it stops.",
+        "Press Ctrl and +, then Ctrl+0."
+      ],
+      "expect": "The value steps 90%, 100%, 115%, 130%, 150%, 175%, 200% and the whole window scales. Ctrl and + or − does the same and Ctrl+0 returns to 100%. Dropdown lists and tooltips stay their normal size.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.appearance.text-size",
+      "area": "Setup",
+      "feature": "Text size to 200%",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window.",
+        "Under \"Text size\" choose 200%.",
+        "Look at the \"Live preview\" strip and another page."
+      ],
+      "expect": "Headings and body text grow to 200% while the window and interface scale stay as they were. The summary line reads \"Now: ..., text 200%, ... spacing.\" and the preview redraws at once.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.appearance.theme",
+      "area": "Setup",
+      "feature": "Light, dark and high-contrast themes",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window.",
+        "Under \"Theme\" choose \"Light\", then \"Dark\", then \"High contrast\", then \"Match Windows\"."
+      ],
+      "expect": "Every page redraws in the chosen theme straight away, with no restart. The chosen button is marked selected. Windows' own high-contrast mode wins over any choice here.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.appearance.vision-density",
+      "area": "Setup",
+      "feature": "Status colours, spacing, motion and focus ring",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window.",
+        "Pick \"Red-green safe\" under \"Status colours\" and \"Compact\" under \"Spacing\".",
+        "Turn on \"Reduce motion\" and \"Show focus ring after a click\"."
+      ],
+      "expect": "The Live preview's Ready and Failed samples change colour but keep their shape and word. Spacing tightens. With Reduce motion changes happen without the fade. With the focus switch on the ring shows after a mouse click, not only after Tab.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.appearance.language",
+      "area": "Setup",
+      "feature": "Language list",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window.",
+        "Look at the \"Language\" choices."
+      ],
+      "expect": "\"English\" is listed and selected. No language without a translation is offered (only \"Pseudo (for testing)\" in developer mode). The hint reads \"Only languages with a translation are listed.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.appearance.displays",
+      "area": "Setup",
+      "feature": "Displays and capture target",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup, Appearance & Window, \"Displays\".",
+        "With the game running, click \"Refresh\".",
+        "On a second monitor row click \"Move to <monitor>\"."
+      ],
+      "expect": "Each monitor lists resolution and scale with badges Primary, Companion here and Game window here. Capture target reads \"Game window, W×H, on <monitor>\" (or \"Game window not found. Start the game, then refresh.\"). Move to puts the companion window on that monitor.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.appearance.shortcuts",
+      "area": "Setup",
+      "feature": "Keyboard shortcuts list",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window.",
+        "Scroll to \"Keyboard shortcuts\"."
+      ],
+      "expect": "Every shortcut the window handles is listed with its keys, including Ctrl+K. It notes that the Capture shortcut is switched in Game & Capture.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.network.local-only",
+      "area": "Setup",
+      "feature": "Local only master switch",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network, \"What leaves this PC\".",
+        "Turn \"Local only\" on.",
+        "Read every service row, then click \"Sync now\"."
+      ],
+      "expect": "Local only reads \"Nothing leaves this PC. The app runs on the data it already has.\" Every service row shows \"Local only · off\". Sync now does not go online; the note \"Local only is on, so the copy on this PC is used instead of syncing.\" shows. Turning it off restores each row's own state.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.network.game-data-row",
+      "area": "Setup",
+      "feature": "Game data row (no switch)",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network.",
+        "Read the \"Game data\" row."
+      ],
+      "expect": "It reads \"Downloads items, prices, maps and loot spawns from tarkov.dev. Sends the game mode and language.\" with a state but no switch of its own; only Local only stops it.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.network.squad-sharing",
+      "area": "Setup",
+      "feature": "Squad sharing switch",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network.",
+        "Read the \"Squad sharing\" row, then turn its switch off.",
+        "Open Team."
+      ],
+      "expect": "The row reads \"Your name, map position, marks and quests go to your group's relay and paired tablet.\" Off shows the state \"Off\" and nothing is shared with the squad until it is on again.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.network.update-checks",
+      "area": "Setup",
+      "feature": "Update checks switch",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network, turn \"Update checks\" off.",
+        "Open Updates & Diagnostics and read the update status."
+      ],
+      "expect": "The row reads \"Asks the relay's update feed for a newer build. Sends this build's version.\" With it off no check is made and the update status says \"Update checks · off in Data & Network\".",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.network.problem-reports",
+      "area": "Setup",
+      "feature": "Problem reports switch",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network.",
+        "Read the \"Problem reports\" row and toggle its switch."
+      ],
+      "expect": "The row reads \"Sends a report only when you press Send, and only the text you read first.\" and its state follows the switch.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.network.tracker",
+      "area": "Setup",
+      "feature": "TarkovTracker sync switch",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network, turn \"TarkovTracker sync\" off.",
+        "Open Profile & Progress and read the TarkovTracker status."
+      ],
+      "expect": "The row reads \"Reads your quest progress from TarkovTracker. Sends your token.\" With it off the TarkovTracker status reads \"Off in Data & Network\" and no request is made.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.data.sync",
+      "area": "Setup",
+      "feature": "Game data status and Sync now",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network, \"Game data\".",
+        "Click \"Sync now\".",
+        "Read Source, Coverage, Last attempt, Last success and Next refresh."
+      ],
+      "expect": "Source reads \"json.tarkov.dev · <mode>\", Coverage shows item and endpoint counts, Last attempt changes to \"Refreshing now\" then \"Succeeded, <time>\". If it fails, \"Why it is not current\" gives the reason and \"Retry now\" appears; the local data stays usable.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.data.database",
+      "area": "Setup",
+      "feature": "Database status and backup",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network.",
+        "Read the \"Database\" lines.",
+        "Click \"Back up now\", then \"Open backup folder\"."
+      ],
+      "expect": "It shows \"Version N · applied <time>\" and the newest verified backup. Back up now shows \"Backing up…\" then \"Backed up.\" and the backup line updates. Open backup folder opens the folder in Explorer.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.data.coverage",
+      "area": "Setup",
+      "feature": "Loot and quest coverage per map",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network.",
+        "Read the loot spawn coverage and quest objective coverage lists."
+      ],
+      "expect": "Each map has a line saying how many spawn records or quest objectives have a position and floor, so a missing marker on the Raid map shows as a number here.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.data.privacy-detail",
+      "area": "Setup",
+      "feature": "What is kept and what leaves",
+      "needs": [],
+      "steps": [
+        "Open Setup, Data & Network.",
+        "Click \"Details\" on \"What is kept on this computer\", \"What leaves this computer\", \"Sharing\" and \"Problem reports\"."
+      ],
+      "expect": "Each expands to its detail lines and \"Hide details\" folds it. \"What leaves this computer\" ends with \"There is no telemetry and no screenshot upload.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "setup.flags.draw-mode",
+      "area": "Setup",
+      "feature": "Flag: Draw on the Raid map",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics, \"Feature flags\".",
+        "Find \"Draw on the Raid map\" and read its line.",
+        "Turn it Off, check the effect, then click \"Reset\"."
+      ],
+      "expect": "The row reads \"The pencil on the Raid map. Off hides it; lines already drawn stay.\" and \"Rough default\" (on) in the rough channel. After switching it reads \"Your choice · rough default is on\". Turning it off hides the Draw pencil on the Raid map at once; lines already drawn stay. Reset puts it back to the default.",
+      "goTo": "#/setup",
+      "flag": "draw-mode",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.flags.tablet-review-cards",
+      "area": "Setup",
+      "feature": "Flag: Stash and Flea cards on the tablet",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics, \"Feature flags\".",
+        "Find \"Stash and Flea cards on the tablet\" and read its line.",
+        "Turn it Off, check the effect, then click \"Reset\"."
+      ],
+      "expect": "The row reads \"Sends each Stash scan and flea screen to a paired tablet.\" and \"Rough default\" (on) in the rough channel. After switching it reads \"Your choice · rough default is on\". Changing it shows \"Restart to apply\"; after a restart with it off, Stash scans and flea screens are no longer sent to the tablet. Reset puts it back to the default.",
+      "goTo": "#/setup",
+      "flag": "tablet-review-cards",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.flags.preraid-brief",
+      "area": "Setup",
+      "feature": "Flag: Pre-raid brief",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics, \"Feature flags\".",
+        "Find \"Pre-raid brief\" and read its line.",
+        "Turn it Off, check the effect, then click \"Reset\"."
+      ],
+      "expect": "The row reads \"The Raid panel's brief while you match. Off keeps the usual cards.\" and \"Rough default\" (on) in the rough channel. After switching it reads \"Your choice · rough default is on\". With it off, the Raid panel keeps the usual cards while matching and loading instead of the brief. Reset puts it back to the default.",
+      "goTo": "#/setup",
+      "flag": "preraid-brief",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.flags.now-panel",
+      "area": "Setup",
+      "feature": "Flag: Now panel on the Raid map",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics, \"Feature flags\".",
+        "Find \"Now panel on the Raid map\" and read its line.",
+        "Turn it Off, check the effect, then click \"Reset\"."
+      ],
+      "expect": "The row reads \"The Raid map's right panel as NOW, YOU, SQUAD, NEXT and LAST SCAN. Off shows the Raid plan cards.\" and \"Rough default\" (on) in the rough channel. After switching it reads \"Your choice · rough default is on\". With it off the Raid map's right panel shows the Raid plan cards at once instead of NOW, YOU, SQUAD, NEXT and LAST SCAN. Reset puts it back to the default.",
+      "goTo": "#/setup",
+      "flag": "now-panel",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.diag.self-test",
+      "area": "Setup",
+      "feature": "Run self-test",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics.",
+        "Click \"Run self-test\" (\"Stop\" appears while it runs).",
+        "Click \"Copy result\" when done."
+      ],
+      "expect": "Seven rows fill in: Game folders, Logs, Screenshots, Game data, Database, Relay, Tablet, each with a verdict word, time taken and facts with their source. Copy result reads \"Copied · N characters.\" It is safe to run mid-raid.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.diag.self-test-screenshot",
+      "area": "Setup",
+      "feature": "Self-test waits for a screenshot",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Run the self-test when no recent screenshot exists.",
+        "Take a screenshot in a raid with the game's screenshot key."
+      ],
+      "expect": "The self-test shows a line asking for a screenshot in a raid within the next few minutes and saying nothing is wrong. The Screenshots row settles to a pass once the new file is read, without pressing anything.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.diag.copy",
+      "area": "Setup",
+      "feature": "Copy diagnostics",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics.",
+        "Click \"Copy diagnostics\".",
+        "Paste into a text editor."
+      ],
+      "expect": "Status reads \"Copied · N characters · paste it wherever you are being helped.\" The pasted text is the same text a problem report would send, with no player names, file paths, log lines or credentials.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.diag.report",
+      "area": "Setup",
+      "feature": "Report a problem shows the whole report",
+      "needs": [],
+      "steps": [
+        "Open Setup, Updates & Diagnostics.",
+        "Click \"Review report\".",
+        "Read \"What would be sent\", tick \"Send this report, exactly as shown\", click \"Send this report\"."
+      ],
+      "expect": "The whole report text is shown with its character count, the note \"This is the whole report. It is sent only when you press Send this report, and nothing else goes with it.\" and where it goes. It has no names, paths, screenshots, coordinates, log lines or credentials. Nothing is sent by reviewing; Discard closes it.",
+      "goTo": "#/setup",
+      "refs": [
+        "#292",
+        "#309"
+      ]
+    },
+    {
+      "id": "setup.diag.report-consent",
+      "area": "Setup",
+      "feature": "Report refuses to send without the tick",
+      "needs": [],
+      "steps": [
+        "Click \"Review report\".",
+        "Leave the box unticked and click \"Send this report\"."
+      ],
+      "expect": "Nothing is sent and the status reads \"Tick the box to agree before sending.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "setup.diag.loot-timing",
+      "area": "Setup",
+      "feature": "Loot scan and screenshot timing",
+      "needs": [
+        "game",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "Take a loot screenshot in the game so a Loot scan runs.",
+        "Open Setup, Updates & Diagnostics.",
+        "Read \"Last loot scan\" and \"Screenshot timing\"."
+      ],
+      "expect": "\"Last loot scan\" shows \"<time> from file to result\" and each stage. \"Screenshot timing\" lists each screenshot kind with median / 95th percentile per milestone. Before any scan it reads \"No loot scan yet this session.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#572",
+        "#712"
+      ]
+    },
+    {
+      "id": "setup.diag.situation",
+      "area": "Setup",
+      "feature": "Situation diagnostics (developer mode)",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Run the companion in developer mode.",
+        "Open Setup, Updates & Diagnostics and find the situation block.",
+        "Enter and leave a raid."
+      ],
+      "expect": "It lists each current fact with its reason and the recent transitions, updating as the raid state changes. It is not shown outside developer mode.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "setup.capture.loot-return",
+      "area": "Setup",
+      "feature": "Return to the map after a loot scan",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "Open Setup, Game & Capture, \"Return to the map after a loot scan\".",
+        "Choose \"5 s\" (default is 15 s).",
+        "In a raid take a loot screenshot so the app opens the Loot result itself."
+      ],
+      "expect": "After 5 seconds the app returns to the Raid map. \"Off\" keeps the result on screen. A Loot page you opened yourself is never left.",
+      "goTo": "#/setup",
+      "refs": [
+        "#572"
+      ]
+    },
+    {
+      "id": "setup.capture.loot-tablet-only",
+      "area": "Setup",
+      "feature": "Loot results on the tablet only",
+      "needs": [
+        "tablet",
+        "game",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "Pair a tablet.",
+        "Turn on \"Show loot results on the tablet only\".",
+        "Take a loot screenshot in a raid."
+      ],
+      "expect": "The Loot result appears on the tablet and the desktop stays on the Raid map.",
+      "goTo": "#/setup",
+      "refs": [
+        "#572"
+      ]
+    },
+    {
+      "id": "setup.about.info",
+      "area": "Setup",
+      "feature": "About page",
+      "needs": [],
+      "steps": [
+        "Open Setup, About.",
+        "Click \"Details\" on each item."
+      ],
+      "expect": "Items \"What this is\", \"What it never does\", \"Estimates and history\" and \"Open-source notices\" each expand. \"What it never does\" says it never reads game memory, injects code, sends input or shows an overlay or radar.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.backup.export",
+      "area": "Setup",
+      "feature": "Backup & reset: export settings",
+      "needs": [],
+      "steps": [
+        "Open Setup, About, \"Backup & reset\".",
+        "Type a path into \"Settings file\".",
+        "Click \"Export settings\"."
+      ],
+      "expect": "Status reads \"Exported to <file>\". The file holds every setting from map layers to network switches, but no relay address, name, group key or token.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.backup.import",
+      "area": "Setup",
+      "feature": "Backup & reset: import with preview",
+      "needs": [],
+      "steps": [
+        "Change a few settings (theme, a Raid map layer), then enter the exported settings file path.",
+        "Click \"Preview import\".",
+        "Read the list, then click \"Confirm\"."
+      ],
+      "expect": "A list of each field with its current and new value appears under \"Import from <file>?\" and nothing changes until Confirm. Confirm shows \"Imported.\" and every open page (theme, Raid map layers) follows at once. Importing a file that already matches says \"Already matches what is in force. Nothing to import.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#902",
+        "#935"
+      ]
+    },
+    {
+      "id": "setup.backup.reset-all",
+      "area": "Setup",
+      "feature": "Backup & reset: reset everything",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open Setup, About.",
+        "Click \"Reset everything\", read the list, click \"Confirm\".",
+        "Open Team and check the relay."
+      ],
+      "expect": "\"Reset everything?\" lists every change first; Cancel changes nothing. Confirm shows \"Everything was reset to its defaults.\" and pages follow at once. The relay address, name and group key are unchanged and the group stays connected.",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.backup.reset-section",
+      "area": "Setup",
+      "feature": "Reset this section",
+      "needs": [],
+      "steps": [
+        "Open Setup, Appearance & Window and change the theme and text size.",
+        "Click \"Reset this section\" at the foot, then \"Confirm\"."
+      ],
+      "expect": "\"Reset this section?\" lists only this section's settings. Confirm shows \"This section's settings were reset.\" and the theme and text size return to default at once; other sections are untouched. On a section already at defaults it says \"This section is already at its defaults.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "setup.backup.remembered",
+      "area": "Setup",
+      "feature": "Settings remembered after restart",
+      "needs": [],
+      "steps": [
+        "Change the theme, text size, a notification switch, a feature flag and a Raid map layer.",
+        "Close the companion and start it again."
+      ],
+      "expect": "Every changed setting, page filter, sort and map layer comes back as it was left.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "setup.search.palette",
+      "area": "Setup",
+      "feature": "Ctrl+K finds any setting by name",
+      "needs": [],
+      "steps": [
+        "From any page press Ctrl+K.",
+        "Type \"quiet hours\" and choose the \"Quiet hours\" result.",
+        "Repeat with \"local only\" and \"theme\"."
+      ],
+      "expect": "Each result opens Setup on the right section (Notifications, Data & Network, Appearance & Window) and lands on that control rather than the top of the page.",
+      "refs": [
+        "#902"
+      ]
+    }
+  ]
+}

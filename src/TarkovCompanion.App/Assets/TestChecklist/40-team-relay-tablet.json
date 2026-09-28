@@ -1,0 +1,1364 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "team.group.join",
+      "area": "Team",
+      "feature": "Turn the relay on and join a group",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open Team › Group.",
+        "Type your relay's address in \"Server address\", a name in \"Display name\" and a key of at least eight characters in \"Group key\".",
+        "Switch \"Share with my squad\" on and press \"Save\"."
+      ],
+      "expect": "The status under \"Squad sharing\" reads \"Saved · sharing starts in a few seconds\", and within a few seconds the Group card in the side panel says \"Connected\". The group key shows as dots, never as text.",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.group.unsaved",
+      "area": "Team",
+      "feature": "Unsaved changes are flagged",
+      "needs": [],
+      "steps": [
+        "Open Team › Group.",
+        "Change the \"Display name\" field and do not press \"Save\"."
+      ],
+      "expect": "The status reads \"Not saved yet · press Save\" until \"Save\" is pressed; nothing about the change reaches the relay before that.",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.group.key-too-short",
+      "area": "Team",
+      "feature": "A too-short group key is refused",
+      "needs": [],
+      "steps": [
+        "Open Team › Group.",
+        "Type a group key shorter than eight characters, switch \"Share with my squad\" on and press \"Save\"."
+      ],
+      "expect": "The status says what is still needed (\"Saved · still needs ...\" or that the key must be between the allowed lengths) and the Group card does not say \"Connected\".",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.group.connection-state",
+      "area": "Team",
+      "feature": "Connection state on the Group card",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Join a group with nobody else in it.",
+        "Look at the Group card in Team's side panel.",
+        "Have a squadmate join the same key."
+      ],
+      "expect": "Alone, it reads \"Connected\" with the detail \"Sharing as <your name> · nobody else here\". Once the squadmate joins, the detail names who you are sharing with and the member count in the Team heading rises.",
+      "goTo": "#/team",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "team.group.unreachable",
+      "area": "Team",
+      "feature": "An unreachable relay is named, not hidden",
+      "needs": [],
+      "steps": [
+        "Open Team › Group.",
+        "Enter a relay address that nothing answers on, switch \"Share with my squad\" on and press \"Save\".",
+        "Look at the Group card."
+      ],
+      "expect": "The Group card says \"Reconnecting\" or not connected, and the detail reads \"Server unreachable · ...\" or \"Server did not answer in time\". The app keeps working.",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.group.leave",
+      "area": "Team",
+      "feature": "Leave group asks once",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "While sharing, open Team › Group.",
+        "Press \"Leave group\".",
+        "Press \"Confirm leave\"."
+      ],
+      "expect": "The first press changes the button to \"Confirm leave\" and says \"Press “Confirm leave” to stop sharing.\"; nothing stops until the second press. After it, the Group card reads \"Not in a group\".",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.group.blocked-local-only",
+      "area": "Team",
+      "feature": "Local only blocks squad sharing",
+      "needs": [],
+      "steps": [
+        "Turn on Local only in Setup › Data & Network.",
+        "Open Team › Group with \"Share with my squad\" on.",
+        "Press \"Change\" beside the block."
+      ],
+      "expect": "Team shows \"Blocked · Local only is on\" and does not connect. \"Change\" opens Setup › Data & Network.",
+      "goTo": "#/team/group",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "team.group.blocked-service-off",
+      "area": "Team",
+      "feature": "Squad sharing switched off in Data & Network",
+      "needs": [],
+      "steps": [
+        "In Setup › Data & Network turn off the Squad sharing service, leaving Local only off.",
+        "Open Team › Group."
+      ],
+      "expect": "Team shows \"Blocked · Squad sharing is off in Data & Network\" and no connection is made, even with \"Share with my squad\" on.",
+      "goTo": "#/team/group",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "team.group.nothing-sent-off",
+      "area": "Team",
+      "feature": "Nothing is sent while sharing is off",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "With a squadmate in the group, switch \"Share with my squad\" off and press \"Save\".",
+        "Ask the squadmate to look at their Team › Squad page after a minute."
+      ],
+      "expect": "Your status reads \"Saved · sharing is off\" and the Group card \"Not in a group\". On the squadmate's side you go stale and then drop off; your position, loadout, quests, ready state and marks no longer update there.",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.squad.presence",
+      "area": "Team",
+      "feature": "Squadmate chips on Squad",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Join the same group key as a squadmate.",
+        "Open Team › Squad."
+      ],
+      "expect": "A chip per member shows the name, a dot and a state (\"Live\", \"Stale\" or \"Offline\") with how long ago they were heard, plus their map or raid state where known. A member that stops sharing turns \"Stale\" before \"Offline\".",
+      "goTo": "#/team",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "team.squad.alone",
+      "area": "Team",
+      "feature": "Nobody else sharing",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Join a group key nobody else uses.",
+        "Open Team › Squad."
+      ],
+      "expect": "The member row reads \"Nobody else is sharing right now.\" instead of empty chips.",
+      "goTo": "#/team"
+    },
+    {
+      "id": "team.squad.colours",
+      "area": "Team",
+      "feature": "Each squadmate has one colour everywhere",
+      "needs": [
+        "relay",
+        "squad",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Raid on the same map as a squadmate who shares their position, and take a screenshot each.",
+        "Look at their marker on the Raid map.",
+        "Open Team › Squad and look at their dot in \"Squad quests\" and in the ready rows."
+      ],
+      "expect": "Each squadmate has a colour of their own, different from yours, and the same colour appears on the map marker and beside their name in the Team lists.",
+      "goTo": "#/team"
+    },
+    {
+      "id": "team.squad.position-detail",
+      "area": "Team",
+      "feature": "Squadmate position from their screenshot",
+      "needs": [
+        "relay",
+        "squad",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Have a squadmate take a screenshot in raid.",
+        "Open Team › Group and look under \"Who else is here\"."
+      ],
+      "expect": "Their row shows a position line of the form \"x, z · from a screenshot <age>\" and their raid state (for example \"In raid\"). The age grows until the next screenshot; it is never presented as live tracking.",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.share.loadout",
+      "area": "Team",
+      "feature": "Share my loadout switch",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Open Team › Group, under \"What you share\" switch \"My loadout\" on and press \"Save\".",
+        "Ask a squadmate to look at your row under \"Who else is here\".",
+        "Switch it off, press \"Save\" and have them look again."
+      ],
+      "expect": "With the switch on, your row on their side lists your loadout; with it off, the loadout disappears from their view on the next update.",
+      "goTo": "#/team/group"
+    },
+    {
+      "id": "team.share.quests",
+      "area": "Team",
+      "feature": "Share my quest progress switch",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Under \"What you share\" switch \"My quest progress\" on and press \"Save\".",
+        "Ask a squadmate to open Team › Squad.",
+        "Switch it off, save, and have them look again."
+      ],
+      "expect": "With it on, your active quests appear on their \"Squad quests\" card; with it off, your quests are gone from their card and from \"Tonight for the squad\".",
+      "goTo": "#/team/group",
+      "refs": [
+        "#780"
+      ]
+    },
+    {
+      "id": "team.share.ready-check",
+      "area": "Team",
+      "feature": "My ready check is on by default",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Open Team › Group on a fresh setup and look at \"My ready check\".",
+        "Switch it off, press \"Save\", and ask a squadmate to look at your row in the \"Ready check\" pane on Team › Squad."
+      ],
+      "expect": "\"My ready check\" starts on, with the hint \"Your Loadout check and level, on by default.\" Once off, your row on their side reads \"nothing shared\" instead of your checks and level.",
+      "goTo": "#/team/group",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.ready.toggle",
+      "area": "Team",
+      "feature": "Ready and Not ready",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Open Team › Squad.",
+        "In the side panel's \"Ready check\" card press \"Ready\".",
+        "Ask the squadmate to press \"Ready\" too, then press \"Not ready\" yourself."
+      ],
+      "expect": "The chosen button is highlighted (\"Ready\" filled, \"Not ready\" amber) and the count beside the heading reads \"1 of 2 ready\", then \"2 of 2 ready\", then drops back when you press \"Not ready\". The squadmate sees the same count.",
+      "goTo": "#/team",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "team.ready.rows",
+      "area": "Team",
+      "feature": "Ready check rows per member",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Pick a map for the squad (the planned map on Team › Squad).",
+        "Open Team › Squad and read the \"Ready check\" pane."
+      ],
+      "expect": "One row per member: name, \"Level N\" where known, \"Ready\" or \"Not ready\", and a tick or cross per check (keys, items, weapon, gear), with the source line \"from each companion's own Loadout check\".",
+      "goTo": "#/team",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.ready.missing",
+      "area": "Team",
+      "feature": "Ready check names what is missing",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Have a squadmate plan a map on Plan › Loadout without a key or item their check asks for.",
+        "Open Team › Squad."
+      ],
+      "expect": "Their row shows the missing check in amber (for example \"no keys\") and a warning line reads \"<name> is missing N items\" alongside the ready count.",
+      "goTo": "#/team",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.ready.all-there",
+      "area": "Team",
+      "feature": "Ready check with nothing missing",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Have every member's Loadout check pass for the planned map.",
+        "Open Team › Squad."
+      ],
+      "expect": "Every check shows a tick and the summary line says \"Nothing missing\" with no amber warning.",
+      "goTo": "#/team",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.share.extract",
+      "area": "Team",
+      "feature": "Share your chosen extract",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "In the side panel's \"Ready check\" card pick an extract from the \"Extract\" list.",
+        "Ask a squadmate to look at your row in their Ready check card."
+      ],
+      "expect": "Your row on their side reads \"Extract · <extract name>\"; with no choice it reads \"No extract\".",
+      "goTo": "#/team",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "team.share.note",
+      "area": "Team",
+      "feature": "Share a short note",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "In the \"Ready check\" card type in \"Note for the squad\".",
+        "Press \"Share\"."
+      ],
+      "expect": "\"Share\" is disabled while the box is empty. After sharing, the card shows \"Shared · <note>\" and the squadmate sees the note under your row. The box stops at its length limit.",
+      "goTo": "#/team",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "team.quests.squad-list",
+      "area": "Team",
+      "feature": "Squad quests card",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Both you and a squadmate turn on \"My quest progress\" and save.",
+        "Open Team › Squad and read the \"Squad quests\" card."
+      ],
+      "expect": "Each member is listed with their colour dot and a quest count; each quest shows progress like \"2/4 done\", and a \"Shared\" chip marks quests two or more of you hold.",
+      "goTo": "#/team",
+      "refs": [
+        "#780"
+      ]
+    },
+    {
+      "id": "team.quests.tonight",
+      "area": "Team",
+      "feature": "Tonight for the squad",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "With two or more members sharing quests that overlap on one map, open Team › Squad.",
+        "Read the \"Tonight for the squad\" pane."
+      ],
+      "expect": "The heading shows \"<map> · <count>\" and lists the shared quests in a suggested order, each with the members holding it (initials in their colours), and \"do together\" where an objective is shared.",
+      "goTo": "#/team",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.quests.map-ranking",
+      "area": "Team",
+      "feature": "Tonight's other maps",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Share quests that overlap on more than one map.",
+        "In \"Tonight for the squad\" press a different map chip (\"<map> · <count>\")."
+      ],
+      "expect": "One chip per map with its shared-quest count; the chosen chip is selected, the list switches to that map, and the Ready check re-runs for that map.",
+      "goTo": "#/team",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.quests.put-on-raid",
+      "area": "Team",
+      "feature": "Put on the Raid map",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Open Team › Squad with a shared plan shown under \"Tonight for the squad\".",
+        "Press \"Put on the Raid map\"."
+      ],
+      "expect": "The Raid workspace opens on the plan's map with the shared quests' objectives drawn and routed.",
+      "goTo": "#/team",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "team.quests.none",
+      "area": "Team",
+      "feature": "No shared quests yet",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Join a group where nobody else shares quests.",
+        "Open Team › Squad."
+      ],
+      "expect": "\"Tonight for the squad\" reads \"No quest two of you share yet\" with the hint \"Shared quests show when squadmates sync quests.\"",
+      "goTo": "#/team"
+    },
+    {
+      "id": "team.marks.list",
+      "area": "Team",
+      "feature": "Marks card lists the group's marks",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Have a squadmate place a waypoint and a ping on the Raid map.",
+        "Open Team and expand the \"Marks\" card in the side panel."
+      ],
+      "expect": "Waypoints are listed as \"Waypoint N\" with who marked them, scope and lifetime (\"TTL · ...\"); pings show \"pinged by <name>\" with the time left. With no marks it reads \"Waypoints your group places on the Raid map appear here.\"",
+      "goTo": "#/team"
+    },
+    {
+      "id": "team.marks.remove-undo",
+      "area": "Team",
+      "feature": "Remove a mark, then put it back",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "In the \"Marks\" card press the remove button on a waypoint.",
+        "Press the \"Put <name> back\" button that appears."
+      ],
+      "expect": "The waypoint leaves the list and the map at once, with no confirmation dialog; \"Put ... back\" restores it.",
+      "goTo": "#/team",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "team.marks.queued",
+      "area": "Team",
+      "feature": "Marks queue while the relay is away",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "While sharing, make the relay unreachable (disconnect this PC's network briefly).",
+        "Place a waypoint on the Raid map.",
+        "Open the \"Marks\" card, then restore the network."
+      ],
+      "expect": "While away, the mark reads \"Queued · sends on reconnect\" and the Marks summary shows \"1 queued\". After reconnecting, the queued label goes and the squadmate sees the waypoint.",
+      "goTo": "#/team"
+    },
+    {
+      "id": "team.raid-end.stop-position",
+      "area": "Team",
+      "feature": "Position stops when your raid ends",
+      "needs": [
+        "relay",
+        "squad",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Raid with a squadmate, both sharing, and take a screenshot so your marker shows on their map.",
+        "Extract (or die) while they stay in raid."
+      ],
+      "expect": "Once your raid ends, your marker leaves their map rather than staying at the extract looking live; your chip shows \"After raid\" or \"In menu\".",
+      "refs": [
+        "#707"
+      ]
+    },
+    {
+      "id": "team.clock.needs-fix",
+      "area": "Team",
+      "feature": "Uncorrectable PC clock warning",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Set this PC's clock several minutes wrong while the relay address is plain http.",
+        "Open Team › Devices."
+      ],
+      "expect": "A warning row reads \"Your PC clock is N min ahead of real time. Pairing won't work until it's fixed.\" (or \"behind\"), with the help line about Sync now.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#891"
+      ]
+    },
+    {
+      "id": "team.clock.corrected",
+      "area": "Team",
+      "feature": "Clock correction message",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Use an https relay address and set this PC's clock a few minutes wrong.",
+        "Open Team › Devices, then Setup › Updates & Diagnostics."
+      ],
+      "expect": "No blocking warning on Team; Setup › Updates & Diagnostics reads \"PC clock N min ahead of the relay. Corrected automatically.\" with \"Nothing to do.\" Squadmate ages and marks still show correct times.",
+      "goTo": "#/setup",
+      "refs": [
+        "#891"
+      ]
+    },
+    {
+      "id": "team.party.card",
+      "area": "Team",
+      "feature": "Party card from your own game",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Queue for a raid in a party with a friend.",
+        "Open Team and look at the \"Party\" card in the side panel."
+      ],
+      "expect": "The card fills in with the party members, their role (\"Party leader\" or \"Party member\"), level and scav timer where the game logged them, and the queue line. With no party it reads the hint starting \"It fills in when you queue with somebody.\"",
+      "goTo": "#/team"
+    },
+    {
+      "id": "team.mode-warning",
+      "area": "Team",
+      "feature": "Squadmate on another game mode",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "Have a squadmate share while playing a different game mode from yours.",
+        "Open Team and press \"OK\" on the warning."
+      ],
+      "expect": "A warning in the side panel names the squadmate and both modes and says quests are not shared across modes. \"OK\" dismisses it, and it stays quiet until somebody new on another mode joins.",
+      "goTo": "#/team",
+      "refs": [
+        "#269"
+      ]
+    },
+    {
+      "id": "team.open-squad-map",
+      "area": "Team",
+      "feature": "Open squad map",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open Team › Squad.",
+        "Press \"Open squad map\" in the side panel."
+      ],
+      "expect": "The Raid workspace opens showing the shared plan's map with the group's marks.",
+      "goTo": "#/team"
+    },
+    {
+      "id": "tablet.pair.start",
+      "area": "Tablet",
+      "feature": "Start pairing on the desktop",
+      "needs": [
+        "relay",
+        "tablet",
+        "windows"
+      ],
+      "steps": [
+        "Join a group on an https relay.",
+        "Open Team › Devices and press \"Start pairing\"."
+      ],
+      "expect": "The row shows \"Scan this with the tablet's camera, or open the address below and type the code:\", a QR code, a pairing code, the relay's tablet address, a countdown \"Expires in ...\" and \"Waiting for the tablet…\".",
+      "goTo": "#/tablet",
+      "refs": [
+        "#289",
+        "#292"
+      ]
+    },
+    {
+      "id": "tablet.pair.enter-code",
+      "area": "Tablet",
+      "feature": "Enter the code on the tablet",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Scan the QR code or open the shown address on the tablet.",
+        "Type the pairing code in \"Pairing code\" and a name in \"This tablet's name\", then tap \"Pair\"."
+      ],
+      "expect": "The tablet says \"Confirm this matches the desktop before it is approved:\" with a code. The desktop shows \"<tablet name> wants to pair. Approve it only if the tablet shows this code:\" with the same code.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "tablet.pair.approve",
+      "area": "Tablet",
+      "feature": "Approve pairing",
+      "needs": [
+        "relay",
+        "tablet",
+        "windows"
+      ],
+      "steps": [
+        "Check the code on the tablet matches the one on the desktop.",
+        "Press \"Approve\" on the desktop."
+      ],
+      "expect": "The desktop says \"Paired \"<name>\".\" and lists the tablet under \"Your devices\"; the tablet says \"Paired as \"<name>\".\" and opens the map surface.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#292"
+      ]
+    },
+    {
+      "id": "tablet.pair.deny",
+      "area": "Tablet",
+      "feature": "Deny pairing",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Start pairing and enter the code on the tablet.",
+        "Press \"Deny\" on the desktop."
+      ],
+      "expect": "The desktop says \"Declined.\" and no device is added; the tablet does not reach the map.",
+      "goTo": "#/tablet"
+    },
+    {
+      "id": "tablet.pair.expired",
+      "area": "Tablet",
+      "feature": "Pairing code expires",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open Team › Devices and press \"Start pairing\".",
+        "Do nothing until the \"Expires in\" countdown runs out."
+      ],
+      "expect": "The row reads \"This code has expired. Start pairing again.\" and the old code no longer works on a tablet.",
+      "goTo": "#/tablet"
+    },
+    {
+      "id": "tablet.pair.unavailable",
+      "area": "Tablet",
+      "feature": "Pairing blocked without an https relay",
+      "needs": [],
+      "steps": [
+        "Leave the relay address empty, or set a plain http address.",
+        "Open Team › Devices."
+      ],
+      "expect": "\"Pair a tablet\" is disabled and the reason reads \"Pairing needs Windows and a group relay configured with an https address (Settings > Group).\"",
+      "goTo": "#/tablet"
+    },
+    {
+      "id": "tablet.map.follow",
+      "area": "Tablet",
+      "feature": "Tablet follows the desktop's raid map",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "On a paired tablet leave the mode on \"Follow\".",
+        "On the desktop, change the Raid map and pan or zoom it."
+      ],
+      "expect": "The tablet shows \"Following the desktop's map.\" and moves to the same map, floor, pan and zoom shortly after the desktop does.",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.map.follow-drag",
+      "area": "Tablet",
+      "feature": "Dragging in Follow explains itself",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "In \"Follow\", drag the tablet's map with a finger.",
+        "Tap the notice's action."
+      ],
+      "expect": "The map does not move; a notice reads \"Following the desktop · switch to Independent to move the map yourself\", and its action switches to \"Independent\".",
+      "refs": [
+        "#570"
+      ]
+    },
+    {
+      "id": "tablet.map.pan-zoom",
+      "area": "Tablet",
+      "feature": "Drag pans, pinch zooms",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Tap \"Independent\".",
+        "Drag the map, pinch to zoom, then use the + and − buttons and the fit button."
+      ],
+      "expect": "The tablet reads \"Moving this tablet's own view. The desktop is not following.\" The map pans and zooms smoothly on the tablet only; the desktop's map stays where it was.",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.map.show-on-desktop",
+      "area": "Tablet",
+      "feature": "Show this view on desktop",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "In \"Independent\", move to another part of the map.",
+        "Tap \"Show this view on desktop\"."
+      ],
+      "expect": "The desktop's Raid map jumps once to the tablet's view and the tablet says \"Sent this view to the desktop.\"; the tablet stays in Independent.",
+      "refs": [
+        "#290"
+      ]
+    },
+    {
+      "id": "tablet.map.send-to-tablet",
+      "area": "Tablet",
+      "feature": "Send the desktop view to tablets",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Open a map on Raid on the desktop.",
+        "Open Team › Devices and press \"Send to tablet\"."
+      ],
+      "expect": "The desktop says \"Sent this map view to your tablets.\" and the paired tablet shows the same map view. With no map open it says \"Not sent. Open a map on Raid and check the relay.\"",
+      "goTo": "#/tablet",
+      "refs": [
+        "#290"
+      ]
+    },
+    {
+      "id": "tablet.map.squad",
+      "area": "Tablet",
+      "feature": "Squad positions on the tablet",
+      "needs": [
+        "relay",
+        "tablet",
+        "squad",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Raid with a squadmate who shares their position and takes a screenshot.",
+        "Look at the paired tablet's map."
+      ],
+      "expect": "The squadmate's marker is drawn in the same colour it has on the desktop, at the position from their last screenshot."
+    },
+    {
+      "id": "tablet.mark.ping",
+      "area": "Tablet",
+      "feature": "Tap to ping",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "On the tablet's map tap a spot.",
+        "Look at the desktop's Raid map."
+      ],
+      "expect": "The tablet says \"Pinged.\" and a ping appears at that spot on the desktop (and on squadmates' maps when the scope is Squad), fading after its short life.",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "tablet.mark.waypoint",
+      "area": "Tablet",
+      "feature": "Hold for a waypoint",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Press and hold on the tablet's map.",
+        "Look under \"Marks\" on the tablet and on the desktop."
+      ],
+      "expect": "The tablet says \"Waypoint added.\"; the waypoint appears on both maps and in the tablet's mark list, where it can be labelled with \"Save label\" or removed with \"Remove\".",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "tablet.mark.options",
+      "area": "Tablet",
+      "feature": "Mark colour, scope and lifetime",
+      "needs": [
+        "relay",
+        "tablet",
+        "squad"
+      ],
+      "steps": [
+        "Under \"Marks\" pick \"Just me\", a colour swatch and \"15 min\" from the lifetime list.",
+        "Hold on the map to place a waypoint.",
+        "Switch to \"Squad\" and place another."
+      ],
+      "expect": "Both marks use the chosen colour and the mark list shows their scope and lifetime. The \"Just me\" mark does not appear on the squadmate's map; the \"Squad\" one does.",
+      "refs": [
+        "#289",
+        "#290"
+      ]
+    },
+    {
+      "id": "tablet.route.draw",
+      "area": "Tablet",
+      "feature": "Draw a short route",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Tap \"Draw route\".",
+        "Tap three stops on the map, tap \"Undo\" once, add another stop, then tap \"Done\"."
+      ],
+      "expect": "While drawing it says \"Tap each stop, then Done.\"; \"Undo\" removes the last stop; \"Done\" sends it and says \"Route sent · N stops.\" The route shows on the desktop. \"Cancel\" instead sends nothing.",
+      "refs": [
+        "#290"
+      ]
+    },
+    {
+      "id": "tablet.now.panel",
+      "area": "Tablet",
+      "feature": "Now panel beside the map",
+      "needs": [
+        "relay",
+        "tablet",
+        "game"
+      ],
+      "steps": [
+        "With the desktop's Now panel on, hold a paired tablet on its side.",
+        "Look beside the map."
+      ],
+      "expect": "The Now panel shows NOW, YOU, SQUAD, NEXT and LAST SCAN in the desktop's own words, beside the map; the ages count up. With the flag off, the tablet shows its controls column instead.",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "tablet.now.phone",
+      "area": "Tablet",
+      "feature": "Now panel under the map on a phone",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Pair a phone as a tablet.",
+        "Hold the phone upright while the desktop shows a raid map."
+      ],
+      "expect": "The Now panel sits under the map rather than beside it, and the map keeps usable height.",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "tablet.now.controls",
+      "area": "Tablet",
+      "feature": "Switch between Now and the controls",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "With the Now panel showing, tap the ☰ button on the map.",
+        "Tap \"Back to Now\"."
+      ],
+      "expect": "The first tap swaps the Now panel for the controls column (modes, Layers, Marks); \"Back to Now\" returns the Now panel.",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "tablet.now.squad-ping",
+      "area": "Tablet",
+      "feature": "Ping from a SQUAD row",
+      "needs": [
+        "relay",
+        "tablet",
+        "squad",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "With a squadmate sharing a position, find their row under SQUAD in the tablet's Now panel.",
+        "Tap the row's \"Ping\" button."
+      ],
+      "expect": "A ping appears at the squadmate's last shared spot on the desktop and the squad's maps. With no shared spot the button is disabled.",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "tablet.control.request",
+      "area": "Tablet",
+      "feature": "Ask for Control, approve on the desktop",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "On the tablet tap \"Control\".",
+        "On the desktop, in Team › Devices, press \"Allow\"."
+      ],
+      "expect": "The tablet first says \"Waiting for the desktop to allow this tablet to drive.\"; the desktop shows \"<name> is asking to control this desktop.\" After \"Allow\" the tablet says \"You are driving the desktop. It can take control back at any time.\"",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.control.deny",
+      "area": "Tablet",
+      "feature": "Denied Control request",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "On the tablet tap \"Control\".",
+        "On the desktop press \"Deny\"."
+      ],
+      "expect": "The tablet falls back to its previous mode and does not move the desktop.",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.control.in-step",
+      "area": "Tablet",
+      "feature": "Zoom and pan in step while in Control",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Hold Control on the tablet.",
+        "Drag and pinch the tablet's map, then pick another map from the \"Map\" list."
+      ],
+      "expect": "The desktop's Raid map pans and zooms along with the finger, not only when it lifts, and switches to the chosen map.",
+      "refs": [
+        "#604",
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.control.workspaces",
+      "area": "Tablet",
+      "feature": "Switch desktop workspaces from the tablet",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Hold Control on the tablet.",
+        "Tap \"Intel\", then \"Raid\", in the workspace row."
+      ],
+      "expect": "The desktop switches to Intel, then back to Raid. The workspace row is hidden outside Control.",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.control.search",
+      "area": "Tablet",
+      "feature": "Search on desktop",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Outside Control, look at the search box under the controls.",
+        "Tap \"Take control\", get it allowed, type an item name and tap \"Search on desktop\"."
+      ],
+      "expect": "Outside Control it reads \"Take control of the desktop to search on it.\" and the button is disabled. In Control the desktop looks it up and the answers come back as a list on the tablet.",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.control.take-back",
+      "area": "Tablet",
+      "feature": "Desktop takes control back",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "While a tablet holds Control, open Team › Devices on the desktop.",
+        "Press \"Take back control\"."
+      ],
+      "expect": "The desktop shows \"<name> is controlling this desktop.\" until pressed. Afterwards the tablet leaves Control and its gestures no longer move the desktop.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#407"
+      ]
+    },
+    {
+      "id": "tablet.review.stash",
+      "area": "Tablet",
+      "feature": "Stash scan review card",
+      "needs": [
+        "relay",
+        "tablet",
+        "game",
+        "stash-screenshot"
+      ],
+      "steps": [
+        "With a paired tablet, take a screenshot of your stash in the game.",
+        "When the Stash scan page updates on the desktop, look at the tablet.",
+        "Close the card and tap \"Last stash scan\"."
+      ],
+      "expect": "A \"Stash scan\" card opens on the tablet with the same rows the desktop page drew; \"Back to map\" closes it and \"Last stash scan\" reopens it.",
+      "flag": "tablet-review-cards",
+      "refs": [
+        "#290"
+      ]
+    },
+    {
+      "id": "tablet.review.flea",
+      "area": "Tablet",
+      "feature": "Flea screen review card",
+      "needs": [
+        "relay",
+        "tablet",
+        "game",
+        "flea-screenshot"
+      ],
+      "steps": [
+        "With a paired tablet, take a screenshot of a flea market screen in the game.",
+        "Look at the tablet, then close the card and tap \"Last flea scan\"."
+      ],
+      "expect": "A flea review card opens on the tablet with what the desktop read; \"Last flea scan\" reopens it. With the flag off, neither card is sent.",
+      "flag": "tablet-review-cards",
+      "refs": [
+        "#290"
+      ]
+    },
+    {
+      "id": "tablet.loot.sheet",
+      "area": "Tablet",
+      "feature": "Loot Scan result on the tablet",
+      "needs": [
+        "relay",
+        "tablet",
+        "game",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "With a paired tablet, take a screenshot of an open container in raid.",
+        "Look at the tablet, close the sheet, then tap \"Last loot scan\"."
+      ],
+      "expect": "A \"Loot scan\" sheet opens on the tablet with the items and their verdicts; \"Back to map\" closes it and \"Last loot scan\" reopens it.",
+      "refs": [
+        "#572"
+      ]
+    },
+    {
+      "id": "tablet.devices.revoke",
+      "area": "Tablet",
+      "feature": "Revoke a tablet from the desktop",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "Open Team › Devices.",
+        "Press \"Revoke\" on a paired tablet, then \"Confirm revoke\"."
+      ],
+      "expect": "The first press shows \"<name> will have to be paired again. This cannot be undone.\" and changes the button to \"Confirm revoke\". After confirming, the tablet returns to its pairing screen and says \"Unpaired. Start pairing on the desktop to pair this tablet again.\"",
+      "goTo": "#/tablet"
+    },
+    {
+      "id": "tablet.devices.forget",
+      "area": "Tablet",
+      "feature": "Forget this desktop on the tablet",
+      "needs": [
+        "relay",
+        "tablet"
+      ],
+      "steps": [
+        "On a paired tablet tap \"Forget this desktop\" in the header.",
+        "Confirm the prompt."
+      ],
+      "expect": "The tablet asks \"Forget this desktop and pair again?\" and, once confirmed, shows \"Pair with your desktop\" again with the code and name fields."
+    },
+    {
+      "id": "relay.admin.card",
+      "area": "Relay",
+      "feature": "Relay admin card for the owner",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "On the desktop that owns the relay, open Team › Devices.",
+        "Press \"Refresh\" on the \"Relay admin\" card."
+      ],
+      "expect": "The card reads \"You own this relay. These act on everyone in a room.\" and lists each room in use with its members, marks and drawings counts and last activity. A desktop that does not own the relay does not show the card.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#920"
+      ]
+    },
+    {
+      "id": "relay.admin.clear-drawings",
+      "area": "Relay",
+      "feature": "Clear a room's drawings",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "On the Relay admin card press \"Clear drawings\" on a room.",
+        "Read the prompt, then press \"Confirm\"."
+      ],
+      "expect": "It asks \"Clear every drawing in <room>?\" once, with \"Confirm\" and \"Cancel\". \"Cancel\" sends nothing. After \"Confirm\" the drawings vanish from every member's map and the card reports how many were removed.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#920"
+      ]
+    },
+    {
+      "id": "relay.admin.clear-member-drawings",
+      "area": "Relay",
+      "feature": "Clear one member's drawings",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "On the Relay admin card press \"Clear drawings\" beside one member.",
+        "Press \"Confirm\"."
+      ],
+      "expect": "It asks \"Clear <name>'s drawings?\" once; afterwards only that member's drawings are gone and everyone else's remain.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#920"
+      ]
+    },
+    {
+      "id": "relay.admin.clear-marks",
+      "area": "Relay",
+      "feature": "Clear a room's marks",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "On the Relay admin card press \"Clear marks\" on a room.",
+        "Press \"Confirm\"."
+      ],
+      "expect": "It asks \"Clear every waypoint and ping in <room>?\" once; after confirming, every waypoint and ping in that room disappears from all members' maps and Marks cards.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#920"
+      ]
+    },
+    {
+      "id": "relay.admin.reset-room",
+      "area": "Relay",
+      "feature": "Reset a room",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "On the Relay admin card press \"Reset room\".",
+        "Press \"Confirm\"."
+      ],
+      "expect": "It asks \"Reset <room>? Marks and drawings go; members reconnect.\" once; afterwards marks and drawings are gone and members reappear after reconnecting.",
+      "goTo": "#/tablet",
+      "refs": [
+        "#920"
+      ]
+    },
+    {
+      "id": "relay.admin.remove-member",
+      "area": "Relay",
+      "feature": "Remove somebody from a room",
+      "needs": [
+        "relay",
+        "squad",
+        "second-pc"
+      ],
+      "steps": [
+        "On the Relay admin card press \"Remove\" beside a member.",
+        "Press \"Confirm\".",
+        "Look at the removed member's Team › Group status."
+      ],
+      "expect": "It asks \"Remove <name>? They rejoin by turning sharing off and on.\" once. The card shows \"Removed: <name>\", and the removed desktop reads \"Removed by the relay owner. Turn sharing off and on to rejoin.\"",
+      "goTo": "#/tablet",
+      "refs": [
+        "#920"
+      ]
+    },
+    {
+      "id": "relay.operator.key",
+      "area": "Relay",
+      "feature": "Operator page needs its own key",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open the relay's /admin page in a browser.",
+        "Type a group key in \"Admin key\" and press \"Load\".",
+        "Type the operator's admin key and press \"Load\"."
+      ],
+      "expect": "With a group key it says \"That key was not accepted.\" and shows nothing. With the admin key the header shows the running version, commit and \"up since\", and the Access, Build and room sections fill in.",
+      "refs": [
+        "#249"
+      ]
+    },
+    {
+      "id": "relay.operator.build",
+      "area": "Relay",
+      "feature": "Running build against published",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "On the /admin page, loaded with the admin key, read the \"Build\" section.",
+        "Press \"Check again\"."
+      ],
+      "expect": "It says \"Up to date, on <checksum>.\" or \"A newer build is published: ...\" with \"This relay is on ...\". A host without a configured signed feed says why it reports no build instead of pretending to be current.",
+      "refs": [
+        "#251"
+      ]
+    },
+    {
+      "id": "relay.operator.update-signed",
+      "area": "Relay",
+      "feature": "Signed self-update status",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "On the /admin page press \"Update now\".",
+        "Come back after the updater's next run and press \"Check again\"."
+      ],
+      "expect": "The Build section says \"Asked for. The relay restarts if there is a newer build.\", and later shows the new build as installed; a published build that failed its health check reads \"... was installed here, did not answer, and was rolled back.\" Without the signing trust root the updater refuses and the build does not change.",
+      "refs": [
+        "#251"
+      ]
+    },
+    {
+      "id": "relay.operator.register-room",
+      "area": "Relay",
+      "feature": "Register a room",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open the relay's /admin page and load it with the admin key.",
+        "Type a name in \"Room name, for you\", leave \"Existing key, or blank for a new one\" empty and press \"Add\"."
+      ],
+      "expect": "The new room appears under \"Registered rooms\" and a generated key is shown once with \"send this key to the group. It is not shown again.\" A blank name says \"A room needs a name.\"",
+      "refs": [
+        "#249"
+      ]
+    },
+    {
+      "id": "relay.operator.first-room-closes",
+      "area": "Relay",
+      "feature": "Registering the first room closes the relay",
+      "needs": [
+        "relay",
+        "second-pc"
+      ],
+      "steps": [
+        "On a relay with nothing registered, note the Access section reads \"Open. Any key makes a room. Register one to close it.\"",
+        "Register one room.",
+        "On another PC join with a key that is not registered."
+      ],
+      "expect": "Access now reads \"Closed. Only the 1 rooms below may be used.\" The other PC's Team › Group status says \"This relay only serves rooms its operator registered\" and it does not connect.",
+      "refs": [
+        "#249",
+        "#317"
+      ]
+    },
+    {
+      "id": "relay.operator.unregistered",
+      "area": "Relay",
+      "feature": "Rooms in use but not registered",
+      "needs": [
+        "relay",
+        "squad"
+      ],
+      "steps": [
+        "With a group already sharing on an open relay, load the /admin page.",
+        "Under \"In use, not registered\" press \"Adopt\" on that room and name it."
+      ],
+      "expect": "The room in use is listed with its member count; after \"Adopt\" it moves to \"Registered rooms\" and its members stay connected. With none it reads \"None. Every room in use is one you registered.\"",
+      "refs": [
+        "#249"
+      ]
+    },
+    {
+      "id": "relay.reports.reach-relay",
+      "area": "Relay",
+      "feature": "Problem reports reach the relay",
+      "needs": [
+        "relay"
+      ],
+      "steps": [
+        "Open Setup › Updates & Diagnostics and press \"Report a problem\".",
+        "Read the preview, tick \"Send this report, exactly as shown\" and press \"Send this report\".",
+        "Check the repository's issues after the next hourly pickup."
+      ],
+      "expect": "The preview is the whole report and nothing is sent before the tick and press. After sending, a new issue naming the report appears within about an hour; no logs, paths, screenshots or keys appear in it.",
+      "goTo": "#/setup"
+    }
+  ]
+}

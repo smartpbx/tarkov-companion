@@ -1,0 +1,989 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "raid.map.picker",
+      "area": "Raid map",
+      "feature": "Map picker in the top bar",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Open the map drop-down in the top bar (next to the app name).",
+        "Pick a different map, for example Woods."
+      ],
+      "expect": "The Raid map redraws as the chosen map, the drop-down shows its name, and the map opens fitted: the whole plan on screen.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.picker-remembered",
+      "area": "Raid map",
+      "feature": "Last map reopens after restart",
+      "needs": [],
+      "steps": [
+        "Pick a map other than Customs in the top-bar map drop-down.",
+        "Close the companion and start it again.",
+        "Open the Raid page."
+      ],
+      "expect": "The map you picked last opens, not Customs. Customs is only the first map for someone who never picked one.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.follows-raid-map",
+      "area": "Raid map",
+      "feature": "Map follows the raid you enter",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Leave a different map selected in the companion.",
+        "Start a raid in the game and wait for it to load."
+      ],
+      "expect": "The Raid map switches to the raid's map by itself, and the status line under the map says \"Following the raid on\" and the map name.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.loading",
+      "area": "Raid map",
+      "feature": "Loading state",
+      "needs": [],
+      "steps": [
+        "Close the companion if it is running.",
+        "Start the companion and open the Raid page straight away."
+      ],
+      "expect": "While the catalog loads, the map area says \"Loading maps…\" or \"Loading the map…\" instead of a blank or broken map, and the map appears once it has loaded.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.catalog-local-only",
+      "area": "Raid map",
+      "feature": "No map saved while Local only is on",
+      "needs": [],
+      "steps": [
+        "On a PC that has never downloaded maps, turn on Local only in Setup, Data & Network.",
+        "Open the Raid page."
+      ],
+      "expect": "The map card says \"No map saved on this PC yet\" and \"Local only is on — turn it off in Setup › Data & Network to download maps\", with an \"Open Data & Network\" button that goes to that Setup section. Nothing is downloaded.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.artwork",
+      "area": "Raid map",
+      "feature": "Photo tiles or drawn plan, per map",
+      "needs": [],
+      "steps": [
+        "On a map that publishes both, for example Customs, open \"View\" on the map strip.",
+        "Under \"Artwork\", choose the other variant (\"Photo\" or \"Drawing\").",
+        "Switch to another map and back, then restart the companion."
+      ],
+      "expect": "The background changes between the photographic tiles and the hand-drawn plan, the chosen variant stays ticked, and the same map comes back with that artwork after the map switch and the restart. Other maps keep their own choice.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.position",
+      "area": "Raid map",
+      "feature": "Your position and heading from a screenshot",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Start a raid.",
+        "Press the game's screenshot key.",
+        "Look at the Raid map."
+      ],
+      "expect": "A marker for you appears where you are standing, with a cone pointing the way you were facing. Hovering it shows \"You\", the area and \"facing\" with degrees. Nothing is captured from the screen: only the screenshot's filename is read.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.position-stale",
+      "area": "Raid map",
+      "feature": "Old position is marked as old",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Take a screenshot in raid.",
+        "Wait more than two minutes without taking another.",
+        "Hover your marker."
+      ],
+      "expect": "Your marker is drawn faded and the detail says \"From an older screenshot — you have probably moved since.\"",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.trail",
+      "area": "Raid map",
+      "feature": "Your path this raid",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In one raid, take a screenshot, walk a distance, and take two or three more.",
+        "Look at the Raid map."
+      ],
+      "expect": "A dotted line joins your screenshot positions in order, ending at your current marker. It is labelled \"Your path this raid\" and belongs to the \"You\" layer.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.follow",
+      "area": "Raid map",
+      "feature": "Follow moves the map to you",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Zoom in on some other part of the map.",
+        "Press \"Follow\" on the map strip so it is lit.",
+        "Take a screenshot in the game."
+      ],
+      "expect": "When the screenshot lands the map centres on your marker at the Follow zoom. Each later screenshot re-centres it again.",
+      "goTo": "#/raid",
+      "refs": [
+        "#675"
+      ]
+    },
+    {
+      "id": "raid.map.follow-zoom",
+      "area": "Raid map",
+      "feature": "Follow zoom",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "With \"Follow\" on, press the zoom button next to it (it shows a value such as 3×).",
+        "Press \"+\" twice, then \"−\" once.",
+        "Take a screenshot."
+      ],
+      "expect": "The value steps by 0.5 (between 1× and 8×) and the map re-centres on you at the new zoom. The chosen zoom is still there after a restart. Zooming with the mouse wheel while following also changes the value instead of turning Follow off.",
+      "goTo": "#/raid",
+      "refs": [
+        "#675",
+        "#663"
+      ]
+    },
+    {
+      "id": "raid.map.follow-off-on-drag",
+      "area": "Raid map",
+      "feature": "Dragging the map turns Follow off",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "With \"Follow\" on and a position on the map, drag the map away.",
+        "Take another screenshot."
+      ],
+      "expect": "\"Follow\" goes unlit after the drag, and the new screenshot does not pull the map back to you. Pressing \"Follow\" again re-centres on you.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.zoom-pan",
+      "area": "Raid map",
+      "feature": "Zoom, pan and fit",
+      "needs": [],
+      "steps": [
+        "Press \"Zoom map in\" (the plus button at the map's right edge) twice, then use the mouse wheel.",
+        "Drag the map with the left mouse button.",
+        "Press \"Fit plan\" (or Alt+F)."
+      ],
+      "expect": "Each zoom step enlarges the map around the view, the wheel zooms smoothly, the drag moves the map, and \"Fit plan\" puts the whole map back on screen centred.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.rotate",
+      "area": "Raid map",
+      "feature": "Turn the map a quarter",
+      "needs": [],
+      "steps": [
+        "Open \"View\" on the map strip.",
+        "Press \"Rotate\" (\"Turn the map a quarter\").",
+        "Switch maps and come back."
+      ],
+      "expect": "The map turns 90 degrees each press and the button shows the angle (90°, 180°, 270°) until back to \"Rotate\". Markers and your heading cone turn with it. The turn is remembered for that map only.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.floor-auto",
+      "area": "Raid map",
+      "feature": "Floor chosen from your height",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Open a map with floors, for example Interchange or Streets, in a raid.",
+        "Make sure \"Follow floor automatically\" is ticked under \"View\".",
+        "Go upstairs in a building and take a screenshot."
+      ],
+      "expect": "The floor picker moves to the floor you are on, and the note beside it says \"Floor from your screenshot\" and the floor's name. Outside any floor's extent it says \"Your height matches no floor here — pick the floor yourself\".",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.floor-manual",
+      "area": "Raid map",
+      "feature": "Choosing a floor by hand",
+      "needs": [],
+      "steps": [
+        "On a map with floors, press \"Up a floor\" or \"Down a floor\", or pick a floor from the floor picker.",
+        "Take a screenshot in raid (if available)."
+      ],
+      "expect": "The map shows the floor you picked and \"Follow my floor\" / \"Follow floor automatically\" turns off, so a later screenshot does not move you off it. Ticking \"Follow my floor\" again returns to automatic floor selection.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.stack",
+      "area": "Raid map",
+      "feature": "2D and Stack",
+      "needs": [],
+      "steps": [
+        "On a map with several drawn floors, for example Interchange, press \"Stack\" (\"Floor stack\") in the map strip (or Alt+2).",
+        "Press \"2D\" (or Alt+1)."
+      ],
+      "expect": "Stack shows the floors as stacked plates with a line such as \"Stacked · 3 floors\"; if the photo artwork was chosen it uses the drawn plan. 2D returns to one floor. \"3D\" stays disabled with the tip \"Not available yet: no 3D map model to draw\".",
+      "goTo": "#/raid",
+      "refs": [
+        "#923"
+      ]
+    },
+    {
+      "id": "raid.map.stack-unavailable",
+      "area": "Raid map",
+      "feature": "Stack disabled where a map cannot stack",
+      "needs": [],
+      "steps": [
+        "Open a one-floor map such as Woods and hover \"Stack\".",
+        "Open The Lab and hover \"Stack\"."
+      ],
+      "expect": "On a one-floor map Stack is disabled and says \"This map has one floor\". On a map with no floor drawings it is disabled and says \"No floor drawings for this map; use the floor picker\". Pressing a disabled Stack does nothing.",
+      "goTo": "#/raid",
+      "refs": [
+        "#923"
+      ]
+    },
+    {
+      "id": "raid.map.mode-navigate",
+      "area": "Raid map",
+      "feature": "Navigate mode",
+      "needs": [],
+      "steps": [
+        "Press the Navigate (\"Move the map\") button in the mode group on the map strip.",
+        "Drag the map and left-click a marker."
+      ],
+      "expect": "A drag pans the map and a click selects the marker. No stops, lines or popovers are created.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.mode-inspect",
+      "area": "Raid map",
+      "feature": "Inspect mode",
+      "needs": [],
+      "steps": [
+        "Press the Inspect button (\"Inspect: click to see what is there\").",
+        "Read the bar at the top of the map, then click a spot on the map near an extract."
+      ],
+      "expect": "The bar says \"Click the map to inspect a spot\". A popover opens beside the spot titled \"This spot\" or \"Near\" an area, with \"Nearest extracts\" (distances, captioned \"Straight line, walking\") and, where present, \"Spawn areas (modelled)\", \"Objectives here\" and \"Loot here\"; an empty spot says \"No objectives, loot or spawns marked close by\". \"Close inspect\" closes it and nothing is placed on the map.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.mode-route",
+      "area": "Raid map",
+      "feature": "Route mode: build a route stop by stop",
+      "needs": [],
+      "steps": [
+        "Press the Route button (\"Route: click to add stops\").",
+        "Click three places on the map.",
+        "Press \"Undo\", then \"Clear\", then \"Done\"."
+      ],
+      "expect": "The bar reads \"Route\" and \"Click the map to add stops\", then counts stops (\"3 stops\") with numbered stops joined by a dashed line. \"Undo\" takes off the last stop, \"Clear\" removes all of them, \"Done\" returns to Navigate. After twelve stops the count says \"the most\" and further clicks add nothing.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.mode-escape",
+      "area": "Raid map",
+      "feature": "Escape leaves a mode",
+      "needs": [],
+      "steps": [
+        "Enter Inspect, Route or Draw mode.",
+        "Press Escape."
+      ],
+      "expect": "The map goes back to Navigate mode and the mode's bar at the top of the map closes. Pressing a lit mode button again does the same.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.draw",
+      "area": "Raid map",
+      "feature": "Draw a line on the map",
+      "needs": [],
+      "steps": [
+        "Press the pencil (Draw) button in the mode group.",
+        "Left-drag on the map to draw a line.",
+        "Pan, zoom and change floor, then come back."
+      ],
+      "expect": "The bar says \"Drawing\" and \"Drawing for\" who and \"Esc to stop\". Your line is drawn in white and stays in place on the floor it was drawn on through pan, zoom, turn and floor changes. Holding Space or using the middle button while dragging still pans. \"Done\" returns to Navigate.",
+      "goTo": "#/raid",
+      "flag": "draw-mode",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.draw-width",
+      "area": "Raid map",
+      "feature": "Line width: thin, medium, thick",
+      "needs": [],
+      "steps": [
+        "In Draw mode, pick \"Thin line\" in the width picker and draw a line.",
+        "Pick \"Thick line\" and draw another.",
+        "Restart the companion and enter Draw mode."
+      ],
+      "expect": "The two lines have visibly different thickness; lines already drawn keep theirs. The width picked last is still selected after the restart (Medium by default).",
+      "goTo": "#/raid",
+      "flag": "draw-mode",
+      "refs": [
+        "#919"
+      ]
+    },
+    {
+      "id": "raid.map.draw-scope",
+      "area": "Raid map",
+      "feature": "Draw for me or for the squad",
+      "needs": [
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "In Draw mode, press the settings button in the Drawing bar (\"Who sees new lines, and for how long\").",
+        "Choose \"Squad\" and a lifetime such as \"5 min\", then draw a line.",
+        "Choose \"Just me\" and draw another."
+      ],
+      "expect": "The squadmate's companion shows the Squad line in your colour and not the Just me line. The line's hover says its scope and lifetime, for example \"Squad · 5 min · ends\" and a time; it disappears when the lifetime ends.",
+      "goTo": "#/raid",
+      "flag": "draw-mode",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.draw-menu",
+      "area": "Raid map",
+      "feature": "Right-click your own line",
+      "needs": [],
+      "steps": [
+        "Draw two lines in Draw mode and press \"Done\".",
+        "Right-click one of your lines.",
+        "Choose \"Remove\"; then right-click the other and choose \"Clear my drawings\"."
+      ],
+      "expect": "The menu offers \"Remove\", \"Clear my drawings\", \"Just me\" / \"Squad\" and the lifetimes (\"This raid\", \"5 min\", \"15 min\", \"Until removed\"). Remove takes only that line; Clear my drawings removes all of your lines on this map. \"Clear mine\" in the Drawing bar does the same.",
+      "goTo": "#/raid",
+      "flag": "draw-mode",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.draw-flag-off",
+      "area": "Raid map",
+      "feature": "Drawing tools switched off",
+      "needs": [],
+      "steps": [
+        "Open \"View\" on the map strip and untick \"Drawing tools\".",
+        "Restart if it says \"Restart to apply\".",
+        "Look at the mode buttons."
+      ],
+      "expect": "The pencil is gone from the mode group and Draw mode cannot be entered. Lines already drawn, and squadmates' lines, are still shown. Ticking \"Drawing tools\" brings the pencil back.",
+      "goTo": "#/raid",
+      "flag": "draw-mode",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.map.layers-menu",
+      "area": "Raid map",
+      "feature": "Layers menu and groups",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Press the Layers button on the map strip (it reads \"Layers\" and how many are on)."
+      ],
+      "expect": "The menu lists switches under the headers You, Squad, Routes, Quests, Map, Marks & drawings, Loot and Traffic (a group with no rows on this map is left out). Each row shows its count or \"none on this map\" and can always be switched on and off.",
+      "goTo": "#/raid",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "raid.map.layers-remembered",
+      "area": "Raid map",
+      "feature": "Layer choices remembered",
+      "needs": [],
+      "steps": [
+        "Turn off \"Modelled traffic\" and turn on \"All spawns\" in Layers.",
+        "Switch to another map, then restart the companion."
+      ],
+      "expect": "Both choices hold on the other map and after the restart; a layer you never touched keeps its map default.",
+      "goTo": "#/raid",
+      "refs": [
+        "#796"
+      ]
+    },
+    {
+      "id": "raid.map.layer-you",
+      "area": "Raid map",
+      "feature": "Layer: You",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Open the Raid page.",
+        "With a screenshot position on the map, switch \"You\" off in Layers, then on."
+      ],
+      "expect": "Your marker, heading cone and this raid's path disappear and come back.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-my-trail",
+      "area": "Raid map",
+      "feature": "Layer: My trail",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Open the Raid page.",
+        "After at least one earlier raid on this map with screenshots, switch \"My trail\" on in Layers."
+      ],
+      "expect": "Faint lines of your past raids' paths on this map appear, the oldest faintest, each named \"Raid on\" and a date. It is off by default.",
+      "goTo": "#/raid",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "raid.map.layer-squad",
+      "area": "Raid map",
+      "feature": "Layer: Squad",
+      "needs": [
+        "squad",
+        "relay",
+        "in-raid"
+      ],
+      "steps": [
+        "Open the Raid page.",
+        "With a squadmate sharing positions, switch \"Squad\" off in Layers, then on."
+      ],
+      "expect": "Squadmates' markers and paths hide and return; your own marker is unaffected.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-objective-route",
+      "area": "Raid map",
+      "feature": "Layer: Objective route (gold route)",
+      "needs": [],
+      "steps": [
+        "In Plan, mark a quest on this map active with \"On it\".",
+        "Open Raid and switch \"Objective route\" on in Layers (or press \"Show route\" on the Objectives card)."
+      ],
+      "expect": "A gold line joins the quest's objective pins in a visit order from your last screenshot or selected spawn. The Layers row and \"Show route\" are the same switch, and the choice is kept after a restart.",
+      "goTo": "#/raid",
+      "refs": [
+        "#307",
+        "#902"
+      ]
+    },
+    {
+      "id": "raid.map.layer-suggested-route",
+      "area": "Raid map",
+      "feature": "Layer: Suggested extract route",
+      "needs": [],
+      "steps": [
+        "Take a screenshot in raid, or select a spawn on the map.",
+        "Switch \"Suggested extract route\" on in Layers (or press \"Show on map\" on the Suggested extract route card)."
+      ],
+      "expect": "A cyan route to an extract is drawn, and the card shows \"Suggested · lower contact\" with its length, \"Why this route\" reasons and the caveat \"Straight-line guidance · walls, water and terrain are not modelled\". Without a screenshot or spawn the card says \"Take a screenshot in raid, or select a spawn on the map, to route from there\".",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.map.layer-direct-line",
+      "area": "Raid map",
+      "feature": "Layer: Direct line",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "With a suggested extract route drawn, switch \"Direct line\" off and on in Layers."
+      ],
+      "expect": "The straight line to the extract (\"Direct line · higher contact\") hides and returns independently of the suggested route.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-quest-objectives",
+      "area": "Raid map",
+      "feature": "Layer: Quest objectives",
+      "needs": [],
+      "steps": [
+        "Have an active quest with objectives on this map.",
+        "Switch \"Quest objectives\" off and on in Layers."
+      ],
+      "expect": "Objective pins are lettered A, B, C with the same letters as the Objectives card rows, and hide and return with the switch. Only your active or pinned quests are shown.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-labels",
+      "area": "Raid map",
+      "feature": "Layer: Labels (place names)",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Switch \"Labels\" on in Layers and zoom out, then in, on Interchange."
+      ],
+      "expect": "Place names never overlap each other or a marker; less important names drop out first as you zoom out. Generic Russian shop signs read in English (for example \"Pharmacy\"), while brand names keep their own spelling.",
+      "goTo": "#/raid",
+      "refs": [
+        "#931"
+      ]
+    },
+    {
+      "id": "raid.map.layer-extracts",
+      "area": "Raid map",
+      "feature": "Layer: Extracts, only your side",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Open the Raid page with the Extracts layer on in Layers.",
+        "Start a PMC raid, open the Raid map, then do the same in a Scav raid."
+      ],
+      "expect": "In a PMC raid only PMC and shared extracts are drawn; in a Scav raid only Scav and shared ones. PMC, Scav and shared markers differ in colour and in the letter on them (P, S, P/S), and transits are hollow rings. The Extracts row switches them off and on.",
+      "goTo": "#/raid",
+      "refs": [
+        "#873",
+        "#573"
+      ]
+    },
+    {
+      "id": "raid.map.layer-locked-doors",
+      "area": "Raid map",
+      "feature": "Layer: Locked doors",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Switch \"Locked doors\" on in Layers."
+      ],
+      "expect": "Locked door markers appear on the map; they are off by default.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-switches",
+      "area": "Raid map",
+      "feature": "Layer: Switches",
+      "needs": [],
+      "steps": [
+        "Open Reserve and check that \"Switches\" is on by default; open Customs and check it is off.",
+        "Toggle it on Customs."
+      ],
+      "expect": "Switch markers show on Labs, Reserve and Interchange by default and appear on other maps only when switched on.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-all-spawns",
+      "area": "Raid map",
+      "feature": "Layer: All spawns",
+      "needs": [
+        "game",
+        "scav"
+      ],
+      "steps": [
+        "Switch \"All spawns\" on in Layers outside a raid.",
+        "Start a Scav raid and look at the map."
+      ],
+      "expect": "Every spawn area on the map is drawn when on (off by default). In a Scav raid no spawns are drawn at all.",
+      "goTo": "#/raid",
+      "refs": [
+        "#257"
+      ]
+    },
+    {
+      "id": "raid.map.nearby-spawns",
+      "area": "Raid map",
+      "feature": "Nearby spawns, first five minutes",
+      "needs": [
+        "game",
+        "in-raid",
+        "pmc"
+      ],
+      "steps": [
+        "Start a PMC raid and take a screenshot within the first five minutes.",
+        "Check \"Nearby spawns · first 5 min\" in Layers."
+      ],
+      "expect": "Spawn areas within the chosen radius of your start are drawn for the first five minutes of the raid and then disappear. They are modelled from the catalog, not detected players.",
+      "goTo": "#/raid",
+      "refs": [
+        "#914"
+      ]
+    },
+    {
+      "id": "raid.map.spawn-lines",
+      "area": "Raid map",
+      "feature": "Spawn lines",
+      "needs": [
+        "game",
+        "in-raid",
+        "pmc"
+      ],
+      "steps": [
+        "In the first five minutes of a PMC raid, take a screenshot.",
+        "Check \"Spawn lines · first 5 min\" in Layers."
+      ],
+      "expect": "A dashed red line runs from each nearby spawn area to you, captioned \"possible PMC spawn\" with a distance; its detail says \"Modelled from the map's spawn areas, not a detected player.\" Lines fade out and are gone after five minutes. A Scav raid gets none.",
+      "goTo": "#/raid",
+      "refs": [
+        "#914"
+      ]
+    },
+    {
+      "id": "raid.map.spawn-radius",
+      "area": "Raid map",
+      "feature": "Spawn radius per map",
+      "needs": [],
+      "steps": [
+        "Open Layers and find \"Spawn radius\" under the Map group.",
+        "Pick \"50 m\", then switch to another map.",
+        "Come back to the first map."
+      ],
+      "expect": "The choices are 50 m, 100 m, 150 m and 300 m (150 m by default). The other map keeps its own radius, and the first map still has 50 m, also after a restart.",
+      "goTo": "#/raid",
+      "refs": [
+        "#914"
+      ]
+    },
+    {
+      "id": "raid.map.layer-my-marks",
+      "area": "Raid map",
+      "feature": "Layer: My marks",
+      "needs": [],
+      "steps": [
+        "Right-click the map to place a ping, and Shift+right-click to place a waypoint.",
+        "Switch \"My marks\" off and on in Layers."
+      ],
+      "expect": "Your marks hide and return with the switch.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-group-marks",
+      "area": "Raid map",
+      "feature": "Layer: Group marks",
+      "needs": [
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Have a squadmate place a ping and a waypoint.",
+        "Switch \"Group marks\" off and on in Layers."
+      ],
+      "expect": "The squadmate's marks appear on your map in their colour and hide and return with the switch.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.layer-drawings",
+      "area": "Raid map",
+      "feature": "Layer: Drawings",
+      "needs": [],
+      "steps": [
+        "Draw a line in Draw mode.",
+        "Switch \"Drawings\" off and on in Layers."
+      ],
+      "expect": "Your lines (and squadmates' shared lines) hide and return.",
+      "goTo": "#/raid",
+      "flag": "draw-mode"
+    },
+    {
+      "id": "raid.map.loot-layer",
+      "area": "Raid map",
+      "feature": "Layer: High-value loot",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Switch \"High-value loot\" on in Layers."
+      ],
+      "expect": "Known potential loot spawns from tarkov.dev above the threshold are drawn; nothing claims what is actually in this raid. The loot card lists them as \"Known potential spawns matching these filters.\"",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.loot-threshold",
+      "area": "Raid map",
+      "feature": "Loot value threshold, per item or per slot",
+      "needs": [],
+      "steps": [
+        "In Layers, under the High-value loot row, pick \"250k\" and then \"Any\".",
+        "Switch between \"Per item\" and \"Per slot\".",
+        "Restart the companion."
+      ],
+      "expect": "Fewer loot markers show at 250k and more at Any; per slot ranks by value per square. The chips offered are Any, 50k, 100k, 250k and 500k (50k by default), and the chosen threshold and basis are the same after the restart and in the loot card.",
+      "goTo": "#/raid",
+      "refs": [
+        "#922"
+      ]
+    },
+    {
+      "id": "raid.map.loot-focus",
+      "area": "Raid map",
+      "feature": "Loot focus and second press",
+      "needs": [],
+      "steps": [
+        "Open \"View\" and tick \"Loot focus\" (or press the gem button at the map's right edge).",
+        "Press it again."
+      ],
+      "expect": "First press leaves only loot, extracts, you and your squad drawn and the gem button's tooltip reads \"Loot focus on · press to show all layers\". The second press brings every layer back as it was. Loot focus is not saved across a restart.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.traffic-layer",
+      "area": "Raid map",
+      "feature": "Layer: Modelled traffic",
+      "needs": [],
+      "steps": [
+        "Switch \"Modelled traffic\" on in Layers.",
+        "Read the chip on the map strip."
+      ],
+      "expect": "Tinted areas are drawn on the map and the strip shows \"MODELLED TRAFFIC · NOT LIVE\". It never presents the heat as live players.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.traffic-legend",
+      "area": "Raid map",
+      "feature": "Traffic phase and legend",
+      "needs": [],
+      "steps": [
+        "With Modelled traffic on, open Layers and find the legend under it.",
+        "Pick \"Early\", then \"Late\", then \"Auto\" for Phase."
+      ],
+      "expect": "The legend reads \"Lower modelled traffic\" to \"Higher\" with named bands (low, raised, high, highest) and \"Busiest, highest first\" with place names. Changing phase changes the tint (spawns weigh most early, extracts late).",
+      "goTo": "#/raid",
+      "refs": [
+        "#266"
+      ]
+    },
+    {
+      "id": "raid.map.extract-selection",
+      "area": "Raid map",
+      "feature": "Extract detail and requirements",
+      "needs": [],
+      "steps": [
+        "Open a map with extracts that have requirements, for example Reserve.",
+        "Click an extract marker on the map (with the Now panel on, open More first to see the card)."
+      ],
+      "expect": "The extract's name heads a card in the side panel with who may use it (PMC, Scav or both) and each stated requirement, for example \"Needs key\", \"Costs\" an amount, \"No backpack\" or \"Needs co-op partner\". The extract's name stays under its marker while selected.",
+      "goTo": "#/raid",
+      "refs": [
+        "#594"
+      ]
+    },
+    {
+      "id": "raid.map.extract-switch-chain",
+      "area": "Raid map",
+      "feature": "Extract needs a switch first",
+      "needs": [],
+      "steps": [
+        "Open Reserve or Interchange.",
+        "Click an extract that needs power or a switch, or read its row in Extract options."
+      ],
+      "expect": "The requirement lists the switches in order, joined as \"Needs power:\" then \", then \" for the next, and shows any cost.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.escape-selection",
+      "area": "Raid map",
+      "feature": "Escape clears a selection",
+      "needs": [],
+      "steps": [
+        "Click an extract or loot marker so it is selected.",
+        "Press Escape."
+      ],
+      "expect": "The selection is cleared: the marker returns to its normal size and the selection card closes.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.objective-place",
+      "area": "Raid map",
+      "feature": "Place an objective with no location",
+      "needs": [],
+      "steps": [
+        "On the Objectives card, open an objective that shows no location and press \"Place on map\".",
+        "Right-click the map where it is."
+      ],
+      "expect": "While placing, the card says \"Right-click the map where it is\" with \"Cancel\". After the right-click a pin appears there, and \"Move my marker\" and \"Remove my marker\" become available.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.objective-done-pin",
+      "area": "Raid map",
+      "feature": "Right-click your objective pin",
+      "needs": [],
+      "steps": [
+        "Right-click one of your objective pins on the map.",
+        "Right-click it again."
+      ],
+      "expect": "The first right-click marks it done (dimmed with a check when \"Show completed\" is on, hidden otherwise); the second marks it not done. A squadmate's pin is not affected by your right-click.",
+      "goTo": "#/raid",
+      "refs": [
+        "#938"
+      ]
+    },
+    {
+      "id": "raid.map.ping",
+      "area": "Raid map",
+      "feature": "Right-click places a ping",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Right-click an empty spot on the map."
+      ],
+      "expect": "A ping appears there and disappears on its own after about 45 seconds. A right-click on a traffic area or extract also pings rather than being swallowed.",
+      "goTo": "#/raid",
+      "refs": [
+        "#929"
+      ]
+    },
+    {
+      "id": "raid.map.waypoint",
+      "area": "Raid map",
+      "feature": "Shift+right-click places a waypoint",
+      "needs": [],
+      "steps": [
+        "Open the Raid page.",
+        "Hold Shift and right-click an empty spot on the map."
+      ],
+      "expect": "A waypoint appears and stays until removed. It is listed in the Marks card.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.mark-lifetime-ctrl",
+      "area": "Raid map",
+      "feature": "Ctrl+right-click picks a lifetime",
+      "needs": [],
+      "steps": [
+        "Hold Ctrl and right-click the map.",
+        "Choose \"5 min\"."
+      ],
+      "expect": "A menu opens headed \"Place for\" and the current scope, with \"Ping 45 s\", \"Until removed\", \"5 min\", \"15 min\" and \"This raid\". The mark placed lasts the chosen time; hovering it shows the time left.",
+      "goTo": "#/raid",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "raid.map.mark-menu",
+      "area": "Raid map",
+      "feature": "Right-click your own mark",
+      "needs": [],
+      "steps": [
+        "Place a waypoint.",
+        "Right-click it on the map, choose \"Just me\" and then \"15 min\" from its menu.",
+        "Right-click it again and choose \"Remove\"."
+      ],
+      "expect": "The menu shows \"Remove\", then \"Just me\" / \"Squad\", then the lifetimes, with the current ones ticked. The changes apply to that mark, and Remove takes it off the map and the Marks card. The row's \"Options\" button opens the same menu.",
+      "goTo": "#/raid",
+      "refs": [
+        "#289"
+      ]
+    },
+    {
+      "id": "raid.map.mark-colour-scope",
+      "area": "Raid map",
+      "feature": "New marks: scope and colour",
+      "needs": [
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "On the Marks card, set \"New marks\" to \"Squad\" and pick a colour other than Auto.",
+        "Right-click the map to ping.",
+        "Set \"New marks\" to \"Just me\" and ping again."
+      ],
+      "expect": "Both pings use the chosen colour on your map. The squadmate sees the Squad ping in that colour and never sees the Just me ping.",
+      "goTo": "#/raid",
+      "refs": [
+        "#289",
+        "#290"
+      ]
+    },
+    {
+      "id": "raid.map.mark-rename",
+      "area": "Raid map",
+      "feature": "Rename a mark",
+      "needs": [],
+      "steps": [
+        "On the Marks card, type a name into a waypoint's name box (placeholder \"Name (blank = numbered)\").",
+        "Press \"Rename\"."
+      ],
+      "expect": "The waypoint's label on the map and in the list changes to the new name; a blank name goes back to a number.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.squad-marks-remove",
+      "area": "Raid map",
+      "feature": "Squad pings and group waypoints",
+      "needs": [
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Have a squadmate place a ping and a waypoint.",
+        "Right-click the squadmate's ping on your map.",
+        "On the \"Group waypoints\" card, press \"Clear reached\", then \"Clear all\"."
+      ],
+      "expect": "The squadmate's ping is removed by the right-click. \"Clear reached\" removes waypoints someone has reached, \"Clear all\" removes every mark on this map, and the squadmate's map updates too.",
+      "goTo": "#/raid",
+      "refs": [
+        "#707"
+      ]
+    },
+    {
+      "id": "raid.map.coop-extracts",
+      "area": "Raid map",
+      "feature": "Co-op extracts display",
+      "needs": [],
+      "steps": [
+        "Open a map with co-op extracts, for example Customs or Woods.",
+        "Open \"View\" and press the \"Co-op extracts\" row repeatedly."
+      ],
+      "expect": "It cycles \"Hidden\", \"Dim\" and \"Normal\", and co-op extracts on the map disappear, fade or draw normally to match.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.map.frame-area",
+      "area": "Raid map",
+      "feature": "Frame this building",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Take a screenshot while inside a named building.",
+        "Open \"View\" and press \"Frame\" and the area name."
+      ],
+      "expect": "The map centres on you at the Follow zoom so the building you are in is on screen. The row is only offered while a screenshot places you in a named area.",
+      "goTo": "#/raid"
+    }
+  ]
+}

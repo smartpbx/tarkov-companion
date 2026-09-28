@@ -1,0 +1,892 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "plan.quests.by-map",
+      "area": "Plan",
+      "feature": "Quests grouped by map",
+      "needs": [],
+      "steps": [
+        "Open Plan.",
+        "Look at the \"By map\" list in the left column.",
+        "Click one map card."
+      ],
+      "expect": "Each map card shows the map name and a count of objectives and quests. Clicking a card outlines it and the right panel shows that map's name, an \"Objectives (N)\" heading and a numbered list of objectives, each with its quest name and trader.",
+      "goTo": "#/plan",
+      "refs": [
+        "#574"
+      ]
+    },
+    {
+      "id": "plan.quests.filter-chips",
+      "area": "Plan",
+      "feature": "State filter chips",
+      "needs": [],
+      "steps": [
+        "Open Plan.",
+        "Click each chip in turn: \"Active\", \"Current\", \"Next\", \"Blocked\", \"Future\", \"Completed\", \"Unknown\", \"Kappa\", \"All\"."
+      ],
+      "expect": "Only the clicked chip is highlighted and the map list changes to quests in that state. A chip with nothing in it says why, for example \"No quest is blocked.\" or \"No active quests. Try Next, or All.\" The chosen chip is still selected after leaving Plan and coming back.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.trader-filter",
+      "area": "Plan",
+      "feature": "Trader filter",
+      "needs": [],
+      "steps": [
+        "Open Plan.",
+        "In the trader box under the search, pick one trader instead of \"All traders\".",
+        "Pick \"All traders\" again."
+      ],
+      "expect": "With a trader picked, only that trader's quests are counted and listed on the map cards. \"All traders\" brings every quest back.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.show-all-reset",
+      "area": "Plan",
+      "feature": "Show all after an empty filter",
+      "needs": [],
+      "steps": [
+        "Open Plan.",
+        "Pick a chip and a trader that together match no quest.",
+        "Click \"Show all\" above the list."
+      ],
+      "expect": "\"Show all\" appears only when the filter or trader leaves the board empty. Clicking it selects \"All\", resets the trader to \"All traders\" and the map list fills again.",
+      "goTo": "#/plan",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "plan.quests.search",
+      "area": "Plan",
+      "feature": "Search quests",
+      "needs": [],
+      "steps": [
+        "Open Plan.",
+        "Type part of a quest or objective name in \"Search quests, objectives, maps\".",
+        "Click the clear (X) button in the search box."
+      ],
+      "expect": "While typing, only matching quests and objectives stay in the map list and panel. A search with no match says \"No quest matches\" with the typed text. Clearing restores the full list and the X disappears.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.available-now",
+      "area": "Plan",
+      "feature": "Available now and locked reasons",
+      "needs": [],
+      "steps": [
+        "Open Plan and click \"All\".",
+        "Pick a map and read the small line beside quests you have not started."
+      ],
+      "expect": "A quest you can start shows \"Available now\". A locked quest shows \"Locked · \" followed by what opens it, such as \"finish\" a named quest or \"reach level\" N. A timed quest shows \"Waiting on a timer\". Nothing is shown as available that the catalog says is locked.",
+      "goTo": "#/plan",
+      "refs": [
+        "#288"
+      ]
+    },
+    {
+      "id": "plan.quests.mark-objective-done",
+      "area": "Plan",
+      "feature": "Mark an objective done by hand",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map with an active objective.",
+        "Click the check button \"Mark objective done\" on one objective row."
+      ],
+      "expect": "The objective is recorded complete: it leaves the active list (or shows done under \"All\"), the map's objective count drops by one, and nothing else on the quest changes.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.more-actions-state",
+      "area": "Plan",
+      "feature": "Start, done, failed and reset from More actions",
+      "needs": [],
+      "steps": [
+        "Open Plan, pick a map, and open \"More actions\" (the three dots) on an objective row.",
+        "Click \"Start quest\", then open the menu again and click \"Mark quest done\".",
+        "Open the menu under \"All\" and click \"Reset quest\"."
+      ],
+      "expect": "Only the actions that apply are listed. Start moves the quest to Active; Mark quest done records it Completed and removes it from Active; Reset quest returns it to not started. \"Mark quest failed\" records it Failed. Each change shows in the row's state chip at once.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.counted-objective",
+      "area": "Plan",
+      "feature": "One more / One fewer on a counted objective",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map with a counted objective (for example kill or find N).",
+        "Open \"More actions\" and click \"One more\", then \"One fewer\", then \"Reset objective\"."
+      ],
+      "expect": "The objective's count goes up by one, then back down by one; it never goes below zero or above the target. \"Reset objective\" clears what was recorded for that objective.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.pin",
+      "area": "Plan",
+      "feature": "Pin and unpin a quest or objective",
+      "needs": [],
+      "steps": [
+        "Open Plan, pick a map, open \"More actions\" on a row.",
+        "Click \"Pin quest\", reopen the menu, then click \"Unpin quest\".",
+        "Do the same with \"Pin objective\" / \"Unpin objective\"."
+      ],
+      "expect": "The menu label flips between Pin and Unpin to match. A pinned quest is drawn on the Raid map's quest layer even if it is not Active; unpinning takes it off unless it is Active.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.wiki",
+      "area": "Plan",
+      "feature": "Quest wiki link",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map.",
+        "Click \"Wiki\" on an objective row."
+      ],
+      "expect": "The quest's wiki page opens in the default browser. Hovering \"Wiki\" shows the attribution. Rows without a wiki link have no \"Wiki\" button.",
+      "goTo": "#/plan",
+      "refs": [
+        "#574"
+      ]
+    },
+    {
+      "id": "plan.quests.on-it",
+      "area": "Plan",
+      "feature": "On it puts a quest on the Raid map",
+      "needs": [],
+      "steps": [
+        "Open Plan, click \"All\", and search for a quest you have not started.",
+        "Click \"On it\" on one of its objective rows.",
+        "Open Raid on that quest's map."
+      ],
+      "expect": "The quest becomes Active and pinned; \"On it\" is replaced by \"Show in Raid\". On the Raid map the quest's objectives appear as lettered pins on the quest layer.",
+      "goTo": "#/plan",
+      "refs": [
+        "#802"
+      ]
+    },
+    {
+      "id": "plan.quests.show-in-raid",
+      "area": "Plan",
+      "feature": "Show in Raid on one objective",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map with an active quest.",
+        "Click \"Show in Raid\" on one objective row."
+      ],
+      "expect": "The Raid map opens on that map with that objective selected. \"Show in Raid\" is not shown on rows whose objective has no map.",
+      "goTo": "#/plan",
+      "refs": [
+        "#802"
+      ]
+    },
+    {
+      "id": "plan.quests.open-in-raid",
+      "area": "Plan",
+      "feature": "Open in Raid",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map card with active objectives.",
+        "Click \"Open in Raid\" at the bottom of the right panel."
+      ],
+      "expect": "The Raid map opens on that map with the objective route drawn and the first objective selected. With the \"All\" filter and many untracked quests on the map, it does not mark them all active.",
+      "goTo": "#/plan",
+      "refs": [
+        "#802"
+      ]
+    },
+    {
+      "id": "plan.quests.route-chip",
+      "area": "Plan",
+      "feature": "Objective route switch on Plan",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map whose objectives have map positions.",
+        "Click the \"Route\" chip beside the route summary.",
+        "Open Raid › Layers and look at \"Objective route\"."
+      ],
+      "expect": "The route line on the Plan map preview turns on or off, and Raid's \"Objective route\" layer is in the same state, because it is one switch. The caveat \"Straight-line visit order · walls, terrain, and safety are not modelled\" shows under it.",
+      "goTo": "#/plan",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "plan.quests.route-needs-origin",
+      "area": "Plan",
+      "feature": "Route asks for a starting point",
+      "needs": [],
+      "steps": [
+        "Open Plan with no spawn chosen in Raid and no position screenshot taken this session.",
+        "Pick a map with objectives."
+      ],
+      "expect": "The panel says \"Choose a spawn in Raid, or take a position screenshot, to order these objectives.\" instead of inventing an order. After a position screenshot on that map, rows show distances like \"120 m from\" the start.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.map-preview",
+      "area": "Plan",
+      "feature": "Map preview with numbered objectives",
+      "needs": [],
+      "steps": [
+        "Open Plan.",
+        "Click a map card in the \"By map\" list."
+      ],
+      "expect": "The centre shows that map with its objectives numbered like the list on the right. With no map picked it says \"Pick a map to see its objectives.\"; with nothing active it says \"Nothing planned yet. Active quest objectives appear here, grouped by map.\"",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.requirements",
+      "area": "Plan",
+      "feature": "Requirements for the map's quests",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map whose quests ask for items or keys.",
+        "Read the \"Requirements\" card under the objectives."
+      ],
+      "expect": "Each item is listed with how it is handled (\"Find in raid\", \"Hand in\" or \"Bring\") and a have/need count; ones you have enough of show a check. A count you never recorded shows as unknown, not zero.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.suggested-raid",
+      "area": "Plan",
+      "feature": "Suggested next raid",
+      "needs": [],
+      "steps": [
+        "Open Plan with active quests on several maps.",
+        "Read the \"Suggested:\" button near the top and the \"Suggested next raid\" tag on a map card.",
+        "Click the \"Suggested:\" button."
+      ],
+      "expect": "The button names one map and a quest count, and the same map card carries \"Suggested next raid\". Clicking it selects that map.",
+      "goTo": "#/plan",
+      "refs": [
+        "#288"
+      ]
+    },
+    {
+      "id": "plan.quests.export",
+      "area": "Plan",
+      "feature": "Export the plan as text",
+      "needs": [],
+      "steps": [
+        "Open Plan and pick a map.",
+        "Click \"Export\" next to the \"Next raid\" heading.",
+        "Paste the clipboard into a text editor."
+      ],
+      "expect": "A status line says \"Copied, and saved to\" a file path (or only one of the two when the clipboard or folder is not available). The pasted text starts \"Next raid plan\", has a \"Generated\" time line, the scope and search, the steps by map and a \"Shopping list\".",
+      "goTo": "#/plan",
+      "refs": [
+        "#288"
+      ]
+    },
+    {
+      "id": "plan.quests.learn-mode",
+      "area": "Plan",
+      "feature": "Learn mode reasons",
+      "needs": [],
+      "steps": [
+        "Open Plan and switch on \"Learn\" next to the heading.",
+        "Look under objective and requirement rows.",
+        "Switch \"Learn\" off."
+      ],
+      "expect": "With Learn on, each row gets a short reason line such as \"Quest: advances\" a quest or an item \"needed by this map's quests\". The same switch shows as Learn Mode in Setup › Profile & Progress. Off hides the reasons.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.game-log-marks",
+      "area": "Plan",
+      "feature": "Quests recorded from the game's log",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Start the game with the companion running.",
+        "Accept or hand in a quest at a trader in the game.",
+        "Open Plan and read the status lines under the heading."
+      ],
+      "expect": "A line says \"The game has reported quests\" with how many updated your board, and \"The game last reported a quest at\" a local time. The quest's state matches the game without any click. Before any report it says \"The game hasn't reported a quest yet this session.\"",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.squad-overlap",
+      "area": "Plan",
+      "feature": "Squad has the quest too",
+      "needs": [
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Join a group with a squadmate who shares quests.",
+        "Both of you mark the same quest active.",
+        "Open Plan and pick that quest's map."
+      ],
+      "expect": "The objective row shows a chip \"Squad has it too · \" with the squadmate's name. Quests only you hold have no such chip.",
+      "goTo": "#/plan",
+      "refs": [
+        "#780"
+      ]
+    },
+    {
+      "id": "plan.session.length",
+      "area": "Plan",
+      "feature": "Session length: You said N h",
+      "needs": [],
+      "steps": [
+        "Open Plan and find the \"Session\" card in the left column.",
+        "Change the box after \"You said\" from \"2 h\" to \"1 h\" and then \"4 h\".",
+        "Restart the companion and open Plan again."
+      ],
+      "expect": "The list of raids below gets shorter or longer with the length (1, 1.5, 2, 3 or 4 h are offered). The chosen length is still selected after restart. The default is \"2 h\".",
+      "goTo": "#/plan",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "plan.session.raids-in-order",
+      "area": "Plan",
+      "feature": "Raids in order, labelled an estimate",
+      "needs": [],
+      "steps": [
+        "Open Plan with active quests on at least two maps.",
+        "Read the Session card."
+      ],
+      "expect": "Raids are listed as \"1 · \" map, \"2 · \" map and so on, each with the quests it moves; the first is outlined. The card says \"re-plans after each raid\" and \"Estimate · about\" a duration \"a raid\" (\"from your raids\" once you have played some). Nothing claims the raids will happen.",
+      "goTo": "#/plan",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "plan.session.replans-after-raid",
+      "area": "Plan",
+      "feature": "Session re-plans after a raid",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Open Plan and note the Session card.",
+        "Play a raid to the end.",
+        "Come back to Plan."
+      ],
+      "expect": "The card now says \"1 raid played · \" with time left, and the raid list is redone from the remaining time. When no time is left it says \"No time left for another raid\".",
+      "goTo": "#/plan",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "plan.session.empty",
+      "area": "Plan",
+      "feature": "Session with nothing to plan",
+      "needs": [],
+      "steps": [
+        "Use a profile with no active quests that name a map.",
+        "Open Plan and read the Session card."
+      ],
+      "expect": "The card says \"No quest on a map to plan\" and lists no raids.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.session.hand-in",
+      "area": "Plan",
+      "feature": "Hand in reminders",
+      "needs": [],
+      "steps": [
+        "Mark every objective of an active quest done on Plan.",
+        "Read the \"Hand in\" card under the Session card."
+      ],
+      "expect": "A line says the quest \"is ready to hand in to\" its trader. Quests whose needed items are already in your stash say \"items in your stash, hand in to\" the trader. The card is hidden when nothing is ready.",
+      "goTo": "#/plan",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "plan.level.player-level",
+      "area": "Plan",
+      "feature": "Type your player level",
+      "needs": [],
+      "steps": [
+        "Open Plan and expand \"Level and trader loyalty\".",
+        "Set \"Your level\" to a number below a quest's required level, then to one above it.",
+        "Click \"All\" and look at that quest."
+      ],
+      "expect": "Below the level the quest reads \"Locked · reach level\" N; above it the lock for level goes away. The number stays after restarting. The box only accepts 1 to 79.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.level.trader-loyalty",
+      "area": "Plan",
+      "feature": "Trader loyalty levels",
+      "needs": [],
+      "steps": [
+        "Open Plan and expand \"Level and trader loyalty\".",
+        "Change one trader's loyalty number between 0 and 4."
+      ],
+      "expect": "The value is saved and the quest board is re-read, so quests gated on that trader's loyalty change between Blocked and Next. The spinner does not go below 0 or above 4.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "plan.quests.tasks-screenshot-empty",
+      "area": "Plan",
+      "feature": "Quests from TASKS screenshots on an empty profile",
+      "needs": [
+        "game",
+        "windows"
+      ],
+      "steps": [
+        "With a profile that has no quest progress, open Setup and go to \"Profile & Progress\" (or click \"Sync quests\" on Overview's \"Bring in your active quests\" card).",
+        "In \"Sync quests from screenshots\", click \"Choose screenshots\" and pick TASKS screenshots from the game.",
+        "Check the \"Matched\", \"Confirm these\" and \"Not found\" columns, then click \"Confirm sync\"."
+      ],
+      "expect": "The section shows \"Recommended for an empty profile\" before you start. Nothing changes until \"Confirm sync\"; then the status says \"Quest progress synced · \" N changes and Plan shows those quests active.",
+      "goTo": "#/setup",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "plan.quests.tasks-screenshot-sync",
+      "area": "Plan",
+      "feature": "Later TASKS screenshots offer a sync",
+      "needs": [
+        "game",
+        "windows"
+      ],
+      "steps": [
+        "With quests already recorded, open the game's TASKS screen outside a raid and take several screenshots.",
+        "In the companion, look for the banner \"Quest list seen · \" N screenshots.",
+        "Click \"Review sync\", then click \"Cancel\"."
+      ],
+      "expect": "The banner appears only outside a raid. \"Review sync\" opens the preview with \"Progress changes\". \"Cancel\" says \"Sync cancelled. Nothing changed.\" and Plan is unchanged. \"Not now\" hides the banner.",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "plan.hideout.stations",
+      "area": "Plan",
+      "feature": "Hideout stations list",
+      "needs": [],
+      "steps": [
+        "Open Plan › Hideout (or the \"Hideout\" card on Plan).",
+        "Click a station in the list."
+      ],
+      "expect": "Every station is listed with its built level and a state: \"Ready\", \"Max level\", or how many items are missing. The selected station's name and level show on the right.",
+      "goTo": "#/plan/hideout",
+      "refs": [
+        "#401"
+      ]
+    },
+    {
+      "id": "plan.hideout.built-level",
+      "area": "Plan",
+      "feature": "Set a station's built level",
+      "needs": [],
+      "steps": [
+        "Open Plan › Hideout and pick a station.",
+        "Click \"Raise the built level\", then \"Lower the built level\" next to \"Built level\"."
+      ],
+      "expect": "The level changes by one each click, the requirements switch to the next level's, and the list's state updates. The level is kept after restarting. It cannot go below 0 or above the station's maximum.",
+      "goTo": "#/plan/hideout"
+    },
+    {
+      "id": "plan.hideout.requirements-owned",
+      "area": "Plan",
+      "feature": "Requirements reduced by owned counts",
+      "needs": [
+        "stash-screenshot"
+      ],
+      "steps": [
+        "Scan your stash so owned counts are recorded.",
+        "Open Plan › Hideout and pick a station whose next level needs an item you own.",
+        "Read the \"Requirements\" rows."
+      ],
+      "expect": "Each item shows have / need, for example \"2 / 4\", and a check when you have enough. An item with no recorded count shows \"? / \" need and is \"to check\", not missing.",
+      "goTo": "#/plan/hideout"
+    },
+    {
+      "id": "plan.hideout.path",
+      "area": "Plan",
+      "feature": "Path to a target level",
+      "needs": [],
+      "steps": [
+        "Open Plan › Hideout and pick a station at least two levels below its maximum.",
+        "Use \"Raise the target level\" next to \"Target\"."
+      ],
+      "expect": "A \"Path to level\" N card lists every unbuilt level up to it in order, prerequisites first, each with build time and any missing items or \"Gate · \" requirement.",
+      "goTo": "#/plan/hideout",
+      "refs": [
+        "#404"
+      ]
+    },
+    {
+      "id": "plan.hideout.next-upgrades",
+      "area": "Plan",
+      "feature": "Next upgrades and shopping list",
+      "needs": [],
+      "steps": [
+        "Open Plan › Hideout and scroll to \"Next upgrades\".",
+        "Click the scope chips \"Next 3\", \"Next 5\", \"Next 10\", \"Path\" and \"Every station\"."
+      ],
+      "expect": "The shopping list heading and rows follow the chip, each row showing have/need and a price. The total says \"About\" or \"Up to\" an amount, and names how many items have no price. \"Nothing left to buy or find.\" when complete.",
+      "goTo": "#/plan/hideout",
+      "refs": [
+        "#404"
+      ]
+    },
+    {
+      "id": "plan.hideout.item-to-intel",
+      "area": "Plan",
+      "feature": "Hideout item opens Intel",
+      "needs": [],
+      "steps": [
+        "Open Plan › Hideout and pick a station.",
+        "Click an item name in \"Requirements\"."
+      ],
+      "expect": "The Intel page for that item opens.",
+      "goTo": "#/plan/hideout",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "plan.keep.groups",
+      "area": "Plan",
+      "feature": "Keep list groups",
+      "needs": [],
+      "steps": [
+        "Open Plan › Keep.",
+        "Scroll through the list."
+      ],
+      "expect": "Items are grouped under \"Quests you're on\", \"Quests ahead of you\", \"Hideout upgrades\", \"Keys worth keeping\" and \"High value\", each heading with a count. Each item gives why (for which quest or station) and how many to keep.",
+      "goTo": "#/plan/keep",
+      "refs": [
+        "#402"
+      ]
+    },
+    {
+      "id": "plan.keep.held",
+      "area": "Plan",
+      "feature": "Keep list held counts",
+      "needs": [
+        "stash-screenshot"
+      ],
+      "steps": [
+        "Scan your stash.",
+        "Open Plan › Keep and read a row's chips."
+      ],
+      "expect": "Rows show \"Held\" N for items you own and \"Held unknown\" where nothing was counted; quest and hideout chips say how many are needed now and later.",
+      "goTo": "#/plan/keep"
+    },
+    {
+      "id": "plan.keep.loot-rules",
+      "area": "Plan",
+      "feature": "Loot rules listed and removable",
+      "needs": [
+        "loot-screenshot"
+      ],
+      "steps": [
+        "On a Loot Scan result, choose Pin, Wishlist, Always take or Always leave for an item.",
+        "Open Plan › Keep and click \"Loot rules · \" N.",
+        "Click \"Remove\" on that rule."
+      ],
+      "expect": "The rule is listed with the item and its kind. After Remove it disappears and the count drops. With no rules it says \"No loot rules. Pin, Wishlist, Always take and Always leave on a Loot Scan result show here.\"",
+      "goTo": "#/plan/keep",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "plan.loadout.slots",
+      "area": "Plan",
+      "feature": "Ten slots, search aimed at a slot",
+      "needs": [],
+      "steps": [
+        "Open Plan › Loadout.",
+        "Under \"The kit\", click the \"Helmet\" tile.",
+        "Type a helmet name in \"Search by item name or short name\" and press Enter."
+      ],
+      "expect": "Ten tiles are always shown: Weapon, Ammunition, Magazines, Body armor, Plates, Helmet, Headset, Rig, Backpack, Medical. The search results are helmets only, with \"N results for Helmet\" and each showing cost, weight and caliber.",
+      "goTo": "#/plan/loadout",
+      "refs": [
+        "#307"
+      ]
+    },
+    {
+      "id": "plan.loadout.assign-clear",
+      "area": "Plan",
+      "feature": "Assign and clear a slot",
+      "needs": [],
+      "steps": [
+        "Open Plan › Loadout and search an item for a slot.",
+        "Click \"Assign\" on a result.",
+        "Click \"Clear\" on that tile, then \"Empty the kit\"."
+      ],
+      "expect": "Assign fills the tile and the status says \"Added\" item \"to\" slot; the summary reads \"N of 10 slots filled\". \"Clear\" says the slot \"is empty again.\" \"Empty the kit\" empties every tile.",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.evaluate-floors",
+      "area": "Plan",
+      "feature": "Totals as floors",
+      "needs": [],
+      "steps": [
+        "Assign a few items, including one with no price if you can.",
+        "Click \"Evaluate\"."
+      ],
+      "expect": "\"Approximate cost\" reads \"At least\" an amount \"· 8 of 9 priced\" (or \"No total\" when nothing is priced), and \"Total weight\" likewise \"weighed\". A total is never shown as exact when an item is missing a price or weight.",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.budget",
+      "area": "Plan",
+      "feature": "Budget in roubles",
+      "needs": [],
+      "steps": [
+        "Open Plan › Loadout and type \"250k\" in \"Budget\".",
+        "Evaluate a kit that costs less, then one that costs more.",
+        "Type \"abc\"."
+      ],
+      "expect": "Under budget it reads cost \"of\" budget \"· \" amount \"left\". Over budget it reads \"over by\" an amount and \"Over the budget.\" in red. Text that is not a number says \"That is not a number of roubles.\"",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.compatibility",
+      "area": "Plan",
+      "feature": "Compatibility issues with reasons",
+      "needs": [],
+      "steps": [
+        "Assign a weapon and a round of a different caliber.",
+        "Assign armor with plate slots and no plate.",
+        "Click \"Evaluate\"."
+      ],
+      "expect": "\"Compatibility issues\" lists the caliber mismatch with a reason line (\"A weapon fires only its own caliber...\"). \"Warnings\" lists \"Armor is selected without any known plate selection.\" with its reason. With nothing wrong they say \"No issues\" and \"No warnings\".",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.ammo-owned",
+      "area": "Plan",
+      "feature": "Ammo tier and owned rounds",
+      "needs": [
+        "stash-screenshot"
+      ],
+      "steps": [
+        "Scan your stash including ammo.",
+        "Assign a round you own and click \"Evaluate\"."
+      ],
+      "expect": "\"Ammo tier\" reads \"Tier\" X \"in its caliber\" followed by how many of that round you own. Without a stash scan it says \"owned not scanned\" instead of a number.",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.alternatives",
+      "area": "Plan",
+      "feature": "Alternatives for a slot",
+      "needs": [],
+      "steps": [
+        "Assign an item to a slot.",
+        "Read \"Alternatives\" and click \"Use\" on one."
+      ],
+      "expect": "Obtainable alternatives are listed with their source (trader or barter) and requirement, available ones first. \"Use\" puts that item in the slot.",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.map-suggestions",
+      "area": "Plan",
+      "feature": "Gear asked for by the map's quests",
+      "needs": [],
+      "steps": [
+        "Mark a quest active that asks for gear or a key on a map.",
+        "Open Plan › Loadout and pick that map in \"Map to pack for\"."
+      ],
+      "expect": "The card reads \"For\" the map and lists what to bring, each row with a kind (Key, Weapon, Wear...), the quest and the reason. A map with nothing says \"Nothing on this map asks for gear.\"",
+      "goTo": "#/plan/loadout",
+      "refs": [
+        "#307"
+      ]
+    },
+    {
+      "id": "plan.loadout.save-load",
+      "area": "Plan",
+      "feature": "Save a kit by name and load it",
+      "needs": [],
+      "steps": [
+        "Assign items, type a name in \"Name this kit\" and click \"Save\".",
+        "Click \"Empty the kit\".",
+        "Click \"Load\" on the saved kit."
+      ],
+      "expect": "Save says \"Saved\" name and the kit appears under \"Saved kits\" with its item count and save time. Load refills every slot and says \"Loaded. Evaluate to price and weigh it.\" Saving with no name says \"Give the kit a name first, up to 64 characters.\"",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.compare",
+      "area": "Plan",
+      "feature": "Compare saved kit with current",
+      "needs": [],
+      "steps": [
+        "Save a kit, then change a slot.",
+        "Click \"Compare\" on the saved kit.",
+        "Click \"Stop comparing\"."
+      ],
+      "expect": "A \"Compared\" card shows \"Approximate cost\", \"Total weight\", \"Ammo tier\", \"Slots filled\" and \"Compatibility issues\" for the current kit, the saved one and the difference; the button reads \"Comparing\". \"Stop comparing\" hides the card.",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.loadout.delete-kit",
+      "area": "Plan",
+      "feature": "Delete a saved kit",
+      "needs": [],
+      "steps": [
+        "Open Plan › Loadout and find \"Saved kits\".",
+        "Click \"Delete\" on a saved kit."
+      ],
+      "expect": "The kit leaves the list and the status says \"Deleted\" with its name.",
+      "goTo": "#/plan/loadout"
+    },
+    {
+      "id": "plan.events.create",
+      "area": "Plan",
+      "feature": "Create an event by name",
+      "needs": [],
+      "steps": [
+        "Open Plan › Events.",
+        "Type a name in \"New event name\" and click \"Create\".",
+        "Try \"Create\" with an empty box, and with the same name again."
+      ],
+      "expect": "The status says \"Created\" name and the event appears in the left list and is selected. An empty name says \"Type a name first\"; a duplicate says it \"already exists\".",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.add-items",
+      "area": "Plan",
+      "feature": "Search and add items to an event",
+      "needs": [],
+      "steps": [
+        "Select an event.",
+        "Type in \"Find an item to add\" and press Enter.",
+        "Click \"Add\" on a match."
+      ],
+      "expect": "Matches from the item catalog are listed; Add puts the item in the event's list with \"Recorded\" \"Untested\". \"Remove\" on the item takes it out.",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.mark-safe-allergic",
+      "area": "Plan",
+      "feature": "Mark items Safe or Allergic",
+      "needs": [],
+      "steps": [
+        "Select an event with items.",
+        "Click \"Safe\" on one item and \"Allergic\" on another.",
+        "Click the \"Undo\" button that appears."
+      ],
+      "expect": "Each item's recorded state changes, and the progress line reads \"N safe · N allergic · N of N tested\". Undo puts the last one back and says \"Undone\".",
+      "goTo": "#/plan/events",
+      "refs": [
+        "#285"
+      ]
+    },
+    {
+      "id": "plan.events.allergy-warning",
+      "area": "Plan",
+      "feature": "Allergy warning on Plan and Loadout",
+      "needs": [],
+      "steps": [
+        "On Plan › Events, mark a food or medicine Allergic in an event that is in season.",
+        "Assign that item in Plan › Loadout's Medical slot, or open a Plan map whose quests need it."
+      ],
+      "expect": "The item shows a bold warning line in Loadout's kit and in Plan's Requirements. Items marked Safe carry no warning.",
+      "goTo": "#/plan/events",
+      "refs": [
+        "#285"
+      ]
+    },
+    {
+      "id": "plan.events.schedule",
+      "area": "Plan",
+      "feature": "Schedule with first and last day",
+      "needs": [],
+      "steps": [
+        "Select an event.",
+        "Type dates in \"First day, or blank\" and \"Last day, or blank\".",
+        "Click \"Save event\" (or press Ctrl+S)."
+      ],
+      "expect": "The preview under the dates says whether it is in season now, starts in, or ended ago. After saving, the status says \"Saved\" and the event's window shows in the list.",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.end-before-start",
+      "area": "Plan",
+      "feature": "Refuses an end before the start",
+      "needs": [],
+      "steps": [
+        "Select an event.",
+        "Type a last day earlier than the first day and click \"Save event\"."
+      ],
+      "expect": "The preview says \"The last date is before the first.\" and saving says \"Not saved · the last date is before the first.\" The stored dates are unchanged.",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.rename",
+      "area": "Plan",
+      "feature": "Rename an event",
+      "needs": [],
+      "steps": [
+        "Select an event.",
+        "Change the text in \"Event name\" and click \"Save event\"."
+      ],
+      "expect": "The event's name changes in the list and status says \"Saved\". An empty name says \"Not saved · an event needs a name.\"",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.effects-preview",
+      "area": "Plan",
+      "feature": "Effects and rules preview",
+      "needs": [],
+      "steps": [
+        "Select an event and click \"+ Flea\", then \"+ Trader price\" and pick a trader with multiplier 2.",
+        "Read the preview line under the effects.",
+        "Type 500 as the multiplier."
+      ],
+      "expect": "The preview reads \"While active: \" with each effect in words, for example \"Flea open\" and the trader's \"prices x2\". A multiplier of 500 shows \"Above 0, at most 100\" and saving is refused with \"Not saved · fix the marked effects.\"",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.archive",
+      "area": "Plan",
+      "feature": "Archive and bring back",
+      "needs": [],
+      "steps": [
+        "Select an event and click \"Archive event\".",
+        "Click \"Bring back\"."
+      ],
+      "expect": "Archiving keeps the event but the preview says \"Archived · it will not be treated as in season whatever the dates say.\" \"Bring back\" makes it count again by its dates.",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.delete",
+      "area": "Plan",
+      "feature": "Delete asks twice",
+      "needs": [],
+      "steps": [
+        "Select an event and click \"Delete event\".",
+        "Click \"Confirm delete\"."
+      ],
+      "expect": "The first press only changes the button to \"Confirm delete\" and says \"Press again to delete\". The second deletes it and says \"Deleted\" with the name.",
+      "goTo": "#/plan/events"
+    },
+    {
+      "id": "plan.events.duplicate",
+      "area": "Plan",
+      "feature": "Duplicate an event",
+      "needs": [],
+      "steps": [
+        "Open Plan › Events and select an event with items.",
+        "Click \"Duplicate\" next to the \"Event\" heading."
+      ],
+      "expect": "A new event named with \" copy\" after the original's name appears, selected, with the same rules and items; the status says \"Created\". The original is unchanged.",
+      "goTo": "#/plan/events"
+    }
+  ]
+}

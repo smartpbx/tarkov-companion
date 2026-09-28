@@ -1,0 +1,560 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "sound.off-by-default",
+      "area": "Sound",
+      "feature": "Off by default",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "On a fresh install (or a profile that never touched sound), open Setup > Notifications.",
+        "Scroll to the \"Sound\" section."
+      ],
+      "expect": "\"Sound cues\" is Off. \"Test sound\", the four cue switches, \"Speak loot verdicts\", the volume choices and \"Output device\" are disabled. No sound plays during a raid.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.section",
+      "area": "Sound",
+      "feature": "Sound section contents",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup and choose the \"Notifications\" section.",
+        "Scroll to the \"Sound\" heading."
+      ],
+      "expect": "It reads \"Short tones and a spoken loot verdict. Off until you turn it on.\" and shows \"Sound cues\" with \"Output only. Nothing listens to your microphone or the game.\", four cue cards (\"Extract deadline\", \"Squad marks\", \"Loot scan finished\", \"Outcome question\"), \"Speak loot verdicts\", \"Volume\" and \"Output device\".",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.master-on",
+      "area": "Sound",
+      "feature": "Turn sound on",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup > Notifications and find \"Sound\".",
+        "Switch \"Sound cues\" to On, then restart the companion and look again."
+      ],
+      "expect": "The cue switches, \"Test sound\", \"Speak loot verdicts\", the volume choices and \"Output device\" become usable. The choice is kept after restarting the companion.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.test",
+      "area": "Sound",
+      "feature": "Test sound",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Turn \"Sound cues\" On.",
+        "Press \"Test sound\"."
+      ],
+      "expect": "A short three-note tone plays through the chosen output device, followed by the spoken line \"Sound test.\" (where Windows speech is available).",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.volume",
+      "area": "Sound",
+      "feature": "Volume",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "With sound on, press \"20%\" under \"Volume\" and then \"Test sound\".",
+        "Press \"100%\" and \"Test sound\" again."
+      ],
+      "expect": "The chosen step is highlighted (20%, 40%, 60%, 80% or 100%) and the test is audibly quieter at 20% than at 100%.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.device",
+      "area": "Sound",
+      "feature": "Output device",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "With sound on, open \"Output device\" and pick a device other than \"System default\" (for example headphones).",
+        "Press \"Test sound\"."
+      ],
+      "expect": "The list shows \"System default\" and the Windows output devices. The test plays on the device you picked, and the choice is kept after a restart.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.deadline",
+      "area": "Sound",
+      "feature": "Extract deadline tones",
+      "needs": [
+        "windows",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Turn \"Sound cues\" and \"Extract deadline\" On.",
+        "Play a raid with a running raid clock until five minutes are left, and then until zero."
+      ],
+      "expect": "A tone plays once at five minutes left and once at zero on the raid clock. No tone plays with \"Extract deadline\" Off.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.squad-mark",
+      "area": "Sound",
+      "feature": "Squad mark tone",
+      "needs": [
+        "windows",
+        "game",
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Turn \"Sound cues\" and \"Squad marks\" On.",
+        "Ask a squadmate to ping, then to place a waypoint, on the Raid map."
+      ],
+      "expect": "A tone plays for each squadmate ping or waypoint. Your own marks make no sound.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.loot-tone",
+      "area": "Sound",
+      "feature": "Loot scan finished tone",
+      "needs": [
+        "windows",
+        "game",
+        "in-raid",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "Turn \"Sound cues\" and \"Loot scan finished\" On, with \"Speak loot verdicts\" off.",
+        "In raid, screenshot an open container."
+      ],
+      "expect": "One tone plays when the scan's verdict is ready, once per scan, not once per item.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.loot-spoken",
+      "area": "Sound",
+      "feature": "Spoken loot verdict",
+      "needs": [
+        "windows",
+        "game",
+        "in-raid",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "Turn on \"Sound cues\", \"Loot scan finished\" and \"Speak loot verdicts\".",
+        "In raid, screenshot an open container holding something worth keeping."
+      ],
+      "expect": "The verdict is spoken instead of the tone, in the form \"Keep: <item>, <value>.\" (for example \"Keep: LEDX, 1.2 million.\"). Other verdicts are spoken as \"Sell on flea: ...\", \"Sell to trader: ...\" or \"Leave: ...\".",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.outcome",
+      "area": "Sound",
+      "feature": "Outcome question tone",
+      "needs": [
+        "windows",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Turn \"Sound cues\" and \"Outcome question\" On.",
+        "Finish a raid and return to the menu."
+      ],
+      "expect": "A tone plays when the raid ends and the companion asks how it ended (Debrief). No tone plays with the switch Off.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.cue-off",
+      "area": "Sound",
+      "feature": "One cue off stays silent",
+      "needs": [
+        "windows",
+        "game",
+        "in-raid",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "With \"Sound cues\" On, switch \"Loot scan finished\" Off.",
+        "In raid, screenshot an open container."
+      ],
+      "expect": "No tone and no spoken verdict play for the scan, while the other cues still play.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.master-off-silences",
+      "area": "Sound",
+      "feature": "Master off silences everything",
+      "needs": [
+        "windows",
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "With several cues on, switch \"Sound cues\" Off during a raid.",
+        "Trigger a cue (screenshot a container, or wait for five minutes left)."
+      ],
+      "expect": "Nothing plays, including anything that was already queued when you switched it off.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "sound.never-listens",
+      "area": "Sound",
+      "feature": "Output only",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Turn \"Sound cues\" On.",
+        "Check Windows privacy settings for microphone use while the companion runs."
+      ],
+      "expect": "Windows does not show the companion using the microphone at any point. The section states \"Output only. Nothing listens to your microphone or the game.\"",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.palette-open",
+      "area": "Ask",
+      "feature": "Open the palette",
+      "needs": [],
+      "steps": [
+        "Press Ctrl+K in the companion.",
+        "Close it with Esc, then open it again with the \"Commands (Ctrl+K)\" button in the top bar."
+      ],
+      "expect": "A \"Commands\" panel opens with the box \"Type a command or a setting\" focused, and the hint \"Ask a question: “what do I need for Gunsmith 5”\" under it while nothing is typed.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.palette-no-global-key",
+      "area": "Ask",
+      "feature": "No global hotkey",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Put the game in focus.",
+        "Press Ctrl+K."
+      ],
+      "expect": "Nothing happens in the companion: Ctrl+K only works while the companion window has focus.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.palette-command",
+      "area": "Ask",
+      "feature": "Run a command",
+      "needs": [],
+      "steps": [
+        "Open the palette with Ctrl+K.",
+        "Type \"keyboard\" and choose \"Keyboard shortcuts\"."
+      ],
+      "expect": "The matching command is listed as you type and running it opens the keyboard shortcuts. The palette closes.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.palette-setting",
+      "area": "Ask",
+      "feature": "Find a setting by name",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"screenshot folder\" and choose \"Screenshot folder\"."
+      ],
+      "expect": "Setup opens at the section holding that setting, with the setting in view.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.palette-no-match",
+      "area": "Ask",
+      "feature": "No command matches",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"zzqx\"."
+      ],
+      "expect": "\"No command matches\" is shown and no answer card appears. Typing a question instead never shows \"No command matches\" under the answer card.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.palette-recent-pinned",
+      "area": "Ask",
+      "feature": "Recent and pinned",
+      "needs": [],
+      "steps": [
+        "Run a command from the palette.",
+        "Open the palette again with nothing typed."
+      ],
+      "expect": "A \"Recent\" list shows the command you ran. Pages you pinned (with \"Pin or unpin this page\") are listed under \"Pinned\".",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.needs-quest",
+      "area": "Ask",
+      "feature": "What a quest needs",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"what do I need for Gunsmith part 5\"."
+      ],
+      "expect": "An answer card labelled \"What it needs\" names the quest, its giver (\"From Mechanic · level N+\"), each objective with counts (\"found in raid\" where required), \"Needed for Kappa\" if so, and whether you finished it. An \"Open in Plan\" link and the source line \"From the catalog, updated <time>\" (and \"From your progress\") are shown.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.needs-hideout",
+      "area": "Ask",
+      "feature": "What a hideout level needs",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"what does Lavatory 2 need\"."
+      ],
+      "expect": "The card labelled \"What it needs\" shows \"Level 2\", each item with its count (\"4 × <item>\"), required station levels (\"<station> level N\"), \"You have built level N\" where true, an \"Open Hideout\" link and the source line.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.item-uses-key",
+      "area": "Ask",
+      "feature": "Where a key is used",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"where is Dorms 314 key used\"."
+      ],
+      "expect": "The card labelled \"What it is used for\" lists \"Opens <door> · <map>\", the key's use count, and each quest it is used in (\"Used in quest <name>\"), with an \"Open <key> in Intel\" link and the source line.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.item-uses-item",
+      "area": "Ask",
+      "feature": "Whether an item is needed",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"is LEDX needed for anything\"."
+      ],
+      "expect": "The card lists each open quest and hideout level that needs it (\"Quest <name>: N found in raid\", \"Hideout <station> level N: N needed\") and crafts or barters it goes into, or \"No open quest or hideout level needs it\".",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.item-sources",
+      "area": "Ask",
+      "feature": "Where to get an item",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"where can I buy a gas analyzer\"."
+      ],
+      "expect": "The card labelled \"Where to get it\" lists trader offers with price (\"· locked for you\" where your level is too low), barters, crafts (\"Craft: <station> level N · ...\") and the flea price, or \"No trader, barter, craft or flea listing in the catalog\". An Intel link and the source line are shown.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.best-extract",
+      "area": "Ask",
+      "feature": "Best extract from here",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, press the game's screenshot key so your position is known.",
+        "Open the palette and type \"best extract from here\"."
+      ],
+      "expect": "The card labelled \"Best extract\" shows \"You: <area>\", then your side's extracts with distance and direction, \"offered\" on offered ones, and requirement lines (\"↳ needs <key>\", \"↳ needs a switch first\" ...). It states \"Distances are straight lines\" and the source \"From your last screenshot <time> · Modelled\", with an \"Open Raid\" link.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.best-extract-no-raid",
+      "area": "Ask",
+      "feature": "Best extract out of raid",
+      "needs": [],
+      "steps": [
+        "Out of raid with no raid map open, open the palette.",
+        "Type \"best extract\"."
+      ],
+      "expect": "The card says \"No raid map is open. Open Raid and take a screenshot in raid.\" It does not list extracts from a guess.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.ammo-class",
+      "area": "Ask",
+      "feature": "Best ammo for an armour class",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"best 5.45 for class 4\"."
+      ],
+      "expect": "The card labelled \"Best ammo\" lists 5.45 rounds as \"<name> · pen N · damage N\", the rule \"Pen N+ counts as good against class 4\", the source \"From the catalog ... · Modelled\", and \"Open Ammo\" plus a link to the top round in Intel.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.ammo-price",
+      "area": "Ask",
+      "feature": "Best ammo under a price",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"best 7.62x39 under 1k\"."
+      ],
+      "expect": "Rounds are listed with their price (\"· ₽N\") and none costs more than ₽1,000; if none does, it reads \"No 7.62x39 round costs ₽1,000 or less\".",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.ammo-none-good",
+      "area": "Ask",
+      "feature": "No round good enough",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"best 9x19 for class 6\"."
+      ],
+      "expect": "The card says \"No 9x19 is good against class 6; best is <round> (pen N)\" rather than recommending a round as good.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.link-opens",
+      "area": "Ask",
+      "feature": "Answer links open the page",
+      "needs": [],
+      "steps": [
+        "Ask \"where is Dorms 314 key used\".",
+        "Press the \"Open ... in Intel\" link on the card."
+      ],
+      "expect": "The palette closes and Intel opens on that key's page.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.not-understood",
+      "area": "Ask",
+      "feature": "Question it cannot answer",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"what is the meaning of life?\"."
+      ],
+      "expect": "The card says \"I can't answer that from the app's data.\" Nothing is invented.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.no-match-closest",
+      "area": "Ask",
+      "feature": "Unknown name: closest names",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Type \"where can I buy a gas analyser thing\" (a name slightly off)."
+      ],
+      "expect": "The card says \"Nothing in the catalog is called “...”.\" with \"Closest: <names>\" and up to four \"Ask about <name>\" buttons. Pressing one asks the same question about that name.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.ambiguous",
+      "area": "Ask",
+      "feature": "Ambiguous name",
+      "needs": [],
+      "steps": [
+        "Open the palette.",
+        "Ask about a short name that several items share, for example \"where can I buy a helmet\"."
+      ],
+      "expect": "Either an answer with \"Also: <other names>\", or \"“...” names more than one thing. Which one?\" with \"Ask about\" buttons for each.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "ask.local-only",
+      "area": "Ask",
+      "feature": "Works with Local only",
+      "needs": [],
+      "steps": [
+        "Turn on \"Local only\" in Setup > Data & Network.",
+        "Ask \"what do I need for Gunsmith part 5\" and \"best 5.45 for class 4\"."
+      ],
+      "expect": "Both are answered from the data already on this PC, with the same source lines. Nothing is sent anywhere to answer a question.",
+      "refs": [
+        "#712"
+      ]
+    }
+  ]
+}
