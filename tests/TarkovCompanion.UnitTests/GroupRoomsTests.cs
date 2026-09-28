@@ -14,8 +14,8 @@ public sealed class GroupRoomsTests
     /// The game describes every member of the in-game party, so a five-man filled from
     /// matchmaking carries a random's nickname and loadout, and nothing tested whether that
     /// person was in the room. It went to the relay and came back to anyone holding the key.
-    /// SAFETY.md rule 1 says other players' log data is never transmitted; the exception it
-    /// records covers the people who are in the room, and this is what makes that true.
+    /// SAFETY.md's narrow exception covers people who independently joined the keyed room; this
+    /// ingress check prevents a local LFG party from broadening that consent.
     /// </remarks>
     [Fact]
     public void AnObservationAboutSomebodyOutsideTheRoomIsNotStored()
@@ -77,6 +77,22 @@ public sealed class GroupRoomsTests
 
         Assert.Single(seen);
         Assert.Equal(["Slick", "Altyn"], seen[0].Loadout);
+    }
+
+    /// <summary>Old clients may send a scav cooldown; the relay never stores or returns it.</summary>
+    [Fact]
+    public void LegacyScavCooldownIsStrippedBeforeStorage()
+    {
+        var rooms = new GroupRooms(TimeProvider.System);
+        rooms.Publish("room", "Geo", Member("Geo"));
+        rooms.Publish("room", "Clay", Member("Clay", observed:
+        [
+            new("Geo", ["Slick"]) { ScavLockedUntilUnix = 1_789_089_239 },
+        ]));
+
+        var seen = Assert.Single(rooms.Read("room", "Max").Members.SelectMany(member => member.Observed));
+
+        Assert.Null(seen.ScavLockedUntilUnix);
     }
 
     /// <summary>

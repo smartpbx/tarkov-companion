@@ -155,6 +155,36 @@
             </Border>
           </Border>
 
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedIntelligence}">
+            <StackPanel Spacing="7">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2"
+                           Text="{Binding SelectedIntelligenceHeading}" />
+                <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
+                           Foreground="{DynamicResource V2.Brush.Action}"
+                           Text="{Binding SelectedIntelligenceTier}" />
+              </Grid>
+              <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding SelectedIntelligenceAdvice}" />
+              <StackPanel Spacing="5"
+                          IsVisible="{Binding $parent[UserControl].((vm:KeysWorkspaceViewModel)DataContext).LearnMode.IsEnabled}">
+                <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding SelectedIntelligenceReasonsHeading}" />
+                <ItemsControl ItemsSource="{Binding SelectedIntelligenceReasons}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate><TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding}" /></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Spacing="4" IsVisible="{Binding HasSelectedIntelligenceMissing}">
+                  <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding SelectedIntelligenceMissingHeading}" />
+                  <ItemsControl ItemsSource="{Binding SelectedIntelligenceMissing}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate><TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding}" /></DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
           <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedKey}">
             <StackPanel Spacing="4">
               <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{x:Static l:IntelText.KeysKey}" Margin="0,0,0,4" />

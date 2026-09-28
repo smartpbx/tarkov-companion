@@ -1,4 +1,5 @@
 using TarkovCompanion.App.Localization;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 
@@ -20,11 +21,18 @@ public sealed partial class V2SetupWorkspaceViewModel
 
     public bool HasShell => Shell is not null;
 
+    public bool HasPlan => Shell?.PlanWorkspace is not null;
+
     public void AttachShell(V2ShellViewModel shell)
     {
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
         OnPropertyChanged(nameof(Shell));
         OnPropertyChanged(nameof(HasShell));
+        OnPropertyChanged(nameof(HasPlan));
+        if (Selected == V2SetupSection.ProfileProgress)
+        {
+            Shell.PlanWorkspace?.LoadAsync().Observe("setup", "load profile progress");
+        }
     }
 
     /// <summary>"Explain recommendations": the Learn mode Plan's chip also switches.</summary>
@@ -54,8 +62,6 @@ public sealed partial class V2SetupWorkspaceViewModel
     public string FoldersHeading => SetupText.GameCaptureFoldersHeading;
 
     public string MoveProgressHeading => SetupText.ProgressMoveHeading;
-
-    public string MergeProgressHeading => SetupText.ProgressMergeHeading;
 
     public string SquadHeading => SetupText.DataNetworkSquadHeading;
 

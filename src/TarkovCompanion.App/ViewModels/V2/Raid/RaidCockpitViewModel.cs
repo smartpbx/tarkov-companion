@@ -20,6 +20,7 @@ using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Strategy;
@@ -532,6 +533,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         null);
     private int _trafficVersion;
     private DateTimeOffset _trafficEvaluatedUtc = DateTimeOffset.MinValue;
+    private readonly Lock _trafficReceiptGate = new();
+    private Guid? _trafficReceiptRaidId;
+    private readonly HashSet<string> _recordedTrafficReceipts = new(StringComparer.Ordinal);
 
     // When the player's marker next crosses from "fresh" to "from an older screenshot". It is the
     // one thing on the plan that changes with the clock alone, so it is the one thing the clock
@@ -2461,16 +2465,69 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 null);
         }
 
-        if (_disposed || version != Volatile.Read(ref _trafficVersion) ||
-            (view.Notice == _trafficView.Notice && view.Rows.SequenceEqual(_trafficView.Rows)))
+        if (_disposed || version != Volatile.Read(ref _trafficVersion))
         {
             return;
         }
 
+        var displayChanged = view.Notice != _trafficView.Notice || !view.Rows.SequenceEqual(_trafficView.Rows);
         _trafficView = view;
+        await RecordTrafficPredictionAsync(view.Receipt, _stateStore.Current.Raid).ConfigureAwait(true);
+        if (!displayChanged)
+        {
+            return;
+        }
+
         OnPropertyChanged(nameof(TrafficLayerNotice));
         OnPropertyChanged(nameof(TrafficRows));
         OnPropertyChanged(nameof(HasTrafficRows));
+    }
+
+    /// <summary>
+    /// Keeps the first exact receipt shown in each model phase. A 30-second refresh produces a
+    /// new receipt even when the values are identical; retaining every refresh would turn one raid
+    /// into dozens of duplicate model snapshots without adding a comparison point.
+    /// </summary>
+    private async Task RecordTrafficPredictionAsync(TrafficPredictionReceipt? receipt, RaidSnapshot raid)
+    {
+        if (_raidHistory is null || receipt is null || raid.RaidId is not { } raidId || raid.IsPractice == true)
+        {
+            return;
+        }
+
+        var key = $"{receipt.ArtifactSha256}:{receipt.Phase}";
+        lock (_trafficReceiptGate)
+        {
+            if (_trafficReceiptRaidId != raidId)
+            {
+                _trafficReceiptRaidId = raidId;
+                _recordedTrafficReceipts.Clear();
+            }
+
+            if (!_recordedTrafficReceipts.Add(key))
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await _raidHistory.RecordEventAsync(
+                raidId,
+                RaidTrafficPrediction.EventType,
+                receipt.ShownUtc,
+                RaidTrafficPrediction.ToPayload(receipt),
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (_trafficReceiptGate)
+            {
+                _recordedTrafficReceipts.Remove(key);
+            }
+
+            throw;
+        }
     }
 
     private async Task RebuildAsync()

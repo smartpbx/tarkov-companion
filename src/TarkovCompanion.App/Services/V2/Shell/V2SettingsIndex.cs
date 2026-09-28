@@ -59,6 +59,7 @@ public static class V2SettingsIndex
 
         // Profile & Progress
         Setup("profiles", "V2.Shell.Setting.Profiles", V2SetupSection.ProfileProgress, "v2-setup-profile-list", "game mode", "pve", "pvp", "wipe"),
+        Setup("trader-levels", "V2.Shell.Setting.TraderLevels", V2SetupSection.ProfileProgress, "v2-setup-player-level", "player level", "loyalty", "traders"),
         Setup("quest-horizon", "V2.Shell.Setting.QuestHorizon", V2SetupSection.ProfileProgress, "v2-setup-recommendation-quests-nextonly", "plan ahead", "recommendations", "next 3"),
         Setup("hideout-horizon", "V2.Shell.Setting.HideoutHorizon", V2SetupSection.ProfileProgress, "v2-setup-recommendation-hideout-nextonly", "plan ahead", "recommendations", "stations"),
         Setup("quest-screenshots", "V2.Shell.Setting.QuestScreenshots", V2SetupSection.ProfileProgress, "v2-quest-sync", "quests", "sync", "screenshot"),
@@ -78,6 +79,7 @@ public static class V2SettingsIndex
         Setup("density", "V2.Shell.Setting.Density", V2SetupSection.AppearanceWindow, "v2-setup-appearance-densities", "compact", "spacing"),
         Setup("reduce-motion", "V2.Shell.Setting.ReduceMotion", V2SetupSection.AppearanceWindow, "v2-setup-appearance-motion", "animation", "motion", "accessibility"),
         Setup("focus-ring", "V2.Shell.Setting.FocusRing", V2SetupSection.AppearanceWindow, "v2-setup-appearance-focus", "keyboard", "outline", "accessibility"),
+        Setup("close-to-tray", "V2.Shell.Setting.CloseToTray", V2SetupSection.AppearanceWindow, "v2-setup-close-to-tray", "close", "window", "tray", "background"),
         Setup("interface-scale", "V2.Shell.Setting.InterfaceScale", V2SetupSection.AppearanceWindow, "v2-setup-scale-larger", "zoom", "size", "dpi"),
         Setup("shortcuts", "V2.Shell.Setting.Shortcuts", V2SetupSection.AppearanceWindow, "v2-setup-accessibility-shortcuts", "keyboard", "hotkeys", "keys"),
         Setup("language", "V2.Shell.Setting.Language", V2SetupSection.AppearanceWindow, "v2-setup-language-choices", "english", "locale"),
@@ -96,8 +98,6 @@ public static class V2SettingsIndex
         Setup("updates", "V2.Shell.Setting.CheckUpdates", V2SetupSection.UpdatesDiagnostics, "v2-setup-check-update", "update", "channel", "version"),
         Setup("go-back", "V2.Shell.Setting.GoBack", V2SetupSection.UpdatesDiagnostics, "v2-setup-rollback", "rollback", "previous build", "downgrade"),
         Setup("whats-new", "V2.Shell.Setting.WhatsNew", V2SetupSection.UpdatesDiagnostics, "v2-setup-whats-new", "changelog", "release notes", "update"),
-        Setup("drawing-tools", "V2.Shell.Setting.DrawingTools", V2SetupSection.UpdatesDiagnostics, "v2-setup-flag-draw-mode", "draw", "pencil", "feature flag"),
-        Setup("tablet-cards", "V2.Shell.Setting.TabletCards", V2SetupSection.UpdatesDiagnostics, "v2-setup-flag-tablet-review-cards", "tablet", "stash", "flea", "feature flag"),
         Setup("self-test", "V2.Shell.Setting.SelfTest", V2SetupSection.UpdatesDiagnostics, "v2-selftest-run", "diagnostics", "check"),
         Setup("report-problem", "V2.Shell.Setting.ReportProblem", V2SetupSection.UpdatesDiagnostics, "v2-setup-report-review", "bug", "feedback", "diagnostics"),
         Setup("test-checklist", "V2.Shell.Setting.TestChecklist", V2SetupSection.TestChecklist, "v2-test-checklist-progress", "checklist", "test", "qa", "bugs", "results") with { Flag = TarkovCompanion.Core.Features.Flag.TestChecklist },
@@ -106,6 +106,8 @@ public static class V2SettingsIndex
         Setup("settings-backup", "V2.Shell.Setting.SettingsBackup", V2SetupSection.About, "v2-setup-backup", "export", "import", "reset everything", "defaults"),
 
         // On the pages that read them
+        new("drawing-tools", "V2.Shell.Setting.DrawingTools", V2Routes.Raid, null, "v2-raid-drawing-tools", "draw", "pencil", "feature flag"),
+        new("tablet-cards", "V2.Shell.Setting.TabletCards", V2Routes.Tablet, null, "v2-team-tablet-review-cards", "tablet", "stash", "flea", "feature flag"),
         new("learn-mode", "V2.Shell.Setting.LearnMode", V2Routes.Plan, null, "v2-plan-learn-mode", "explain", "recommendations", "why"),
         new("loot-rules", "V2.Shell.Setting.LootRules", V2Routes.Keep, null, "v2-keep-loot-rules", "always leave", "always take", "pinned", "wishlist", "undo"),
     ];

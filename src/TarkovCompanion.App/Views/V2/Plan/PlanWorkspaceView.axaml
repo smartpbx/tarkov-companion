@@ -259,44 +259,12 @@
                 </DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
-            <!-- The level is typed here because the game never writes its own player's down, and
-                 every level-gated quest is measured against it. Loyalty is set once a wipe. -->
-            <Border Classes="v2-plan-disclosure">
-            <Expander Classes="v2-why" Header="{x:Static l:PlanText.LevelAndLoyalty}">
-              <Expander.Resources>
-                <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderContentBackground" Color="Transparent" />
-                <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="Transparent" />
-              </Expander.Resources>
-              <StackPanel Spacing="8" Margin="0,4,0,0">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                  <TextBlock Classes="v2-body" Text="{x:Static l:PlanText.YourLevel}" VerticalAlignment="Center" />
-                  <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="1" Maximum="79"
-                                 Value="{Binding PlayerLevel, Mode=OneWay}" ValueChanged="LevelChanged"
-                                 AutomationProperties.AutomationId="v2-plan-level"
-                                 AutomationProperties.Name="{x:Static l:PlanText.YourLevel}" />
-                </Grid>
-                <ItemsControl ItemsSource="{Binding TraderLoyalty}" IsVisible="{Binding HasTraderLoyalty}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:PlanTraderLoyaltyViewModel">
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
-                        <TextBlock Classes="v2-label" Text="{Binding Name}" VerticalAlignment="Center" />
-                        <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="0" Maximum="4"
-                                       Value="{Binding Level, Mode=OneWay}" ValueChanged="TraderLevelChanged"
-                                       Tag="{Binding TraderId}"
-                                       AutomationProperties.Name="{Binding Name}" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </Expander>
-            </Border>
+            <!-- #917: level and loyalty have one home under Setup. Plan keeps a direct link because
+                 these values gate the board the player is looking at. -->
+            <Button Classes="v2-target" HorizontalAlignment="Stretch"
+                    Content="{x:Static l:PlanText.EditLevelAndLoyalty}"
+                    Command="{Binding OpenProfileProgressCommand}"
+                    AutomationProperties.AutomationId="v2-plan-open-level-loyalty" />
 
             <Rectangle Height="1" Fill="{DynamicResource V2.Brush.Divider}" Margin="0,4" />
             <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.ByMap}" AutomationProperties.HeadingLevel="2"

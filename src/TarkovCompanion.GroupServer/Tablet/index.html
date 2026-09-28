@@ -66,9 +66,6 @@
   .workspacePicker { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
   .workspacePicker button { min-height: 44px; padding: 6px 8px; flex: 1 1 auto; }
   .workspacePicker button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
-  .capturePicker { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
-  .capturePicker span { color: var(--quiet); font-size: 13px; }
-  .capturePicker button { min-height: 44px; padding: 6px 10px; }
   .empty { color: var(--quiet); font-size: 13px; }
   .markRow { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
   .markInfo { flex: 1 1 150px; min-width: 0; }
@@ -322,14 +319,6 @@
         <button type="button" data-workspace="Plan" aria-pressed="false">Plan</button>
         <button type="button" data-workspace="Team" aria-pressed="false">Team</button>
         <button type="button" data-workspace="Debrief" aria-pressed="false">Debrief</button>
-      </div>
-      <!-- #271: these ask the paired desktop to wait for the player's next screenshot. They do
-           not capture pixels, press a key, or read the game, and exist only while Control is held. -->
-      <div class="capturePicker" id="capturePicker" role="group" aria-label="Arm desktop capture" hidden>
-        <span>Arm capture</span>
-        <button type="button" data-intent="Loot">Loot</button>
-        <button type="button" data-intent="Stash">Stash</button>
-        <button type="button" data-intent="Flea">Flea</button>
       </div>
       <p class="quiet" id="modeNote">Following the desktop's map.</p>
       <p class="quiet" id="keyboardHelp">Keys: arrows pan · +/- zoom · F follow · 1–5 workspaces</p>
@@ -3251,7 +3240,6 @@
     if (mode === "Control") renderMapSwitcher();
     $("workspacePicker").hidden = mode !== "Control";
     if (mode === "Control") renderWorkspacePicker();
-    $("capturePicker").hidden = mode !== "Control";
     // #290: the way back from Independent without giving up Independent — this page's own view,
     // shown on the desktop once, is only ever meaningful in the one mode where the two have
     // deliberately drifted apart.
@@ -3668,29 +3656,6 @@
       offlineQueuePreview: null,
     };
   };
-
-  function requestCapture(intent) {
-    if (mode !== "Control" || !["Loot", "Stash", "Flea"].includes(intent) || !live) return;
-    const correlationId = crypto.randomUUID();
-    sendCommand({
-      type: "requestCaptureIntent",
-      ...commandHeader(live.captureRevision + 1),
-      intentId: { value: crypto.randomUUID() },
-      correlationId,
-      captureSessionId: { value: crypto.randomUUID() },
-      intent,
-      context: {
-        mapId: live.workspace?.mapId ?? live.surface?.mapId ?? null,
-        floorId: live.workspace?.floorId ?? live.surface?.view?.floorId ?? null,
-        profileId: null,
-        previousResultId: null,
-        objectiveIds: [],
-        planIds: [],
-        markIds: [],
-      },
-    });
-    $("modeNote").textContent = `Arming ${intent} capture on the desktop…`;
-  }
 
   // #289: "Squad" goes out as PairedDevice, the scope every tablet mark has always had and the
   // desktop has always forwarded to the group; the protocol's Team scope needs a capability no
@@ -4607,9 +4572,6 @@
   $("mapSwitch").addEventListener("change", (event) => switchMap(event.target.value));
   for (const button of document.querySelectorAll("#workspacePicker button")) {
     button.addEventListener("click", () => switchWorkspace(button.dataset.workspace));
-  }
-  for (const button of document.querySelectorAll("#capturePicker button")) {
-    button.addEventListener("click", () => requestCapture(button.dataset.intent));
   }
   $("showOnDesktop").addEventListener("click", showCurrentViewOnDesktop);
 

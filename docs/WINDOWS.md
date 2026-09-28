@@ -6,14 +6,14 @@
 
 Window discovery enumerates normal processes and their top-level main windows. Production accepts only `EscapeFromTarkov` identities. The companion simulator is returned only when the caller explicitly passes DeveloperMode, and a real EFT window wins when both exist.
 
-The companion does not capture the screen. The GDI window-capture service was retired (issue #316) and `UnavailableScreenCaptureService` fills its slot, so a Scan click reports "capture unavailable". Scans read the screenshot files the game itself writes, and pasted or dropped pictures. Any future capture provider needs explicit pixel, dimension, time and memory bounds and a fresh safety review before it is registered.
+The companion does not capture the screen. The GDI window-capture service was retired (issue #316) and `UnavailableScreenCaptureService` fills its slot, so a Scan click reports "capture unavailable". Scans read the screenshot files the game itself writes, and pasted or dropped pictures. Setup can preview and save a crop of the ordinary externally visible game-window rectangle for a future, explicitly invoked provider; that calibration reads no pixels. It is keyed by monitor, DPI, game-window resolution and windowed/borderless mode, is bounded inside the visible window, and does not change the watched-file source. Any future capture provider still needs explicit pixel, dimension, time and memory bounds and a fresh safety review before it is registered.
 
 ## Hotkey and displays
 
 The hotkey service owns a small Windows message-loop thread and receives `WM_HOTKEY` after `RegisterHotKey`. It unregisters during disposal. It never calls `SendInput`, `keybd_event`, or any other input-generation API.
 
 Monitor discovery uses ordinary display-monitor enumeration under per-monitor-v2 DPI awareness. Bounds are physical virtual-desktop coordinates, and effective DPI is exposed as a scale relative to 96 DPI.
-The V2 window keeps a physical-size placement per device name and resolution, clamps it to the monitor work area on startup or hot-plug, and Setup › Displays can move it explicitly.
+The V2 window keeps a physical-size placement per device name, resolution and DPI scale, clamps it to the monitor work area on startup or hot-plug, and Setup › Displays can move it explicitly. Negative virtual-desktop coordinates, removed displays and scale changes all go through the same fixture-tested recovery math.
 
 ## Paths and file watchers
 

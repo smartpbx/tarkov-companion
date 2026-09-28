@@ -167,14 +167,13 @@ and ticks itself off when somebody reaches it. A ping means "look here" and expi
 forty-five seconds, and is never persisted, because one restored from disk would be claiming
 "now".
 
-**What is shared is what the player turned on**, and nothing while it is off, with one
-exception the player does not control: a squadmate's companion sends the kit, level, side and
-scav timer its game logged for them. Observations about people outside the room are pruned by
-the relay on the way in and again on the way out, because the game describes every member of an
-in-game party and a five-man filled from matchmaking carries a stranger's nickname and kit.
-`docs/SAFETY.md` rule 1 says other players' log data is never transmitted and records no
-exception for the room, so sending these observations at all is an open conflict
-(`RISK-RELAY-OBSERVED-DATA-POLICY`, #310) rather than a settled product decision.
+**Joining the room is the sharing consent**, and nothing is sent while it is off. In addition to
+the member's own room state, the companion sends the kit, level and side its game already shows
+for party members who have also joined that keyed room. Every room-key holder, including a paired
+tablet, can read those observations. The relay drops observations about names not currently in
+the room, strips the legacy scav-cooldown field, repeats membership pruning on read, and keeps
+live member state only in memory. Quest progress remains a separate opt-in. ADR 0022 records the
+decision and its display-name-matching limitation.
 
 ## Safety and provenance
 

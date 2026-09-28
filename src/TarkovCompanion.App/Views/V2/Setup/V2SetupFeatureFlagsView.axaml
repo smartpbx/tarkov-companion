@@ -10,7 +10,7 @@
     <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
     <TextBlock Classes="v2-body" Text="{Binding RingLine}" TextWrapping="Wrap"
                AutomationProperties.AutomationId="v2-setup-feature-flags-ring" />
-    <ItemsControl ItemsSource="{Binding Rows}">
+    <ItemsControl ItemsSource="{Binding DiagnosticRows}">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>

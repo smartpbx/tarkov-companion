@@ -55,8 +55,8 @@ public sealed class GroupKitMirrorTests
     /// <remarks>
     /// This used to assert the opposite, and the premise has genuinely changed rather than the
     /// rule being wrong. The entry carried a kit and nothing else, so an empty kit was an empty
-    /// entry; it now also carries the level, side and scav timer that the member's own game
-    /// will not tell them, and dropping the entry would drop those with it.
+    /// entry; it now also carries the level and side that the member's own game will not tell
+    /// them, and dropping the entry would drop those with it.
     /// </remarks>
     [Fact]
     public void A_member_whose_gear_resolved_to_nothing_still_carries_what_else_is_known()
@@ -170,17 +170,17 @@ public sealed class GroupKitMirrorTests
     }
 
     [Fact]
-    public void The_scav_timer_and_the_side_ride_along_with_the_kit()
+    public void Party_visible_profile_facts_ride_along_but_the_scav_timer_does_not()
     {
-        // All three come off the same notification the kit does, and every one of them
-        // describes somebody other than the person reading it — which is the whole reason the
-        // group can hand them back.
+        // Level and side are party-visible while assembling. The same notification also carries
+        // a scav cooldown, but that is not normally visible to the squad and is not relayed.
         var squad = Squad(Member("Nikita", ("Headwear", "helmet")));
 
         var kit = Assert.Single(GroupKitMirror.Describe(squad, Names));
 
         Assert.Equal(40, kit.Level);
         Assert.Equal("Bear", kit.Side);
+        Assert.Null(kit.ScavLockedUntil);
     }
 
     [Fact]
@@ -191,13 +191,13 @@ public sealed class GroupKitMirrorTests
         var partial = new ObservedKit("Nikita", []) { Level = 40 };
         var other = new ObservedKit("Nikita", ["helmet name"])
         {
-            ScavLockedUntil = DateTimeOffset.Parse("2026-09-14T04:00:00Z"),
+            Side = "Bear",
         };
 
         var found = GroupKitMirror.FindAll([[partial], [other]], "Nikita");
 
         Assert.Equal(40, found!.Level);
-        Assert.NotNull(found.ScavLockedUntil);
+        Assert.Equal("Bear", found.Side);
         Assert.Equal(["helmet name"], found.Loadout);
     }
 

@@ -51,6 +51,15 @@ public sealed record RaidEvidence(
     /// </remarks>
     public bool StartsNewRaid { get; init; }
 
+    /// <summary>Whether the game identified this as an offline practice raid.</summary>
+    /// <remarks>
+    /// Null means this line cannot tell. The measured practice sequence begins with
+    /// <c>MatchingCompleted:0 real:0 diff:0</c>; an ordinary confirmation or profile status
+    /// explicitly says <c>RaidMode: Online</c>. Keeping unknown separate stops an unrelated
+    /// loading line from changing the answer.
+    /// </remarks>
+    public bool? IsPractice { get; init; }
+
     /// <summary>
     /// The game's own id for the notification this came from, where it had one.
     /// </summary>
@@ -181,6 +190,13 @@ public sealed record RaidSnapshot(
     IReadOnlyList<ActiveExtract> ActiveExtracts,
     bool IsManualMapOverride)
 {
+    /// <summary>Whether this is an offline practice raid rather than an online raid.</summary>
+    /// <remarks>
+    /// Practice state remains local: it is neither written to raid history nor published as
+    /// live raid state to a keyed group.
+    /// </remarks>
+    public bool IsPractice { get; init; }
+
     /// <summary>Whether the raid was run as a PMC or a scav, where known.</summary>
     public string? Side { get; init; }
 

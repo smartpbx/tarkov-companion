@@ -46,7 +46,7 @@ Five moved, and each moved for a stated reason:
 | RISK-ADMIN-KEY-BRUTEFORCE | High | Medium | The same limiter covers `/admin*` and `/reports*`. No entropy floor was added: refusing a short configured key at startup would take the deployed relay down on upgrade, which is the operator's decision to make. |
 | RISK-RELAY-REGISTRY-FAIL-OPEN | High | **Closed** | An unreadable `rooms.json` refuses every room and says so with a 503, instead of clearing the list — which meant open. Fixed and tested rather than re-reviewed. |
 
-The remaining ten Highs were re-read against source on 2026-09-19 and every one is still open.
+The remaining nine Highs were re-read against source on 2026-09-19 and every one is still open.
 What that reading found:
 
 - **Three share one cause.** RISK-RELAY-IDENTITY, RISK-RELAY-KEY-DISCLOSURE and
@@ -56,14 +56,11 @@ What that reading found:
   the registry finding closed above, whose `VerifiedRelayRegistryStore` is likewise uncomposed.)
   Composing them is the single change that would move the most of this register, and it is
   #278/#294 work rather than an audit repair.
-- **One is a contradiction, not a defect, and needs a decision rather than a patch.**
-  RISK-RELAY-OBSERVED-DATA-POLICY: the relay prunes `Observed` entries to the names currently in
-  the room, which bounds who receives them, while `docs/SAFETY.md` says log-derived data about
-  another player is *never transmitted*. Both cannot stand. Either the rule is stricter than it was
-  meant to be — the same document lists a player's own party's composition as permitted, and these
-  are the people it is being sent to — or the relay must stop sending the field. #294's acceptance
-  asks for exactly this kind of contradiction to be reconciled against verified behaviour; the
-  reconciliation is Clayton's call and is recorded here rather than silently resolved either way.
+- **The observed-party contradiction is now closed by a product decision and enforcement.**
+  ADR 0022 makes joining a keyed room the explicit, disclosed consent for current party-visible
+  kit, level and side. The client excludes scav cooldown and other non-party-visible facts; the
+  relay prunes room membership on ingress and egress and keeps live observations only in memory.
+  Tests cover the payload, out-of-room and departed names, keyed readers and legacy-field stripping.
 - **Six were confirmed by reading the named code and remain as written.** RISK-UPDATE-CHANNEL-TRUST
   (#280's rings still do not exist — `capture_controls.py` records all three release environments
   as absent), RISK-REPORT-REDACTION (`/report` caps a body at 64 KiB and still accepts free text

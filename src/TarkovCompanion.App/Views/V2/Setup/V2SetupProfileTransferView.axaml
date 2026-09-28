@@ -20,8 +20,8 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
   </UserControl.Styles>
-  <!-- [#269] One profile's progress to a file and back. Import previews first; nothing is written
-       until Import is pressed on a preview for the target shown. -->
+  <!-- [#269/#917] One profile, its quest progress and its raid history to one file and back.
+       Import previews first; nothing is written until Import is pressed on the target shown. -->
   <StackPanel Classes="v2-stack">
     <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
     <StackPanel Classes="v2-field">

@@ -274,6 +274,27 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
 
     public bool HasSelectedReason => SelectedReason.Length > 0;
 
+    public bool HasSelectedIntelligence => _page.SelectedIntelligence is not null;
+
+    public string SelectedIntelligenceHeading => IntelText.KeysProfileReview;
+
+    public string SelectedIntelligenceTier => _page.SelectedIntelligence is { } intelligence
+        ? IntelText.KeysTier(intelligence.Tier)
+        : string.Empty;
+
+    public string SelectedIntelligenceAdvice => _page.SelectedIntelligence?.Advice ?? string.Empty;
+
+    public IReadOnlyList<string> SelectedIntelligenceReasons =>
+        _page.SelectedIntelligence?.Reasons.Select(reason => reason.Explanation).ToArray() ?? [];
+
+    public string SelectedIntelligenceReasonsHeading => IntelText.KeysWhy;
+
+    public IReadOnlyList<string> SelectedIntelligenceMissing => _page.SelectedIntelligence?.MissingFacts ?? [];
+
+    public bool HasSelectedIntelligenceMissing => SelectedIntelligenceMissing.Count > 0;
+
+    public string SelectedIntelligenceMissingHeading => IntelText.KeysMissingFacts;
+
     public string SelectedMap => _page.Selected?.Map ?? string.Empty;
 
     public string SelectedLocks => _page.Selected?.LockSummary ?? string.Empty;
@@ -384,6 +405,18 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
             case nameof(KeysPageViewModel.SelectedLocks):
                 OnPropertyChanged(nameof(SelectedLockIds));
                 OnPropertyChanged(nameof(HasSelectedLockIds));
+                break;
+            case nameof(KeysPageViewModel.SelectedIntelligence):
+                foreach (var name in new[]
+                {
+                    nameof(HasSelectedIntelligence), nameof(SelectedIntelligenceTier),
+                    nameof(SelectedIntelligenceAdvice), nameof(SelectedIntelligenceReasons),
+                    nameof(SelectedIntelligenceMissing), nameof(HasSelectedIntelligenceMissing),
+                })
+                {
+                    OnPropertyChanged(name);
+                }
+
                 break;
             case nameof(KeysPageViewModel.Status):
                 OnPropertyChanged(nameof(Status));

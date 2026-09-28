@@ -75,7 +75,9 @@ public static class SettingsRegistry
         new(SettingsDomain.Notifications, typeof(INotificationSettingsStore), V2SetupSection.Notifications),
         new(SettingsDomain.ScreenshotTidying, typeof(IScreenshotRetentionStore), V2SetupSection.GameCapture),
         new(SettingsDomain.Network, typeof(INetworkControlsStore), V2SetupSection.DataNetwork),
-        new(SettingsDomain.FeatureFlags, typeof(IFeatureFlagOverrideStore), V2SetupSection.UpdatesDiagnostics),
+        // #917: player-facing flags live with their features (Raid and Team); dev-only flags may
+        // still be shown in Diagnostics, but the domain no longer has one Setup reset home.
+        new(SettingsDomain.FeatureFlags, typeof(IFeatureFlagOverrideStore), null),
         new(SettingsDomain.Horizons, typeof(IRecommendationPolicyStore), V2SetupSection.ProfileProgress),
         // [#902 P6] Team › Squad is its home (P5); Reset everything and Import still cover it.
         new(SettingsDomain.SquadSharing, typeof(IGroupSettingsStore), null),
@@ -92,6 +94,7 @@ public static class SettingsRegistry
     {
         [typeof(IEftPathOverrideStore)] = "A folder on this PC; on another PC it points nowhere.",
         [typeof(IDesktopWindowPlacementStore)] = "Where the window sits on this PC's monitors.",
+        [typeof(ICaptureTargetCalibrationStore)] = "A crop tied to this PC's monitor, DPI and game-window geometry.",
         [typeof(ILoadoutPresetStore)] = "Loadouts the player built: their data, not a choice of behaviour.",
         [typeof(IRaidMarkStore)] = "Marks placed during raids: data.",
         [typeof(IUserQuestMarkStore)] = "Objective markers the player placed: data.",
@@ -137,6 +140,7 @@ public static class SettingsRegistry
         new(WorkspaceLayoutKeys.PlanSessionMinutes, false, "Setup.Settings.Layout.SessionLength", V2SetupSection.ProfileProgress),
         new(WorkspaceLayoutKeys.SoundSettings, false, "Setup.Settings.Layout.Sound", V2SetupSection.Notifications),
         new(WorkspaceLayoutKeys.LearnIconCrops, false, "Setup.Settings.Layout.LearnIconCrops", V2SetupSection.GameCapture),
+        new(WorkspaceLayoutKeys.SetupLastSection, false, "Setup.Settings.Layout.SetupLastSection"),
         new(WorkspaceLayoutKeys.RaidCard(string.Empty), true, "Setup.Settings.Layout.RaidCard"),
         new(WorkspaceLayoutKeys.RaidSpawnRadius(string.Empty), true, "Setup.Settings.Layout.SpawnRadius"),
         new("page.", true, "Setup.Settings.Layout.PageFilters"),

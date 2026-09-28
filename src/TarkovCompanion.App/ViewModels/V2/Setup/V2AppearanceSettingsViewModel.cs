@@ -113,6 +113,7 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
 
         ReduceMotionCommand = new DelegateCommand(() => SetReduceMotion(!Current.ReduceMotion));
         FocusAlwaysVisibleCommand = new DelegateCommand(() => SetFocusAlwaysVisible(!Current.FocusAlwaysVisible));
+        CloseToTrayCommand = new DelegateCommand(() => SetCloseToTray(!Current.CloseToTray));
         ResetCommand = new DelegateCommand(() => _ = _apply(WorkspacePreferences.Default));
         _preferences.Changed += OnPreferencesChanged;
         Refresh();
@@ -131,6 +132,8 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
     public ICommand ReduceMotionCommand { get; }
 
     public ICommand FocusAlwaysVisibleCommand { get; }
+
+    public ICommand CloseToTrayCommand { get; }
 
     public ICommand ResetCommand { get; }
 
@@ -157,6 +160,13 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
     /// <summary>The focus switch's state, a real switch for the reason <see cref="ReduceMotion"/> gives.</summary>
     public bool FocusAlwaysVisible => Current.FocusAlwaysVisible;
 
+    public string CloseToTrayLabel => SetupText.AppearanceCloseToTrayLabel;
+
+    public string CloseToTrayHint => SetupText.AppearanceCloseToTrayHint;
+
+    /// <summary>Whether the player's close gesture keeps an ordinary launch in the tray.</summary>
+    public bool CloseToTray => Current.CloseToTray;
+
     /// <summary>What is in force now, in one line, so the section can be read without counting ticks.</summary>
     public string Summary => SetupText.AppearanceSummary(ThemeName(Current.Theme), Current.TextScalePercent, DensityName(Current.Density));
 
@@ -177,6 +187,8 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
 
     private void SetFocusAlwaysVisible(bool always) => _ = _apply(Current with { FocusAlwaysVisible = always });
 
+    private void SetCloseToTray(bool closeToTray) => _ = _apply(Current with { CloseToTray = closeToTray });
+
     private void OnPreferencesChanged(object? sender, WorkspacePreferences preferences) => Refresh();
 
     private void Refresh()
@@ -189,6 +201,7 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
         OnPropertyChanged(nameof(Current));
         OnPropertyChanged(nameof(ReduceMotion));
         OnPropertyChanged(nameof(FocusAlwaysVisible));
+        OnPropertyChanged(nameof(CloseToTray));
         OnPropertyChanged(nameof(Summary));
     }
 

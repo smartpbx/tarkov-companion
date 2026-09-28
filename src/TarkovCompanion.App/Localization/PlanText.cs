@@ -23,6 +23,7 @@ public static partial class PlanText
     public static string ClearSearch => UiText.Get("Plan.ClearSearch");
     public static string Trader => UiText.Get("Plan.Trader");
     public static string LevelAndLoyalty => UiText.Get("Plan.LevelAndLoyalty");
+    public static string EditLevelAndLoyalty => UiText.Get("Plan.EditLevelAndLoyalty");
     public static string YourLevel => UiText.Get("Plan.YourLevel");
     public static string ByMap => UiText.Get("Plan.ByMap");
     public static string SuggestedNextRaid => UiText.Get("Plan.SuggestedNextRaid");

@@ -392,7 +392,7 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
     /// <summary>Package 29 (parity): this player's own kit, as the rest of the group described it back (V1's "Your kit, as your party sees it").</summary>
     public string MyLoadout { get; private set; } = string.Empty;
 
-    /// <summary>Level, side and scav timer the group knows about this player; empty until somebody else says.</summary>
+    /// <summary>Level and side the group knows about this player; empty until somebody else says.</summary>
     public string MyProfile { get; private set; } = string.Empty;
 
     public bool HasMyProfile => MyProfile.Length > 0;

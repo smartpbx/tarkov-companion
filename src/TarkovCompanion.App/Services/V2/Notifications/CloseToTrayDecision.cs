@@ -16,9 +16,9 @@ namespace TarkovCompanion.App.Services.V2.Notifications;
 /// process has to be killed.
 /// </para>
 /// <para>
-/// Tool flags (<c>--page</c>, developer mode) and the verification environment
-/// variables are enough: an ordinary player launch keeps close-to-tray, everything else closes
-/// the way it did before this feature existed.
+/// Tool flags (<c>--page</c>, developer mode) and the verification environment variables are the
+/// hard eligibility gate. An ordinary player launch may close to the tray when the stored
+/// Appearance &amp; Window preference also permits it; tools always close.
 /// </para>
 /// </remarks>
 public static class CloseToTrayDecision

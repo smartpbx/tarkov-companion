@@ -9,11 +9,6 @@ using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.Application.Services.Devices;
 
-public sealed record DesktopCaptureIntentRequest(
-    RequestCaptureIntentCommand Command,
-    CompanionDeviceId DeviceId,
-    string DeviceName);
-
 /// <summary>What a just-applied paired command means for the desktop's own local mark store.</summary>
 internal enum MarkReconciliationKind
 {
@@ -1041,16 +1036,9 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             _pendingDesktopWorkspace = application.State.CanonicalState.Workspace.Projection;
         }
 
-        // #271: capture requests used to stop in canonical state. As with a Control workspace
-        // move, only an Applied command crosses this seam; capability, session, revision and
-        // payload validation have already happened in DesktopCompanionAuthority.
-        if (application.Acknowledgement.Disposition == CommandDisposition.Applied &&
-            command.Command is RequestCaptureIntentCommand capture)
-        {
-            var deviceName = application.State.Devices
-                .FirstOrDefault(device => device.DeviceId == state.DeviceId)?.DisplayName ?? "Paired tablet";
-            DesktopCaptureIntentRequested?.Invoke(new(capture, state.DeviceId, deviceName));
-        }
+        // #977: old tablets and relays may still send RequestCaptureIntentCommand. The protocol
+        // and acknowledgement remain readable for compatibility, but every screenshot now goes
+        // to every detector, so the retired command deliberately has no desktop side effect.
 
         CanonicalStateChanged?.Invoke(application.State.CanonicalState);
         ScheduleMarkExpiry();
@@ -1111,12 +1099,6 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
     /// projection the desktop must now be showing.
     /// </summary>
     public event Action<WorkspaceProjection>? DesktopWorkspaceRequested;
-
-    /// <summary>
-    /// Raised only after the authority applies a paired device's capture request, so the desktop
-    /// can arm its local capture coordinator through the same presentation path as its own panel.
-    /// </summary>
-    public event Action<DesktopCaptureIntentRequest>? DesktopCaptureIntentRequested;
 
     /// <summary>
     /// Raised after any paired command lands, so the desktop's own panels see a control request

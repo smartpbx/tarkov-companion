@@ -108,6 +108,7 @@ public static class SetupSettingsExport
             MapDefaults = new SortedDictionary<string, string>(normalized.MapDefaults.ToDictionary(), StringComparer.OrdinalIgnoreCase),
             Language = new LanguageDocument(normalized.InterfaceLanguage),
             CaptureShortcut = normalized.CaptureShortcut,
+            CloseToTray = normalized.Appearance.CloseToTray,
         };
         return JsonSerializer.Serialize(document, JsonOptions);
     }
@@ -170,7 +171,8 @@ public static class SetupSettingsExport
                 document.TextScalePercent ?? WorkspacePreferences.Default.TextScalePercent,
                 document.Density ?? WorkspacePreferences.Default.Density,
                 document.ReduceMotion ?? WorkspacePreferences.Default.ReduceMotion,
-                document.FocusAlwaysVisible ?? WorkspacePreferences.Default.FocusAlwaysVisible),
+                document.FocusAlwaysVisible ?? WorkspacePreferences.Default.FocusAlwaysVisible,
+                document.CloseToTray ?? WorkspacePreferences.Default.CloseToTray),
             new NotificationSettings
             {
                 SquadMark = document.NotifySquadMark ?? NotificationSettings.Default.SquadMark,
@@ -295,6 +297,9 @@ public static class SetupSettingsExport
 
         /// <summary>[#935] Whether Alt+Shift+C captures. Absent: left as it is.</summary>
         public bool? CaptureShortcut { get; init; }
+
+        /// <summary>[#917] Whether an ordinary close keeps the app in the tray. Absent: on.</summary>
+        public bool? CloseToTray { get; init; }
     }
 
     private sealed record LanguageDocument(string? Culture);

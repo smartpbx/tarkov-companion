@@ -81,11 +81,10 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         }
 
         // Observations are pruned on the way in as well as on the way out. A five-man filled
-        // from LFG describes the random's nickname and kit to the client, and nothing stopped
-        // that reaching the room, where anyone with the key could read it. Pruning narrows who
-        // receives it; it does not make sending it allowed. SAFETY.md says other players' log
-        // data is never transmitted and records no exception for the room, so the field itself
-        // is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
+        // from LFG describes the random's nickname and kit to the client; the relay must never
+        // retain that observation unless the named person has independently joined this keyed
+        // room. Pruning also strips the legacy scav timer, which is not ordinary party-visible
+        // loading-screen data.
         var pruned = PruneObserved(state, members.Keys, memberKey);
         var changed = !members.TryGetValue(memberKey, out var previous) || !SaysTheSame(previous.State, pruned);
         members[memberKey] = new(pruned, timeProvider.GetUtcNow());
@@ -144,8 +143,16 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         }
 
         var present = new HashSet<string>(memberKeys, StringComparer.OrdinalIgnoreCase) { publisherKey };
-        var kept = state.Observed.Where(observed => present.Contains(observed.Name.Trim())).ToArray();
-        return kept.Length == state.Observed.Count ? state : state with { Observed = kept };
+        var kept = state.Observed
+            .Where(observed => present.Contains(observed.Name.Trim()))
+            .Select(observed => observed.ScavLockedUntilUnix is null
+                ? observed
+                : observed with { ScavLockedUntilUnix = null })
+            .ToArray();
+        return kept.Length == state.Observed.Count &&
+               kept.SequenceEqual(state.Observed)
+            ? state
+            : state with { Observed = kept };
     }
 
     /// <summary>Everyone else in the room who has published recently.</summary>

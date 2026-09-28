@@ -28,7 +28,8 @@ public enum InterfaceDensity
 }
 
 /// <summary>
-/// Everything a player can choose about how the companion looks, in one versioned record.
+/// Everything a player can choose about how the companion looks and behaves as a desktop window,
+/// in one versioned record.
 /// </summary>
 /// <remarks>
 /// One record and one file, not a setting per feature. The design system shipped light,
@@ -60,16 +61,21 @@ public enum InterfaceDensity
 /// default because Fluent's own :focus-visible heuristic (no ring after a mouse click) is what
 /// most players expect; on for anyone who tracks focus visually across both input methods.
 /// </param>
+/// <param name="CloseToTray">
+/// Whether an ordinary press of the main window's close button keeps the companion in the tray.
+/// Tool and verification launches still close regardless of this preference.
+/// </param>
 public sealed record WorkspacePreferences(
     AppearanceTheme Theme = AppearanceTheme.Dark,
     ColorVisionMode ColorVision = ColorVisionMode.Standard,
     int TextScalePercent = 100,
     InterfaceDensity Density = InterfaceDensity.Standard,
     bool ReduceMotion = false,
-    bool FocusAlwaysVisible = false)
+    bool FocusAlwaysVisible = false,
+    bool CloseToTray = true)
 {
     /// <summary>The shape this build writes and the only one it reads.</summary>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     /// <summary>
     /// The text scales on offer, smallest first.

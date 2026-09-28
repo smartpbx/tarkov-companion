@@ -6,7 +6,7 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup"
              xmlns:updates="using:TarkovCompanion.App.Services.Updates"
-             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests">
+             xmlns:planVm="using:TarkovCompanion.App.ViewModels.V2.Plan">
   <UserControl.Styles>
     <!-- A settings section reads as a readable column, not a full-width slab. -->
     <Style Selector="Border.v2-card.v2-setup-section">
@@ -157,7 +157,35 @@
               <setup:V2SetupProfilesView DataContext="{Binding Profiles}" />
             </Panel>
             <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
-            <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
+            <!-- #917: these values gate Plan, Ammo and Crafts, but their one editing home is the
+                 active profile. The game never writes the player's own level into the logs. -->
+            <Panel IsVisible="{Binding HasPlan}">
+              <StackPanel Classes="v2-stack" DataContext="{Binding Shell.PlanWorkspace}"
+                          x:DataType="planVm:PlanWorkspaceViewModel"
+                          AutomationProperties.AutomationId="v2-setup-level-loyalty">
+                <TextBlock Classes="v2-heading-3" Text="{x:Static l:PlanText.LevelAndLoyalty}"
+                           AutomationProperties.HeadingLevel="3" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                  <TextBlock Classes="v2-body" Text="{x:Static l:PlanText.YourLevel}" VerticalAlignment="Center" />
+                  <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="1" Maximum="79"
+                                 Value="{Binding PlayerLevel, Mode=OneWay}" ValueChanged="OnPlayerLevelChanged"
+                                 AutomationProperties.AutomationId="v2-setup-player-level"
+                                 AutomationProperties.Name="{x:Static l:PlanText.YourLevel}" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding TraderLoyalty}" IsVisible="{Binding HasTraderLoyalty}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="planVm:PlanTraderLoyaltyViewModel">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
+                        <TextBlock Classes="v2-label" Text="{Binding Name}" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="0" Maximum="4"
+                                       Value="{Binding Level, Mode=OneWay}" ValueChanged="OnTraderLevelChanged"
+                                       Tag="{Binding TraderId}" AutomationProperties.Name="{Binding Name}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Panel>
             <Separator Margin="0,6" />
             <StackPanel Classes="v2-stack" IsVisible="{Binding HasRecommendationHorizons}">
               <TextBlock Classes="v2-heading-2" Text="{Binding RecommendationHorizons.Heading}"
@@ -224,75 +252,6 @@
             <Panel IsVisible="{Binding Profiles.HasTransfer, FallbackValue=False}">
               <setup:V2SetupProfileTransferView DataContext="{Binding Profiles.Transfer}" />
             </Panel>
-            <Expander Header="{Binding MergeProgressHeading}" HorizontalAlignment="Stretch"
-                      AutomationProperties.AutomationId="v2-setup-progress-merge">
-              <StackPanel Classes="v2-stack">
-                <TextBlock Classes="v2-body" Text="{Binding ExchangeTitle}" />
-                <TextBlock Classes="v2-label" Text="{Binding ExchangeNote}" TextWrapping="Wrap" />
-                <TextBox Classes="v2-field-input" Text="{Binding Settings.Quests.ExchangePath}"
-                         PlaceholderText="{Binding ExchangePathPlaceholder}"
-                         AutomationProperties.AutomationId="v2-setup-exchange-path"
-                         AutomationProperties.Name="{Binding ExchangePathPlaceholder}" />
-                <WrapPanel Classes="v2-toolbar">
-                  <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-progress"
-                          Content="{Binding ExportLabel}" Command="{Binding Settings.Quests.ExportProgressCommand}" />
-                  <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import"
-                          Content="{Binding PreviewImportLabel}" Command="{Binding Settings.Quests.PreviewImportCommand}" />
-                  <Button Classes="v2-target" Content="{Binding KeepLocalLabel}"
-                          Command="{Binding Settings.Quests.KeepLocalConflictsCommand}" />
-                  <Button Classes="v2-target" Content="{Binding UseIncomingLabel}"
-                          Command="{Binding Settings.Quests.UseIncomingConflictsCommand}" />
-                  <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-apply-import"
-                          Content="{Binding ApplyImportLabel}" Command="{Binding Settings.Quests.ApplyImportCommand}" />
-                  <Button Classes="v2-target" Content="{Binding UndoImportLabel}"
-                          Command="{Binding Settings.Quests.UndoLastImportCommand}" />
-                </WrapPanel>
-                <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.ImportPreviewSummary}" TextWrapping="Wrap" />
-                <TextBlock Classes="v2-label" Text="{Binding Settings.Quests.ExchangeStatus}" TextWrapping="Wrap" />
-                <ScrollViewer IsVisible="{Binding Settings.Quests.HasImportProposals}" MaxHeight="240"
-                              VerticalScrollBarVisibility="Auto">
-                  <ItemsControl ItemsSource="{Binding Settings.Quests.ImportProposals}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="quests:QuestImportProposalViewModel">
-                        <StackPanel Spacing="2" Margin="0,0,0,10">
-                          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                            <TextBlock Classes="v2-body" Text="{Binding Classification}" />
-                            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Entity}" TextWrapping="Wrap" />
-                            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Resolution}" />
-                          </Grid>
-                          <TextBlock Classes="v2-label" Text="{Binding LocalValue}" TextWrapping="Wrap" />
-                          <TextBlock Classes="v2-label" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
-                          <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
-                        </StackPanel>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </ScrollViewer>
-                <StackPanel Classes="v2-stack" IsVisible="{Binding Settings.Quests.HasImportHistory}">
-                  <TextBlock Classes="v2-body" Text="{Binding ImportHistoryTitle}" />
-                  <ItemsControl ItemsSource="{Binding Settings.Quests.ImportHistory}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="quests:QuestImportHistoryRowViewModel">
-                        <StackPanel Spacing="2" Margin="0,0,0,10">
-                          <TextBlock Classes="v2-body" Text="{Binding Title}" TextWrapping="Wrap" />
-                          <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
-                          <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
-                            <ItemsControl.ItemTemplate>
-                              <DataTemplate x:DataType="quests:QuestImportHistoryLineViewModel">
-                                <Grid ColumnDefinitions="200,*" ColumnSpacing="10">
-                                  <TextBlock Classes="v2-label" Text="{Binding What}" TextWrapping="Wrap" />
-                                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Why}" TextWrapping="Wrap" />
-                                </Grid>
-                              </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
-                        </StackPanel>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </StackPanel>
-            </Expander>
           </StackPanel>
         </Border>
 

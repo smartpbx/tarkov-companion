@@ -11,6 +11,7 @@ using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
@@ -207,6 +208,34 @@ public sealed class SetupAdminTests
     }
 
     [Fact]
+    public async Task DisplaysLoadsPreviewsSavesAndResetsTheExactCaptureCalibration()
+    {
+        var display = new DisplayDescriptor("1", "Display 1", new(-1920, 0, 1920, 1080), true, 1.25);
+        var window = new WindowDescriptor(1, "EscapeFromTarkov", "EFT", new(-1800, 40, 1600, 900), false, false);
+        var key = CaptureTargetCalibration.KeyFor(display, window, GameWindowPresentationMode.Windowed);
+        var calibrations = new FakeCalibrations(
+            new CaptureTargetCalibrationProfile(key, new(8, 30, 8, 8), Now));
+        var view = new SetupDisplaysViewModel(
+            new FakeMonitors(display),
+            new FakeWindows(window),
+            calibrations: calibrations,
+            timeProvider: new FixedClock(Now.AddMinutes(1)));
+
+        await view.RefreshAsync(default);
+
+        Assert.True(view.CanCalibrate);
+        Assert.Equal(8, view.LeftInset);
+        Assert.Contains("1584×862", view.PreviewDescription, StringComparison.Ordinal);
+        view.LeftInset = 10;
+        await Assert.IsType<AsyncDelegateCommand>(view.SaveCalibrationCommand).ExecuteAsync();
+        Assert.Equal(10, Assert.Single(calibrations.Profiles).Insets.Left);
+
+        await Assert.IsType<AsyncDelegateCommand>(view.ResetCalibrationCommand).ExecuteAsync();
+        Assert.Empty(calibrations.Profiles);
+        Assert.Equal(0, view.LeftInset);
+    }
+
+    [Fact]
     public async Task TheRealCompositionAttachesSetupAdminAndTheDeepLinkOpensTheAnswer()
     {
         var root = Path.Combine(Path.GetTempPath(), $"tarkov-setup-admin-{Guid.NewGuid():N}");
@@ -324,6 +353,27 @@ public sealed class SetupAdminTests
         {
             CurrentDisplayId = displayId;
             CurrentDisplayChanged?.Invoke(this, EventArgs.Empty);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeCalibrations(params CaptureTargetCalibrationProfile[] profiles) : ICaptureTargetCalibrationStore
+    {
+        public List<CaptureTargetCalibrationProfile> Profiles { get; } = [.. profiles];
+
+        public Task<CaptureTargetCalibrationState> GetAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CaptureTargetCalibrationState(Profiles.ToArray()));
+
+        public Task SaveAsync(CaptureTargetCalibrationProfile profile, CancellationToken cancellationToken)
+        {
+            Profiles.RemoveAll(candidate => candidate.Key == profile.Key);
+            Profiles.Add(profile);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteAsync(CaptureTargetCalibrationKey key, CancellationToken cancellationToken)
+        {
+            Profiles.RemoveAll(candidate => candidate.Key == key);
             return Task.CompletedTask;
         }
     }

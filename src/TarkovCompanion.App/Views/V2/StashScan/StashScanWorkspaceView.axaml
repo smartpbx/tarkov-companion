@@ -564,7 +564,7 @@
                 </ItemsControl>
               </WrapPanel>
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBox Classes="v2-field-input" Watermark="{x:Static l:IntelText.StashCorrectedItemId}"
+                <TextBox Classes="v2-field-input" PlaceholderText="{x:Static l:IntelText.StashCorrectedItemId}"
                          Text="{Binding IdentityCorrection}"
                          AutomationProperties.Name="{x:Static l:IntelText.StashCorrectedItemId}"
                          AutomationProperties.AutomationId="v2-stash-correct-identity-input" />
@@ -574,7 +574,7 @@
                         Command="{Binding CorrectIdentityCommand}" />
               </Grid>
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBox Classes="v2-field-input" Watermark="{x:Static l:IntelText.StashCorrectedCount}"
+                <TextBox Classes="v2-field-input" PlaceholderText="{x:Static l:IntelText.StashCorrectedCount}"
                          Text="{Binding QuantityCorrection}"
                          AutomationProperties.Name="{x:Static l:IntelText.StashCorrectedCount}"
                          AutomationProperties.AutomationId="v2-stash-correct-quantity-input" />

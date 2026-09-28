@@ -4,9 +4,11 @@ using System.Globalization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Intelligence.Keys;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Keys;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -61,12 +63,11 @@ public sealed record KeyRowViewModel(
 /// </summary>
 /// <remarks>
 /// <para>
-/// There is deliberately no tier and no score here, and the page still does not use
-/// <c>IKeyIntelligenceService</c>. Four of the six inputs that service weighs (expected loot,
-/// lock utility, unique access and route risk) have no source anywhere in the synced payload
-/// and are projected as zero by <c>SqliteItemFactCatalog</c>, whose remarks say so outright. A
-/// tier built on them would not be a weak signal, it would be a fabricated one, and every key
-/// would land in the same low band for a reason that has nothing to do with the key.
+/// The selected key also uses <see cref="IProfileAwareKeyIntelligenceSource"/>. Four score inputs
+/// (expected loot, lock utility, unique access and route risk) still have no synced source, but
+/// they now remain null and the answer is a review with explicit missing facts instead of a
+/// fabricated low tier. Current/future quest need, owned copies, uses, locks and cost keep their
+/// own evidence and remain useful without completing the score.
 /// </para>
 /// <para>
 /// There <i>is</i> now a keep-or-sell call, and it is built on the opposite footing: the
@@ -92,6 +93,7 @@ public sealed class KeysPageViewModel : PageViewModel
     private readonly IItemRepository _itemRepository;
     private readonly IQuestProgressService? _questProgress;
     private readonly IMapDataService? _maps;
+    private readonly IProfileAwareKeyIntelligenceSource? _intelligence;
     // Concurrent because the rows are now built on the pool (#453), and two loads can overlap.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<KeyRowViewModel> _allKeys = [];
@@ -101,6 +103,9 @@ public sealed class KeysPageViewModel : PageViewModel
     private string _searchQuery = string.Empty;
     private string _status = IntelText.KeysLoading;
     private string _detail = NoKeySelected;
+    private ProfileAwareKeyIntelligenceResult? _selectedIntelligence;
+    private int _intelligenceVersion;
+    private CancellationTokenSource? _intelligenceCancellation;
 
     public KeysPageViewModel(
         IItemFactCatalog catalog,
@@ -119,7 +124,8 @@ public sealed class KeysPageViewModel : PageViewModel
         IMapDataService? maps = null,
         // #283: which keys the player owns, from stash and Key case scans. Without it the page
         // says nothing about ownership, as before.
-        IPlayerProfileService? profiles = null)
+        IPlayerProfileService? profiles = null,
+        IProfileAwareKeyIntelligenceSource? intelligence = null)
         : base(IntelText.KeysTitle, IntelText.KeysSubtitle, IntelText.KeysNotLoaded)
     {
         _catalog = catalog;
@@ -127,6 +133,7 @@ public sealed class KeysPageViewModel : PageViewModel
         _questProgress = questProgress;
         _maps = maps;
         _profiles = profiles;
+        _intelligence = intelligence;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
@@ -230,6 +237,50 @@ public sealed class KeysPageViewModel : PageViewModel
                 : value.Locks.Count == 0
                     ? IntelText.KeysNoLocksSynced(value.Name)
                     : IntelText.KeysOpensLocksDetail(value.Name, value.Locks.Count);
+            SelectedIntelligence = null;
+            var cancellation = new CancellationTokenSource();
+            Interlocked.Exchange(ref _intelligenceCancellation, cancellation)?.Cancel();
+            LoadSelectedIntelligenceAsync(
+                    value,
+                    Interlocked.Increment(ref _intelligenceVersion),
+                    cancellation.Token)
+                .Observe("keys", "profile-aware intelligence");
+        }
+    }
+
+    /// <summary>The evidence-honest answer for the open key; null while absent or loading.</summary>
+    public ProfileAwareKeyIntelligenceResult? SelectedIntelligence
+    {
+        get => _selectedIntelligence;
+        private set => SetProperty(ref _selectedIntelligence, value);
+    }
+
+    private async Task LoadSelectedIntelligenceAsync(
+        KeyRowViewModel? key,
+        int version,
+        CancellationToken cancellationToken)
+    {
+        ProfileAwareKeyIntelligenceResult? result = null;
+        if (key is not null && _intelligence is not null)
+        {
+            try
+            {
+                result = await _intelligence.GetAsync(
+                    key.ItemId,
+                    string.IsNullOrWhiteSpace(SearchQuery)
+                        ? KeyIntelligenceEntryPoint.ManualLookup
+                        : KeyIntelligenceEntryPoint.Search,
+                    cancellationToken).ConfigureAwait(true);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The sourced key facts remain useful if a profile or quest read is unavailable.
+            }
+        }
+
+        if (!cancellationToken.IsCancellationRequested && version == Volatile.Read(ref _intelligenceVersion))
+        {
+            SelectedIntelligence = result;
         }
     }
 

@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
 using System.Threading.Tasks;
@@ -129,6 +130,26 @@ public sealed partial class V2SetupWorkspaceView : UserControl
             FileTypeFilter = [FilePickerFileTypes.ImageAll],
         }).ConfigureAwait(true);
         return picked.Select(file => file.TryGetLocalPath()).Where(path => path is not null).Select(path => path!).ToArray();
+    }
+
+    /// <summary>Records profile gates without treating a refresh of the spinner as another edit.</summary>
+    private void OnPlayerLevelChanged(object? sender, NumericUpDownValueChangedEventArgs eventArgs)
+    {
+        if (eventArgs.NewValue is { } level &&
+            DataContext is V2SetupWorkspaceViewModel { Shell.PlanWorkspace: { } plan })
+        {
+            _ = plan.SetPlayerLevelAsync(level);
+        }
+    }
+
+    private void OnTraderLevelChanged(object? sender, NumericUpDownValueChangedEventArgs eventArgs)
+    {
+        if (sender is NumericUpDown { Tag: string traderId } &&
+            eventArgs.NewValue is { } level &&
+            DataContext is V2SetupWorkspaceViewModel { Shell.PlanWorkspace: { } plan })
+        {
+            _ = plan.SetTraderLevelAsync(traderId, level);
+        }
     }
 
     private async Task Copy(string text)

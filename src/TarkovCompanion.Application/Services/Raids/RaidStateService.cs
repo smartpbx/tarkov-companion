@@ -208,6 +208,8 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             // backwards even when the clock behind it does.
             UpdatedUtc = Later(observedUtc),
             Confidence = evidence.Confidence,
+            IsPractice = evidence.IsPractice
+                ?? (clearingRaid || enteringNewRaid || anotherRaid ? false : Current.IsPractice),
             LastKnownPosition = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
             // The trail belongs to the raid it was walked in, so a new one starts empty.
             PositionTrail = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.PositionTrail,

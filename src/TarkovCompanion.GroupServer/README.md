@@ -12,19 +12,22 @@ it does not record member-position history.
 
 What the sender publishes about themselves: their display name, which map they are on, their
 raid state and side, the position, height, heading and recent trail from their own screenshots
-with their ages, their loadout and the quests they are working on.
+with their ages, and the quests they chose to share. The legacy own-loadout slot is empty until
+the desktop has a truthful own-kit source.
 
-One field is not about the sender. `observed` carries the kit, level, side and scav timer the
+One field is not about the sender. `observed` carries the kit, level and side the
 sender's game logged for the rest of their in-game party. The relay keeps only entries naming
 somebody in the room, but it does not hand an entry only to the person it names: each member's
 `POST /state` answer carries every other member's entries and any keyed `GET /state` carries all
 of them, so anybody holding the room key can read whatever was observed about anybody in it, and
-the desktop client fills in other members' kit from them. `docs/SAFETY.md` does not currently allow that transmission, so it is an
-open policy conflict owned by #310 (`RISK-RELAY-OBSERVED-DATA-POLICY`).
+the desktop client fills in other members' kit from them. Joining the keyed room is the explicit
+opt-in for that room-wide sharing. The relay drops observations about people who have not joined,
+clears the legacy scav-cooldown value, and repeats membership pruning on read.
 
 This is a deliberate departure from the desktop application's usual promise that nothing from
-the game's logs leaves the machine. It happens only when somebody turns it on, and what is
-sent is listed in `GroupContracts.cs` in full so the promise can be read rather than trusted.
+the game's logs leaves the machine. It happens only when somebody joins a room, the client
+discloses it next to that control, and what is sent is listed in `GroupContracts.cs` in full so
+the promise can be read rather than trusted.
 
 ## Access
 

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Profiles;
@@ -24,6 +25,31 @@ public sealed class HistoricalTrafficRuntimeServiceTests
         8_000,
         1_000,
         1_000);
+
+    [Fact]
+    public void ExactShownPredictionRoundTripsForLaterRaidComparison()
+    {
+        var result = new HistoricalTrafficRuntimeService().Evaluate(
+            Publication(
+            [
+                Input("train-contact", TrafficDataPartition.Train, TrafficObservationClass.Contact, 10),
+                Input("tune-no-contact", TrafficDataPartition.Tune, TrafficObservationClass.NoContact, 20),
+                Input("held-contact", TrafficDataPartition.HeldOut, TrafficObservationClass.Contact, 30),
+            ]),
+            Request(new RaidClockReading(TimeSpan.FromMinutes(20), RaidClockBasis.ObservedOnExtractScreen, Now), Now));
+        var shown = Assert.IsType<TrafficPredictionReceipt>(result.Receipt);
+
+        var restored = Assert.Single(RaidTrafficPrediction.ParseAll(
+            ["not-json", RaidTrafficPrediction.ToPayload(shown)]));
+
+        Assert.Equal(shown.PredictionId, restored.PredictionId);
+        Assert.Equal(shown.ModelVersion, restored.ModelVersion);
+        Assert.Equal(shown.Scope, restored.Scope);
+        Assert.Equal(shown.Phase, restored.Phase);
+        Assert.Equal(shown.ElapsedSeconds, restored.ElapsedSeconds);
+        Assert.Equal(shown.Zones.Select(zone => zone.Estimate.Value), restored.Zones.Select(zone => zone.Estimate.Value));
+        Assert.Equal(shown.Corridors.Select(corridor => corridor.Estimate.Value), restored.Corridors.Select(corridor => corridor.Estimate.Value));
+    }
 
     [Fact]
     public void ObservedClockIsAgedAndHeldOutRowsCannotInfluenceTheShownPrediction()

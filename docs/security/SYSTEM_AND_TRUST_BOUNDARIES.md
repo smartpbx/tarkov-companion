@@ -182,12 +182,13 @@ id, but source behavior cannot make a malicious/compromised receiving process bl
 Both receiver disclosure and cleartext-LAN interception are open under
 RISK-RELAY-KEY-DISCLOSURE.
 
-The member payload contains name, map/raid/side, position/height/heading/age, own loadout and
-quests when enabled, observed-party details, trail, extracts/transits, and raid-clock fields
-(`GroupSessionService.Describe`, `GroupContracts.cs`). The observed-party subset comes from other
-players' game-log data and currently crosses the relay despite `docs/SAFETY.md` saying that data
-is never transmitted. This document does not relax that rule: it records the mismatch as open
-RISK-RELAY-OBSERVED-DATA-POLICY.
+The member payload contains name, map/raid/side, position/height/heading/age, optional quests,
+party-visible observed kit/level/side, trail, extracts/transits, and raid-clock fields
+(`GroupSessionService.Describe`, `GroupContracts.cs`). Joining the keyed room explicitly opts
+into the observed-party exchange. The relay keeps only observations naming current room members,
+strips legacy scav cooldowns, repeats pruning on read, and never persists live member state.
+ADR 0022 and `docs/SAFETY.md` define this narrow exception; the tested controls close
+RISK-RELAY-OBSERVED-DATA-POLICY without changing the enemy-tracking prohibition.
 
 An open relay also accepts any syntactically valid invented key as a room selector. That includes
 the persistent waypoint namespace: per-room caps do not cap the number of rooms. A closed relay

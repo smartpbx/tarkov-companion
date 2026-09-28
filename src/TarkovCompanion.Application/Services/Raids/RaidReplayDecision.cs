@@ -89,8 +89,16 @@ public static class RaidReplayDecision
             switch (evidence.SuggestedState)
             {
                 // A new scene with another map is another raid, whatever the last one left behind.
-                case RaidLifecycleState.LoadingRaid when evidence.MapId is not null:
-                    loading = line;
+                case RaidLifecycleState.LoadingRaid:
+                    // MatchingCompleted:0 is the statement that this is practice; the scene
+                    // preset that follows is the statement of where. Keep both as one pending
+                    // start so replay does not lose the first fact when the second arrives.
+                    loading = loading is null ? line : Merge(loading, evidence);
+                    if (evidence.MapId is null)
+                    {
+                        break;
+                    }
+
                     if (open is not null && open.Evidence.MapId is { } openMap
                         && !string.Equals(openMap, evidence.MapId, StringComparison.OrdinalIgnoreCase))
                     {
@@ -105,7 +113,14 @@ public static class RaidReplayDecision
                     when open is not null || evidence.MapId is not null
                         || evidence.RaidKey is not null || evidence.StartsNewRaid || loading is not null:
                     open = open is null && loading is not null && evidence.MapId is null
-                        ? line with { Evidence = evidence with { MapId = loading.Evidence.MapId } }
+                        ? line with
+                        {
+                            Evidence = evidence with
+                            {
+                                MapId = loading.Evidence.MapId,
+                                IsPractice = evidence.IsPractice ?? loading.Evidence.IsPractice,
+                            },
+                        }
                         : Begin(open, line);
                     loading = null;
                     break;
@@ -129,26 +144,27 @@ public static class RaidReplayDecision
         }
 
         var where = open.Evidence.MapId is null ? "A raid" : $"A raid on {open.Evidence.MapId}";
+        var startedUtc = open.Evidence.RaidStartedUtc ?? open.WrittenUtc;
         if (!gameIsRunning)
         {
-            return new(open.Evidence, open.WrittenUtc, lastSeen, false,
+            return new(open.Evidence, startedUtc, lastSeen, false,
                 $"{where} was never reported over, but the game is not running, so it has ended.");
         }
 
         var bound = (longestRaid ?? RaidResume.LongestRaid) + RaidResume.Margin;
-        if (open.WrittenUtc is { } started && nowUtc - started > bound)
+        if (startedUtc is { } started && nowUtc - started > bound)
         {
             return new(open.Evidence, started, lastSeen, false,
                 $"{where} was never reported over, but it began longer ago than any raid lasts.");
         }
 
-        if (open.WrittenUtc is { } ahead && ahead - nowUtc > ClockSlack)
+        if (startedUtc is { } ahead && ahead - nowUtc > ClockSlack)
         {
             return new(open.Evidence, ahead, lastSeen, false,
                 $"{where} was never reported over, but it is stamped later than now, so the clock has moved since.");
         }
 
-        return new(open.Evidence, open.WrittenUtc, lastSeen, true, $"{where} is still running.");
+        return new(open.Evidence, startedUtc, lastSeen, true, $"{where} is still running.");
     }
 
     /// <summary>
@@ -299,6 +315,8 @@ public static class RaidReplayDecision
             RaidKey = open.Evidence.RaidKey ?? later.RaidKey,
             Side = open.Evidence.Side ?? later.Side,
             SideBasis = open.Evidence.Side is null ? later.SideBasis : open.Evidence.SideBasis,
+            IsPractice = open.Evidence.IsPractice ?? later.IsPractice,
+            RaidStartedUtc = open.Evidence.RaidStartedUtc ?? later.RaidStartedUtc,
         },
     };
 

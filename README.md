@@ -197,7 +197,8 @@ walking pace. It comes from your own raid history only and predicts nothing.
 ### Playing together
 
 An opt-in group relay. Turn it on, type one group key, and your squad sees each other on one
-map: position, heading, map, raid state, and their loadout and quests if they share them.
+map: position, heading, map, raid state, party-visible kit/level/side observations, and quest
+progress where each member separately shares it.
 
 - Everyone has a colour of their own, the same on the map and in the list beside it.
 - **Marks.** Right-click to ping, a "look here" that fades. Hold Shift for a waypoint that stays
@@ -219,14 +220,16 @@ map: position, heading, map, raid state, and their loadout and quests if they sh
   key before hashing it for room storage, so transport hardening and scoped credentials remain
   open work in [#304](https://github.com/smartpbx/tarkov-companion/issues/304) and
   [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
-- While it is on, your companion also sends the kit, level, side and scav timer your game logged
-  for the rest of your in-game party, and the relay passes them to everyone holding the room
-  key. That is how a group shows you the kit your own game never tells you, and it is an open
-  conflict with [`docs/SAFETY.md`](docs/SAFETY.md) owned by
-  [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
-- Nothing is sent while it is off, and you stop publishing your position when your raid ends.
-  Live positions are held in memory only. On disk the relay keeps the group's waypoints, the
-  rooms its operator registered, problem reports as sent, and its updater's status.
+- Joining the keyed room is consent to share the kit, level and side your game already shows for
+  party members who also joined that room. The relay returns those observations to every holder
+  of the room key, including a paired tablet, so the app says this beside the join control.
+  Out-of-room names are dropped before storage, scav cooldowns and other non-party-visible facts
+  are stripped, and live observations are memory-only.
+- Nothing is sent while it is off, and a member is forgotten three minutes after they stop
+  publishing. Live positions are held in memory only. On disk the relay keeps the group's
+  waypoints (with who placed and reached each), the rooms its operator registered, problem
+  reports as sent, and its updater's status, so they survive the relay updating itself every
+  half hour.
 
 ### The tablet
 
@@ -333,6 +336,13 @@ Not built yet: reading the trader, hideout, gear, HEALTH, messenger and post-rai
 first need real screenshots of them; stash pages merged as they arrive; QR pairing; web push;
 and reviewing a past raid on the map. The concepts are in
 [docs/design/v3](docs/design/v3/README.md).
+
+The code also does not pretend evidence-blocked features are shipped: there is no reviewed
+3D/interior model or extract-arrival image; health recognition still lacks a measured corpus;
+historical traffic has no installed, scope-matched publication; and the Keys page deliberately
+does not expose an ungrounded score or tier. The game writes its own player's level and carried
+kit nowhere the companion can read directly. In a keyed group, squadmates' games can return the
+party-visible level, side and kit observations that the local log omits.
 
 ![V3 concept: the Now panel in mid raid](docs/design/v3/v3-raid-now.png)
 

@@ -14,11 +14,11 @@ namespace TarkovCompanion.UnitTests;
 /// bodies. Nobody reads a runbook against the server's source, so this keeps both claims aligned;
 /// explicit send confirmation and relay schema enforcement remain RISK-REPORT-REDACTION.
 ///
-/// The observed party data had the same problem after its first correction. The server README
-/// and the contract remarks said an observation was handed only to the person it named, while
-/// GroupRooms.Read returns every surviving entry to every member's exchange and to a keyed
-/// GET /state, and the desktop fills other members' kit from them. The open gap is
-/// RISK-RELAY-OBSERVED-DATA-POLICY (#310).
+/// The observed-party path is also measured rather than described optimistically. Joining a
+/// keyed room is the disclosed consent boundary, and GroupRooms.Read returns every surviving
+/// entry to every member's exchange and to a keyed GET /state. Tests therefore keep the client
+/// and operator wording honest about every-key-holder scope while the room store separately
+/// proves non-members, departed members and legacy scav data are removed.
 /// </remarks>
 public sealed partial class RelayPrivacyClaimsTests
 {
@@ -55,6 +55,19 @@ public sealed partial class RelayPrivacyClaimsTests
         // The second read above is only GET /state while the route still asks for everybody.
         var program = File.ReadAllText(RepositoryFile("src/TarkovCompanion.GroupServer/Program.cs"));
         Assert.Contains("rooms.Read(room, exceptMemberKey: string.Empty)", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheJoinSurfaceDisclosesPartyObservationAndKeyHolderScope()
+    {
+        var strings = File.ReadAllText(RepositoryFile(
+            "src/TarkovCompanion.App/Localization/Strings/en.json"));
+        var view = File.ReadAllText(RepositoryFile(
+            "src/TarkovCompanion.App/Views/V2/Team/TeamWorkspaceView.axaml"));
+
+        Assert.Contains("TeamText.PartyKitConsent", view, StringComparison.Ordinal);
+        Assert.Contains("kit, level, and side", strings, StringComparison.Ordinal);
+        Assert.Contains("Everyone with the key", strings, StringComparison.Ordinal);
     }
 
     [Theory]

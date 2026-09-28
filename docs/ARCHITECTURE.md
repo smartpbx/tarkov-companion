@@ -62,6 +62,9 @@ is not running shows nothing. A
 member is forgotten three minutes after they stop publishing, and observations about anybody
 outside the room are pruned on the way in *and* on the way out, because the game describes
 every member of an in-game party and a five-man filled from matchmaking carries a stranger.
+Joining the keyed room is explicit consent to exchange current party-visible kit, level and side
+facts with every room-key holder; the relay strips legacy scav-cooldown values and never persists
+the live observations (ADR 0022).
 
 **Marks.** Waypoints are a plan and persist; pings mean "look here" and expire in forty-five
 seconds, so one restored from disk would be a lie. They ride along on the exchange the client
