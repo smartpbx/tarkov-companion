@@ -639,6 +639,37 @@ internal static class Program
                 checklist.Items[1].Mark(TarkovCompanion.App.Services.TestChecklist.TestStatus.Broken);
                 checklist.Items[2].Mark(TarkovCompanion.App.Services.TestChecklist.TestStatus.NeedsWork);
                 checklist.Items[0].Mark(TarkovCompanion.App.Services.TestChecklist.TestStatus.Works);
+                // Done items fold to one line; a few results further down fill the area rail.
+                for (var index = 3; index < Math.Min(16, checklist.Items.Count); index++)
+                {
+                    checklist.Items[index].Mark(index % 5 == 0 ? TarkovCompanion.App.Services.TestChecklist.TestStatus.Skipped : TarkovCompanion.App.Services.TestChecklist.TestStatus.Works);
+                }
+
+                foreach (var (index, status) in new[] { (40, TarkovCompanion.App.Services.TestChecklist.TestStatus.Broken), (120, TarkovCompanion.App.Services.TestChecklist.TestStatus.NeedsWork), (300, TarkovCompanion.App.Services.TestChecklist.TestStatus.Works) })
+                {
+                    if (index < checklist.Items.Count)
+                    {
+                        checklist.Items[index].Mark(status);
+                    }
+                }
+
+                // --test-checklist-need NoGame|SquadOrTablet, --test-checklist-search <text>, --test-checklist-next.
+                if (StringOption(args, "--test-checklist-need") is { } need && Enum.TryParse<TarkovCompanion.App.Services.TestChecklist.TestChecklistNeedFilter>(need, true, out var needFilter))
+                {
+                    checklist.SelectNeed(needFilter);
+                }
+
+                if (StringOption(args, "--test-checklist-search") is { } checklistSearch)
+                {
+                    checklist.Search = checklistSearch;
+                }
+
+                Pump(20);
+                if (args.Contains("--test-checklist-next"))
+                {
+                    checklist.NextUntested();
+                }
+
                 Pump(20);
             }
 

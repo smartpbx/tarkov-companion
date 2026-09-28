@@ -27,6 +27,9 @@ public sealed class TestChecklistItemViewModel : BindableViewModel
     private string _note;
     private CancellationTokenSource? _pendingNote;
     private string? _saveError;
+    private bool _opened;
+    private bool _expandAll;
+    private bool _isCurrent;
 
     public TestChecklistItemViewModel(
         TestChecklistItem item,
@@ -57,6 +60,7 @@ public sealed class TestChecklistItemViewModel : BindableViewModel
         BrokenCommand = new DelegateCommand(() => Mark(TestStatus.Broken));
         NeedsWorkCommand = new DelegateCommand(() => Mark(TestStatus.NeedsWork));
         SkipCommand = new DelegateCommand(() => Mark(TestStatus.Skipped));
+        ToggleCommand = new DelegateCommand(() => IsOpened = !IsOpened);
     }
 
     public TestChecklistItem Item { get; }
@@ -93,7 +97,62 @@ public sealed class TestChecklistItemViewModel : BindableViewModel
 
     public ICommand SkipCommand { get; }
 
+    /// <summary>Opens a compact row as a full card, or folds a done one back.</summary>
+    public ICommand ToggleCommand { get; }
+
     public TestStatus Status => _result?.Status ?? TestStatus.Untested;
+
+    /// <summary>
+    /// A Works or Skipped item on this build is one line: nothing is left to do with it, and 553
+    /// full cards made the untested ones a long scroll away. Broken, Needs work and Retest stay open,
+    /// because those are the ones somebody reads again.
+    /// </summary>
+    public bool IsDone => Status is TestStatus.Works or TestStatus.Skipped && !NeedsRetest;
+
+    /// <summary>Drawn as the one-line row rather than the card.</summary>
+    public bool IsCompact => IsDone && !_opened && !_expandAll;
+
+    public bool IsFull => !IsCompact;
+
+    /// <summary>A done item the tester opened with Edit; it stays open until folded.</summary>
+    public bool IsOpened
+    {
+        get => _opened;
+        set
+        {
+            if (SetProperty(ref _opened, value))
+            {
+                RaiseShape();
+            }
+        }
+    }
+
+    /// <summary>A done item shows the fold button on its card; an open one has nothing to fold into.</summary>
+    public bool CanFold => IsDone && _opened && !_expandAll;
+
+    /// <summary>The page's Expand all, which opens every row without touching the tester's own choices.</summary>
+    internal bool ExpandAll
+    {
+        get => _expandAll;
+        set
+        {
+            if (_expandAll != value)
+            {
+                _expandAll = value;
+                RaiseShape();
+            }
+        }
+    }
+
+    /// <summary>The item Next untested or an area jump landed on, drawn with the action border.</summary>
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        internal set => SetProperty(ref _isCurrent, value);
+    }
+
+    /// <summary>"Works" or "Skipped" on the compact row.</summary>
+    public string StatusWord => TestChecklistText.Status(Status);
 
     public TestChecklistResult? Result => _result;
 
@@ -139,6 +198,8 @@ public sealed class TestChecklistItemViewModel : BindableViewModel
     {
         var next = Status == status && !NeedsRetest ? TestStatus.Untested : status;
         CancelPendingNote();
+        // A decision folds a card the tester opened, so a re-marked item goes back to one line.
+        _opened = false;
         var result = next == TestStatus.Untested
             ? new TestChecklistResult(TestStatus.Untested, NoteOrNull(), null, null)
             : new TestChecklistResult(next, NoteOrNull(), _build, _clock.GetUtcNow());
@@ -267,5 +328,15 @@ public sealed class TestChecklistItemViewModel : BindableViewModel
         OnPropertyChanged(nameof(NeedsRetest));
         OnPropertyChanged(nameof(RecordedLine));
         OnPropertyChanged(nameof(HasRecordedLine));
+        OnPropertyChanged(nameof(IsDone));
+        OnPropertyChanged(nameof(StatusWord));
+        RaiseShape();
+    }
+
+    private void RaiseShape()
+    {
+        OnPropertyChanged(nameof(IsCompact));
+        OnPropertyChanged(nameof(IsFull));
+        OnPropertyChanged(nameof(CanFold));
     }
 }

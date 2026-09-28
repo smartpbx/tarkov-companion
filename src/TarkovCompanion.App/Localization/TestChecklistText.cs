@@ -33,6 +33,26 @@ public static class TestChecklistText
     public static string Cleared => UiText.Get("TestChecklist.Cleared");
     public static string ExportTitle => UiText.Get("TestChecklist.ExportTitle");
     public static string Open => UiText.Get("TestChecklist.Open");
+    public static string Search => UiText.Get("TestChecklist.Search");
+    public static string SearchHint => UiText.Get("TestChecklist.SearchHint");
+    public static string NextUntested => UiText.Get("TestChecklist.NextUntested");
+    public static string NoneUntested => UiText.Get("TestChecklist.NoneUntested");
+    public static string ExpandAll => UiText.Get("TestChecklist.ExpandAll");
+    public static string Edit => UiText.Get("TestChecklist.Edit");
+    public static string Fold => UiText.Get("TestChecklist.Fold");
+    public static string Areas => UiText.Get("TestChecklist.Areas");
+    public static string NeedFilters => UiText.Get("TestChecklist.NeedFilters");
+
+    public static string RailCount(int tested, int total) => UiText.Format("TestChecklist.RailCount", tested, total);
+
+    public static string RailBroken(int count) => UiText.Format("TestChecklist.RailBroken", count);
+
+    public static string RailNeedsWork(int count) => UiText.Format("TestChecklist.RailNeedsWork", count);
+
+    public static string NeedFilterLabel(TestChecklistNeedFilter filter, int count) =>
+        filter == TestChecklistNeedFilter.Any
+            ? UiText.Get("TestChecklist.Need.Filter.Any")
+            : UiText.Format("TestChecklist.Filter.WithCount", UiText.Get($"TestChecklist.Need.Filter.{filter}"), count);
 
     public static string SaveFailed(string reason) => UiText.Format("TestChecklist.SaveFailed", reason);
 
