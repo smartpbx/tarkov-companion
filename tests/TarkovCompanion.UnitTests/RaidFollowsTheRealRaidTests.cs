@@ -1,3 +1,4 @@
+using System.Globalization;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Raids;
