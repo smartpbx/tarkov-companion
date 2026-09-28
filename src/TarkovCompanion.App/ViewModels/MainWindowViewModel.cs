@@ -13,6 +13,7 @@ using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.Intelligence.Keys;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profiles;
@@ -2865,7 +2866,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IProfileRuntimeContextService? profileRuntimeContext = null,
         IItemAcquisitionService? itemAcquisitions = null,
         // #307: Plan › Loadout's suggestions from the chosen map's active quests.
-        TarkovCompanion.Application.Services.Planning.LoadoutSuggestionService? loadoutSuggestions = null)
+        TarkovCompanion.Application.Services.Planning.LoadoutSuggestionService? loadoutSuggestions = null,
+        IProfileAwareKeyIntelligenceSource? keyIntelligence = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2915,7 +2917,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             StartupFaults = () => StartupFaults,
         };
         Ammo = new(itemFactCatalog, itemRepository, profileService);
-        Keys = new(itemFactCatalog, itemRepository, questProgress, maps, profileService);
+        Keys = new(itemFactCatalog, itemRepository, questProgress, maps, profileService, keyIntelligence);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider,
             new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider),
             itemAcquisitions,

@@ -464,12 +464,14 @@
       "steps": [
         "Open Setup, Appearance & Window, \"Displays\".",
         "With the game running, click \"Refresh\".",
-        "On a second monitor row click \"Move to <monitor>\"."
+        "On a second monitor row click \"Move to <monitor>\".",
+        "Choose the game's window mode, adjust a crop edge, and save the capture calibration."
       ],
-      "expect": "Each monitor lists resolution and scale with badges Primary, Companion here and Game window here. Capture target reads \"Game window, W×H, on <monitor>\" (or \"Game window not found. Start the game, then refresh.\"). Move to puts the companion window on that monitor.",
+      "expect": "Each monitor lists resolution and scale with badges Primary, Companion here and Game window here. Capture target reads \"Game window, W×H, on <monitor>\" (or \"Game window not found. Start the game, then refresh.\"). Move to puts the companion window on that monitor. A bounded preview shows the saved crop, scoped to display, DPI, game-window resolution, and windowed/borderless mode.",
       "goTo": "#/setup",
       "refs": [
-        "#292"
+        "#292",
+        "#316"
       ]
     },
     {

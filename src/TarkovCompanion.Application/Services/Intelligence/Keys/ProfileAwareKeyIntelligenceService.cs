@@ -348,7 +348,7 @@ public sealed class ProfileAwareKeyIntelligenceService
         ICollection<KeyIntelligenceReason> reasons,
         ICollection<string> missing)
     {
-        if (utility.Status.Completeness == ResultCompleteness.Complete)
+        if (utility.Associations.Count > 0)
         {
             reasons.Add(new(
                 KeyIntelligenceReasonCategory.Access,

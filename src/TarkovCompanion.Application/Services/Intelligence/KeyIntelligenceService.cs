@@ -12,11 +12,18 @@ public sealed record KeyFacts(
     IReadOnlyList<string> Locks,
     IReadOnlyList<string> RelevantTaskIds,
     long? AcquisitionCostRoubles,
-    long ExpectedLootRoubles,
-    double Utility,
-    bool GrantsUniqueAccess,
-    double RouteRisk,
-    DataProvenance Provenance);
+    long? ExpectedLootRoubles,
+    double? Utility,
+    bool? GrantsUniqueAccess,
+    double? RouteRisk,
+    DataProvenance Provenance)
+{
+    /// <summary>The source relationship for each lock; a room remains absent unless the source names it.</summary>
+    public IReadOnlyList<KeyLockFact> LockFacts { get; init; } = [];
+}
+
+/// <summary>A source-stated key/lock/map relationship. It never parses a room from display text.</summary>
+public sealed record KeyLockFact(string LockId, string? MapId, string? RoomId = null);
 
 public sealed record CuratedKeyOverride(
     string ItemId,
@@ -41,7 +48,7 @@ public sealed class KeyIntelligenceService
         _overrides = (curatedOverrides ?? []).ToDictionary(x => x.ItemId, StringComparer.Ordinal);
         foreach (var item in _facts.Values)
         {
-            if (item.AcquisitionCostRoubles is < 0 || item.ExpectedLootRoubles < 0 ||
+            if (item.AcquisitionCostRoubles is < 0 || item.ExpectedLootRoubles is < 0 ||
                 item.Utility is < 0 or > 100 || item.RouteRisk is < 0 or > 1)
             {
                 throw new ArgumentOutOfRangeException(nameof(facts), "Key facts contain an out-of-range score input.");
@@ -116,8 +123,8 @@ public sealed class KeyIntelligenceService
             : profile is null
                 ? 75
                 : 100d * incompleteTasks / facts.RelevantTaskIds.Count;
-        var economy = facts.AcquisitionCostRoubles is { } acquisitionCost
-            ? NormalizeRatio(facts.ExpectedLootRoubles, acquisitionCost, 3)
+        var economy = facts.AcquisitionCostRoubles is { } acquisitionCost && facts.ExpectedLootRoubles is { } expectedLoot
+            ? NormalizeRatio(expectedLoot, acquisitionCost, 3)
             : 0;
         var uses = facts.MaximumUses switch
         {
@@ -128,11 +135,13 @@ public sealed class KeyIntelligenceService
             _ => 0,
         };
         var lockBreadth = Math.Min(100, facts.Locks.Count * 25d);
-        var lockUtility = (lockBreadth + facts.Utility) / 2;
-        var uniqueAccess = facts.GrantsUniqueAccess ? 100 : 0;
-        var riskAdjustedLoot = facts.AcquisitionCostRoubles is { } routeCost
+        var lockUtility = (lockBreadth + (facts.Utility ?? 0)) / 2;
+        var uniqueAccess = facts.GrantsUniqueAccess == true ? 100 : 0;
+        var riskAdjustedLoot = facts.AcquisitionCostRoubles is { } routeCost &&
+                               facts.ExpectedLootRoubles is { } routeLoot &&
+                               facts.RouteRisk is { } routeRisk
             ? NormalizeRatio(
-                (long)Math.Round(facts.ExpectedLootRoubles * (1 - facts.RouteRisk)),
+                (long)Math.Round(routeLoot * (1 - routeRisk)),
                 routeCost,
                 2)
             : 0;
@@ -162,7 +171,7 @@ public sealed class KeyIntelligenceService
             : facts.RelevantTaskIds.Count(x => !profile.CompletedTaskIds.Contains(x));
         var uses = facts.MaximumUses?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "reusable";
         var cost = facts.AcquisitionCostRoubles?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
-        return FormattableString.Invariant($"Weighted score {score.WeightedTotal:F1}: {personalQuestCount} personal quest locks, {uses} maximum uses, {facts.Locks.Count} locks, {facts.ExpectedLootRoubles} expected loot versus {cost} cost, utility {facts.Utility:F0}, unique access {(facts.GrantsUniqueAccess ? "yes" : "no")}, route risk {facts.RouteRisk:P0}.");
+        return FormattableString.Invariant($"Weighted score {score.WeightedTotal:F1}: {personalQuestCount} personal quest locks, {uses} maximum uses, {facts.Locks.Count} locks, {facts.ExpectedLootRoubles?.ToString() ?? "unknown"} expected loot versus {cost} cost, utility {facts.Utility?.ToString("F0") ?? "unknown"}, unique access {(facts.GrantsUniqueAccess is { } unique ? unique ? "yes" : "no" : "unknown")}, route risk {(facts.RouteRisk is { } risk ? risk.ToString("P0") : "unknown")}.");
     }
 
     private static string Advice(string tier, KeyFacts facts) => tier switch

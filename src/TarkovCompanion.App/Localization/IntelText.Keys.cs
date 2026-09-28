@@ -58,4 +58,8 @@ public static partial class IntelText
     public static string KeysRoubles(long roubles) => UiText.Format("Intel.Keys.Roubles", roubles);
     public static string KeysProvenance(string updated) => UiText.Format("Intel.Keys.Provenance", updated);
     public static string KeysNoTimestamp => UiText.Get("Intel.Keys.NoTimestamp");
+    public static string KeysProfileReview => UiText.Get("Intel.Keys.ProfileReview");
+    public static string KeysTier(object tier) => UiText.Format("Intel.Keys.Tier", tier);
+    public static string KeysWhy => UiText.Get("Intel.Keys.Why");
+    public static string KeysMissingFacts => UiText.Get("Intel.Keys.MissingFacts");
 }

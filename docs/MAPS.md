@@ -236,10 +236,12 @@ fires while the finger is still down, so the mark appears under it. A second fin
 outright, because a pinch is never a tap. A press that placed or removed something draws a ring where
 the finger was, since there is no pointer to show what was hit.
 
-The historical-traffic layer is registered (`HistoricalTrafficRuntimeService`) but not yet
-evaluated: nothing in this pass supplies the installed `TrafficModelPublication` its scope
-(game version, wipe, cohort) needs, so the cockpit shows a static "no installed model" notice
-rather than inventing one.
+The historical-traffic layer evaluates the governed publication installed by
+`TrafficSnapshotStore`. `HistoricalTrafficSource` builds an exact scope from the selected map,
+observed game version, and active profile's mode and wipe; a missing or incompatible value keeps
+the layer unavailable rather than selecting a nearby model. Its compact rows retain the exact
+prediction receipt first shown in each raid phase for later Debrief comparison. With no installed
+publication the cockpit remains useful and says that no model is installed.
 
 The cockpit hands the renderer one decoded background image per scene, whichever artwork V1 is
 showing. For a drawn map that is the rasterized reviewed SVG for the selected floor. For a map

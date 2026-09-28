@@ -1,5 +1,6 @@
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Recognition;
+using System.Globalization;
 
 namespace TarkovCompanion.Application.Services.Shell;
 
@@ -51,7 +52,8 @@ public static class DesktopWindowPlacement
     public static string MonitorKey(DisplayDescriptor display)
     {
         ArgumentNullException.ThrowIfNull(display);
-        return $"{display.Id}|{display.Bounds.Width}x{display.Bounds.Height}";
+        var scale = ValidScale(display.Scale).ToString("0.####", CultureInfo.InvariantCulture);
+        return $"{display.Id}|{display.Bounds.Width}x{display.Bounds.Height}|{scale}";
     }
 
     public static DisplayDescriptor? DisplayAt(

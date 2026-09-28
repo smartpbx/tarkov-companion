@@ -58,15 +58,19 @@ public sealed class DesktopWindowPlacementTests
     }
 
     [Fact]
-    public void MonitorKeyIncludesDeviceNameAndResolution()
+    public void MonitorKeyIncludesDeviceNameResolutionAndDpiScale()
     {
         var original = Display("device", 0, 0, 1920, 1080, 1, true, 1040);
         var resolutionChanged = Display("device", 0, 0, 2560, 1440, 1, true, 1400);
+        var scaleChanged = Display("device", 0, 0, 1920, 1080, 1.5, true, 1040);
 
-        Assert.Equal("device|1920x1080", DesktopWindowPlacement.MonitorKey(original));
+        Assert.Equal("device|1920x1080|1", DesktopWindowPlacement.MonitorKey(original));
         Assert.NotEqual(
             DesktopWindowPlacement.MonitorKey(original),
             DesktopWindowPlacement.MonitorKey(resolutionChanged));
+        Assert.NotEqual(
+            DesktopWindowPlacement.MonitorKey(original),
+            DesktopWindowPlacement.MonitorKey(scaleChanged));
     }
 
     [Fact]
@@ -129,6 +133,61 @@ public sealed class DesktopWindowPlacementTests
         var restored = DesktopWindowPlacement.Restore(saved, display, 16, 39);
 
         Assert.Equal((1500d, 900d, 200, 60), (restored.Width, restored.Height, restored.Left, restored.Top));
+    }
+
+    [Fact]
+    public void CaptureCalibrationIsScopedByDpiResolutionAndWindowModeAndStaysInsideTheWindow()
+    {
+        var display = Display("game", -1920, 0, 1920, 1080, 1.5, primary: false, workHeight: 1040);
+        var window = new WindowDescriptor(1, "EscapeFromTarkov", "EFT", new(-1800, 40, 1600, 900), false, false);
+
+        var preview = CaptureTargetCalibration.Preview(
+            display,
+            window,
+            GameWindowPresentationMode.Windowed,
+            new(10, 30, 20, 40));
+
+        Assert.True(preview.IsValid);
+        Assert.Equal(new PixelRect(-1790, 70, 1570, 830), preview.CaptureBounds);
+        Assert.Contains("|1.5", preview.Key.MonitorKey, StringComparison.Ordinal);
+        Assert.NotEqual(
+            preview.Key,
+            CaptureTargetCalibration.KeyFor(display, window, GameWindowPresentationMode.Borderless));
+        Assert.False(CaptureTargetCalibration.Preview(
+            display,
+            window,
+            GameWindowPresentationMode.Windowed,
+            new(800, 0, 800, 0)).IsValid);
+    }
+
+    [Fact]
+    public async Task CaptureCalibrationStoreReplacesAndDeletesOnlyTheExactConfiguration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"capture-calibration-{Guid.NewGuid():N}");
+        var path = Path.Combine(root, "capture-target-calibrations.json");
+        try
+        {
+            var store = new JsonFileCaptureTargetCalibrationStore(path);
+            var windowed = new CaptureTargetCalibrationKey("display|1920x1080|1.25", 1600, 900, GameWindowPresentationMode.Windowed);
+            var borderless = windowed with { WindowMode = GameWindowPresentationMode.Borderless };
+            await store.SaveAsync(new(windowed, new(8, 30, 8, 8), DateTimeOffset.UtcNow), default);
+            await store.SaveAsync(new(borderless, CaptureTargetInsets.None, DateTimeOffset.UtcNow), default);
+            await store.SaveAsync(new(windowed, new(10, 32, 10, 10), DateTimeOffset.UtcNow), default);
+
+            var saved = await store.GetAsync(default);
+
+            Assert.Equal(2, saved.Profiles.Count);
+            Assert.Equal(new CaptureTargetInsets(10, 32, 10, 10), saved.Profiles.Single(profile => profile.Key == windowed).Insets);
+            await store.DeleteAsync(windowed, default);
+            Assert.Equal(borderless, Assert.Single((await store.GetAsync(default)).Profiles).Key);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     private static DisplayDescriptor Display(

@@ -51,4 +51,25 @@ public static partial class SetupText
     public static string DisplaysCaptureNote => UiText.Get("Setup.Displays.CaptureNote");
     public static string DisplaysUnknownDisplay => UiText.Get("Setup.Displays.UnknownDisplay");
     public static string DisplaysDetail(int width, int height, double scale, string id) => UiText.Format("Setup.Displays.Detail", width, height, scale, id);
+    public static string DisplaysCalibrationHeading => UiText.Get("Setup.Displays.CalibrationHeading");
+    public static string DisplaysCaptureMode => UiText.Get("Setup.Displays.CaptureMode");
+    public static string DisplaysModeWindowed => UiText.Get("Setup.Displays.ModeWindowed");
+    public static string DisplaysModeBorderless => UiText.Get("Setup.Displays.ModeBorderless");
+    public static string DisplaysInsetsHeading => UiText.Get("Setup.Displays.InsetsHeading");
+    public static string DisplaysInsetLeft => UiText.Get("Setup.Displays.InsetLeft");
+    public static string DisplaysInsetTop => UiText.Get("Setup.Displays.InsetTop");
+    public static string DisplaysInsetRight => UiText.Get("Setup.Displays.InsetRight");
+    public static string DisplaysInsetBottom => UiText.Get("Setup.Displays.InsetBottom");
+    public static string DisplaysCalibrationSave => UiText.Get("Setup.Displays.CalibrationSave");
+    public static string DisplaysCalibrationReset => UiText.Get("Setup.Displays.CalibrationReset");
+    public static string DisplaysCalibrationDefault => UiText.Get("Setup.Displays.CalibrationDefault");
+    public static string DisplaysCalibrationLoaded => UiText.Get("Setup.Displays.CalibrationLoaded");
+    public static string DisplaysCalibrationUnsaved => UiText.Get("Setup.Displays.CalibrationUnsaved");
+    public static string DisplaysCalibrationSaved => UiText.Get("Setup.Displays.CalibrationSaved");
+    public static string DisplaysCalibrationSaveFailed => UiText.Get("Setup.Displays.CalibrationSaveFailed");
+    public static string DisplaysCalibrationResetDone => UiText.Get("Setup.Displays.CalibrationResetDone");
+    public static string DisplaysCalibrationResetFailed => UiText.Get("Setup.Displays.CalibrationResetFailed");
+    public static string DisplaysCalibrationInvalid => UiText.Get("Setup.Displays.CalibrationInvalid");
+    public static string DisplaysCalibrationPreview(int width, int height, int x, int y) =>
+        UiText.Format("Setup.Displays.CalibrationPreview", width, height, x, y);
 }

@@ -28,6 +28,7 @@ using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Events;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Intelligence.Keys;
 using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
@@ -334,9 +335,8 @@ public static class AppComposition
         services.AddSingleton<HighValueLootRuntimeSource>();
         services.AddSingleton<IHighValueLootRuntimeSource>(provider =>
             provider.GetRequiredService<HighValueLootRuntimeSource>());
-        // V2 Raid cockpit (package 2): the scene adapter, the historical-traffic runtime it
-        // registers but does not yet evaluate (see RaidCockpitViewModel's remark on why), and
-        // local pings/waypoints kept between runs.
+        // V2 Raid cockpit: the scene adapter, the historical-traffic runtime evaluated through
+        // HistoricalTrafficSource, and local pings/waypoints kept between runs.
         services.AddSingleton<MapSceneAssembler>();
         services.AddSingleton<HistoricalTrafficRuntimeService>();
         // [Issue 311] The governed traffic snapshot store, which was merged and tested and never
@@ -440,6 +440,8 @@ public static class AppComposition
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
         services.AddSingleton<IDesktopWindowPlacementStore>(_ =>
             new JsonFileDesktopWindowPlacementStore(Path.Combine(paths.Config, "window-placement.json")));
+        services.AddSingleton<ICaptureTargetCalibrationStore>(_ =>
+            new JsonFileCaptureTargetCalibrationStore(Path.Combine(paths.Config, "capture-target-calibrations.json")));
         if (settings.WindowPlacementController is not null)
         {
             services.AddSingleton(settings.WindowPlacementController);
@@ -581,6 +583,15 @@ public static class AppComposition
             provider.GetRequiredService<ProfileNeedAggregationService>(),
             provider.GetRequiredService<IQuestReadService>(),
             timeProvider));
+        services.AddSingleton<IProfileAwareKeyIntelligenceSource>(provider =>
+            new ProfileAwareKeyIntelligenceSource(
+                provider.GetRequiredService<IItemFactCatalog>(),
+                provider.GetRequiredService<IPlayerProfileService>(),
+                provider.GetRequiredService<ProfileNeedAggregationService>(),
+                provider.GetRequiredService<IQuestReadService>(),
+                provider.GetService<IProfileRuntimeContextService>(),
+                provider.GetService<IGameVersionSource>(),
+                timeProvider));
         services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();
         services.AddSingleton<RecommendationContextService>();
         // Given the catalog rather than a list read from it. Registered by type it received an
@@ -1154,7 +1165,9 @@ public static class AppComposition
         services.AddSingleton(provider => new SetupDisplaysViewModel(
             provider.GetService<IMonitorService>(),
             provider.GetService<IGameWindowLocator>(),
-            provider.GetService<IDesktopWindowPlacementController>()));
+            provider.GetService<IDesktopWindowPlacementController>(),
+            provider.GetRequiredService<ICaptureTargetCalibrationStore>(),
+            timeProvider));
         services.AddSingleton(provider => new SetupAdminViewModel(
             provider.GetRequiredService<SetupDataDetailViewModel>(),
             new SetupInfoPageViewModel("About", SetupPageContent.About, SetupPageFacts.ForAbout),

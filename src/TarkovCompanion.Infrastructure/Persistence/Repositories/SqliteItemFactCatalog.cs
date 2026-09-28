@@ -107,12 +107,11 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     /// <remarks>
     /// <para>
     /// WARNING: the weighted score <c>KeyIntelligenceService</c> builds from these facts is not
-    /// meaningful yet and the UI must not render a tier from it. Four of its six inputs -
+    /// meaningful yet and the legacy UI must not render a tier from it. Four of its six inputs -
     /// expected loot, utility, unique access and route risk - have no source in the synced data
-    /// and are reported here as zero, and quest linkage is not wired up, so the score reduces to
-    /// "how many locks does it open and how many uses does it have". Every key will read as a low
-    /// tier for that reason alone. A tier becomes presentable once there is somewhere curated
-    /// facts can come from; there is not. This used to point at a <c>key_intelligence_overrides</c>
+    /// and remain null. Profile-aware intelligence can therefore show the sourced access and
+    /// price while explicitly asking for review instead of turning "unknown" into a poor score.
+    /// This used to point at a <c>key_intelligence_overrides</c>
     /// table and say the service already preferred it, which was wrong twice over: nothing read
     /// that table and nothing ever wrote to it. Migration 0007 dropped it.
     /// </para>
@@ -414,9 +413,10 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
             var itemId = reader.GetString(0);
             using var properties = reader.IsDBNull(1) ? null : TryParse(reader.GetString(1));
             var opened = locks.GetValueOrDefault(itemId);
-            var lockIds = opened?.LockIds ?? NoLockIds;
-            string? mapId = opened is { MapIds.Count: 1 } onlyMap ? onlyMap.MapIds[0] : null;
-            keys.Add(new(
+            var lockIds = opened?.Select(entry => entry.LockId).ToArray() ?? NoLockIds;
+            var mapIds = opened?.Select(entry => entry.MapId).Distinct(StringComparer.Ordinal).ToArray() ?? [];
+            string? mapId = mapIds is [var onlyMap] ? onlyMap : null;
+            keys.Add(new KeyFacts(
                 ItemId: itemId,
                 MapId: mapId,
                 MaximumUses: ReadInt32(properties?.RootElement, "uses"),
@@ -425,20 +425,22 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
                 // scores the quest component as zero instead of inventing a task.
                 RelevantTaskIds: [],
                 AcquisitionCostRoubles: BestPriceRoubles(reader, 2, 3, 4),
-                // The synced payload states none of the following four, and every one of them is
-                // a score input. Zero is the honest reading of "unknown" and is why the remark on
-                // GetKeyFactsAsync forbids showing a tier.
-                ExpectedLootRoubles: 0,
-                Utility: 0,
-                GrantsUniqueAccess: false,
-                RouteRisk: 0,
-                Provenance: UpstreamProvenance(ParseTimestamp(reader.GetString(5)))));
+                // The synced payload states none of the following four. Null is materially
+                // different from a measured zero and keeps the profile-aware evaluator honest.
+                ExpectedLootRoubles: null,
+                Utility: null,
+                GrantsUniqueAccess: null,
+                RouteRisk: null,
+                Provenance: UpstreamProvenance(ParseTimestamp(reader.GetString(5))))
+            {
+                LockFacts = opened ?? [],
+            });
         }
 
         return keys;
     }
 
-    private static async Task<Dictionary<string, KeyLocks>> LoadKeyLocksAsync(
+    private static async Task<Dictionary<string, IReadOnlyList<KeyLockFact>>> LoadKeyLocksAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
@@ -449,28 +451,23 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
             WHERE key_item_id IS NOT NULL
             ORDER BY key_item_id, id;
             """;
-        var builders = new Dictionary<string, (List<string> LockIds, List<string> MapIds)>(StringComparer.Ordinal);
+        var builders = new Dictionary<string, List<KeyLockFact>>(StringComparer.Ordinal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var keyItemId = reader.GetString(0);
-            if (!builders.TryGetValue(keyItemId, out var entry))
+            if (!builders.TryGetValue(keyItemId, out var entries))
             {
-                entry = (new List<string>(), new List<string>());
-                builders[keyItemId] = entry;
+                entries = [];
+                builders[keyItemId] = entries;
             }
 
-            entry.LockIds.Add(reader.GetString(1));
-            var mapId = reader.GetString(2);
-            if (!entry.MapIds.Contains(mapId, StringComparer.Ordinal))
-            {
-                entry.MapIds.Add(mapId);
-            }
+            entries.Add(new(reader.GetString(1), reader.GetString(2)));
         }
 
         return builders.ToDictionary(
             pair => pair.Key,
-            pair => new KeyLocks(pair.Value.LockIds, pair.Value.MapIds),
+            pair => (IReadOnlyList<KeyLockFact>)pair.Value.ToArray(),
             StringComparer.Ordinal);
     }
 
@@ -701,5 +698,4 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
         GearFacts? Gear,
         string? PresetBaseItemId = null);
 
-    private sealed record KeyLocks(IReadOnlyList<string> LockIds, IReadOnlyList<string> MapIds);
 }
