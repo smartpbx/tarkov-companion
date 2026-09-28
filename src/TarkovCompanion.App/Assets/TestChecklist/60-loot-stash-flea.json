@@ -1,0 +1,1046 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "scan.no-arming",
+      "area": "Scanning",
+      "feature": "Game screenshot key is the whole interface",
+      "needs": [
+        "game",
+        "windows"
+      ],
+      "steps": [
+        "Start the game and the companion. Do not open the companion's Capture panel or press anything in it.",
+        "In the game, open your stash and press the game's own screenshot key (F12 by default).",
+        "Look at the companion."
+      ],
+      "expect": "The screenshot is read without any arming step: a stash screenshot is recognised on its own and nothing asks you to choose what the screenshot is first. The Capture panel has no intent picker or arm button.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.capture-panel",
+      "area": "Scanning",
+      "feature": "Capture panel opens from the top bar",
+      "needs": [],
+      "steps": [
+        "Click the camera icon (tooltip \"Capture\") at the right of the top bar.",
+        "Read the panel.",
+        "Click the camera icon again."
+      ],
+      "expect": "A \"Capture\" panel opens with \"Press the game's own screenshot key. The companion reads the saved file.\", a watch status line, the \"Alt+Shift+C shortcut\" switch and an \"Or use a picture you already have\" card. The second click closes it.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.folder-watched",
+      "area": "Scanning",
+      "feature": "Capture panel says whether the folder is watched",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "With the game's screenshot folder found (Setup › Game & Capture shows it), open the Capture panel from the camera icon.",
+        "Read the status line under the guidance text."
+      ],
+      "expect": "It reads \"Screenshot folder is watched\". If no screenshot folder is found or set, it reads \"Screenshot folder is not watched\" instead.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.routed-to-detectors",
+      "area": "Scanning",
+      "feature": "Every screenshot reaches every detector",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Out of raid, open the flea market and press the screenshot key.",
+        "Check the companion, then start a raid.",
+        "In raid, open a container with your own grid visible and press the screenshot key.",
+        "Check the companion again."
+      ],
+      "expect": "Without choosing anything in between, the flea screenshot opens Intel › Flea with the offers read, and the container screenshot opens the Loot page with a scan. Each kind of screen goes to the right page on its own.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.detector-because",
+      "area": "Scanning",
+      "feature": "Now panel names the detector and how sure",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Out of raid, open the Raid page.",
+        "In the game, open the flea market and press the screenshot key.",
+        "Read the small line at the bottom of the Now panel."
+      ],
+      "expect": "The line reads like \"Your screenshot at HH:MM showed the flea market (flea detector, NN%: read flea market words).\", naming the detector that placed it and its percentage. It never claims a screen the screenshot did not show.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.last-scan",
+      "area": "Scanning",
+      "feature": "LAST SCAN shows the latest screenshot",
+      "needs": [
+        "game",
+        "windows"
+      ],
+      "steps": [
+        "Open the Raid page.",
+        "Take a screenshot of a recognisable screen in the game (for example the flea market or an item inspect window).",
+        "Look at LAST SCAN in the Now panel."
+      ],
+      "expect": "LAST SCAN shows a line such as \"Read the flea market\" or the item's name, with its age on the right. Before any screenshot it reads \"No scan yet\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.not-recognised",
+      "area": "Scanning",
+      "feature": "Not recognised list",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "In the game, take a screenshot of a screen the app does not read, such as the main menu or a settings screen, not the world view.",
+        "Open the Capture panel from the camera icon."
+      ],
+      "expect": "A \"Not recognised\" heading lists the screenshot as \"HH:MM · best guess <kind> NN%\" or \"HH:MM · no guess\", with a tooltip giving why nobody was sure. Nothing opened a page on its own, and a plain in-raid world-view screenshot does not appear in this list.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.read-as",
+      "area": "Scanning",
+      "feature": "Read as… reads a frame again",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Take a screenshot that ends up under \"Not recognised\" (or open a Loot Scan result).",
+        "Within 10 minutes, open the Capture panel and click \"Read as…\" on that row.",
+        "Pick one of the offered chips, for example \"Stash\" or \"Loot\"."
+      ],
+      "expect": "\"Read as <current> · try instead\" appears with chips for the other kinds (Loot, Stash, Flea, Quest items). Picking one shows \"Reading again as <kind>\", then the result opens as that kind and the strip reads \"Read as <kind> by you · was <old>\".",
+      "refs": [
+        "#287",
+        "#712"
+      ]
+    },
+    {
+      "id": "scan.read-as-expired",
+      "area": "Scanning",
+      "feature": "Read as… after the frame is released",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Take a screenshot that is listed under \"Not recognised\".",
+        "Wait more than 10 minutes.",
+        "Open the Capture panel and click \"Read as…\" on that row."
+      ],
+      "expect": "No kind chips are offered. The menu says \"Image released · capture it again\" instead of offering buttons that would fail.",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "scan.image-not-kept",
+      "area": "Scanning",
+      "feature": "Each result says whether its image was kept",
+      "needs": [
+        "game",
+        "loot-screenshot",
+        "in-raid",
+        "windows"
+      ],
+      "steps": [
+        "With screenshot cleanup off, take a Loot Scan screenshot in raid.",
+        "On the Loot page, read the small chip under the scan status and hover it."
+      ],
+      "expect": "The chip reads \"Image not kept · game file stays\". The tooltip says \"No copy is saved. The game's own screenshot stays in its folder.\" plus \"Held in memory for 10 minutes so Read as… can use it.\". The companion writes no copy of the picture.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#287"
+      ]
+    },
+    {
+      "id": "scan.image-not-kept-tidy",
+      "area": "Scanning",
+      "feature": "Image chip reflects screenshot cleanup",
+      "needs": [
+        "game",
+        "windows"
+      ],
+      "steps": [
+        "Turn on screenshot cleanup in Setup › Game & Capture.",
+        "Take a screenshot the app reads (for example the flea market).",
+        "Read the image chip on the result and hover it."
+      ],
+      "expect": "The chip reads \"Image not kept · game file tidied after N h\" with the hours you chose, and the tooltip says the game's own screenshot goes to the recycle bin after N hours.",
+      "refs": [
+        "#287",
+        "#309"
+      ]
+    },
+    {
+      "id": "scan.pick-pictures",
+      "area": "Scanning",
+      "feature": "Choose pictures you already have",
+      "needs": [],
+      "steps": [
+        "Open the Capture panel from the camera icon.",
+        "Under \"Or use a picture you already have\", click \"Choose pictures\".",
+        "Select two or three saved game screenshots and confirm."
+      ],
+      "expect": "Each picture is listed with its status (Queued, Reading, Done, Needs review or a reason it was not read), and each is read as if the game had just written it. Selecting nothing shows \"No pictures were selected\".",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "scan.paste-drop",
+      "area": "Scanning",
+      "feature": "Paste or drop a picture",
+      "needs": [],
+      "steps": [
+        "Copy a game screenshot image to the clipboard.",
+        "Click an empty part of the companion (not a text box) and press Ctrl+V.",
+        "Then drag a screenshot file from Explorer onto the companion window."
+      ],
+      "expect": "Both pictures are queued and read, and the Capture panel lists them. Ctrl+V inside a text box pastes text as normal and does not read a picture.",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "scan.cancel-batch",
+      "area": "Scanning",
+      "feature": "Cancel remaining pictures",
+      "needs": [],
+      "steps": [
+        "Open the Capture panel and click \"Choose pictures\".",
+        "Pick ten or more pictures.",
+        "While they are being read, click \"Cancel remaining\"."
+      ],
+      "expect": "Pictures not yet read are marked \"Cancelled\" and the status reads \"Batch cancelled\" or a \"Queued N · M not queued · K cancelled\" outcome. Pictures already done keep their result.",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "scan.capture-shortcut",
+      "area": "Scanning",
+      "feature": "Alt+Shift+C shortcut switch",
+      "needs": [
+        "game",
+        "windows"
+      ],
+      "steps": [
+        "Open the Capture panel and find \"Window shortcut on\" or \"Window shortcut off\" with its switch.",
+        "Flip the switch.",
+        "Open Setup › Game & Capture and look under Recognition."
+      ],
+      "expect": "The status line changes between \"Window shortcut on\" and \"Window shortcut off\", and the \"Alt+Shift+C shortcut\" switch in Setup shows the same state.",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "scan.recogniser-shown",
+      "area": "Scanning",
+      "feature": "Setup shows which recogniser runs",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup and choose \"Game & Capture\".",
+        "Read the lines under \"Recognition\"."
+      ],
+      "expect": "It shows \"Available · windows-media-ocr\" when Windows OCR is in use, or \"Available · tesseract-…\" with \"Needs the Microsoft Visual C++ 2015-2022 x64 runtime.\" when Tesseract is. If neither works it reads \"Unavailable · <provider> · <reason>\".",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "scan.folders-found",
+      "area": "Scanning",
+      "feature": "Game folders found on their own",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Open Setup and choose \"Game & Capture\".",
+        "Read \"Game folders\"."
+      ],
+      "expect": "It reads \"Screenshots <path> · logs <path>\" with the real folders (OneDrive or not), and the status says \"Found on their own\". If one is missing it names which, for example \"Logs <path> · no screenshot folder\".",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "scan.folder-set-by-hand",
+      "area": "Scanning",
+      "feature": "Set the screenshot folder by hand",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Open Setup › Game & Capture.",
+        "Type a screenshot folder path into \"Screenshot folder\" and click elsewhere so the field loses focus.",
+        "Clear the field again and click elsewhere."
+      ],
+      "expect": "After typing, the status shows \"Saved · watching starts within a minute\" (or \"Saved, but not there: <path>\" for a folder that does not exist) and then \"Set by you\". Clearing shows \"Cleared · found on their own again\".",
+      "goTo": "#/setup",
+      "refs": [
+        "#902"
+      ]
+    },
+    {
+      "id": "scan.recycle-old",
+      "area": "Scanning",
+      "feature": "Optional recycling of old screenshots",
+      "needs": [
+        "windows"
+      ],
+      "steps": [
+        "Open Setup › Game & Capture and find \"Screenshot cleanup\".",
+        "Check it is off by default, then click \"Start tidying\".",
+        "Read the preview, then click \"Turn on tidying\" (or \"Cancel\").",
+        "Use \"Keep longer\" to change the age."
+      ],
+      "expect": "The preview reads \"Older than N h · the newest is always kept · only files the game named\" and lists how many screenshots would move to the recycle bin, with anything left alone (too recent, cloud-only, not named by the game). After turning it on, files go to the recycle bin, never deleted outright; other files in the folder are untouched, and \"Last runs\" records each run.",
+      "goTo": "#/setup",
+      "refs": [
+        "#309"
+      ]
+    },
+    {
+      "id": "loot.scan-container",
+      "area": "Loot Scan",
+      "feature": "Scan an opened container",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "In raid, open a container so its contents and your own backpack, rig and pockets are visible.",
+        "Press the game's screenshot key.",
+        "Look at the companion."
+      ],
+      "expect": "The Loot page opens on its own with \"Container contents\" showing the read grid and your carried space beside it, and a \"What should I take?\" list with a TAKE, SWAP, LEAVE or REVIEW verdict for each item.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "loot.verdict-reason",
+      "area": "Loot Scan",
+      "feature": "Each verdict has a reason",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "After a Loot Scan, look at the rows under \"What should I take?\".",
+        "Click one row."
+      ],
+      "expect": "Every row shows a verdict word, the item name, a short reason (for example \"Current quest\", \"Hideout\", \"Worth its squares\") and value per square. The selected item's card shows value, \"Best current value\", \"Space efficiency\" and, for a take or swap, where to place it.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#282"
+      ]
+    },
+    {
+      "id": "loot.swap-plan",
+      "area": "Loot Scan",
+      "feature": "Swap names what to drop",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Fill your backpack, then screenshot a container with an item worth more per square than something you carry.",
+        "Select the item marked SWAP."
+      ],
+      "expect": "The card shows \"Drop <item> · <value> given up\" naming what to drop, and \"Evidence and alternatives\" lists the drop plan with container, row and column.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#282"
+      ]
+    },
+    {
+      "id": "loot.items-as-read",
+      "area": "Loot Scan",
+      "feature": "Items appear while the grid is read",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Open a container with many items and take a screenshot.",
+        "Watch the Loot page as the result arrives."
+      ],
+      "expect": "While reading, the status shows \"Recognising loot\" with \"Matched items appear while the rest of the grid is still being read.\", and matched items show up as PENDING before the full result, not all at once at the end.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#572"
+      ]
+    },
+    {
+      "id": "loot.timing",
+      "area": "Loot Scan",
+      "feature": "Scan speed",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "After starting the companion, take a first Loot Scan screenshot in raid.",
+        "Read the progress line (\"Scanning · …\" then \"Scanned in N s\") and the \"Analysed in …\" text on the page.",
+        "Take two or three more loot screenshots and compare."
+      ],
+      "expect": "The first scan of a session finishes in about a second; later ones in about 0.3 s or less. Setup › Game & Capture › \"Last loot scan\" shows \"<time> from file to result\".",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#572"
+      ]
+    },
+    {
+      "id": "loot.uncertain-not-take",
+      "area": "Loot Scan",
+      "feature": "Uncertain cells stay visible, never a take",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Screenshot a container with an item the app cannot name (partly hidden, or unusual).",
+        "Look at that cell on the grid and in the list."
+      ],
+      "expect": "The cell stays on the grid and in the list under REVIEW with a reason such as \"Not recognised\" or \"<a> or <b>\". It is never shown as TAKE or SWAP, and \"Check these before acting\" lists it.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "loot.advised-take",
+      "area": "Loot Scan",
+      "feature": "TAKE? when the backpack was not read",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Screenshot a container while your backpack grid is not visible.",
+        "Look at a wanted item's row."
+      ],
+      "expect": "The carried side says \"Backpack not visible in this screenshot\", and a wanted item reads \"TAKE?\" with a line like \"Not known: whether it fits (your backpack wasn't read).\" rather than claiming there is no room.",
+      "goTo": "#/raid/loot"
+    },
+    {
+      "id": "loot.filters",
+      "area": "Loot Scan",
+      "feature": "Show decisions filter",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "After a Loot Scan, click each chip at the top: \"All\", \"Take\", \"Swap\", \"Leave\", \"Review\".",
+        "Pick a chip that has 0."
+      ],
+      "expect": "Each chip shows its count and the list shows only that verdict. A chip with nothing shows \"No <verdict> calls on this scan\" and a \"Show all\" button that restores the full list.",
+      "goTo": "#/raid/loot"
+    },
+    {
+      "id": "loot.phase-risk",
+      "area": "Loot Scan",
+      "feature": "Raid phase and risk re-decide",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "After a Loot Scan, change \"Raid\" (for example to \"Late\") in the picker under the chips.",
+        "Change \"Risk\" to \"High\"."
+      ],
+      "expect": "The scan is decided again from the same screenshot without a new one; verdicts and reasons may change, and the selected item stays selected.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#282"
+      ]
+    },
+    {
+      "id": "loot.item-rules",
+      "area": "Loot Scan",
+      "feature": "Pin, wishlist, always take, always leave",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Select an item in a Loot Scan.",
+        "Click \"Always leave\" and watch its verdict.",
+        "Click it again, then click \"Pin\" and \"Wishlist\"."
+      ],
+      "expect": "\"Always leave\" turns the item to LEAVE with \"Your own rule\" as the reason; turning it off restores the earlier call. \"Pin\" changes to \"Pinned\" and \"Wishlist\" to \"On wishlist\", and the scan is decided again without a new screenshot.",
+      "goTo": "#/raid/loot"
+    },
+    {
+      "id": "loot.evidence",
+      "area": "Loot Scan",
+      "feature": "Evidence and alternatives",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Select an item in a Loot Scan.",
+        "Expand \"Evidence and alternatives\"."
+      ],
+      "expect": "It shows the price basis (\"Flea net after fee\" or \"Best trader value\"), stack or condition, identity evidence with its source, age and confidence, and \"Recommendation reasons\".",
+      "goTo": "#/raid/loot"
+    },
+    {
+      "id": "loot.scan-again",
+      "area": "Loot Scan",
+      "feature": "Scan again",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "On a Loot Scan result, click \"Scan again\".",
+        "Take a new screenshot of the container in the game."
+      ],
+      "expect": "The Capture panel opens, and the new screenshot replaces the result on the Loot page.",
+      "goTo": "#/raid/loot"
+    },
+    {
+      "id": "loot.auto-return",
+      "area": "Loot Scan",
+      "feature": "Return to the map, and Stay",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "In Setup › Game & Capture › \"Return to the map after a loot scan\", pick a number of seconds.",
+        "In raid, take a Loot Scan screenshot from the Raid map.",
+        "Watch the Loot page header; on a second scan click \"Stay\"."
+      ],
+      "expect": "The header shows \"Map in Ns\" counting down and the app returns to the map afterwards. Clicking \"Stay\" changes it to \"Staying\" and the page stays. Set to \"Off\", it never moves.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#572"
+      ]
+    },
+    {
+      "id": "loot.empty-page",
+      "area": "Loot Scan",
+      "feature": "Loot page before any scan",
+      "needs": [],
+      "steps": [
+        "Start the companion fresh, before taking any loot screenshot.",
+        "Open the Loot page and read the empty state."
+      ],
+      "expect": "It shows \"No loot screen yet\" with a \"Scan loot\" button that opens the Capture panel, and \"Last scans\" below when earlier scans exist. It does not tell you to arm anything first.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "loot.history",
+      "area": "Loot Scan",
+      "feature": "Last scans list",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Take two or three Loot Scans in a raid.",
+        "Open the Loot page where \"Last scans\" is listed (the empty page shows it after a restart).",
+        "Click one row."
+      ],
+      "expect": "\"Last scans\" lists each scan with its time and a summary (counts of take, swap, leave or review, or \"Nothing read\"). Clicking opens that scan.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#274"
+      ]
+    },
+    {
+      "id": "loot.saved-view",
+      "area": "Loot Scan",
+      "feature": "Saved scan view",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Open a scan from \"Last scans\".",
+        "Read the page, then click \"Back to live scan\"."
+      ],
+      "expect": "It shows \"Saved scan · HH:MM\", \"Complete\" or \"Needed review\", the rules version and \"Saved result. Prices and loot may have changed.\", with each item's verdict, detail and value. \"Back to live scan\" returns to the live page.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#274"
+      ]
+    },
+    {
+      "id": "stash.start-scan",
+      "area": "Stash scan",
+      "feature": "Start a guided full stash scan",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Open Plan › Stash.",
+        "Under \"Capture for\", pick \"Full stash\" and click \"Start scan\".",
+        "In the game, scroll to the top of your stash and press the screenshot key."
+      ],
+      "expect": "A progress card appears (\"Scan started\", then \"1 screenshot · rows 1–N\") with a next step telling you to scroll down about half a screen and take the next one.",
+      "goTo": "#/plan/stash",
+      "refs": [
+        "#291"
+      ]
+    },
+    {
+      "id": "stash.stitch",
+      "area": "Stash scan",
+      "feature": "Pages stitched into one stash",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "During a full stash scan, scroll down about half a screen at a time, taking a screenshot each time, to the bottom.",
+        "Click \"Finish\".",
+        "Look at \"Reconstructed stash\"."
+      ],
+      "expect": "The pages are joined into one grid with each item once (no duplicated rows) and items nobody could name drawn as \"?\". The snapshot list gains a new row marked \"current\".",
+      "goTo": "#/plan/stash",
+      "refs": [
+        "#291"
+      ]
+    },
+    {
+      "id": "stash.duplicate-skip",
+      "area": "Stash scan",
+      "feature": "Same screenshot twice is skipped",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Start a full stash scan and take a screenshot of the top of your stash.",
+        "Without scrolling, press the screenshot key again."
+      ],
+      "expect": "The next step says the screenshot is the same as before and was skipped, and asks you to scroll down and take the next one. The screenshot count does not go up.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "stash.too-far",
+      "area": "Stash scan",
+      "feature": "Too far a scroll is reported",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Start a full stash scan and take a screenshot of the top of your stash.",
+        "Scroll down a full page or more, then take the next screenshot."
+      ],
+      "expect": "The next step says the screenshot shares no rows with the last and asks you to scroll back up about half a screen. It is kept and placed once a later screenshot bridges the gap.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "stash.undo-discard",
+      "area": "Stash scan",
+      "feature": "Undo last and Discard",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "During a scan with two or more screenshots, click \"Undo last\".",
+        "Then click \"Discard\"."
+      ],
+      "expect": "\"Undo last\" takes one screenshot back (the count drops by one). \"Discard\" ends the scan without saving a snapshot, and \"Start scan\" returns.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "stash.resume",
+      "area": "Stash scan",
+      "feature": "Unfinished scan survives a restart",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Start a full stash scan and take two screenshots.",
+        "Close and reopen the companion, then open Plan › Stash.",
+        "Click \"Keep going\"."
+      ],
+      "expect": "It shows \"An unfinished scan is waiting: 2 screenshots, rows 1–N. Keep going, finish with what you have, or discard it.\" After \"Keep going\", further screenshots add to the same scan.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "stash.owned-counts",
+      "area": "Stash scan",
+      "feature": "Owned counts feed Ammo, Keys and Loadout",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Finish a full stash scan with ammo and keys visible.",
+        "Open Intel › Ammo and look at a round you have; open Intel › Keys and look at a key you have.",
+        "Open Plan › Loadout and pick that ammo."
+      ],
+      "expect": "Ammo shows \"N owned\" / \"You own N rounds.\", Keys shows \"You own it.\" or \"Owned ×N\", and Loadout's ammo line shows the owned count. Before any scan these read \"Owned: not scanned\".",
+      "goTo": "#/plan/stash",
+      "refs": [
+        "#283"
+      ]
+    },
+    {
+      "id": "stash.case-scan",
+      "area": "Stash scan",
+      "feature": "Guided ammo and key case scan",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "On Plan › Stash, pick \"Ammo cases\" (or \"Key cases\") and click \"Start scan\".",
+        "In the game, open one ammo case in your stash and take a screenshot; repeat for another case.",
+        "Click \"Finish\"."
+      ],
+      "expect": "The next step asks for one screenshot per open case (\"No open case in that one…\" if none is open). Finish shows \"Ammo scan saved\" or \"Keys scan saved\", the counts in Intel › Ammo or Keys rise, and the full stash snapshot is not replaced.",
+      "goTo": "#/plan/stash",
+      "refs": [
+        "#283"
+      ]
+    },
+    {
+      "id": "stash.sort-plan",
+      "area": "Stash scan",
+      "feature": "Keep / sell list",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Select a stash snapshot on Plan › Stash.",
+        "Read \"Sort plan\" and click a group such as \"Sell\" or \"Keep\"."
+      ],
+      "expect": "Items are grouped as Keep, Sell, Use soon, Organize and Review with a reason per item, and the notice says gear, ammo and keys are never marked Sell. Clicking a group shows only that group, and \"Show all\" restores the list.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "stash.open-loadout",
+      "area": "Stash scan",
+      "feature": "Open recognised kit in Loadout",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Scan a stash that holds a weapon or armour.",
+        "Select that item and click \"Open recognized kit in Loadout\" (or \"Open kit\" on its row)."
+      ],
+      "expect": "Plan › Loadout opens with the recognised gear filled in.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "stash.snapshot-tools",
+      "area": "Stash scan",
+      "feature": "Grid, list, compare and export",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "With two stash snapshots saved, select the newer one.",
+        "Toggle \"Grid view\" and \"List view\".",
+        "Click \"Compare to previous\", then \"Export CSV\"."
+      ],
+      "expect": "The view switches between the grid and a list. Compare reports \"N change(s) since <time>.\" Export reports \"Exported <snapshot> to <path>\".",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "flea-screen.read",
+      "area": "Flea screen",
+      "feature": "Flea screenshot is read",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "In the game, search the flea market for an item so its offers are listed.",
+        "Press the screenshot key."
+      ],
+      "expect": "The companion opens Intel › Flea with \"Offers for <item>\" and \"N rows read · M would pay to resell\". Each row shows a rank (\"#1 best buy\"), price each, count, condition, \"read NN% sure\" and a verdict (\"Good buy\", \"Under average\", \"Over average\" or \"No comparison\").",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#284"
+      ]
+    },
+    {
+      "id": "flea-screen.seen-at",
+      "area": "Flea screen",
+      "feature": "Offers show when they were seen",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Take a flea market screenshot.",
+        "Read the line under the heading, then wait more than 5 minutes on the page."
+      ],
+      "expect": "It first reads \"Offers as seen at HH:MM\". After 5 minutes it changes to \"Offers as seen at HH:MM · N min ago, may be gone\" in a warning style. Offers are never presented as live.",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#284"
+      ]
+    },
+    {
+      "id": "flea-screen.compare",
+      "area": "Flea screen",
+      "feature": "Trader and 24 h average comparison",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Take a flea market screenshot of an item a trader buys.",
+        "Read the lines under the heading."
+      ],
+      "expect": "It shows \"<trader> pays <price>\" (or \"No trader buys it\") and \"24 h average <price> · <net> after a <fee> fee\".",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#284"
+      ]
+    },
+    {
+      "id": "flea-screen.name-illegible",
+      "area": "Flea screen",
+      "feature": "Unreadable item name",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "In the game, open flea offers so the item name at the top is cut off or covered.",
+        "Press the screenshot key and look at Intel › Flea."
+      ],
+      "expect": "The heading reads \"Offers you photographed\" and the page says \"The item's name was not legible, so the rows stand alone.\"; no item is guessed.",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#284"
+      ]
+    },
+    {
+      "id": "corrections.loot-it-is",
+      "area": "Corrections",
+      "feature": "It is: on an uncertain loot cell",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "After a Loot Scan, select a REVIEW item whose reason is \"<a> or <b>\" or \"Maybe <a>\".",
+        "Under \"It is:\", click the correct item."
+      ],
+      "expect": "Up to three likely items are offered. After the pick the cell is named, the scan is decided again from the same screenshot, and the item gets a real verdict.",
+      "goTo": "#/raid/loot",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "corrections.stash-it-is",
+      "area": "Corrections",
+      "feature": "It is: on a stash tile",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Select a stash snapshot and click an unknown or uncertain tile.",
+        "Under \"It is:\", pick the right item."
+      ],
+      "expect": "The tile takes the chosen name in the grid and list, and the counts update. The correction card notes \"Saved with this snapshot.\" and the pick is still there after reselecting the snapshot.",
+      "goTo": "#/plan/stash",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "corrections.stash-correct-item",
+      "area": "Corrections",
+      "feature": "Correct a stash item by hand",
+      "needs": [
+        "game",
+        "stash-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Select a stash tile, and under \"Correct this item\" enter an item id in \"Corrected item id\" and click \"Apply\".",
+        "Enter a number in \"Corrected count\" and click \"Apply\".",
+        "Click \"Mark unknown\" on another tile, then click the undo button under \"Review history\" (\"Undo <change>\")."
+      ],
+      "expect": "Each change shows \"Correction saved.\" and is reflected in the tile, and \"Review history\" lists it. The undo button reverses the last change; with nothing left it reads \"Undo last change\" and does nothing.",
+      "goTo": "#/plan/stash"
+    },
+    {
+      "id": "corrections.flea-it-is",
+      "area": "Corrections",
+      "feature": "Not this item? on a flea screen",
+      "needs": [
+        "game",
+        "flea-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Take a flea screenshot where the name reads \"could also be …\".",
+        "Under \"Not this item? It is:\", click the right item.",
+        "Make the same pick on a second flea screenshot of that item, then take a third."
+      ],
+      "expect": "The heading changes to the item you picked. After it has been picked twice, the third screenshot reads the name that way on its own.",
+      "goTo": "#/intel/flea",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "corrections.remembered",
+      "area": "Corrections",
+      "feature": "A pick is remembered next time",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "Name a refused loot cell with \"It is:\".",
+        "Later, screenshot another container holding the same item in the same look."
+      ],
+      "expect": "The item is named on the second scan without asking, and Setup › Game & Capture › \"Learned from your corrections\" shows the icon count up by one.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "corrections.catalog-wins",
+      "area": "Corrections",
+      "feature": "Learned reference never overrides a catalog name",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot",
+        "windows"
+      ],
+      "steps": [
+        "After teaching one or more icons with \"It is:\", screenshot containers holding common items the app already named before.",
+        "Compare their names with earlier scans."
+      ],
+      "expect": "Items the catalog named before keep the same names. A learned icon only fills in cells the catalog could not name.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "corrections.learned-setup",
+      "area": "Corrections",
+      "feature": "Learned view in Setup",
+      "needs": [],
+      "steps": [
+        "Open Setup › Game & Capture and scroll to \"Learned from your corrections\".",
+        "Read the counts, then toggle \"Keep icon crops\".",
+        "Click \"Clear icons\", \"Clear names\" or \"Delete all\"."
+      ],
+      "expect": "It shows \"Icons N · names M\" and the note \"Only the item's squares. Stays on this PC; never in a report or export.\" Each delete shows \"Deleted.\": \"Clear icons\" sets the icon count to 0, \"Clear names\" the name count, and \"Delete all\" both.",
+      "goTo": "#/setup",
+      "refs": [
+        "#712"
+      ]
+    }
+  ]
+}

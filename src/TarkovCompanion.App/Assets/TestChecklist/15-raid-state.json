@@ -1,0 +1,898 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "raid.state.menu",
+      "area": "Raid",
+      "feature": "Game detected, not in raid",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Start the game and wait at the main menu.",
+        "Look at the raid line in the companion's top bar."
+      ],
+      "expect": "The top bar reads the map (or \"No active map\") followed by \"Menu\" (or \"Game detected\" while the game is still starting). It never says \"In raid\" while you are in the menu.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.state.loading",
+      "area": "Raid",
+      "feature": "Raid found and loading",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Choose a map and press Ready in the game.",
+        "Wait until the game finds a raid and starts loading it.",
+        "Look at the top bar."
+      ],
+      "expect": "Once the game has found a raid the top bar changes to \"<map> · Loading raid\" without any click in the companion.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.state.in-raid",
+      "area": "Raid",
+      "feature": "In raid, from the logs",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Load into a raid and wait until you can move.",
+        "Look at the top bar and the Raid page."
+      ],
+      "expect": "The top bar reads \"<map> · In raid\" (with the clock once one is known), and the Raid page opens the raid's map. Nothing had to be armed or clicked.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.state.over",
+      "area": "Raid",
+      "feature": "Raid over",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Finish a raid (extract, die or leave).",
+        "Return to the game's menu and look at the top bar."
+      ],
+      "expect": "The top bar changes to \"Post-raid\" (then \"Menu\" once you are back in the menu). The raid clock stops. The companion does not claim how the raid ended from the log alone.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.state.pmc",
+      "area": "Raid",
+      "feature": "PMC raid recognised",
+      "needs": [
+        "game",
+        "in-raid",
+        "pmc"
+      ],
+      "steps": [
+        "Start a PMC raid.",
+        "Once in raid, open \"Corrections\" at the bottom of the Raid plan (or \"More\" on the Now panel).",
+        "Read the Side row."
+      ],
+      "expect": "The Side row reads \"PMC\" with the source \"Automatic\". The \"PMC\" button is lit.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.state.scav",
+      "area": "Raid",
+      "feature": "Scav raid recognised",
+      "needs": [
+        "game",
+        "in-raid",
+        "scav"
+      ],
+      "steps": [
+        "Start a Scav raid.",
+        "Once in raid, open \"Corrections\" and read the Side row."
+      ],
+      "expect": "The Side row reads \"Scav\" with the source \"Automatic\". The \"Started now\" button is not shown for a Scav raid.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.state.mid-raid-start",
+      "area": "Raid",
+      "feature": "Companion started mid-raid",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Close the companion.",
+        "Start a raid in the game and load in.",
+        "Start the companion while the raid is running."
+      ],
+      "expect": "Within a few seconds the top bar reads \"<map> · In raid\" and the Raid page shows that map. The raid is picked up from the existing log, not missed until the next one.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "raid.state.mode-switch",
+      "area": "Raid",
+      "feature": "Game mode switch follows the profile",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Have one companion profile per game mode (for example PvP and PvE) in Setup > Profile & Progress.",
+        "With the PvP profile active, switch the game to PvE and enter the menu.",
+        "Look at the top of the companion window."
+      ],
+      "expect": "A one-line notice appears: \"The game is in PvE. Switched to <profile name>.\" with an \"Undo\" button and a close button. The top bar's profile and mode change to the PvE profile.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.state.mode-undo",
+      "area": "Raid",
+      "feature": "Game mode switch: Undo",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Trigger the mode switch notice as in the previous item.",
+        "Press \"Undo\" on the notice."
+      ],
+      "expect": "The notice goes away and the previously active profile is active again (top bar shows its name and mode). No data from either profile is lost.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.state.mode-no-profile",
+      "area": "Raid",
+      "feature": "Game mode with no matching profile",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Make sure no profile exists for Seasonal.",
+        "Switch the game to Seasonal and enter the menu."
+      ],
+      "expect": "The notice reads \"The game is in Seasonal. No Seasonal profile yet.\" with a \"Create\" button. Pressing \"Create\" makes a Seasonal profile and switches to it; the close button dismisses the notice without changing anything.",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.state.quest-started",
+      "area": "Raid",
+      "feature": "Quest started marks itself",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Accept a quest from a trader in the game.",
+        "Open Plan in the companion and find that quest."
+      ],
+      "expect": "The quest shows as started without you marking it. Objectives you recorded by hand are unchanged.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "raid.state.quest-finished",
+      "area": "Raid",
+      "feature": "Quest handed in marks itself",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Hand in a quest to a trader in the game.",
+        "Open Plan and find that quest."
+      ],
+      "expect": "The quest shows as finished without any click. Nothing else on the page changes, and no quest the game did not mention changes state.",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "raid.state.quest-failed",
+      "area": "Raid",
+      "feature": "Quest failed marks itself",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Fail a quest in the game (for example a quest with a condition you break).",
+        "Open Plan and find that quest."
+      ],
+      "expect": "The quest shows as failed. Its objectives are left as you recorded them, and a quest already finished or failed never moves back to started when the log is read again (for example after restarting the companion).",
+      "goTo": "#/plan"
+    },
+    {
+      "id": "raid.clock.from-screenshot",
+      "area": "Raid",
+      "feature": "Raid clock from the extract list",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, open the extract list (the game's O key) so the time left shows.",
+        "Press the game's screenshot key.",
+        "Look at the NOW block (or the top bar with the Now panel off)."
+      ],
+      "expect": "Within a few seconds the clock shows the time left (for example \"20:56 left\") and counts down. The NOW block's line under it reads \"from your extract screen · <age> ago\"; Corrections shows the clock as \"Automatic\".",
+      "goTo": "#/raid",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.clock.from-start",
+      "area": "Raid",
+      "feature": "Raid clock counted from the raid start",
+      "needs": [
+        "game",
+        "in-raid",
+        "pmc"
+      ],
+      "steps": [
+        "Start a PMC raid and do not take an extract-list screenshot.",
+        "Look at the NOW block."
+      ],
+      "expect": "The clock shows time left counted from the raid start and the map's raid length, with the line \"counted from the raid start · not the game's clock\". It is not presented as a reading from the game.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.clock.scav-elapsed",
+      "area": "Raid",
+      "feature": "Scav raid clock counts up",
+      "needs": [
+        "game",
+        "in-raid",
+        "scav"
+      ],
+      "steps": [
+        "Start a Scav raid and do not screenshot the extract list.",
+        "Look at the NOW block."
+      ],
+      "expect": "The clock counts up (\"<mm:ss> in\") with the line \"counting up from the raid start · length unknown\" or asks you to screenshot the extract list. It never shows a time left it cannot know.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.clock.set-by-hand",
+      "area": "Raid",
+      "feature": "Set the time left by hand",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, open \"Corrections\".",
+        "Type the game's time left in the box, for example 23:10.",
+        "Press \"Set time left\"."
+      ],
+      "expect": "The Clock row shows the new time left with the source \"Manual\", the clock counts down from it, and \"Return to automatic\" appears. The top bar clock matches.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286",
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.clock.bad-input",
+      "area": "Raid",
+      "feature": "Time left: badly typed value",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, open \"Corrections\".",
+        "Type \"abc\" in the time left box and press \"Set time left\"."
+      ],
+      "expect": "The clock is not changed and the note \"Type the time left as minutes:seconds, like 23:10\" appears under the box.",
+      "goTo": "#/raid",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.clock.started-now",
+      "area": "Raid",
+      "feature": "Started now",
+      "needs": [
+        "game",
+        "in-raid",
+        "pmc"
+      ],
+      "steps": [
+        "In a PMC raid, open \"Corrections\".",
+        "Press \"Started now\"."
+      ],
+      "expect": "The clock counts this raid from this moment (the map's full raid length left), marked \"Manual\". \"Return to automatic\" appears beside it.",
+      "goTo": "#/raid",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.clock.return-automatic",
+      "area": "Raid",
+      "feature": "Clock: Return to automatic",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Set the clock by hand as above.",
+        "Press \"Return to automatic\" in the Clock row."
+      ],
+      "expect": "The Clock row goes back to \"Automatic\" and shows the clock from the screenshot or the raid start again. The button disappears.",
+      "goTo": "#/raid",
+      "refs": [
+        "#314"
+      ]
+    },
+    {
+      "id": "raid.fix.no-raid",
+      "area": "Raid",
+      "feature": "Corrections outside a raid",
+      "needs": [],
+      "steps": [
+        "Out of raid, open the Raid page.",
+        "Open \"Corrections\" (under More on the Now panel, or at the bottom of the Raid plan)."
+      ],
+      "expect": "It reads \"Nothing to correct until a raid is running.\" and shows no side, clock or extract controls.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.fix.side",
+      "area": "Raid",
+      "feature": "Correct the raid side",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, open \"Corrections\".",
+        "Press the side that is not currently lit (\"PMC\" or \"Scav\")."
+      ],
+      "expect": "The Side row changes to the side you pressed, marked \"Manual\" and highlighted. The extracts listed on the page switch to that side's exits. The header summary reads \"1 set by you\".",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.fix.side-return",
+      "area": "Raid",
+      "feature": "Side: Return to automatic",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Correct the side as above.",
+        "Press \"Return to automatic\" under the Side row."
+      ],
+      "expect": "The side goes back to what the log said, marked \"Automatic\", and the button disappears.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.fix.offered-exits",
+      "area": "Raid",
+      "feature": "Mark offered extracts by hand",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, open \"Corrections\".",
+        "Under \"Press the ones this raid offers\", press two extract names."
+      ],
+      "expect": "The pressed extracts light up, the Extracts row reads \"2 offered\" marked \"Manual\", and those exits are treated as offered elsewhere on the page. \"Return to automatic\" appears.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.fix.offered-return",
+      "area": "Raid",
+      "feature": "Offered extracts: Return to automatic",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Mark offered extracts by hand as above.",
+        "Press \"Return to automatic\" under the extract buttons."
+      ],
+      "expect": "The Extracts row goes back to \"Automatic\" (from the extract-list screenshot, or \"None marked offered\"), and your hand choices are cleared.",
+      "goTo": "#/raid",
+      "refs": [
+        "#286"
+      ]
+    },
+    {
+      "id": "raid.brief.shows",
+      "area": "Raid",
+      "feature": "Pre-raid brief while matching",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Choose a map in the game and press Ready.",
+        "Look at the Raid page's right column while the game matches and loads."
+      ],
+      "expect": "The brief replaces the column: a kicker \"BRIEF · WHILE YOU MATCH\" (then \"WHILE IT LOADS\"), the title \"<map> · <PMC or Scav> · <length> min\", and sections \"Quests here\" and the extracts. It fits without scrolling.",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.brief.bosses",
+      "area": "Raid",
+      "feature": "Brief: possible bosses",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Queue for a map with a boss (for example Customs).",
+        "Read the line under the brief's title."
+      ],
+      "expect": "It lists bosses with the catalog's spawn chance, ending \"· possible, from the catalog\" (for example \"Reshala 38%\"), with \"on a trigger\" where the spawn waits for one. On a map with none it reads \"No bosses in the catalog for this map\".",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.brief.quests",
+      "area": "Raid",
+      "feature": "Brief: quests on this map",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Have active quests with objectives on a map.",
+        "Queue for that map and read \"Quests here\"."
+      ],
+      "expect": "Each quest on this map is listed with its objectives and, where it needs items, a line \"needs: <items>\". With none it reads \"No active quests on this map\"; more than fit shows \"+N more in Tasks\". While matching and something is needed, \"You can still leave matching.\" appears.",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.brief.extracts",
+      "area": "Raid",
+      "feature": "Brief: extracts and requirements",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Queue for a map.",
+        "Read the extracts section of the brief."
+      ],
+      "expect": "The heading reads \"Extracts for PMC\" or \"Extracts for Scav\" (or \"Extracts · side unknown, both shown\"), then the exit names and a line per exit with a requirement (key, payment, switch). \"Offered list: screenshot the O screen in raid\" is shown as a hint.",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.brief.squad",
+      "area": "Raid",
+      "feature": "Brief: squad state",
+      "needs": [
+        "game",
+        "squad"
+      ],
+      "steps": [
+        "Group up in the game with a squadmate, both with the companion sharing from Team.",
+        "Queue for a raid and read the brief's \"Squad\" section."
+      ],
+      "expect": "Each squadmate is listed with a state such as \"loading\", \"in raid\" or \"not in raid\", and \"from their companions\" underneath. With no companion sharing but a game party, it lists party members with \"ready\" or \"not ready\" and \"from the game's party list\".",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712",
+        "#403"
+      ]
+    },
+    {
+      "id": "raid.brief.because",
+      "area": "Raid",
+      "feature": "Brief: why it is shown",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Queue for a raid with the brief showing.",
+        "Read the line at the bottom of the brief."
+      ],
+      "expect": "A plain-words reason is shown, for example \"You pressed Ready at <time> and the game is looking for a raid.\" When the raid starts the brief is replaced by the Now panel or the Raid plan cards.",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.brief.flag-off",
+      "area": "Raid",
+      "feature": "Brief switched off",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Turn off \"Pre-raid brief\" in Setup > Updates & Diagnostics.",
+        "Queue for a raid and look at the Raid page."
+      ],
+      "expect": "No brief appears while matching and loading; the usual Raid plan cards (or the Now panel blocks) stay in place.",
+      "goTo": "#/raid",
+      "flag": "preraid-brief",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.blocks",
+      "area": "Raid",
+      "feature": "Now panel blocks",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Open the Raid page during a raid.",
+        "Look at the right column."
+      ],
+      "expect": "The column shows the blocks \"NOW\", \"YOU\", \"SQUAD\", \"NEXT\" and \"LAST SCAN\" in one column that does not scroll at 1920x1080, with \"More: extracts · objectives · marks · spawns · traffic · corrections\" at the bottom.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.out-of-raid",
+      "area": "Raid",
+      "feature": "Now panel out of raid",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "Start the game and stay in the main menu.",
+        "Open the Raid page and read the Now panel."
+      ],
+      "expect": "NOW reads \"Not in raid\" with \"This panel fills in when a raid starts\"; LAST SCAN reads \"No scan yet\". No clock is shown.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.phase-because",
+      "area": "Raid",
+      "feature": "Every phase change says why",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Watch the Now panel as you go from menu to matching to in raid.",
+        "Read the small line under the blocks at each stage."
+      ],
+      "expect": "Each change of phase shows a reason in plain words, for example \"The game started the raid at <time>.\" A screenshot of a game screen shows which detector read it and how sure it was, for example \"(flea market detector, 92%: ...)\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.you",
+      "area": "Raid",
+      "feature": "YOU: position from your screenshot",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, press the game's screenshot key.",
+        "Read the YOU block."
+      ],
+      "expect": "YOU names the area, floor and facing from the screenshot with its age (\"<n> s ago\"), and a line \"Nearest offered exit: <exit> · <distance> · ~<n> min\" (or \"Nearest exit: ...\" with \"not seen on your extract list\" when it is not confirmed offered). Before any screenshot it reads \"No screenshot this raid yet\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.wrong",
+      "area": "Raid",
+      "feature": "YOU: wrong? chips open Corrections",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid with a screenshot taken, find \"wrong?\" in the YOU block.",
+        "Press the \"side: <side>\" chip, then go back and press \"exits\"."
+      ],
+      "expect": "Each chip opens the Raid plan cards scrolled to Corrections (side, or the offered exits), with a \"Back to Now\" button at the top that returns to the Now panel.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.guesses",
+      "area": "Raid",
+      "feature": "Guesses are labelled",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Start a PMC raid without screenshotting the extract list, then press the game's screenshot key once.",
+        "Read each block of the Now panel."
+      ],
+      "expect": "Every figure that is a model is labelled on screen: the clock says \"counted from the raid start · not the game's clock\", walking times carry \"~\", the leave line is labelled \"estimate\", and squad rows say \"from their screenshots\". Nothing modelled is presented as observed.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.leave-by",
+      "area": "Raid",
+      "feature": "Late raid: Leave by line",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Stay in a raid until fewer than ten minutes are left, with a screenshot taken.",
+        "Look at the NOW block."
+      ],
+      "expect": "The heading changes to \"NOW · LATE RAID\" and turns amber, and a line reads \"Leave for <exit> by <time> (<n> min walk, <m> min margin)\" with \"estimate from your last screenshot\" underneath. Once that time has passed it turns red and reads \"Leave for <exit> now (<n> min walk)\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.leave-margin",
+      "area": "Raid",
+      "feature": "Leave margin setting",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Press \"More\" on the Now panel and open \"Extract options\".",
+        "Next to \"Leave margin\", press \"+\" twice, then \"Back to Now\"."
+      ],
+      "expect": "The value rises by 2 (the default is \"2 min\", maximum 10, minimum 0). In the last ten minutes the leave line's time moves earlier by the added minutes and names the new margin. The value is kept after a restart.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.squad-rows",
+      "area": "Raid",
+      "feature": "SQUAD rows",
+      "needs": [
+        "game",
+        "in-raid",
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Raid with a squadmate who shares from Team.",
+        "Read the SQUAD block."
+      ],
+      "expect": "One row per squadmate with name, area and distance/direction, and the age of their last share; \"from their screenshots\" appears beside the heading. A squadmate not sharing position reads \"in raid · no position yet\"; one gone silent reads \"gone quiet\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.squad-ping",
+      "area": "Raid",
+      "feature": "SQUAD row: tap to ping",
+      "needs": [
+        "game",
+        "in-raid",
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Raid with a squadmate who shares their position from Team.",
+        "When their SQUAD row shows an area, click (or tap) the row."
+      ],
+      "expect": "A ping is placed at that squadmate's last shared spot on the map and the squad sees it. The row's tooltip reads \"Ping <name>'s last shared spot · hold or right-click for a waypoint\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.squad-waypoint",
+      "area": "Raid",
+      "feature": "SQUAD row: hold for waypoint",
+      "needs": [
+        "game",
+        "in-raid",
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Raid with a squadmate who shares their position from Team.",
+        "Press and hold (or right-click) their SQUAD row."
+      ],
+      "expect": "One waypoint (not a fading ping) is placed at their last shared spot and stays until cleared. A single hold places exactly one waypoint.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.squad-flash",
+      "area": "Raid",
+      "feature": "New ping lights row and map edge",
+      "needs": [
+        "game",
+        "in-raid",
+        "squad",
+        "relay"
+      ],
+      "steps": [
+        "Raid with a squadmate in your group, both with the Raid map open.",
+        "Ask them to ping somewhere off your current map view."
+      ],
+      "expect": "Their SQUAD row's leading edge lights for about two seconds, and the map edge toward the ping lights in their colour, then both fade.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.next",
+      "area": "Raid",
+      "feature": "NEXT: objective route",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "Open an objective route from a quest on Plan (or on the map).",
+        "Read the NEXT block in raid."
+      ],
+      "expect": "NEXT shows \"on your route\", the next stop's label, \"<n> m leg\" and \"then: <next stop>\". Without a route it reads \"No objective route open\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.last-scan",
+      "area": "Raid",
+      "feature": "LAST SCAN: loot verdict",
+      "needs": [
+        "game",
+        "in-raid",
+        "loot-screenshot"
+      ],
+      "steps": [
+        "In raid, open a container and press the game's screenshot key.",
+        "Read the LAST SCAN block."
+      ],
+      "expect": "LAST SCAN shows the verdict counts, for example \"Take 2 · Swap 1 · Leave 1\", with the age. Clicking it opens the full Loot page. Before any scan it reads \"No scan yet this raid\" with \"Screenshot an open container: the verdict shows here\".",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.last-scan-screen",
+      "area": "Raid",
+      "feature": "LAST SCAN: which screen was read",
+      "needs": [
+        "game",
+        "in-raid"
+      ],
+      "steps": [
+        "In raid, open the extract list and press the game's screenshot key.",
+        "Read LAST SCAN and the reason line at the bottom."
+      ],
+      "expect": "LAST SCAN reads \"Read the extract list\" with the age, and the reason line names the detector that read it and how sure it was.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.now.more",
+      "area": "Raid",
+      "feature": "More opens the cards",
+      "needs": [
+        "game"
+      ],
+      "steps": [
+        "On the Now panel press \"More: extracts · objectives · marks · spawns · traffic · corrections\".",
+        "Press \"Back to Now\"."
+      ],
+      "expect": "More replaces the panel with every Raid plan card; \"Back to Now\" returns to the Now panel in the same state.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.cards.flag-off",
+      "area": "Raid",
+      "feature": "Raid plan cards when Now panel is off",
+      "needs": [],
+      "steps": [
+        "Turn off \"Now panel on the Raid map\" in Setup > Updates & Diagnostics.",
+        "Open the Raid page."
+      ],
+      "expect": "The right column shows the \"Raid plan\" heading and its cards (the map summary, \"Squad\", \"Objectives\", \"Extract options\", \"Marks\", \"Tasks on this map\", spawn and loot cards, \"Corrections\") and scrolls. The raid clock shows on the strip under the map instead of in NOW.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": [
+        "#712"
+      ]
+    },
+    {
+      "id": "raid.cards.expand",
+      "area": "Raid",
+      "feature": "Raid plan cards expand and collapse",
+      "needs": [],
+      "steps": [
+        "With the Raid plan cards showing, collapse \"Extract options\" by clicking its header.",
+        "Leave the Raid page and come back."
+      ],
+      "expect": "The card collapses to its header with a one-line summary, and stays collapsed when you come back.",
+      "goTo": "#/raid"
+    }
+  ]
+}

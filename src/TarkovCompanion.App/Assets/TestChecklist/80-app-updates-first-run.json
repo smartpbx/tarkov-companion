@@ -1,0 +1,613 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "app.rail.workspaces",
+      "area": "App",
+      "feature": "Rail with six workspaces",
+      "needs": [],
+      "steps": [
+        "Open the companion and look at the rail on the left.",
+        "Click each of \"Raid\", \"Intel\", \"Plan\", \"Team\" and \"Debrief\", then the Setup gear at the bottom."
+      ],
+      "expect": "The rail lists \"Raid\", \"Intel\", \"Plan\", \"Team\" and \"Debrief\" at the top and the Setup gear at the bottom, with the sidebar toggle directly above the gear. Each click opens that workspace and highlights its row; the gear opens \"Setup\".",
+      "goTo": "#/raid",
+      "refs": ["#607"]
+    },
+    {
+      "id": "app.rail.collapse",
+      "area": "App",
+      "feature": "Sidebar: labels, icons or hidden",
+      "needs": [],
+      "steps": [
+        "Click the sidebar toggle above the Setup gear, or press Ctrl+B.",
+        "Press Ctrl+B again, then once more.",
+        "With the sidebar hidden, bring it back from the thin edge at the left, then restart the companion."
+      ],
+      "expect": "Each press cycles labels, icons only, then hidden. With icons only, every destination is still one click away with its name in the tooltip. When hidden, a thin edge (\"Show the sidebar\") and the corner launcher still reach every workspace. The chosen state comes back after a restart.",
+      "goTo": "#/raid",
+      "refs": ["#607"]
+    },
+    {
+      "id": "app.keys.ctrl-digits",
+      "area": "App",
+      "feature": "Ctrl+1 to Ctrl+5 and Ctrl+, chords",
+      "needs": [],
+      "steps": [
+        "With the companion focused, press Ctrl+1, Ctrl+2, Ctrl+3, Ctrl+4 and Ctrl+5 in turn.",
+        "Press Ctrl+, (comma).",
+        "Press Ctrl+6 through Ctrl+9."
+      ],
+      "expect": "Ctrl+1 opens Raid, Ctrl+2 Intel, Ctrl+3 Plan, Ctrl+4 Team, Ctrl+5 Debrief, and Ctrl+, opens Setup. Ctrl+6 to Ctrl+9 do nothing. None of these keys reach the game or any other window; with the game focused instead, they do nothing in the companion.",
+      "goTo": "#/raid",
+      "refs": ["#292"]
+    },
+    {
+      "id": "app.keys.back-forward",
+      "area": "App",
+      "feature": "Alt+Left and Alt+Right history",
+      "needs": [],
+      "steps": [
+        "Open Raid, then Intel, then Debrief using the rail.",
+        "Press Alt+Left twice, then Alt+Right once."
+      ],
+      "expect": "Alt+Left goes back to Intel, then Raid; Alt+Right goes forward to Intel again.",
+      "goTo": "#/raid",
+      "refs": ["#292"]
+    },
+    {
+      "id": "app.keys.escape",
+      "area": "App",
+      "feature": "Escape closes the open panel",
+      "needs": [],
+      "steps": [
+        "Click the status pill at the top right to open \"Setup status\" and press Escape.",
+        "Open an item's Intel card beside another page and press Escape.",
+        "With nothing open, type in a search box and press Escape."
+      ],
+      "expect": "Escape closes the \"Setup status\" dialog and returns focus to the pill, and closes the open Intel item. When nothing is open, Escape is left to the focused control and does not change the page or navigate anywhere.",
+      "goTo": "#/intel",
+      "refs": ["#292"]
+    },
+    {
+      "id": "app.header.map-picker",
+      "area": "App",
+      "feature": "Header map picker",
+      "needs": [],
+      "steps": [
+        "Open Raid and use the map drop-down in the top bar (\"Switch map\") to pick another map.",
+        "Open Team and Plan and look for the drop-down.",
+        "Open Intel, Debrief and Setup and look for it."
+      ],
+      "expect": "Picking a map switches the Raid map to it. The drop-down shows on Raid, Team and Plan only, and is hidden on Intel, Debrief and Setup.",
+      "goTo": "#/raid",
+      "refs": ["#288"]
+    },
+    {
+      "id": "app.header.profile",
+      "area": "App",
+      "feature": "Header profile, mode, wipe and language",
+      "needs": [],
+      "steps": [
+        "Look at the label after the map picker in the top bar.",
+        "In Setup › Profile & Progress switch to a profile in another game mode, then look again."
+      ],
+      "expect": "The label names the active profile and its mode (for example \"<profile> · PvP\") with the wipe and language beside it, and follows the profile switch at once. With no profile loaded it reads \"No profile\".",
+      "goTo": "#/raid",
+      "refs": ["#288"]
+    },
+    {
+      "id": "app.header.raid-state",
+      "area": "App",
+      "feature": "Header raid state and clock",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "Start the game and watch the clock label in the top bar while in the menu, while loading a raid, in the raid, and after it.",
+        "With the Now panel switched off in Setup › Updates & Diagnostics, look at the label again during a raid."
+      ],
+      "expect": "It reads \"Menu\", \"Loading raid\", \"In raid\" and \"Post-raid\" in turn. With the Now panel on, it says only \"In raid\" and the raid clock is the Now panel's. With the Now panel off it reads \"In raid · <clock>\", the same value as the Raid page's own clock, never a second clock that disagrees.",
+      "goTo": "#/raid",
+      "flag": "now-panel",
+      "refs": ["#712"]
+    },
+    {
+      "id": "app.header.data-age",
+      "area": "App",
+      "feature": "Header data age",
+      "needs": [],
+      "steps": [
+        "Look at the label with the refresh icon in the top bar.",
+        "In Setup › Data & Network run a game data sync, then look again."
+      ],
+      "expect": "It reads \"Data updated N min ago\" (or \"N h\"), and \"Data updated just now\" right after a sync. With no sync time known it reads \"Data freshness unknown\".",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "app.header.health-pill",
+      "area": "App",
+      "feature": "Status pill opens Setup status",
+      "needs": [],
+      "steps": [
+        "Look at the status pill at the far right of the top bar.",
+        "Click it; close with \"Close\". Then press Ctrl+Shift+H."
+      ],
+      "expect": "When all is well the pill shows a green dot and \"Ready\". Clicking it, or Ctrl+Shift+H, opens the \"Setup status\" dialog with a summary (for example \"Setup: nothing needs action\") and rows \"Game log folder\", \"Screenshot folder\", \"Text recognition\", \"Game data\", \"Profile\" and \"Group sharing\", each with a status such as \"Ready\", \"Needs action\", \"Optional\" or \"Unconfirmed\". The page behind cannot be used while it is open.",
+      "goTo": "#/raid",
+      "refs": ["#292"]
+    },
+    {
+      "id": "app.health.row-opens-setup",
+      "area": "App",
+      "feature": "Setup status row opens its setting",
+      "needs": [],
+      "steps": [
+        "Open the \"Setup status\" dialog from the status pill.",
+        "Click the \"Screenshot folder\" row."
+      ],
+      "expect": "The dialog closes and Setup opens at the section holding the screenshot folder field. Other rows go to their own place in the same way.",
+      "goTo": "#/raid"
+    },
+    {
+      "id": "app.scan-source.retention",
+      "area": "App",
+      "feature": "Scan source: image retention chip",
+      "needs": ["game", "loot-screenshot"],
+      "steps": [
+        "Take a loot screenshot in game so a Loot Scan result shows.",
+        "Read the small chip at the top of the result and hover it."
+      ],
+      "expect": "The chip reads \"Image not kept\", \"Image not kept · game file tidied after N h\" or \"Image not kept · game file stays\", matching Setup › Game & Capture. The tooltip says no copy is saved and, while the frame is still held, \"Held in memory for N minutes so Read as… can use it.\"",
+      "goTo": "#/raid/loot",
+      "refs": ["#287"]
+    },
+    {
+      "id": "app.scan-source.read-as",
+      "area": "App",
+      "feature": "Scan source: Read as…",
+      "needs": ["game", "loot-screenshot"],
+      "steps": [
+        "Take a loot screenshot in game so a Loot Scan result shows.",
+        "Click \"Read as…\" and choose \"Stash\".",
+        "Wait longer than the hold time and open \"Read as…\" again."
+      ],
+      "expect": "\"Read as…\" opens \"Read as Loot · try instead\" with choices such as \"Stash\", \"Flea\", \"Quest items\". Picking one says \"Reading again as Stash\" and the result then reads \"Read as Stash by you · was Loot\". Once the frame is released it says \"Image released · capture it again\" instead of offering buttons.",
+      "goTo": "#/raid/loot",
+      "refs": ["#287"]
+    },
+    {
+      "id": "app.window.remembered",
+      "area": "App",
+      "feature": "Window position and size remembered",
+      "needs": ["windows"],
+      "steps": [
+        "Move and resize the companion window (not maximized).",
+        "Close the companion and start it again."
+      ],
+      "expect": "It reopens at the same position and size. The window fits inside the screen's work area: the title bar and the rail's Setup gear are not under the taskbar.",
+      "refs": ["#881"]
+    },
+    {
+      "id": "app.window.monitor",
+      "area": "App",
+      "feature": "Window monitor and maximized state remembered",
+      "needs": ["windows"],
+      "steps": [
+        "With two displays, move the companion to the second display and maximize it.",
+        "Close and restart the companion.",
+        "Close it, disconnect the second display, and start it again."
+      ],
+      "expect": "After the first restart it opens maximized on the second display. With that display gone it opens fully visible on a display that is present, not off-screen.",
+      "refs": ["#881"]
+    },
+    {
+      "id": "app.scale.chords",
+      "area": "App",
+      "feature": "Interface scale with Ctrl + and Ctrl -",
+      "needs": [],
+      "steps": [
+        "Press Ctrl and + several times, then Ctrl and - several times.",
+        "Press Ctrl+0.",
+        "Set a larger scale, restart the companion."
+      ],
+      "expect": "Everything grows or shrinks one step per press through 90%, 100%, 115%, 130%, 150%, 175% and 200%, stopping at each end without wrapping round. Ctrl+0 returns to 100%. The \"Interface scale\" setting in Setup › Appearance & Window shows the same value, and it is kept after a restart.",
+      "goTo": "#/setup",
+      "refs": ["#294"]
+    },
+    {
+      "id": "app.legacy-shell",
+      "area": "App",
+      "feature": "--ui-shell legacy opens V1",
+      "needs": [],
+      "steps": [
+        "Close the companion.",
+        "Start it from a shortcut or command prompt with --ui-shell legacy added.",
+        "Close it and start it normally."
+      ],
+      "expect": "With the option the V1 interface opens, where V1 last left its window. A normal start opens V2 again on the page it was last on; neither interface's window or navigation state disturbs the other.",
+      "refs": ["#294"]
+    },
+    {
+      "id": "app.restart-reopens-page",
+      "area": "App",
+      "feature": "Restart reopens the last page",
+      "needs": [],
+      "steps": [
+        "Open Plan › Hideout.",
+        "Close and restart the companion."
+      ],
+      "expect": "The companion opens straight on Plan › Hideout, not on Setup first and then jumping.",
+      "goTo": "#/plan/hideout"
+    },
+    {
+      "id": "app.local-time",
+      "area": "App",
+      "feature": "Absolute times shown in local time",
+      "needs": [],
+      "steps": [
+        "Open Debrief and read the \"Started\" column and a raid's detail times.",
+        "Read the after-raid card's \"Ended HH:MM\" after a raid, and the \"Applied\" row under Setup › Updates & Diagnostics › This build."
+      ],
+      "expect": "Every clock time and date matches the Windows clock's local time. None carries a \"UTC\" label or a trailing \"Z\", and none is offset by your time zone.",
+      "goTo": "#/debrief"
+    },
+    {
+      "id": "updates.auto-check",
+      "area": "Updates",
+      "feature": "Automatic check after launch and every few hours",
+      "needs": [],
+      "steps": [
+        "Start the companion and leave it running for about three minutes without touching Setup.",
+        "Open Setup › Updates & Diagnostics and read the update status."
+      ],
+      "expect": "A check has already run: the status reads \"Up to date\" or \"<version> is available\" (or \"<version> is ready · it installs when this restarts\") without \"Check for updates\" being pressed. It checks again every four hours while running; a failed check is retried sooner rather than stopping.",
+      "goTo": "#/setup",
+      "refs": ["#888"]
+    },
+    {
+      "id": "updates.check-now",
+      "area": "Updates",
+      "feature": "Check for updates",
+      "needs": [],
+      "steps": [
+        "Open Setup › Updates & Diagnostics.",
+        "Click \"Check for updates\"."
+      ],
+      "expect": "The status changes to \"Up to date\", or \"<version> is available\" with an \"Update now\" button. A failure reads \"Could not check · <reason>\" rather than hanging.",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.download-ready",
+      "area": "Updates",
+      "feature": "Update now downloads and waits for restart",
+      "needs": [],
+      "steps": [
+        "When a newer build is available, click \"Update now\" in Setup › Updates & Diagnostics.",
+        "Watch the progress bar until it finishes."
+      ],
+      "expect": "A progress bar fills, then the status reads \"<version> is ready · it installs when this restarts\". The SHA-256 is checked before anything installs: a mismatch reads \"Refused · the download did not match the feed, so nothing was installed\". If a waiting build is present, \"What is new\" lists its changes.",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.rail-notice",
+      "area": "Updates",
+      "feature": "Update ready notice in the rail",
+      "needs": [],
+      "steps": [
+        "Let a newer build download (automatically or with \"Update now\").",
+        "Look at the bottom of the rail above the sidebar toggle and the Setup gear."
+      ],
+      "expect": "A card reads \"Update ready\" with a \"Restart\" button, and the Setup gear carries a small dot. Hovering the card shows \"Update ready: <version>. Restart installs it.\" With the sidebar on icons only, the card is a single refresh-icon button with the same tooltip.",
+      "goTo": "#/raid",
+      "refs": ["#881"]
+    },
+    {
+      "id": "updates.rail-notice-dismiss",
+      "area": "Updates",
+      "feature": "Hide the update notice",
+      "needs": [],
+      "steps": [
+        "With the \"Update ready\" card showing, click its close (X), \"Hide update notice\".",
+        "Look at the Setup gear."
+      ],
+      "expect": "The card goes away for this build, but the dot on the Setup gear stays, so the waiting update is still visible. If a later build is found, the card shows again.",
+      "goTo": "#/raid",
+      "refs": ["#881"]
+    },
+    {
+      "id": "updates.restart-installs",
+      "area": "Updates",
+      "feature": "Restart installs in place",
+      "needs": [],
+      "steps": [
+        "With a build waiting, click \"Restart\" on the rail card (or \"Update now\" in Setup).",
+        "Wait for the companion to close and reopen.",
+        "Open Setup › Updates & Diagnostics and read \"This build\"."
+      ],
+      "expect": "The companion closes, installs and reopens by itself on the new version. \"This build\" shows the new \"Version\". No separate installer window needs clicking through.",
+      "goTo": "#/setup",
+      "refs": ["#881"]
+    },
+    {
+      "id": "updates.data-kept",
+      "area": "Updates",
+      "feature": "Update leaves data untouched",
+      "needs": [],
+      "steps": [
+        "Before updating, note your raid count in Debrief, the active profile and a changed setting.",
+        "Install an update with \"Restart\".",
+        "Check Debrief, the profile and the setting again, and read the data line in Setup › Updates & Diagnostics."
+      ],
+      "expect": "Raids, profile and settings are exactly as before. The data line reads \"Data: <folder> · kept across updates\".",
+      "goTo": "#/setup"
+    },
+    {
+      "id": "updates.whats-new-banner",
+      "area": "Updates",
+      "feature": "What's new banner after an update",
+      "needs": [],
+      "steps": [
+        "Install an update and let the companion reopen.",
+        "Look at the top right of the page and click \"What's new\".",
+        "Close the list, then click the banner's close (X)."
+      ],
+      "expect": "A banner reads \"Updated to <version>\" with \"What's new\" and a dismiss button. \"What's new\" opens \"What's new in <version>\" with a short list of changes. Once dismissed it does not return for that version after a restart.",
+      "goTo": "#/raid",
+      "refs": ["#314"]
+    },
+    {
+      "id": "updates.whats-new-hidden-in-raid",
+      "area": "Updates",
+      "feature": "What's new stays out of a raid",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "After an update, leave the \"Updated to <version>\" banner undismissed (or open its list).",
+        "Start a raid in game."
+      ],
+      "expect": "The banner and any open list disappear as soon as the raid is loading or running, so the map is not covered.",
+      "goTo": "#/raid",
+      "refs": ["#314"]
+    },
+    {
+      "id": "updates.whats-new-setup",
+      "area": "Updates",
+      "feature": "What's new in this build, from Setup",
+      "needs": [],
+      "steps": [
+        "Dismiss the \"Updated to\" banner.",
+        "Open Setup › Updates & Diagnostics and click \"What's new in this build\"."
+      ],
+      "expect": "The same list of this build's changes opens again, so it can still be read after the banner is gone.",
+      "goTo": "#/setup",
+      "refs": ["#902"]
+    },
+    {
+      "id": "updates.provenance",
+      "area": "Updates",
+      "feature": "This build: where it came from",
+      "needs": [],
+      "steps": [
+        "Open Setup › Updates & Diagnostics.",
+        "Read the \"This build\" rows."
+      ],
+      "expect": "Rows \"Version\", \"Channel\", \"Feed\", \"SHA-256\" and \"Applied\" are filled in, with the applied time in local time. On a build installed by Setup.exe, missing values read \"Not recorded · installed by Setup or an older build\" rather than being blank.",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.go-back-confirm",
+      "area": "Updates",
+      "feature": "Go back: confirmation first",
+      "needs": [],
+      "steps": [
+        "Open Setup › Updates & Diagnostics.",
+        "Click \"Go back to the previous version\".",
+        "Read the card, then click \"Cancel\"."
+      ],
+      "expect": "Nothing installs on the first press. A card asks \"Go back from <current> to <previous>?\" and lists what happens: it downloads or reuses <previous> and checks its SHA-256, closes and reinstalls, \"Your data and settings stay.\", and stays on <previous> until a newer build is published. \"Cancel\" closes the card with no change. With no older build it says \"No older build to go back to\".",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.go-back-run",
+      "area": "Updates",
+      "feature": "Go back to the previous version",
+      "needs": [],
+      "steps": [
+        "Click \"Go back to the previous version\", then \"Go back to <previous>\".",
+        "Let the companion close and reopen.",
+        "Open Setup › Updates & Diagnostics."
+      ],
+      "expect": "It shows \"Fetching <previous>…\" then \"Installing <previous> · it will close and reopen\", and reopens on the previous version with data intact. Setup now reads \"Staying on <previous> until a build newer than <current>\" with a \"Resume updates\" button, and the automatic check does not reinstall <current>.",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.resume",
+      "area": "Updates",
+      "feature": "Resume updates after going back",
+      "needs": [],
+      "steps": [
+        "After going back, open Setup › Updates & Diagnostics.",
+        "Click \"Resume updates\", then \"Check for updates\"."
+      ],
+      "expect": "The \"Staying on ...\" line disappears and the check offers the newer build again.",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.checks-off",
+      "area": "Updates",
+      "feature": "Update checks off or Local only",
+      "needs": [],
+      "steps": [
+        "In Setup › Data & Network turn off \"Update checks\".",
+        "In Setup › Updates & Diagnostics click \"Check for updates\".",
+        "Turn \"Update checks\" back on, switch on Local only, and check again."
+      ],
+      "expect": "With update checks off the status reads \"Update checks · off in Data & Network\"; with Local only it reads \"Local only · off\". In both cases the feed is not contacted and no \"Update ready\" notice appears.",
+      "goTo": "#/setup",
+      "refs": ["#292"]
+    },
+    {
+      "id": "updates.run-from-folder",
+      "area": "Updates",
+      "feature": "Build run from a folder cannot update",
+      "needs": [],
+      "steps": [
+        "Start a companion build unpacked into a folder rather than installed.",
+        "Open Setup › Updates & Diagnostics."
+      ],
+      "expect": "The status says \"Run from a folder, so it cannot update itself\" and offers \"Get the installer\" with its address. Going back reads \"Run from a folder, so it cannot go back\". Nothing tries to update the folder.",
+      "goTo": "#/setup",
+      "refs": ["#599"]
+    },
+    {
+      "id": "firstrun.no-setup",
+      "area": "First run",
+      "feature": "New install needs no setup",
+      "needs": ["game", "windows"],
+      "steps": [
+        "On a PC where the game has been played, install the companion fresh (no earlier data folder).",
+        "Start it and do not open any settings.",
+        "Open Raid, then start a raid and take a screenshot in raid."
+      ],
+      "expect": "Without any folder being chosen, the game's logs and screenshots are found and the Raid page follows the raid. No setup wizard or required step appears.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.landing",
+      "area": "First run",
+      "feature": "First launch lands on Setup Overview",
+      "needs": [],
+      "steps": [
+        "Install the companion fresh (no earlier data folder).",
+        "Start it for the first time and note which page opens."
+      ],
+      "expect": "It opens on Setup › Overview. No \"Updated to <version>\" banner shows on a first install; that appears only after an actual update.",
+      "goTo": "#/setup",
+      "refs": ["#314"]
+    },
+    {
+      "id": "firstrun.discovery-locations",
+      "area": "First run",
+      "feature": "Finds game folders on other drives, Steam and OneDrive",
+      "needs": ["game", "windows"],
+      "steps": [
+        "Use a PC where the game is installed on a drive other than C: or in a Steam library, or where Documents is redirected to OneDrive.",
+        "Start the companion fresh and open Raid."
+      ],
+      "expect": "Logs and screenshots are still found without choosing folders: no readiness line appears on Raid, and Setup › Game & Capture shows the found folders.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.strip-missing",
+      "area": "First run",
+      "feature": "Readiness line names what is missing",
+      "needs": [],
+      "steps": [
+        "Start the companion on a PC where the screenshot folder cannot be found (for example rename it first).",
+        "Open Raid and read the slim line at the top."
+      ],
+      "expect": "One line reads like \"Game logs ✓ · Screenshots not found Choose folder… · Game data ✓ · Squad (optional) Set up\" with a \"Get ready\" button at the right. It appears on the Raid page only, not on other workspaces.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.strip-choose-folder",
+      "area": "First run",
+      "feature": "Choose folder from the readiness line",
+      "needs": ["windows"],
+      "steps": [
+        "With \"Screenshots not found\" showing on Raid, click its \"Choose folder…\".",
+        "In the picker, choose the \"Escape from Tarkov\" folder under Documents (the parent, not Screenshots itself)."
+      ],
+      "expect": "The picker is titled \"Choose the game's Screenshots folder\". The Screenshots folder inside the chosen one is saved, the item turns to \"Screenshots ✓\", and Setup's screenshot folder field shows the same path. Cancelling the picker changes nothing.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.strip-disappears",
+      "area": "First run",
+      "feature": "Readiness line goes away when all three are found",
+      "needs": [],
+      "steps": [
+        "Fix whatever the readiness line on Raid lists as missing.",
+        "Leave squad sharing off.",
+        "Restart the companion and open Raid."
+      ],
+      "expect": "Once game logs, screenshots and game data are all found, the line disappears. Squad \"(optional)\" alone does not keep it on screen, and it does not flash up briefly at launch while folders are still being looked for.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.strip-get-ready",
+      "area": "First run",
+      "feature": "Get ready button",
+      "needs": [],
+      "steps": [
+        "Open Raid while the readiness line is showing.",
+        "Click \"Get ready\" at the right end of the line."
+      ],
+      "expect": "Setup opens on Overview, which lists every readiness check with its full detail.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.game-data-download",
+      "area": "First run",
+      "feature": "Game data downloads on first launch",
+      "needs": [],
+      "steps": [
+        "Install fresh and start the companion with the internet connected.",
+        "Open Raid straight away and watch the readiness line, then open Intel and search for an item."
+      ],
+      "expect": "While downloading the line may read \"Game data downloading…\"; it then turns to \"Game data ✓\" without any button being pressed. Intel finds items, and the top bar reads \"Data updated just now\".",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.game-data-retry",
+      "area": "First run",
+      "feature": "Game data download failed, Retry",
+      "needs": [],
+      "steps": [
+        "Install fresh and start the companion with the internet disconnected.",
+        "Open Raid and read the Game data item.",
+        "Reconnect and click its \"Retry\"."
+      ],
+      "expect": "Game data reads \"download failed\" or \"not downloaded\" with a \"Retry\" button. \"Retry\" starts a sync and, once connected, the item turns to \"Game data ✓\".",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.game-data-local-only",
+      "area": "First run",
+      "feature": "Local only with no game data yet",
+      "needs": [],
+      "steps": [
+        "Install fresh and switch on Local only in Setup › Data & Network before any game data has downloaded.",
+        "Open Raid and read the readiness line, then click the Game data button."
+      ],
+      "expect": "Game data reads \"Local only is on\" with an \"Open Data & Network\" button instead of \"Retry\", and the button opens Setup › Data & Network. Nothing is downloaded.",
+      "goTo": "#/raid",
+      "refs": ["#712"]
+    },
+    {
+      "id": "firstrun.catalog-offline",
+      "area": "First run",
+      "feature": "Stored game data works offline",
+      "needs": [],
+      "steps": [
+        "After game data has synced at least once, disconnect the internet and restart the companion.",
+        "Look at the status pill and open it, then use Intel and Plan."
+      ],
+      "expect": "No readiness line appears, because stored data counts however old. The pill shows \"Offline\" and the dialog reads \"Offline. Using N cached items synced <time>\" with \"Everything still works, labelled with its age\". Intel and Plan still answer from the stored data.",
+      "goTo": "#/intel",
+      "refs": ["#712"]
+    }
+  ]
+}

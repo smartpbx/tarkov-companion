@@ -1,0 +1,455 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "debrief.after-raid.question",
+      "area": "Debrief",
+      "feature": "After-raid outcome question",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "Keep the companion running and play a raid to its end (extract or die).",
+        "Back in the menu, open Debrief in the rail.",
+        "Look at the \"After the raid\" card at the top of the Raid detail column."
+      ],
+      "expect": "The card reads \"After the raid\" with \"Ended HH:MM\" in your local time and asks \"How did the raid end?\" with four buttons, \"Survived\", \"Died\", \"Ran through\" and \"MIA\", plus a \"Later\" link. It is a card in the page, not a pop-up, and nothing appears over the game. The raid just played is selected in the list.",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.after-raid.answer",
+      "area": "Debrief",
+      "feature": "Answering the outcome question",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "After a raid ends, open Debrief.",
+        "On the \"How did the raid end?\" card, click \"Survived\" (or the answer that is true)."
+      ],
+      "expect": "The four buttons go away and the card reads \"Survived · you said so at HH:MM\" with a \"Manual\" tag beside it. The raid's row in the list now shows that outcome in the Outcome column, also tagged \"Manual\".",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.after-raid.later",
+      "area": "Debrief",
+      "feature": "Later: outcome left unrecorded",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "After a raid ends, open Debrief.",
+        "On the outcome card, click \"Later\"."
+      ],
+      "expect": "The question closes and the card reads \"Outcome not recorded\" with no source tag. Nothing is guessed from position or timing: the raid's Outcome column stays empty or not recorded.",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.after-raid.asked-once",
+      "area": "Debrief",
+      "feature": "Outcome question asked only once per raid",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "After a raid ends, answer the outcome card or click \"Later\".",
+        "Go to another workspace and come back to Debrief.",
+        "Restart the companion and open Debrief again."
+      ],
+      "expect": "The question is not asked again for that raid. After a restart the card is not shown at all until the next raid ends; the answer (or \"Not recorded\") stays on the raid's row.",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.after-raid.recap",
+      "area": "Debrief",
+      "feature": "Recap names the source of every fact",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "Play a raid with the companion running, taking at least one screenshot in raid.",
+        "After it ends, open Debrief and read the \"Recap\" part of the after-raid card."
+      ],
+      "expect": "Recap lines read like \"N min in raid · <map>\", \"Side: PMC\", \"Raid clock: N of N min used\", \"Extract used\" or \"Ended near <extract>\" or \"Extract not recorded\", \"Loot scanned\" or \"No loot scanned\", and \"Tasks moved\" or \"No tasks moved\". Each fact line carries a tag \"Observed\", \"Inferred\", \"Estimate\" or \"Manual\"; the raid clock line and loot value are \"Estimate\", \"Ended near\" is \"Inferred\".",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.after-raid.close",
+      "area": "Debrief",
+      "feature": "Close the after-raid card",
+      "needs": ["game", "in-raid"],
+      "steps": [
+        "After a raid ends, open Debrief.",
+        "Click the close (X) button at the top right of the after-raid card."
+      ],
+      "expect": "The card disappears. The raid list and the Raid detail for the selected raid stay as they were.",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.list.columns",
+      "area": "Debrief",
+      "feature": "Raid list columns",
+      "needs": [],
+      "steps": [
+        "Open Debrief with at least a few raids recorded.",
+        "Make sure \"Raids\" (not \"Stats\") is selected and read the table under \"Raid history\"."
+      ],
+      "expect": "Column headings are \"Map\", \"Mode\", \"Started\", \"Duration\" and \"Outcome\". Each row shows the map (with its tags if any), the mode with the wipe under it, the local start time, the length, and the outcome with a source tag where one exists. The status line beside \"Raid history\" gives the raid count and the mode and wipe it covers.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.list.select-detail",
+      "area": "Debrief",
+      "feature": "Select a raid to see its detail",
+      "needs": [],
+      "steps": [
+        "Open Debrief with no raid selected and read the \"Raid detail\" column.",
+        "Click a raid row."
+      ],
+      "expect": "Before selecting, the detail says \"Select a raid to see its detail.\" After clicking, the row is highlighted and the detail shows the map name, a list of facts with source tags, then sections \"Tags\", \"Archive\", \"Screenshots\", \"Extract used\", \"Scans\", \"Flea sales\", \"Quests\", \"Correct outcome or notes\", \"Kills and value brought out\" and \"Delete this raid\".",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.context.mode-wipe",
+      "area": "Debrief",
+      "feature": "Only this mode and wipe counted by default",
+      "needs": [],
+      "steps": [
+        "Have raids recorded in more than one game mode (PvP and PvE) or from an earlier wipe.",
+        "Open Debrief and read the status line and the header buttons.",
+        "Click \"Show all (N)\", then click \"This profile only\"."
+      ],
+      "expect": "By default the list, stats and charts hold only the active profile's mode and wipe, and the status line ends \" · <mode> · <wipe>\". \"Show all (N)\" adds the N hidden raids and the status line ends \" · all modes and wipes\". \"This profile only\" returns to the filtered list. Nothing is deleted either way.",
+      "goTo": "#/debrief",
+      "refs": ["#269"]
+    },
+    {
+      "id": "debrief.context.empty-named",
+      "area": "Debrief",
+      "feature": "Empty mode or wipe says what is hidden",
+      "needs": [],
+      "steps": [
+        "Switch the active profile to a mode with no raids yet (for example PvE) while other raids exist.",
+        "Open Debrief."
+      ],
+      "expect": "The list reads \"No raids in <mode> · <wipe> yet. N raids from other modes or wipes are hidden.\" with a button under it that shows everything. It does not claim \"No raids recorded yet\".",
+      "goTo": "#/debrief",
+      "refs": ["#902"]
+    },
+    {
+      "id": "debrief.filter.map-tag",
+      "area": "Debrief",
+      "feature": "Filter by map and tag",
+      "needs": [],
+      "steps": [
+        "Open Debrief with raids on at least two maps.",
+        "In the \"Map\" drop-down pick one map.",
+        "In the \"Tag\" drop-down pick a tag you added to some raids.",
+        "Click \"Clear filters\"."
+      ],
+      "expect": "The list, the \"By map\" strip and the status count narrow to raids matching both filters. \"Clear filters\" appears while any filter is set and puts the list back to \"All maps\" and \"All tags\".",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.filter.outcome-side",
+      "area": "Debrief",
+      "feature": "Filter by outcome and side",
+      "needs": [],
+      "steps": [
+        "Open Debrief with raids of different outcomes and sides.",
+        "Click the \"Died\" chip, then \"Any outcome\".",
+        "Click the \"Scav\" chip, then \"Any side\"."
+      ],
+      "expect": "Outcome chips are \"Any outcome\", \"Survived\", \"Died\", \"MIA\" and \"Run-through\"; side chips are \"Any side\", \"PMC\" and \"Scav\". The selected chip is highlighted and the list shows only matching raids; when nothing matches it reads \"No raids match these filters.\"",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.filter.dates-search",
+      "area": "Debrief",
+      "feature": "Date range and notes search",
+      "needs": [],
+      "steps": [
+        "Set a date in \"From\" and a later date in \"To\".",
+        "Type a word from one raid's notes into \"Search notes\".",
+        "Click the clear (X) in the search box."
+      ],
+      "expect": "Only raids started within the date range (local dates) and whose notes contain the word are listed. Clearing the search restores the date-filtered list. After a restart the From/To dates and the search are not kept.",
+      "goTo": "#/debrief",
+      "refs": ["#291", "#935"]
+    },
+    {
+      "id": "debrief.filter.remembered",
+      "area": "Debrief",
+      "feature": "Page state remembered across restart",
+      "needs": [],
+      "steps": [
+        "Switch to \"Stats\", pick a map in \"Map\" and the \"PMC\" side chip.",
+        "Close and reopen the companion, then open Debrief."
+      ],
+      "expect": "Debrief comes back on \"Stats\" with the same map and side filters. The notes search box is empty. If the remembered filters leave the list empty, a button under the empty message resets them.",
+      "goTo": "#/debrief",
+      "refs": ["#902"]
+    },
+    {
+      "id": "debrief.saved-views",
+      "area": "Debrief",
+      "feature": "Saved views",
+      "needs": [],
+      "steps": [
+        "Set some filters (for example a map and \"Died\").",
+        "Type a name in \"View name\" and click \"Save current\".",
+        "Click \"Clear filters\", pick the view under \"Saved views\" and click \"Apply\".",
+        "Pick it again and click \"Delete\"."
+      ],
+      "expect": "Saving says \"Saved view: <name>.\" and the view appears in the \"Saved views\" drop-down. \"Apply\" restores exactly those filters and says \"Applied view: <name>.\" \"Delete\" removes it and says \"Deleted saved view: <name>.\" Names are limited to 32 characters and at most 6 views are kept.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.stats.coverage",
+      "area": "Debrief",
+      "feature": "Coverage by map",
+      "needs": [],
+      "steps": [
+        "Open Debrief and click \"Stats\".",
+        "Read the \"Coverage by map\" table."
+      ],
+      "expect": "Columns \"Map\", \"Raids\", \"Extracted\", \"Died\", \"Survival\", \"Extracts\" and \"Offered lists\", one row per map, following the same filters as the list. The hint reads \"Extracts used of those offered. Offered lists come from extract-list screenshots.\" Archived raids are not counted.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.stats.value-chart",
+      "area": "Debrief",
+      "feature": "Value per raid chart and table",
+      "needs": [],
+      "steps": [
+        "Enter a value brought out on a few raids (see the kills and value item).",
+        "Open \"Stats\" and look at \"Value per raid\".",
+        "Click \"Table\", then \"Chart\"."
+      ],
+      "expect": "A line chart oldest-left, with the top value and first and last raid times labelled, tagged \"Manual\". \"Table\" swaps it for a table with \"Started\", \"Map\" and \"Value\" holding the same numbers; \"Chart\" swaps back. With no values entered it reads \"Enter a raid's value to chart it.\"",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.stats.survival-chart",
+      "area": "Debrief",
+      "feature": "Survival by map chart and table",
+      "needs": [],
+      "steps": [
+        "Record outcomes on raids on at least two maps.",
+        "Open \"Stats\" and look at \"Survival by map\".",
+        "Click \"Table\", then \"Chart\"."
+      ],
+      "expect": "One bar per map with its survival rate. The table shows \"Map\", \"Extracted\" and \"Rate\" with the same numbers. With no outcomes recorded it reads \"Record raid outcomes to chart survival.\"",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.tags",
+      "area": "Debrief",
+      "feature": "Tags on a raid",
+      "needs": [],
+      "steps": [
+        "Select a raid.",
+        "Under \"Tags\" type a tag in \"Add a tag\" and click \"Add\".",
+        "Click the \"×\" on the new tag."
+      ],
+      "expect": "Adding says \"Added tag: <tag>.\" and the tag shows on the detail and beside the map name in the list, and in the \"Tag\" filter. The \"×\" removes it and says \"Removed tag: <tag>.\" Tags are limited to 24 characters and 8 per raid.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.correct-outcome-notes",
+      "area": "Debrief",
+      "feature": "Correct outcome or notes",
+      "needs": [],
+      "steps": [
+        "Select a raid.",
+        "Under \"Correct outcome or notes\" change the \"Outcome\" text and type something in \"Notes\".",
+        "Click \"Save correction\"."
+      ],
+      "expect": "The status line says \"Correction saved.\" The list row shows the new outcome tagged \"Manual\", the survival chart and filters use it, and the notes are found by \"Search notes\". The hint above reads \"The game doesn't record outcomes; enter one by hand.\"",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.extract-used",
+      "area": "Debrief",
+      "feature": "Extract used",
+      "needs": [],
+      "steps": [
+        "Select a raid where you took an extract-list screenshot in raid.",
+        "Under \"Extract used\" click one of the offered extract chips.",
+        "On another raid, type a name in \"Type an extract\" and click \"Save\"."
+      ],
+      "expect": "The chosen extract is shown with a \"Manual\" tag and the status says \"Extract used: <name>.\" The \"Offered:\" line lists the extracts the screenshot showed, or \"Offered extracts not recorded for this raid.\" when there was none. Coverage by map counts the used extract.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.kills-value",
+      "area": "Debrief",
+      "feature": "Kills and value brought out",
+      "needs": [],
+      "steps": [
+        "Select a raid.",
+        "Under \"Kills and value brought out\" enter \"PMC kills\", \"Scav kills\", \"Boss kills\" and \"Value brought out (roubles)\".",
+        "Click \"Save\"."
+      ],
+      "expect": "The values are kept, the \"By map\" strip adds them to that map's totals tagged \"Manual\", and the value appears in \"Value per raid\" on Stats. A zero is kept as a real zero, not as empty.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.archive-restore",
+      "area": "Debrief",
+      "feature": "Archive and restore a raid",
+      "needs": [],
+      "steps": [
+        "Select a raid and click \"Archive raid\".",
+        "Click \"Archived (N)\" in the header, select the raid and click \"Restore raid\".",
+        "Click \"Back to raids\"."
+      ],
+      "expect": "Archiving says \"Raid archived. Restore it from Archived.\" and the raid leaves the list, stats and charts. In the archive view its hint reads \"Archived: left out of the list, stats and charts.\" Restoring says \"Raid restored.\" and it is back in the list and totals. Nothing is deleted.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.delete-undo",
+      "area": "Debrief",
+      "feature": "Delete a raid with preview and undo",
+      "needs": [],
+      "steps": [
+        "Select a raid and under \"Delete this raid\" click \"Delete raid\".",
+        "Read the preview, then click \"Cancel\".",
+        "Click \"Delete raid\" again and then \"Delete\".",
+        "Click \"Undo\" on the banner that appears."
+      ],
+      "expect": "The preview reads \"This removes <map> · <started> (<duration>), its N scans and N screenshots.\" before anything is removed; \"Cancel\" removes nothing. \"Delete\" removes the raid and shows \"Deleted 1 raid (<map>, <started>).\" with \"Undo\"; \"Undo\" brings the raid back with its detail.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.delete-before-date",
+      "area": "Debrief",
+      "feature": "Delete raids before a date",
+      "needs": [],
+      "steps": [
+        "Next to \"Delete raids before\" click \"Delete before…\" without picking a date.",
+        "Pick a date and click \"Delete before…\" again, read the preview and click \"Cancel\".",
+        "Repeat and click \"Delete\", then \"Undo\"."
+      ],
+      "expect": "With no date it says \"Pick a date first.\" With a date it previews \"This removes N raids before <date>.\" (or \"No raids before <date>.\") and removes nothing until \"Delete\". After \"Delete\" the banner says \"Deleted N raids before <date>.\" and \"Undo\" restores all of them.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.export-csv",
+      "area": "Debrief",
+      "feature": "Export CSV",
+      "needs": [],
+      "steps": [
+        "Open Debrief and click \"Export CSV\".",
+        "Open the file the status line names."
+      ],
+      "expect": "The status line says \"Exported to <path>\" ending in Exports and raid-history.csv. The file opens in a spreadsheet with one row per raid, including manual outcomes.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.export-json",
+      "area": "Debrief",
+      "feature": "Export JSON",
+      "needs": [],
+      "steps": [
+        "Open Debrief and click \"Export JSON\".",
+        "Open the file the status line names."
+      ],
+      "expect": "The status line says \"Exported to <path>\" ending in raid-history.json, and the file is valid JSON listing the raids.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.scans.mark-wrong",
+      "area": "Debrief",
+      "feature": "Mark a Loot Scan wrong, and restore it",
+      "needs": ["game", "in-raid", "loot-screenshot"],
+      "steps": [
+        "In a raid, take a loot screenshot so a Loot Scan is saved for that raid.",
+        "In Debrief select that raid and find the scan under \"Scans\".",
+        "Click \"Wrong\" on the scan, then click \"Restore\"."
+      ],
+      "expect": "The scan row lists its calls (for example a TAKE line with a value). \"Wrong\" labels it \"Marked wrong\", the status says \"Scan marked wrong; totals updated.\" and the Scans summary and recap loot value drop it. \"Restore\" says \"Scan restored to totals.\" and puts it back.",
+      "goTo": "#/debrief",
+      "refs": ["#274"]
+    },
+    {
+      "id": "debrief.detail.flea-quests",
+      "area": "Debrief",
+      "feature": "Flea sales and quest events during a raid",
+      "needs": ["game"],
+      "steps": [
+        "Play a raid during which a flea offer sells or a quest changes state.",
+        "In Debrief select that raid and read \"Flea sales\" and \"Quests\"."
+      ],
+      "expect": "\"Flea sales\" lists each sold item with its count and local time; \"Quests\" lists each quest with its new state and time. Raids with none read \"Nothing sold during this raid.\" and \"No quest events during this raid.\"",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.detail.pattern-line",
+      "area": "Debrief",
+      "feature": "Per-map pattern line",
+      "needs": [],
+      "steps": [
+        "Have several finished raids on one map, some with outcomes and extracts recorded.",
+        "Select one of those raids and read the line under \"Screenshots\"."
+      ],
+      "expect": "One line like \"Your last 5 <map> raids: 2 deaths, 1 near <exit>, 3 out · Usual exit <name>: used N times · Your pace 2.4 m/s (N legs)\". With too few trails it ends \"Pace: fixed 1.8–3.2 m/s until more trails\". It counts only your own non-archived raids and predicts nothing.",
+      "goTo": "#/debrief",
+      "refs": ["#712"]
+    },
+    {
+      "id": "debrief.detail.distance-route",
+      "area": "Debrief",
+      "feature": "Distance and planned vs actual",
+      "needs": ["game"],
+      "steps": [
+        "Plan a route for a map, then play a raid there taking several screenshots.",
+        "In Debrief select that raid and read the \"Screenshots\" section."
+      ],
+      "expect": "It says how many screenshots were recorded, shows \"At least N m\" or \"At least N km\" tagged \"Estimate\", and under \"Planned vs actual\" reads \"Planned to <stop> · screenshots averaged N m from plan · furthest N m\".",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.watch-on-map",
+      "area": "Debrief",
+      "feature": "Replay a raid on the Raid map",
+      "needs": [],
+      "steps": [
+        "Select a raid that has screenshots recorded.",
+        "Click \"Watch on map\".",
+        "Step the replay with \"Back\" and \"Forward\", then click \"Close\"."
+      ],
+      "expect": "The companion switches to Raid on that raid's own map (not the one showing before) and a \"Replay of a past raid\" bar draws the trail and the planned route if one existed. While the replay is open the map does not follow live screenshots. \"Close\" ends the replay.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    },
+    {
+      "id": "debrief.watch-on-map.none",
+      "area": "Debrief",
+      "feature": "Watch on map with no screenshots",
+      "needs": [],
+      "steps": [
+        "Select a raid with no screenshots recorded.",
+        "Look for \"Watch on map\" in the \"Screenshots\" section."
+      ],
+      "expect": "The section reads \"No screenshots recorded for this raid.\" and there is no \"Watch on map\" button. The page stays on Debrief.",
+      "goTo": "#/debrief",
+      "refs": ["#291"]
+    }
+  ]
+}
