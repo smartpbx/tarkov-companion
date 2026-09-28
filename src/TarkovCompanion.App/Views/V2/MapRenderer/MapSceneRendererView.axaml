@@ -773,6 +773,12 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
       <Setter Property="Opacity" Value="1" />
     </Style>
+    <!-- [#974] The loot value chip is wider than the icon buttons and set the stack's width, so the
+         buttons sat on its left edge, away from the map's side. Everything in the stack keeps to
+         the right: the buttons stay at the edge and the chip grows leftwards over the map. -->
+    <Style Selector="StackPanel#RendererCommands > :is(Control)">
+      <Setter Property="HorizontalAlignment" Value="Right" />
+    </Style>
   </UserControl.Styles>
 
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" x:Name="RendererScroll">
