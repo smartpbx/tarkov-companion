@@ -350,7 +350,7 @@ public sealed class RaidActivityCoordinator(
             {
                 await AddStartIfNewAsync(commands, previous, current, alreadyRecorded: false, cancellationToken)
                     .ConfigureAwait(false);
-                if (current.RaidId is { } raidId)
+                if (!current.IsPractice && current.RaidId is { } raidId)
                 {
                     commands.Add(RaidHistoryCommand.RecordPosition(raidId, position));
                 }
@@ -382,7 +382,7 @@ public sealed class RaidActivityCoordinator(
             {
                 await AddStartIfNewAsync(commands, previous, current, alreadyRecorded: false, cancellationToken)
                     .ConfigureAwait(false);
-                if (current.RaidId is { } raidId)
+                if (!current.IsPractice && current.RaidId is { } raidId)
                 {
                     commands.Add(RaidHistoryCommand.RecordExtracts(raidId, observedUtc, extracts));
                 }
@@ -503,7 +503,7 @@ public sealed class RaidActivityCoordinator(
     {
         if (raidHistoryService is not IAtLeastOnceRaidHistoryService outbox)
         {
-            if (raidStateService.Current.RaidId is { } directRaidId)
+            if (!raidStateService.Current.IsPractice && raidStateService.Current.RaidId is { } directRaidId)
             {
                 await create(directRaidId).WriteAsync(raidHistoryService, cancellationToken).ConfigureAwait(false);
             }
@@ -516,7 +516,7 @@ public sealed class RaidActivityCoordinator(
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (raidStateService.Current.RaidId is { } raidId)
+            if (!raidStateService.Current.IsPractice && raidStateService.Current.RaidId is { } raidId)
             {
                 await outbox.AcceptAsync([create(raidId)], cancellationToken).ConfigureAwait(false);
             }
@@ -536,7 +536,7 @@ public sealed class RaidActivityCoordinator(
         CancellationToken cancellationToken)
     {
         await AddStartIfNewAsync(commands, previous, current, alreadyRecorded, cancellationToken).ConfigureAwait(false);
-        if (current.RaidId is { } raidId)
+        if (!current.IsPractice && current.RaidId is { } raidId)
         {
             // The queue/load time rides on the state event that begins the raid, because that
             // event already has a durable route and a new command kind would need a schema change.
@@ -552,7 +552,7 @@ public sealed class RaidActivityCoordinator(
             commands.Add(RaidHistoryCommand.RecordState(raidId, evidence));
         }
 
-        if (previous.RaidId is { } previousRaidId
+        if (!previous.IsPractice && previous.RaidId is { } previousRaidId
             && previous.State == RaidLifecycleState.InRaid
             && current.State is RaidLifecycleState.Menu or RaidLifecycleState.PostRaid)
         {
@@ -563,7 +563,7 @@ public sealed class RaidActivityCoordinator(
                 ? NotReported(previousRaidId, previous, evidence.ObservedUtc, rebasedStart)
                 : RaidHistoryCommand.EndRaid(previousRaidId, evidence.ObservedUtc, null, null, rebasedStart));
         }
-        else if (previous.RaidId is { } displacedRaidId
+        else if (!previous.IsPractice && previous.RaidId is { } displacedRaidId
             && previous.State == RaidLifecycleState.InRaid
             && current.State is RaidLifecycleState.InRaid or RaidLifecycleState.LoadingRaid
             && current.RaidId != displacedRaidId)
@@ -642,7 +642,7 @@ public sealed class RaidActivityCoordinator(
         bool alreadyRecorded,
         CancellationToken cancellationToken)
     {
-        if (alreadyRecorded || current.RaidId is not { } raidId || previous.RaidId == raidId)
+        if (alreadyRecorded || current.IsPractice || current.RaidId is not { } raidId || previous.RaidId == raidId)
         {
             return;
         }

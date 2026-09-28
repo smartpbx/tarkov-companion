@@ -1207,13 +1207,17 @@ public sealed class GroupSessionService : IAsyncDisposable
         var raid = snapshot.Raid;
         // [#707] Out of the raid, the last screenshot is where the player *was*. Published, it drew
         // a "you" marker at an extract on the maps of squadmates still inside, looking live.
-        var hasLeft = SquadRaidPresence.HasLeftRaid(raid.State);
+        // A practice raid is local by definition. Keep the relay connection alive so marks and
+        // readiness still work, but publish no practice map, state, position, trail, extracts,
+        // clock, side or party observation as if it were an online squad raid (#900).
+        var localPractice = raid.IsPractice;
+        var hasLeft = localPractice || SquadRaidPresence.HasLeftRaid(raid.State);
         var position = hasLeft ? null : raid.LastKnownPosition;
         return new(
             settings.DisplayName!,
-            raid.MapId,
-            raid.State.ToString(),
-            raid.Side,
+            localPractice ? null : raid.MapId,
+            localPractice ? RaidLifecycleState.Menu.ToString() : raid.State.ToString(),
+            localPractice ? null : raid.Side,
             position?.Position.X,
             position?.Position.Z,
             position?.HeadingDegrees,
@@ -1233,7 +1237,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // Published because a map with floors cannot place somebody without it, and the
             // waypoints beside them have carried one from the beginning.
             Y = position?.Position.Y,
-            Observed = observed
+            Observed = (localPractice ? Array.Empty<ObservedKit>() : observed)
                 .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout)
                 {
                     Level = kit.Level,

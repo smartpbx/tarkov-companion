@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Globalization;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -104,7 +105,8 @@ public sealed partial class EftLogParser
         }
 
         var mapId = TryExtractMapId(line);
-        var state = SuggestedState(line);
+        var practice = PracticeState(line);
+        var state = practice == true ? RaidLifecycleState.LoadingRaid : SuggestedState(line);
         if (mapId is null && state is null)
         {
             return null;
@@ -135,6 +137,7 @@ public sealed partial class EftLogParser
             // reconnect into the raid already open from the start of another raid (#568).
             RaidKey = TryExtractRaidKey(line),
             EndsOnlyARaidWithoutId = profileReload,
+            IsPractice = practice,
         };
     }
 
@@ -319,6 +322,8 @@ public sealed partial class EftLogParser
             // The game's short id for the raid. A confirmation and the end of the same raid carry
             // the same one, which is the only way to tell "this raid ended" from "some raid ended".
             var raidKey = ReadText(payload, "shortId") is { Length: > 0 } key ? key : null;
+            var eventId = ReadText(payload, "eventId");
+            var practice = RaidMode(ReadText(payload, "raidMode"));
             var transferred = string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase);
 
             // A transfer proves the raid was a scav run, and is the only thing in these logs
@@ -359,8 +364,13 @@ public sealed partial class EftLogParser
                     // The game's own confirmation is the one thing that unambiguously begins a
                     // raid, which matters when the end of the previous one was never seen.
                     StartsNewRaid = true,
-                    EventId = ReadText(payload, "eventId"),
+                    EventId = eventId,
+                    // A notification id is a Mongo ObjectId in the measured logs. Its first
+                    // four bytes are server Unix seconds, so it survives PC clock steps and
+                    // dates a replayed raid more reliably than the log line's wall clock.
+                    RaidStartedUtc = EventIdUtc(eventId),
                     RaidKey = raidKey,
+                    IsPractice = practice,
                 },
                 // A transfer ends the raid like any other userMatchOver.
                 //
@@ -390,6 +400,7 @@ public sealed partial class EftLogParser
                     Side = side,
                     SideBasis = sideBasis,
                     RaidKey = raidKey,
+                    IsPractice = practice,
                 },
                 "userMatchOver" => new(
                     RaidEvidenceKind.LogLine,
@@ -402,6 +413,7 @@ public sealed partial class EftLogParser
                     Side = side,
                     SideBasis = sideBasis,
                     RaidKey = raidKey,
+                    IsPractice = practice,
                 },
                 _ => null,
             };
@@ -422,6 +434,38 @@ public sealed partial class EftLogParser
 
     private static bool ContainsAny(string line, params string[] markers) =>
         markers.Any(marker => line.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Reads the two log statements that can distinguish practice from online.</summary>
+    private static bool? PracticeState(string line)
+    {
+        if (PracticeMatchingPattern().IsMatch(line))
+        {
+            return true;
+        }
+
+        var raidMode = RaidModePattern().Match(line);
+        return raidMode.Success ? RaidMode(raidMode.Groups["mode"].Value) : null;
+    }
+
+    private static bool? RaidMode(string? mode) => mode?.Trim().ToLowerInvariant() switch
+    {
+        "offline" or "local" or "practice" => true,
+        "online" => false,
+        _ => null,
+    };
+
+    /// <summary>Extracts server UTC from a measured 24-hex notification ObjectId.</summary>
+    internal static DateTimeOffset? EventIdUtc(string? eventId)
+    {
+        if (eventId is not { Length: 24 } || !eventId.All(Uri.IsHexDigit)
+            || !uint.TryParse(eventId.AsSpan(0, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var seconds))
+        {
+            return null;
+        }
+
+        var utc = DateTimeOffset.FromUnixTimeSeconds(seconds);
+        return utc.Year is >= 2020 and <= 2100 ? utc : null;
+    }
 
     private static string Summarize(RaidLifecycleState? state, string? mapId) => (state, mapId) switch
     {
@@ -452,6 +496,16 @@ public sealed partial class EftLogParser
         @"shortId:\s*(?<key>[A-Za-z0-9]+)",
         RegexOptions.CultureInvariant)]
     private static partial Regex ShortIdPattern();
+
+    [GeneratedRegex(
+        @"MatchingCompleted:\s*0(?:\.0+)?\s+real:\s*0(?:\.0+)?\s+diff:\s*0(?:\.0+)?(?:\s|$)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PracticeMatchingPattern();
+
+    [GeneratedRegex(
+        @"RaidMode:\s*(?<mode>[A-Za-z]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RaidModePattern();
 
     [GeneratedRegex(
         @"SelectedProfile\s+ProfileId:\s*(?<profile>[A-Za-z0-9]+)",

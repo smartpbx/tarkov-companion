@@ -2993,7 +2993,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private string FormatRaidContext(RaidSnapshot raid, DateTimeOffset nowUtc)
     {
         var map = raid.MapId ?? Router.Context.MapId ?? V2ShellText.Get("V2.Shell.Context.NoMap");
-        var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
+        var state = RaidStateLabel(raid);
         if (SharedRaidClock(raid) is { } sharedContextClock)
         {
             return $"{map} · {state} · {sharedContextClock}";
@@ -3033,7 +3033,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// map selector names it separately).</summary>
     private string FormatRaidClock(RaidSnapshot raid, DateTimeOffset nowUtc)
     {
-        var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
+        var state = RaidStateLabel(raid);
         if (NowPanelOwnsClock && raid.State == RaidLifecycleState.InRaid)
         {
             return state; // [#712 0-4] one clock: the Now panel's
@@ -3069,6 +3069,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         return state;
     }
+
+    private static string RaidStateLabel(RaidSnapshot raid) => raid.IsPractice
+        ? V2ShellText.Get("V2.Shell.Context.RaidState.Practice")
+        : V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
 
     /// <summary>"Data updated 12 min ago", from the same freshness the Health dialog already
     /// reasons about; never a live per-second clock, so it does not itself invalidate.</summary>

@@ -199,6 +199,49 @@ public sealed class RaidFollowsTheRealRaidTests
         Assert.Null(Assert.Single(history.Rows, raid => raid.Id == next.RaidId).EndedUtc);
     }
 
+    /// <summary>Practice is useful live context, but it is not an online raid or a history result.</summary>
+    [Fact]
+    public async Task PracticeRaidIsNotCountedInRaidHistory()
+    {
+        var history = new MemoryRaidHistory();
+        var coordinator = Coordinator(history);
+        var started = DateTimeOffset.Parse("2026-09-23T05:46:57Z", CultureInfo.InvariantCulture);
+
+        await coordinator.ApplyEvidenceAsync(
+            new RaidEvidence(
+                RaidEvidenceKind.LogLine,
+                started,
+                null,
+                RaidLifecycleState.LoadingRaid,
+                new Confidence(0.98),
+                "The game began a practice raid with no matchmaking.")
+            {
+                IsPractice = true,
+            },
+            default);
+        var running = await coordinator.ApplyEvidenceAsync(
+            new RaidEvidence(
+                RaidEvidenceKind.LogLine,
+                started.AddMinutes(1),
+                "the-lab",
+                RaidLifecycleState.InRaid,
+                new Confidence(0.95),
+                "Practice raid running."),
+            default);
+        await coordinator.ApplyEvidenceAsync(
+            new RaidEvidence(
+                RaidEvidenceKind.LogLine,
+                started.AddMinutes(10),
+                "the-lab",
+                RaidLifecycleState.PostRaid,
+                new Confidence(0.90),
+                "Practice raid ended."),
+            default);
+
+        Assert.True(running.IsPractice);
+        Assert.Empty(history.Rows);
+    }
+
     /// <summary>
     /// [#891] Real, 2026-09-24 (build 1533): Lighthouse began at 04:19:52 on a PC four hours fast,
     /// Windows set the clock at 00:20:20, and the raid ended at 00:23:09, so it was stored ending

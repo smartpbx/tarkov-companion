@@ -154,6 +154,7 @@ public sealed class RaidsAfterTransitAndClockStepTests
         var state = new RaidStateService();
         var first = Feed(state, parser, OfflineLab("2026-09-23 01:46:57.767", "2026-09-23 01:46:59.112", "2026-09-23 01:47:15.860", "2026-09-23 01:47:24.789", "2026-09-23 01:47:51.168"));
         Assert.Equal(RaidLifecycleState.InRaid, first.State);
+        Assert.True(first.IsPractice);
         var firstRaid = first.RaidId;
 
         var back = Feed(state, parser, [ProfileReload("2026-09-23 01:53:44.870")]);
@@ -164,6 +165,38 @@ public sealed class RaidsAfterTransitAndClockStepTests
         Assert.Equal("the-lab", second.MapId);
         Assert.NotNull(second.RaidId);
         Assert.NotEqual(firstRaid, second.RaidId);
+        Assert.True(second.IsPractice);
+    }
+
+    [Fact]
+    public void OnlineProfileStatusClearsPracticeForTheNextRaid()
+    {
+        var parser = new EftLogParser();
+        var state = new RaidStateService();
+        Feed(state, parser, OfflineLab("2026-09-23 01:46:57.767", "2026-09-23 01:46:59.112", "2026-09-23 01:47:15.860", "2026-09-23 01:47:24.789", "2026-09-23 01:47:51.168"));
+        Feed(state, parser, [ProfileReload("2026-09-23 01:53:44.870")]);
+
+        var online = Feed(state, parser,
+        [
+            ProfileStatus("2026-09-23 02:21:35.035", "laboratory", "LAB0001"),
+            App("2026-09-23 02:22:32.669", "GameStarted:64.24(11.64) real:76.48(12.02) diff:12.24"),
+        ]);
+
+        Assert.False(online.IsPractice);
+    }
+
+    [Fact]
+    public void NotificationObjectIdDatesRaidFromServerAcrossPcClockError()
+    {
+        const string eventId = "68d5f6400000000000000000"; // 2025-09-25T23:20:00Z
+        var parser = new EftLogParser();
+        var line = Notification("2026-09-25 03:20:00.000", "userConfirmed", "Busy", "Shoreline", "SHORE1")
+            .Replace("EV-SHORE1-userConfirmed", eventId, StringComparison.Ordinal);
+
+        var evidence = parser.ParseLine(line, DateTimeOffset.Parse("2026-09-25T07:20:00Z", CultureInfo.InvariantCulture));
+
+        Assert.NotNull(evidence);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(0x68d5f640), evidence.RaidStartedUtc);
     }
 
     /// <summary>A game relaunched mid-raid reloads the profile before it reconnects; that is not the raid's end.</summary>

@@ -205,7 +205,7 @@ public sealed partial class RuntimeArchitectureRatchetTests
         // EndsOnlyARaidWithoutId (#892) is the same kind: it only decides, in memory, whether a
         // profile reload ends the raid.
         AssertShape<RaidEvidence>(
-            "Confidence", "EndsOnlyARaidWithoutId", "EndsUnreported", "EventId", "Kind", "LoadSeconds", "LogSession", "MapId", "ObservedUtc",
+            "Confidence", "EndsOnlyARaidWithoutId", "EndsUnreported", "EventId", "IsPractice", "Kind", "LoadSeconds", "LogSession", "MapId", "ObservedUtc",
             "RaidKey", "RaidLastSeenUtc", "RaidStartedUtc", "ResumesSession", "Side", "SideBasis",
             "StartsNewRaid", "SuggestedState", "Summary");
         AssertShape<ActiveExtract>("Confidence", "ExtractId", "Name", "Source");

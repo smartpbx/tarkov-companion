@@ -79,6 +79,40 @@ public sealed class SquadAfterRaidTests
         Assert.Contains("\"x\":12.5", bodies.First(), StringComparison.Ordinal);
     }
 
+    /// <summary>A practice raid remains entirely local even while group sharing stays connected.</summary>
+    [Fact]
+    public async Task APracticeRaidPublishesNoLiveRaidStateToTheGroup()
+    {
+        var bodies = new ConcurrentQueue<string>();
+        await using var service = Service(bodies, _ => Json("""{"members":[],"revision":1}"""), out var store);
+        store.Update(current => current with
+        {
+            Raid = current.Raid with
+            {
+                State = RaidLifecycleState.InRaid,
+                IsPractice = true,
+                MapId = "the-lab",
+                Side = "PMC",
+                LastKnownPosition = Somewhere(),
+                PositionTrail = [Somewhere(-1), Somewhere()],
+                RaidClock = TimeSpan.FromMinutes(20),
+                RaidClockReadUtc = DateTimeOffset.UtcNow,
+            },
+        });
+
+        service.Start();
+        await WaitUntilAsync(() => !bodies.IsEmpty);
+
+        var body = bodies.First();
+        Assert.Contains("\"raidState\":\"Menu\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"mapId\":null", body, StringComparison.Ordinal);
+        Assert.Contains("\"side\":null", body, StringComparison.Ordinal);
+        Assert.Contains("\"x\":null", body, StringComparison.Ordinal);
+        Assert.Contains("\"trail\":[]", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("the-lab", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("1200", body, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A mark sent to the relay comes back with the id the relay gave it, so it can be taken off
     /// again when it is taken off the map.

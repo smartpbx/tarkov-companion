@@ -2327,6 +2327,7 @@
   "Shell.Context.RaidState.Menu": "Menu",
   "Shell.Context.RaidState.LoadingRaid": "Loading raid",
   "Shell.Context.RaidState.InRaid": "In raid",
+  "Shell.Context.RaidState.Practice": "Practice raid · local only",
   "Shell.Context.RaidState.PostRaid": "Post-raid",
   "Shell.Context.Plan": "Plan: {0} · objective {1}",
   "Shell.Context.NoPlan": "No active plan",
