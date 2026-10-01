@@ -90,7 +90,8 @@ public sealed partial class RaidCockpitViewModel
             selection,
             shown,
             radiusMetres,
-            RouteLayerSwitch.IsShown(Renderer, _layerVisibility, NearbySpawnsLayerId));
+            // A map whose catalog has not arrived, or has no PMC spawns, has nothing to say "none near you" about.
+            RouteLayerSwitch.IsShown(Renderer, _layerVisibility, NearbySpawnsLayerId) && PmcAreasOfThisMap().Count > 0);
 
     /// <summary>The map's line: what is shown, for how long, and the one thing that would sharpen it.</summary>
     internal static string OpeningSpawnStatusFor(EarlyRaidSpawnSelection selection, int shown, int radiusMetres, bool layerShown)

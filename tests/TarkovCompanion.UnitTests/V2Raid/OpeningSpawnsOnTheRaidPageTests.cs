@@ -53,7 +53,9 @@ public sealed class OpeningSpawnsOnTheRaidPageTests
 
             // The raid has started; no screenshot. Every PMC area, labelled possible, and the map says why.
             Enter(store, side: "PMC", startedAgo: TimeSpan.FromSeconds(20), trail: []);
-            Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 5);
+            const string BeforeScreenshot = "Possible PMC spawns · first 5 min · take a screenshot to see which are near you";
+            // Waited for as a whole: a rebuild already under way when the raid landed can draw once more from the moment before.
+            Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 5 && Status(window) == BeforeScreenshot);
             var markers = Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId);
             Assert.Equal(5, markers.Length);
             Assert.All(markers, marker =>
@@ -62,12 +64,14 @@ public sealed class OpeningSpawnsOnTheRaidPageTests
                 Assert.Equal(MapSceneTruthKind.PotentialSpawn, marker.Truth);
             });
             Assert.Empty(Objects(cockpit, RaidCockpitViewModel.SpawnLinesLayerId));
-            Assert.Equal("Possible PMC spawns · first 5 min · take a screenshot to see which are near you", Status(window));
+            Assert.True(
+                Status(window) == BeforeScreenshot,
+                $"The map says '{Status(window)}' with the raid's side '{store.Current.Raid.Side}' and the cockpit's '{cockpit.OpeningSpawnStatus}'.");
 
             // The first screenshot: the two areas within 150 m, a line and a distance to each.
             ScreenshotPosition shot = new(now, new(90, 0, -40), default, 90, null, null, "first.png");
             Enter(store, side: "PMC", startedAgo: TimeSpan.FromSeconds(40), trail: [shot]);
-            Pump(() => Objects(cockpit, RaidCockpitViewModel.SpawnLinesLayerId).Length > 0);
+            Pump(() => Objects(cockpit, RaidCockpitViewModel.SpawnLinesLayerId).Length > 0 && Status(window).Contains("within", StringComparison.Ordinal));
             Assert.Equal(2, Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length);
             var lines = Objects(cockpit, RaidCockpitViewModel.SpawnLinesLayerId).Where(item => item.Kind == MapSceneObjectKind.Route).ToArray();
             Assert.Equal(2, lines.Length);
@@ -76,14 +80,14 @@ public sealed class OpeningSpawnsOnTheRaidPageTests
 
             // Five minutes on: gone, and so is the line.
             Enter(store, side: "PMC", startedAgo: TimeSpan.FromMinutes(6), trail: [shot]);
-            Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 0);
+            Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 0 && Status(window).Length == 0);
             Assert.Empty(Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId));
             Assert.Empty(Objects(cockpit, RaidCockpitViewModel.SpawnLinesLayerId));
             Assert.Equal(string.Empty, Status(window));
 
             // Nothing named the side: shown as PMC, and the line says so.
             Enter(store, side: null, startedAgo: TimeSpan.FromSeconds(20), trail: []);
-            Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 5);
+            Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 5 && Status(window).Contains("side unknown", StringComparison.Ordinal));
             Assert.Equal(5, Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length);
             Assert.EndsWith("· side unknown, shown as PMC", Status(window), StringComparison.Ordinal);
 
