@@ -2747,15 +2747,16 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var coOpVisibility = _coOpExtractVisibility;
         var raidSide = RaidExtractSide.Of(raidSnapshot.Side);
         SetExtractSide(raidSide);
-        var spawnSelection = _earlyRaidSpawns.Select(
-            _map.NearbySpawnAreas,
-            raidSide,
-            raidSnapshot.StartedUtc);
+        // [#985] From the moment the raid's map is known, with or without a screenshot; see OpeningSpawns.
+        var spawnSelection = SelectOpeningSpawns(raidSnapshot, raidSide);
         _spawnWindowExpiresUtc = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
-            ? raidSnapshot.StartedUtc + EarlyRaidSpawnPolicy.VisibleFor
+            ? spawnSelection.ClosesUtc
             : null;
         // [#914] Only the areas inside this map's chosen radius, markers and lines alike.
-        var nearbyAreas = SpawnAreasWithinRadius(model, spawnSelection.Areas);
+        // Before a screenshot nothing is near or far: every PMC area of the map, no radius.
+        var withinRadius = SpawnAreasWithinRadius(model, spawnSelection.Areas);
+        var nearbyAreas = spawnSelection.IsNearby ? withinRadius : spawnSelection.Areas;
+        PublishOpeningSpawnStatus(spawnSelection, nearbyAreas.Count, SpawnRadiusFor(model.Location.Id));
         // [#902 P3] All spawns keeps every spawn for the whole raid, off unless asked for, so its
         // switch never locks when the window closes. The window's nearby ones are copies on the
         // Nearby spawns layer, whose switch (on unless turned off) applies whenever the raid is
@@ -2765,7 +2766,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 .Where(element => element.Layer == MapOverlayKind.Spawns &&
                     RaidExtractSide.KeepOnMap(element.Layer, element.Faction, raidSide) &&
                     IsNearbySpawn(element, model, nearbyAreas))
-                .Select(element => new MapSceneLegacyElement(element, new DataProvenance("map-catalog", nowUtc))
+                .Select(element => new MapSceneLegacyElement(
+                    element with { Label = RaidText.PossiblePmcSpawn },
+                    new DataProvenance("map-catalog", nowUtc))
                 {
                     LayerOverride = NearbySpawnsLayerId,
                 })
@@ -2856,7 +2859,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [#780] Squadmates' objectives, after the player's own so theirs are never drawn twice.
         var squadObjectives = BuildSquadObjectives(model, nowUtc);
         var objectiveRoute = ObjectiveRouteFor(model);
-        var spawnLines = SpawnLinesFor(model, nearbyAreas, spawnSelection.Phase, raidSnapshot.StartedUtc, nowUtc);
+        var spawnLines = SpawnLinesFor(model, spawnSelection.IsNearby ? nearbyAreas : [], spawnSelection.Phase, spawnSelection.OpenedUtc, nowUtc);
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)

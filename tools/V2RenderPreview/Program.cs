@@ -2144,6 +2144,12 @@ internal static class Program
                     demo = (demo.Raid with { PositionTrail = [.. demo.Raid.PositionTrail.Skip(demo.Raid.PositionTrail.Count - trailLast)] }, demo.Group);
                 }
 
+                // [#985] --raid-no-screenshot: the raid has begun and no screenshot has been taken yet.
+                if (args.Contains("--raid-no-screenshot"))
+                {
+                    demo = (demo.Raid with { PositionTrail = [], LastKnownPosition = null }, demo.Group);
+                }
+
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });

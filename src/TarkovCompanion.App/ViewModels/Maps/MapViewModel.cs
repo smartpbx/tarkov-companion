@@ -4871,6 +4871,9 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     public IReadOnlyList<NearbySpawn> NearbySpawnAreas => _nearbySpawnAreas;
 
+    /// <summary>[#985] The open map's fixed features, for the raid's possible PMC spawns before any screenshot.</summary>
+    internal IReadOnlyList<MapFeature> MapFeatures => _mapFeatures;
+
     /// <summary>
     /// What the list is anchored to, said plainly.
     /// </summary>

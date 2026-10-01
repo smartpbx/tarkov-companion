@@ -60,6 +60,9 @@ internal sealed class SituationTimeline : IDisposable
 
     public Situation Now => Service.Current;
 
+    /// <summary>The raid state the situation was folded from.</summary>
+    public RaidSnapshot Raid => _raid.Current;
+
     /// <summary>The phases the situation passed through, each once per stretch.</summary>
     public IReadOnlyList<SituationPhase> Phases =>
         Seen.Select(situation => situation.Phase.Value)

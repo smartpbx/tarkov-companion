@@ -82,7 +82,7 @@ public sealed class SpawnLinesTests : IDisposable
         Assert.Equal(expected, SpawnLines.Strength(TimeSpan.FromSeconds(seconds)), 6);
 
     [Fact]
-    public void Only_a_pmc_raid_inside_its_first_five_minutes_draws_lines()
+    public void Only_a_non_scav_raid_inside_its_first_five_minutes_draws_lines()
     {
         var clock = new FixedClock(Now);
         var policy = new EarlyRaidSpawnPolicy(clock);
@@ -98,7 +98,8 @@ public sealed class SpawnLinesTests : IDisposable
         Assert.Equal(0, StrengthFor(MapFeatureFaction.Pmc, TimeSpan.FromMinutes(5)));
         Assert.Equal(0, StrengthFor(MapFeatureFaction.Pmc, TimeSpan.FromMinutes(12)));
         Assert.Equal(0, StrengthFor(MapFeatureFaction.Scav, TimeSpan.FromMinutes(1)));
-        Assert.Equal(0, StrengthFor(MapFeatureFaction.Unknown, TimeSpan.FromMinutes(1)));
+        // [#985] A side nothing named is drawn as PMC (the map says it was assumed).
+        Assert.Equal(1, StrengthFor(MapFeatureFaction.Unknown, TimeSpan.FromMinutes(1)));
         Assert.Equal(0, RaidCockpitViewModel.SpawnLineStrength(EarlyRaidSpawnPhase.Active, null, Now));
 
         // Nothing drawn at strength 0, nor without a player position to draw to.
