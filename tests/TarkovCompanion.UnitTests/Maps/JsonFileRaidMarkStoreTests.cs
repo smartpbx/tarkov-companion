@@ -30,6 +30,29 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         Assert.Equal("Fall back here", reloaded.State.Label);
     }
 
+    /// <summary>
+    /// #983: a ping the file could not take was kept in memory and never announced, so the map
+    /// never drew it and the squad never got it. Fails on main: Changed was not raised.
+    /// </summary>
+    [Fact]
+    public async Task A_mark_the_file_cannot_take_is_still_announced_and_the_caller_hears_why()
+    {
+        var store = new JsonFileRaidMarkStore(StorePath);
+        await store.LoadAsync();
+        // A directory where the write's scratch file goes: every write fails, as a file held open
+        // by another program does on Windows.
+        Directory.CreateDirectory(StorePath + ".writing");
+        var announced = 0;
+        store.Changed += () => announced++;
+
+        var failure = await Record.ExceptionAsync(() => store.PlaceAsync("customs", null, 10, 20, null, RaidMarkScope.Squad, RaidMarkLifetime.Ping));
+
+        Assert.True(failure is IOException or UnauthorizedAccessException, $"Expected the write failure, got {failure}.");
+        Assert.Equal(1, announced);
+        var kept = Assert.Single(store.Marks);
+        Assert.Equal(RaidMarkKind.Ping, kept.Kind);
+    }
+
     [Fact]
     public async Task MarksIsASnapshotThatALaterWriteNeverChanges()
     {

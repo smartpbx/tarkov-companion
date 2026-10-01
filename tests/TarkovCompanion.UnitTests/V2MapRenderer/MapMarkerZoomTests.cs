@@ -37,18 +37,26 @@ public sealed class MapMarkerZoomTests
         Assert.True(MapMarkerScale.HitExtent(scale) >= MapMarkerScale.HitBoxAtFullSize);
     }
 
+    /// <summary>
+    /// A waypoint grows with zoom; a ping is full size at every zoom (#983: at seven-tenths it was
+    /// small enough to vanish into the traffic heat, and was reported as "can't ping at all").
+    /// </summary>
     [Fact]
-    public void Hand_waypoints_and_pings_grow_with_zoom()
+    public void Hand_waypoints_grow_with_zoom_and_pings_are_always_full_size()
     {
         var renderer = Renderer(
             At("waypoint", MapSceneObjectKind.Waypoint, 100, 100),
             At("ping", MapSceneObjectKind.Ping, 300, 250));
+        var waypoint = renderer.PointMarkers.Single(marker => !marker.IsPingMark);
+        var ping = renderer.PointMarkers.Single(marker => marker.IsPingMark);
 
-        Assert.All(renderer.PointMarkers, marker => Assert.Equal(MapMarkerScale.AtFit, marker.MarkerScale));
+        Assert.Equal(MapMarkerScale.AtFit, waypoint.MarkerScale);
+        Assert.Equal(1, ping.MarkerScale);
 
         renderer.RequestZoom(1);
 
-        Assert.All(renderer.PointMarkers, marker => Assert.True(marker.MarkerScale > MapMarkerScale.AtFit));
+        Assert.True(waypoint.MarkerScale > MapMarkerScale.AtFit);
+        Assert.Equal(1, ping.MarkerScale);
     }
 
     [Fact]

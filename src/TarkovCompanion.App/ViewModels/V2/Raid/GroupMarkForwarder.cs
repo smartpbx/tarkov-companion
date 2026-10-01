@@ -116,6 +116,16 @@ internal sealed class GroupMarkForwarder : IDisposable
     public event Action? Changed;
 
     /// <summary>
+    /// #983: how each send of a just-placed or widened mark ended, so the map can say so.
+    /// </summary>
+    /// <remarks>
+    /// A ping that failed to send used to be queued in silence, and one that could not be placed
+    /// in the world was dropped in silence; the player saw a ping on their own map and had no way
+    /// to know the squad did not.
+    /// </remarks>
+    public event Action<Guid, GroupMarkDelivery>? Delivered;
+
+    /// <summary>
     /// Whether a group mark is one of ours, already drawn from the local store.
     /// </summary>
     public bool IsForwarded(long groupId)
@@ -347,6 +357,7 @@ internal sealed class GroupMarkForwarder : IDisposable
                 _sent.Remove(mark.Id);
             }
 
+            Delivered?.Invoke(mark.Id, GroupMarkDelivery.Unplaceable);
             return;
         }
 
@@ -397,6 +408,8 @@ internal sealed class GroupMarkForwarder : IDisposable
         {
             Changed?.Invoke();
         }
+
+        Delivered?.Invoke(mark.Id, groupId is null ? GroupMarkDelivery.Queued : GroupMarkDelivery.Sent);
 
         if (!stillWanted && groupId is > 0)
         {
@@ -515,4 +528,17 @@ internal sealed class GroupMarkForwarder : IDisposable
 
         public DateTimeOffset? ExpiresUtc { get; init; }
     }
+}
+
+/// <summary>#983: what became of one send to the group.</summary>
+internal enum GroupMarkDelivery
+{
+    /// <summary>The relay has it; the squad sees it on their next exchange.</summary>
+    Sent,
+
+    /// <summary>The relay did not answer; it waits and goes out when the group is seen live.</summary>
+    Queued,
+
+    /// <summary>This map has no world transform, so there is no place to send.</summary>
+    Unplaceable,
 }

@@ -31,7 +31,8 @@ public sealed partial class RaidCockpitViewModel
     internal static IReadOnlyDictionary<string, string> MarkColoursFor(
         IReadOnlyList<RaidMark> marks,
         IReadOnlyList<GroupWaypointView> waypoints,
-        IReadOnlyList<GroupPingView> pings)
+        IReadOnlyList<GroupPingView> pings,
+        Func<string, string?>? memberColour = null)
     {
         var colours = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var mark in marks)
@@ -52,7 +53,9 @@ public sealed partial class RaidCockpitViewModel
 
         foreach (var ping in pings)
         {
-            if (MarkPalette.Normalize(ping.Colour) is { } colour)
+            // [#983] One with no chosen colour takes its sender's squad colour, so a glance says
+            // whose it is; the disc itself stays red (#598).
+            if ((MarkPalette.Normalize(ping.Colour) ?? memberColour?.Invoke(ping.By)) is { } colour)
             {
                 colours[$"{GroupPingPrefix}{ping.Id}"] = colour;
             }
@@ -108,7 +111,7 @@ public sealed partial class RaidCockpitViewModel
     private void ApplyMarkColours()
     {
         var group = _stateStore.Current.Group;
-        var colours = MarkColoursFor(_marks.Marks, group.Waypoints, group.Pings);
+        var colours = MarkColoursFor(_marks.Marks, group.Waypoints, group.Pings, name => "#" + _map.GroupColorFor(name)[3..]); // #RRGGBB, as the tablet reads it
         Volatile.Write(ref _markColours, colours);
         _objectStyles = WithMarkColours(_objectStyles, colours);
     }

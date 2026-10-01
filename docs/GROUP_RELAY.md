@@ -199,6 +199,9 @@ the server assigned, so two members marking at once cannot collide.
 
 The V2 desktop sends every ping and waypoint placed on its Raid map (or on a paired tablet) this
 way, keeps the returned `id`, and deletes it when the mark is removed, moved or expires (#707).
+The Raid map says where each ping went for five seconds ("Ping sent to squad", or why it stayed
+on this PC); a ping placed while a set-up squad's relay is not answering is Squad and waits in the
+queue rather than becoming "Just me" (#983). Pinging is a right-click, or a click with the Ping tool.
 A "Just me" mark is never sent; a mark whose lifetime is not the 45-second ping is sent as a
 waypoint and deleted when it expires locally; if the relay drops one of our waypoints that it was
 seen holding, the local copy goes too, with a "removed by squad" note (#289).

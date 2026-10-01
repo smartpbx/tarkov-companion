@@ -276,6 +276,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
     {
         await LoadAsync(cancellationToken).ConfigureAwait(false);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Exception? unsaved = null;
         try
         {
             // A private copy: the published array is never changed after readers can see it.
@@ -291,8 +292,15 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             }
 
             Volatile.Write(ref _marks, [.. next]);
+            try
+            {
+                await WriteUntilNoExpiredMarksAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                unsaved = exception;
+            }
 
-            await WriteUntilNoExpiredMarksAsync(cancellationToken).ConfigureAwait(false);
             ScheduleNextExpiry();
         }
         finally
@@ -300,7 +308,15 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             _gate.Release();
         }
 
+        // #983: the change is real the moment it is in memory, so the map and the squad hear of
+        // it whether or not the file could be written. A failed write used to skip this line: the
+        // ping was in the store but never drawn and never sent, and the caller's fire-and-forget
+        // swallowed the exception, so nothing said why. The caller still learns of the failure.
         Changed?.Invoke();
+        if (unsaved is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(unsaved);
+        }
     }
 
     /// <summary>

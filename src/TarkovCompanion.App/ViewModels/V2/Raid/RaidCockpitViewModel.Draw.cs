@@ -24,6 +24,9 @@ public enum MapInteractionMode
 
     /// <summary>A click adds a stop to the player's planned route; a drag still pans.</summary>
     Route,
+
+    /// <summary>[#983] A click drops a ping; a drag still pans.</summary>
+    Ping,
 }
 
 /// <summary>

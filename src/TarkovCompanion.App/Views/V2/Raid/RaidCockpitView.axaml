@@ -440,6 +440,42 @@
             </StackPanel>
           </Border>
 
+          <!-- [#983] Ping mode: what a click does, and Done. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
+                  Margin="12,12,12,12" IsVisible="{Binding IsPingMode}"
+                  AutomationProperties.AutomationId="v2-raid-ping-bar">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Ping}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{x:Static l:RaidText.PingModeHint}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{x:Static l:RaidText.Done}"
+                      Command="{Binding NavigateModeCommand}"
+                      AutomationProperties.AutomationId="v2-raid-ping-done"
+                      ToolTip.Tip="{x:Static l:RaidText.PlannedRouteDoneTip}" />
+            </StackPanel>
+          </Border>
+
+          <!-- [#983] Where the last ping went, or how to ping before the first one. Never in the
+               way of the map: the press goes through to the plan under it. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                  Margin="12,12,12,16" IsHitTestVisible="False" IsVisible="{Binding HasPingStatus}"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.AutomationId="v2-raid-ping-status"
+                  AutomationProperties.Name="{Binding PingStatus}"
+                  AutomationProperties.LiveSetting="Polite">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Ping}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding PingStatus}" />
+            </StackPanel>
+          </Border>
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                  Margin="12,12,12,16" IsHitTestVisible="False" IsVisible="{Binding ShowsPingHint}"
+                  AutomationProperties.AutomationId="v2-raid-ping-hint">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Ping}" />
+              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{x:Static l:RaidText.PingHint}" />
+            </StackPanel>
+          </Border>
+
           <!-- [#286] Inspect mode before anything is clicked: one line saying what a click does. -->
           <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
                   Margin="12,12,12,12" IsVisible="{Binding ShowsInspectHint}"
@@ -623,6 +659,15 @@
                               AutomationProperties.Name="{x:Static l:RaidText.ModeRoute}"
                               ToolTip.Tip="{x:Static l:RaidText.ModeRoute}">
                   <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Route}" />
+                </prim:SelectionToggleButton>
+                <!-- [#983] Ping: a plain click pings. Right-click still pings in every mode. -->
+                <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon"
+                              IsChecked="{Binding IsPingMode, Mode=OneWay}"
+                              Command="{Binding PingModeCommand}"
+                              AutomationProperties.AutomationId="v2-raid-mode-ping"
+                              AutomationProperties.Name="{x:Static l:RaidText.ModePing}"
+                              ToolTip.Tip="{x:Static l:RaidText.ModePing}">
+                  <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Ping}" />
                 </prim:SelectionToggleButton>
                 <prim:SelectionToggleButton Classes="v2-segmented-item v2-segment-icon"
                               IsVisible="{Binding IsDrawAvailable}"
