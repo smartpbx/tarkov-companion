@@ -145,15 +145,23 @@
               <TranslateTransform X="{Binding PinOffsetX}" Y="{Binding PinOffsetY}" />
             </Panel.RenderTransform>
             <Ellipse Classes="v2-map-mark-hit" Width="32" Height="32" />
-            <!-- [Issue 598] A faint Canvas-coloured halo behind the outer ring: red on
-                 red (the ping over the traffic heat's own red end) still shows a ring. -->
-            <Ellipse Classes="v2-map-ping-halo" Width="30" Height="30" IsHitTestVisible="False"
+            <!-- [#983] "i STILL cannot ping": the old ping was a 16 px ring and an 8 px dot at
+                 seven-tenths size, and over the traffic heat's red end it all but vanished. Now a
+                 30 px red disc with a dark edge, a ring in the sender's colour (a squadmate's, or
+                 the one chosen with #290) and, for three seconds after it appears, a pulse
+                 spreading out from it. The disc stays red whoever sent it (#598). -->
+            <Ellipse Classes="v2-map-ping-pulse" Classes.hinted="{Binding HasColorHint}" Width="30" Height="30"
+                     IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center"
+                     RenderTransformOrigin="50%,50%">
+              <Ellipse.RenderTransform>
+                <ScaleTransform />
+              </Ellipse.RenderTransform>
+            </Ellipse>
+            <Ellipse Classes="v2-map-ping-ring-outer" Classes.hinted="{Binding HasColorHint}" Width="40" Height="40" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Ellipse Classes="v2-map-ping-ring-outer" Classes.hinted="{Binding HasColorHint}" Width="28" Height="28" IsHitTestVisible="False"
+            <Ellipse Classes="v2-map-ping-dot" Width="30" Height="30" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Ellipse Classes="v2-map-ping-ring-inner" Classes.hinted="{Binding HasColorHint}" Width="16" Height="16" IsHitTestVisible="False"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <Ellipse Classes="v2-map-ping-dot" Classes.hinted="{Binding HasColorHint}" Width="8" Height="8" IsHitTestVisible="False"
+            <Ellipse Classes="v2-map-ping-ring-inner" Width="10" Height="10" IsHitTestVisible="False"
                      HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Panel>
         </DataTemplate>
@@ -583,36 +591,46 @@
          that a ping (someone flagging danger, mid-raid) reads as an alert, not as neutral
          information — the pulsing rings are what still say "ping" rather than "extract" or
          "hazard" at a glance, so the shape carries the meaning the colour used to carry alone. -->
+    <!-- [#983] The ping: a red disc with a dark edge, readable on the heat's red end and on a
+         light map alike, inside a ring in the sender's colour. -->
     <Style Selector="Ellipse.v2-map-ping-dot">
       <Setter Property="Fill" Value="{DynamicResource V2.Brush.Danger}" />
-      <!-- A Canvas-coloured edge (dark in Dark, white in Light) so the dot still reads sitting on
-           the red end of the modelled-traffic heat, which is close to the same hue. -->
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="StrokeThickness" Value="1" />
-    </Style>
-    <Style Selector="Ellipse.v2-map-ping-halo">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="Stroke" Value="#15191C" />
       <Setter Property="StrokeThickness" Value="3" />
-      <Setter Property="Opacity" Value="0.55" />
     </Style>
     <Style Selector="Ellipse.v2-map-ping-ring-inner">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
-      <Setter Property="StrokeThickness" Value="2" />
-      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="Fill" Value="#15191C" />
     </Style>
     <Style Selector="Ellipse.v2-map-ping-ring-outer">
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
-      <Setter Property="StrokeThickness" Value="1.5" />
-      <Setter Property="Opacity" Value="0.35" />
+      <Setter Property="StrokeThickness" Value="3" />
     </Style>
-    <!-- #290: a ping the player gave a colour keeps its rings and takes that colour. -->
-    <Style Selector="Ellipse.v2-map-ping-dot.hinted">
-      <Setter Property="Fill" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
+    <Style Selector="Ellipse.v2-map-ping-pulse">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
+      <Setter Property="StrokeThickness" Value="3" />
+      <Setter Property="Opacity" Value="0" />
+      <Style.Animations>
+        <!-- Three spreads of a second each from the moment it is drawn (placed, or received from
+             the squad), then nothing: a ping that pulsed for its whole 45 s would be noise. -->
+        <Animation Duration="0:0:1" IterationCount="3" FillMode="Forward" Easing="CubicEaseOut">
+          <KeyFrame Cue="0%">
+            <Setter Property="Opacity" Value="0.95" />
+            <Setter Property="ScaleTransform.ScaleX" Value="1" />
+            <Setter Property="ScaleTransform.ScaleY" Value="1" />
+          </KeyFrame>
+          <KeyFrame Cue="100%">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="ScaleTransform.ScaleX" Value="2.6" />
+            <Setter Property="ScaleTransform.ScaleY" Value="2.6" />
+          </KeyFrame>
+        </Animation>
+      </Style.Animations>
     </Style>
-    <Style Selector="Ellipse.v2-map-ping-ring-inner.hinted">
-      <Setter Property="Stroke" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
+    <Style Selector="Window.v2-motion-reduced Ellipse.v2-map-ping-pulse">
+      <Setter Property="IsVisible" Value="False" />
     </Style>
-    <Style Selector="Ellipse.v2-map-ping-ring-outer.hinted">
+    <!-- #290 and #983: the ring and the pulse take the sender's colour; the disc stays red. -->
+    <Style Selector="Ellipse.v2-map-ping-ring-outer.hinted, Ellipse.v2-map-ping-pulse.hinted">
       <Setter Property="Stroke" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
     </Style>
     <!-- [Issue 551] Hover and selection for a person and a ping, on their own shapes. After the
@@ -624,9 +642,9 @@
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Focus}" />
       <Setter Property="StrokeThickness" Value="3" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker:pointerover Ellipse.v2-map-ping-ring-inner,
-                     ToggleButton.v2-map-marker:checked Ellipse.v2-map-ping-ring-inner">
-      <Setter Property="Opacity" Value="1" />
+    <Style Selector="ToggleButton.v2-map-marker:pointerover Ellipse.v2-map-ping-dot,
+                     ToggleButton.v2-map-marker:checked Ellipse.v2-map-ping-dot">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Focus}" />
     </Style>
     <Style Selector="Border.v2-map-grid">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />

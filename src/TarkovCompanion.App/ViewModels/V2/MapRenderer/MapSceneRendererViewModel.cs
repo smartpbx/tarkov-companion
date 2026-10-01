@@ -4081,7 +4081,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// A person and a count badge keep their size. Hand-authored waypoints and pings scale with
     /// every other mark so the player's own dense spot does not bury the map at fit zoom.
     /// </summary>
-    public double MarkerScale => IsCluster || IsPersonIcon || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
+    // [#983] A ping too, as MapMarkerScale's remarks always said and the code never did: at
+    // seven-tenths it was a 16 px ring that the traffic heat swallowed.
+    public double MarkerScale => IsCluster || IsPersonIcon || IsPingMark || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
 
     /// <summary>The mark's hit box in its own DIPs, so it is never under 32 screen pixels however small it is drawn.</summary>
     public double HitExtent => MapMarkerScale.HitExtent(MarkerScale);
@@ -4149,7 +4151,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// Where the marker sits in the stack of markers: the selected one on top, so two objectives
     /// standing on the same helicopter do not leave the one that was picked underneath the other.
     /// </summary>
-    public int ZOrder => IsSwitchMark && HasMarkerNumber ? 20 : _isSelected ? 10 : HasPinBadge ? 5 : 0;
+    /// <remarks>[#983] A ping above every other mark: "look here" is never under an extract or a pin.</remarks>
+    public int ZOrder => IsPingMark ? 30 : IsSwitchMark && HasMarkerNumber ? 20 : _isSelected ? 10 : HasPinBadge ? 5 : 0;
 
     public void UpdateCamera(MapSceneCamera camera)
     {

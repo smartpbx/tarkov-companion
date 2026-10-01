@@ -99,6 +99,31 @@ public sealed class MapPingThroughTheAppTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// [#983] The ping that was placed can be seen: a disc of at least 28 screen pixels at the
+    /// fitted zoom, drawn above the traffic heat, the loot and the labels, and above every other
+    /// mark. Fails on main, where it was a 16 px ring and an 8 px dot drawn at seven-tenths size.
+    /// </summary>
+    [Fact]
+    public async Task A_placed_ping_is_a_large_disc_drawn_above_the_heat_and_every_other_mark()
+    {
+        await using var relay = await InProcessRelay.StartAsync();
+        await RunAsync(relay.Address, Situation.InRaid, app =>
+        {
+            app.Cockpit.Renderer!.FitPlanCommand.Execute(null);
+            app.Pump(() => false, 10);
+            var mark = app.ClickMap(MouseButton.Right);
+            Assert.True(app.IsDrawn(mark), "The ping is not drawn on the map.");
+            app.Pump(() => false, 10);
+
+            var (diameter, aboveHeat, onTop) = app.MeasurePing();
+            Assert.True(diameter >= 28, $"The ping's disc is {diameter:0.0} px across on screen.");
+            Assert.True(aboveHeat, "The ping is drawn under the traffic heat, the loot or the labels.");
+            Assert.True(onTop, "Another mark is drawn above the ping.");
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
     /// Fails on main: with the relay not answering at the moment of the press, the ping was made
     /// "Just me" and stayed on this PC after the relay came back.
     /// </summary>
@@ -359,6 +384,36 @@ public sealed class MapPingThroughTheAppTests(ITestOutputHelper output)
             Pump(() => false, 5);
             output.WriteLine($"{button} click at {spot}: map says '{Status}'");
             return Assert.Single(marks.Marks, mark => !before.Contains(mark.Id));
+        }
+
+        /// <summary>
+        /// The drawn ping's disc: its width in window pixels, whether its layer comes after the
+        /// heat, loot and label layers on the camera surface, and whether no other mark sorts above it.
+        /// </summary>
+        public (double Diameter, bool AboveHeat, bool OnTop) MeasurePing()
+        {
+            var dot = window.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>()
+                .Single(ellipse => ellipse.Classes.Contains("v2-map-ping-dot") && ellipse.IsEffectivelyVisible);
+            var left = dot.TranslatePoint(new Point(0, 0), window)!.Value;
+            var right = dot.TranslatePoint(new Point(dot.Bounds.Width, 0), window)!.Value;
+            var diameter = Math.Sqrt(Math.Pow(right.X - left.X, 2) + Math.Pow(right.Y - left.Y, 2));
+
+            var surface = window.GetVisualDescendants().OfType<Canvas>().Single(canvas => canvas.Name == "CameraSurface");
+            var layers = surface.Children.ToList();
+            var pingLayer = layers.Single(layer => dot.GetVisualAncestors().Contains(layer));
+            var heat = layers.OfType<Image>().Single();
+            // The order is the markup's, whether or not this offline catalog has any heat to draw
+            // (the Customs render with the seed catalog is where it was looked at with heat on).
+            var loot = layers.OfType<ItemsControl>().Where(layer => layer.GetVisualDescendants().OfType<Control>().Any(item => item.Classes.Contains("v2-map-loot")));
+            var labels = layers.Where(layer => !layer.IsHitTestVisible && layer is ItemsControl);
+            var below = new Control[] { heat }.Concat(loot).Concat(labels);
+            var aboveHeat = below.All(layer => layers.IndexOf(layer) < layers.IndexOf(pingLayer));
+
+            var container = dot.GetVisualAncestors().OfType<Avalonia.Controls.Presenters.ContentPresenter>().First(presenter => presenter.GetVisualParent() is Canvas);
+            var siblings = ((Canvas)container.GetVisualParent()!).Children;
+            var onTop = siblings.All(other => ReferenceEquals(other, container) || other.ZIndex < container.ZIndex);
+            output.WriteLine($"ping disc {diameter:0.0} px, layer {layers.IndexOf(pingLayer)} of {layers.Count}, heat {layers.IndexOf(heat)}, z {container.ZIndex}");
+            return (diameter, aboveHeat, onTop);
         }
 
         /// <summary>Whether the map draws this mark, on the plan, now.</summary>

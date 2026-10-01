@@ -2159,8 +2159,12 @@ internal static class Program
                 args.Contains("--ping-demo") && pingCockpit.Renderer is { } pingRenderer)
             {
                 pingCockpit.SetInteractionMode(TarkovCompanion.App.ViewModels.V2.Raid.MapInteractionMode.Ping);
-                var pingBounds = pingRenderer.Scene.Bounds;
-                pingCockpit.ModeClicked(new((pingBounds.MinimumX + pingBounds.MaximumX) / 2, (pingBounds.MinimumY + pingBounds.MaximumY) / 2));
+                // A little below and left of the card's middle: on Customs with the raid demo's
+                // Follow that is the traffic heat's red end, the hardest ground for a ping to show on.
+                if (pingRenderer.TryScenePointAt(pingRenderer.CanvasWidth * 0.42, pingRenderer.CanvasHeight * 0.72, out var pingAt))
+                {
+                    pingCockpit.ModeClicked(pingAt);
+                }
                 Pump(40);
                 Console.WriteLine($"Ping status: {pingCockpit.PingStatus}");
             }
