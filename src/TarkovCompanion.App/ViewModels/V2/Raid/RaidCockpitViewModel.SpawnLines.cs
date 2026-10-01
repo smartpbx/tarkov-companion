@@ -102,8 +102,8 @@ public sealed partial class RaidCockpitViewModel
         OnPropertyChanged(nameof(SpawnRadiusChoices));
     }
 
-    /// <summary>The open map's areas inside its radius; also follows a map change for the picker.</summary>
-    private IReadOnlyList<NearbySpawn> SpawnAreasWithinRadius(MapRenderModel model, IReadOnlyList<NearbySpawn> areas)
+    /// <summary>The open map's radius; also follows a map change for the picker.</summary>
+    private int SpawnRadiusFollowingMap(MapRenderModel model)
     {
         if (!string.Equals(_spawnRadiusMapId, model.Location.Id, StringComparison.OrdinalIgnoreCase))
         {
@@ -111,7 +111,7 @@ public sealed partial class RaidCockpitViewModel
             RaiseSpawnRadius();
         }
 
-        return SpawnLines.Within(areas, SpawnRadiusFor(model.Location.Id));
+        return SpawnRadiusFor(model.Location.Id);
     }
 
     /// <summary>The Spawn lines row, always there: its objects exist only in the raid's opening window.</summary>

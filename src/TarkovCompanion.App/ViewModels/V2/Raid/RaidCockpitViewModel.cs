@@ -2754,9 +2754,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             : null;
         // [#914] Only the areas inside this map's chosen radius, markers and lines alike.
         // Before a screenshot nothing is near or far: every PMC area of the map, no radius.
-        var withinRadius = SpawnAreasWithinRadius(model, spawnSelection.Areas);
+        // [#985] With none inside the radius, the nearest two beyond it, said so in the status.
+        var (withinRadius, beyondRadius) = SpawnLines.WithinOrNearest(spawnSelection.Areas, SpawnRadiusFollowingMap(model));
         var nearbyAreas = spawnSelection.IsNearby ? withinRadius : spawnSelection.Areas;
-        PublishOpeningSpawnStatus(spawnSelection, nearbyAreas.Count, SpawnRadiusFor(model.Location.Id));
+        PublishOpeningSpawnStatus(spawnSelection, nearbyAreas, spawnSelection.IsNearby && beyondRadius, SpawnRadiusFor(model.Location.Id));
         // [#902 P3] All spawns keeps every spawn for the whole raid, off unless asked for, so its
         // switch never locks when the window closes. The window's nearby ones are copies on the
         // Nearby spawns layer, whose switch (on unless turned off) applies whenever the raid is

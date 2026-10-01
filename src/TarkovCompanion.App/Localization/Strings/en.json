@@ -2477,6 +2477,7 @@
   "Raid.PossiblePmcSpawn": "possible PMC spawn",
   "Raid.OpeningSpawnsBeforeScreenshot": "Possible PMC spawns · first 5 min · take a screenshot to see which are near you",
   "Raid.OpeningSpawnsNearby": "Possible PMC spawns within {0} m of your first screenshot · first 5 min",
+  "Raid.OpeningSpawnsNearestBeyond": "Nearest possible PMC spawns · {0} (beyond your {1} m radius)",
   "Raid.OpeningSpawnsNoneNearby": "No possible PMC spawns within {0} m of your first screenshot · first 5 min",
   "Raid.OpeningSpawnsSideAssumed": "{0} · side unknown, shown as PMC",
   "Raid.SpawnRadius": "Spawn radius",

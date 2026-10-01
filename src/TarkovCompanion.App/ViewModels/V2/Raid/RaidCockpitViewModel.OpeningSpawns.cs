@@ -61,7 +61,7 @@ public sealed partial class RaidCockpitViewModel
 
         var anchored = _map.PlayerTrailPositions.Count > 0;
         return _earlyRaidSpawns.Select(
-            anchored ? _map.NearbySpawnAreas : PmcAreasOfThisMap(),
+            anchored ? PmcAreasFromFirstScreenshot() : PmcAreasOfThisMap(),
             raidSide,
             raid.StartedUtc,
             GameStartedUtc(),
@@ -81,29 +81,63 @@ public sealed partial class RaidCockpitViewModel
         return _pmcAreas;
     }
 
+    private (IReadOnlyList<MapFeature>? Features, ScreenshotPosition? Anchor, ScreenshotPosition? Player) _measuredFrom;
+    private IReadOnlyList<NearbySpawn> _measured = [];
+
+    /// <summary>
+    /// Every PMC area measured from the first screenshot, nearest first, however far: the radius,
+    /// or the nearest two beyond it, is applied by the caller (<see cref="SpawnLines.WithinOrNearest"/>).
+    /// </summary>
+    /// <remarks>
+    /// Measured here as a PMC rather than read from the map's spawn panel, which follows the raid's
+    /// side: an unknown side there lists scav areas too, and the panel stops at 300 m.
+    /// </remarks>
+    private IReadOnlyList<NearbySpawn> PmcAreasFromFirstScreenshot()
+    {
+        var key = (_map.MapFeatures, _map.PlayerTrailPositions[0], _map.PlayerPosition);
+        if (!ReferenceEquals(key.Item1, _measuredFrom.Features) ||
+            !ReferenceEquals(key.Item2, _measuredFrom.Anchor) ||
+            !ReferenceEquals(key.Item3, _measuredFrom.Player))
+        {
+            _measuredFrom = key;
+            _measured = SpawnProximity.Near(key.Item1, key.Item2.Position, key.Item3?.Position, MapFeatureFaction.Pmc, double.MaxValue);
+        }
+
+        return _measured;
+    }
+
     /// <summary>When the log said the player could move in this raid, on this PC's clock (ADR 0022's stages).</summary>
     private DateTimeOffset? GameStartedUtc() =>
         _situation?.Current.Stages.LastOrDefault(stage => stage.Kind == RaidPhaseMarkerKind.GameStarted)?.ObservedUtc;
 
-    private void PublishOpeningSpawnStatus(EarlyRaidSpawnSelection selection, int shown, int radiusMetres) =>
+    private void PublishOpeningSpawnStatus(EarlyRaidSpawnSelection selection, IReadOnlyList<NearbySpawn> shown, bool beyondRadius, int radiusMetres) =>
         OpeningSpawnStatus = OpeningSpawnStatusFor(
             selection,
             shown,
+            beyondRadius,
             radiusMetres,
             // A map whose catalog has not arrived, or has no PMC spawns, has nothing to say "none near you" about.
             RouteLayerSwitch.IsShown(Renderer, _layerVisibility, NearbySpawnsLayerId) && PmcAreasOfThisMap().Count > 0);
 
     /// <summary>The map's line: what is shown, for how long, and the one thing that would sharpen it.</summary>
-    internal static string OpeningSpawnStatusFor(EarlyRaidSpawnSelection selection, int shown, int radiusMetres, bool layerShown)
+    internal static string OpeningSpawnStatusFor(
+        EarlyRaidSpawnSelection selection,
+        IReadOnlyList<NearbySpawn> shown,
+        bool beyondRadius,
+        int radiusMetres,
+        bool layerShown)
     {
         // Before a screenshot there is nothing to say on a map whose catalog has no PMC spawns.
-        if (selection.Phase != EarlyRaidSpawnPhase.Active || !layerShown || (!selection.IsNearby && shown == 0))
+        if (selection.Phase != EarlyRaidSpawnPhase.Active || !layerShown || (!selection.IsNearby && shown.Count == 0))
         {
             return string.Empty;
         }
 
         var line = !selection.IsNearby ? RaidText.OpeningSpawnsBeforeScreenshot
-            : shown > 0 ? RaidText.OpeningSpawnsNearby(radiusMetres)
+            : beyondRadius ? RaidText.OpeningSpawnsNearestBeyond(
+                string.Join(", ", shown.Select(area => SpawnProximity.Describe(area.MetresFromStart))),
+                radiusMetres)
+            : shown.Count > 0 ? RaidText.OpeningSpawnsNearby(radiusMetres)
             : RaidText.OpeningSpawnsNoneNearby(radiusMetres);
         return selection.SideAssumed ? RaidText.OpeningSpawnsSideAssumed(line) : line;
     }

@@ -61,6 +61,30 @@ public sealed class SpawnLinesTests : IDisposable
             .Objects.Count(item => item.Kind == MapSceneObjectKind.Route));
     }
 
+    /// <summary>[#985 follow-up] Nothing inside the radius: the nearest two, flagged as beyond it.</summary>
+    [Fact]
+    public void With_none_inside_the_radius_the_nearest_two_show_beyond_it()
+    {
+        MapFeature[] features = [Spawn("A", 0, 260), Spawn("B", 210, 0), Spawn("C", -500, 0), Spawn("S", 30, 0) with { Faction = "scav" }];
+        var areas = SpawnProximity.Near(features, At(0, 0), At(0, 0), MapFeatureFaction.Pmc, double.MaxValue);
+
+        var (shown, beyond) = SpawnLines.WithinOrNearest(areas, 150);
+
+        Assert.True(beyond);
+        Assert.Equal(["B", "A"], shown.Select(area => area.Name));
+        var (inside, notBeyond) = SpawnLines.WithinOrNearest(areas, 300);
+        Assert.False(notBeyond);
+        Assert.Equal(["B", "A"], inside.Select(area => area.Name));
+        var (none, noneBeyond) = SpawnLines.WithinOrNearest([], 150);
+        Assert.Empty(none);
+        Assert.False(noneBeyond);
+
+        var selection = new EarlyRaidSpawnSelection(EarlyRaidSpawnPhase.Active, shown) { IsNearby = true };
+        Assert.Equal(
+            "Nearest possible PMC spawns · 210 m, 260 m (beyond your 150 m radius)",
+            RaidCockpitViewModel.OpeningSpawnStatusFor(selection, shown, beyondRadius: true, 150, layerShown: true));
+    }
+
     [Theory]
     [InlineData(null, 150)]
     [InlineData("", 150)]
