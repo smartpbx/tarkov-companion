@@ -83,6 +83,12 @@ public sealed partial class RaidCockpitViewModel
             return;
         }
 
+        if (Renderer is { } renderer && !renderer.Scene.Bounds.Contains(point))
+        {
+            ShowPingStatus(RaidText.PingOffMap); // [#983] drawn nowhere, so not placed
+            return;
+        }
+
         var floorId = Renderer?.Scene.View.SelectedFloorId ?? model.SelectedFloor?.Id;
         _ = PlaceAndReportAsync(() => _marks.PlaceAsync(model.Location.Id, floorId, point.X, point.Y, null, NewMarkScope, lifetime, colour: NewMarkColour));
     }

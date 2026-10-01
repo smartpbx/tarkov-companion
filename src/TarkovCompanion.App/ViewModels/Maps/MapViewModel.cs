@@ -2223,14 +2223,15 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     public async Task FollowRaidAsync(string mapId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
-        if (SelectedLocation is not null &&
-            string.Equals(SelectedLocation.Id, mapId, StringComparison.OrdinalIgnoreCase))
+        // [#985] Night Factory and Ground Zero 21+ are drawn on Factory's and Ground Zero's plans.
+        if (SelectedLocation is not null && RaidMapCatalogIds.IsDrawnOn(mapId, SelectedLocation))
         {
             return;
         }
 
         var location = Locations.FirstOrDefault(candidate =>
-            string.Equals(candidate.Id, mapId, StringComparison.OrdinalIgnoreCase));
+                string.Equals(candidate.Id, mapId, StringComparison.OrdinalIgnoreCase)) ??
+            Locations.FirstOrDefault(candidate => RaidMapCatalogIds.IsDrawnOn(mapId, candidate));
         if (location is null)
         {
             return;

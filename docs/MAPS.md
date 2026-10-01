@@ -404,3 +404,14 @@ A raid whose side no line names is shown as PMC and says so; a scav raid shows n
 the map says what is shown and why. PMC spawn areas per map on the 2026-09-14 catalog: Streets 37,
 Woods 28, Interchange 26, Shoreline 26, Customs 25, Reserve 16, Ground Zero 16, Lighthouse 13,
 The Lab 10, Factory 9, The Labyrinth 4, Terminal 1.
+
+
+Since #983/#985 (build 91 follow-up) every map is checked through the composed app
+(`OwnPingAndSpawnsOnEveryMapTests`): a raid started by the log's own location id brings its map up,
+shows its possible PMC spawns, and a right-click ping is drawn. Night Factory, Ground Zero 21+, the
+Ground Zero tutorial and The Lab (Dark) are drawn on Factory's, Ground Zero's and The Lab's plans
+(`RaidMapCatalogIds`); a raid map with no catalog map says "This raid's map (X) isn't in the map
+data yet" instead of leaving the last map up. Placing a ping turns My marks back on and says so; a
+ping off the plan's rectangle is refused with a line, never sent and left undrawn. Layer schema 3
+drops "my-marks", "nearby-spawns" and "spawn-lines" choices saved by the pre-#933 Loot focus, and
+with the opening window open and Nearby spawns off the map says the spawns are hidden.

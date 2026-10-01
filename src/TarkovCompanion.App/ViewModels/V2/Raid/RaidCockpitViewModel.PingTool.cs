@@ -45,6 +45,7 @@ public sealed partial class RaidCockpitViewModel
     private Guid? _awaitedDelivery;
     private RaidMarkKind _awaitedKind;
     private bool _hasPlacedMark;
+    private bool _myMarksWereOff;
 
     public bool IsPingMode => _interactionMode == MapInteractionMode.Ping;
 
@@ -115,6 +116,8 @@ public sealed partial class RaidCockpitViewModel
     /// <summary>Places a mark and says on the map where it went; never silent.</summary>
     private async Task PlaceAndReportAsync(Func<Task<RaidMark>> place)
     {
+        // Before the store changes, so the rebuild its change asks for already draws the layer.
+        _myMarksWereOff = RevealOwnMarks();
         RaidMark mark;
         try
         {
@@ -168,16 +171,49 @@ public sealed partial class RaidCockpitViewModel
             return;
         }
 
-        _pingStatus = status;
+        _pingStatus = _myMarksWereOff && status.Length > 0 ? RaidText.PingMyMarksWasOff(status) : status;
         _pingStatusTimer?.Dispose();
         _pingStatusTimer = _timeProvider.CreateTimer(_ => Dispatch(ClearPingStatus), null, PingStatusLifetime, Timeout.InfiniteTimeSpan);
         RaisePingStatus();
+    }
+
+    /// <summary>
+    /// Turns My marks back on for a mark the player has just placed; answers whether it was off.
+    /// </summary>
+    /// <remarks>
+    /// [#983, #933] Before #933 one press of Loot focus saved "my-marks:0" as the player's own
+    /// choice, for good and on every map, and a switch the player never touched kept every ping
+    /// they placed off the map while the line said the squad had it. A ping placed is a ping the
+    /// player wants to see, so placing one shows the layer again and the line says it was off.
+    /// </remarks>
+    private bool RevealOwnMarks()
+    {
+        var storedOff = _layerVisibility.Get(MarksLayerId) == false;
+        var shownOff = Renderer?.Scene.View.Layers.FirstOrDefault(state => state.LayerId == MarksLayerId)?.IsVisible == false;
+        if (!storedOff && !shownOff)
+        {
+            return false;
+        }
+
+        _layerVisibility.Set(MarksLayerId, true);
+        if (shownOff && Renderer is { } renderer)
+        {
+            _ = _layerVisibility.ApplyChange(renderer, new MapSceneViewChange(
+                Guid.NewGuid(),
+                renderer.Scene.Revision,
+                MapSceneViewChangeKind.SetLayerVisibility,
+                LayerId: MarksLayerId,
+                IsVisible: true));
+        }
+
+        return true;
     }
 
     private void ClearPingStatus()
     {
         _pingStatusTimer?.Dispose();
         _pingStatusTimer = null;
+        _myMarksWereOff = false;
         if (_pingStatus.Length == 0)
         {
             return;

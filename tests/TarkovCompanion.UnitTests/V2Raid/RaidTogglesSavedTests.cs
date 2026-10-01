@@ -124,7 +124,7 @@ public sealed class RaidTogglesSavedTests : IDisposable
         Assert.Null(setting.Get(new("spawns")));
         Assert.False(setting.Get(new("extracts")));
         Assert.False(setting.Get(new("labels")));
-        Assert.Equal("2", layout.Get(WorkspaceLayoutKeys.RaidLayerSchema));
+        Assert.Equal(MapLayerVisibilitySetting.CurrentSchema, layout.Get(WorkspaceLayoutKeys.RaidLayerSchema));
 
         // Once: a choice made afterwards survives the next start.
         setting.Set(new("objective-route"), false);
@@ -132,6 +132,31 @@ public sealed class RaidTogglesSavedTests : IDisposable
         var restarted = new MapLayerVisibilitySetting(layout);
         Assert.False(restarted.Get(new("objective-route")));
         Assert.True(restarted.Get(new("spawns")));
+    }
+
+    /// <summary>
+    /// [#983, #985] The old Loot focus's saved steps: My marks, Nearby spawns and Spawn lines go back
+    /// to on once, at schema 3; a schema 2 choice of another layer stays, and so does "spawns", which
+    /// schema 2 already reset and the player has chosen since.
+    /// </summary>
+    [Fact]
+    public void Schema_3_puts_my_marks_and_the_opening_spawn_layers_back_on_once()
+    {
+        var layout = new JsonFileWorkspaceLayoutStore(Path.Combine(_root, "layout.json"));
+        layout.Set(WorkspaceLayoutKeys.RaidLayerVisibility, "my-marks:0,nearby-spawns:0,spawn-lines:0,spawns:1,extracts:0");
+        layout.Set(WorkspaceLayoutKeys.RaidLayerSchema, "2");
+
+        var setting = new MapLayerVisibilitySetting(layout);
+
+        Assert.Null(setting.Get(new("my-marks")));
+        Assert.Null(setting.Get(new("nearby-spawns")));
+        Assert.Null(setting.Get(new("spawn-lines")));
+        Assert.True(setting.Get(new("spawns")));
+        Assert.False(setting.Get(new("extracts")));
+        Assert.Equal("3", layout.Get(WorkspaceLayoutKeys.RaidLayerSchema));
+
+        setting.Set(new("nearby-spawns"), false);
+        Assert.False(new MapLayerVisibilitySetting(layout).Get(new("nearby-spawns")));
     }
 
     [Fact]

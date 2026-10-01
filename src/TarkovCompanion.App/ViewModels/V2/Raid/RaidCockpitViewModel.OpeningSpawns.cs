@@ -53,8 +53,7 @@ public sealed partial class RaidCockpitViewModel
     private EarlyRaidSpawnSelection SelectOpeningSpawns(RaidSnapshot raid, MapFeatureFaction raidSide)
     {
         if (raid.State != RaidLifecycleState.InRaid ||
-            raid.MapId is not { } mapId ||
-            !string.Equals(mapId, _map.RenderModel?.Location.Id, StringComparison.OrdinalIgnoreCase))
+            !RaidMapCatalogIds.IsDrawnOn(raid.MapId, _map.RenderModel?.Location))
         {
             return new(EarlyRaidSpawnPhase.Unaffected, []);
         }
@@ -110,14 +109,47 @@ public sealed partial class RaidCockpitViewModel
     private DateTimeOffset? GameStartedUtc() =>
         _situation?.Current.Stages.LastOrDefault(stage => stage.Kind == RaidPhaseMarkerKind.GameStarted)?.ObservedUtc;
 
-    private void PublishOpeningSpawnStatus(EarlyRaidSpawnSelection selection, IReadOnlyList<NearbySpawn> shown, bool beyondRadius, int radiusMetres) =>
-        OpeningSpawnStatus = OpeningSpawnStatusFor(
-            selection,
-            shown,
-            beyondRadius,
-            radiusMetres,
-            // A map whose catalog has not arrived, or has no PMC spawns, has nothing to say "none near you" about.
-            RouteLayerSwitch.IsShown(Renderer, _layerVisibility, NearbySpawnsLayerId) && PmcAreasOfThisMap().Count > 0);
+    private string? _missingRaidMapLogged;
+
+    /// <summary>
+    /// [#985] The raid's map when the map catalog has nothing to draw it on; null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A level 21+ Ground Zero raid wrote <c>Sandbox_high</c> and the map silently stayed on the
+    /// last one. A map id that resolves to no catalog location now says so on the map, and once in
+    /// the crash breadcrumbs, instead of leaving the player looking at another map.
+    /// </remarks>
+    private string? MissingRaidMap(RaidSnapshot raid)
+    {
+        if (raid.State is not (RaidLifecycleState.InRaid or RaidLifecycleState.LoadingRaid) ||
+            raid.MapId is not { Length: > 0 } mapId ||
+            _map.Locations.Count == 0 ||
+            _map.Locations.Any(location => RaidMapCatalogIds.IsDrawnOn(mapId, location)))
+        {
+            return null;
+        }
+
+        if (!string.Equals(_missingRaidMapLogged, mapId, StringComparison.OrdinalIgnoreCase))
+        {
+            _missingRaidMapLogged = mapId;
+            TarkovCompanion.App.Services.Diagnostics.CrashBreadcrumbs.Drop("raid-map", $"the raid's map '{mapId}' has no map in the catalog; the map cannot follow it");
+        }
+
+        return mapId;
+    }
+
+    private void PublishOpeningSpawnStatus(RaidSnapshot raid, EarlyRaidSpawnSelection selection, IReadOnlyList<NearbySpawn> shown, bool beyondRadius, int radiusMetres)
+    {
+        // A map whose catalog has not arrived, or has no PMC spawns, has nothing to say "none near you" about.
+        var hasAreas = PmcAreasOfThisMap().Count > 0;
+        var layerShown = RouteLayerSwitch.IsShown(Renderer, _layerVisibility, NearbySpawnsLayerId);
+        OpeningSpawnStatus = MissingRaidMap(raid) is { } missing
+            ? RaidText.RaidMapNotInData(missing)
+            // [#985] The window is open and there are spawns, behind a switch: say so rather than nothing.
+            : selection.Phase == EarlyRaidSpawnPhase.Active && hasAreas && !layerShown
+                ? RaidText.OpeningSpawnsLayerOff
+                : OpeningSpawnStatusFor(selection, shown, beyondRadius, radiusMetres, layerShown && hasAreas);
+    }
 
     /// <summary>The map's line: what is shown, for how long, and the one thing that would sharpen it.</summary>
     internal static string OpeningSpawnStatusFor(

@@ -288,7 +288,17 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             {
                 // Oldest first: a mark placed minutes ago is more likely to still matter than
                 // one placed a raid ago.
-                next = [.. next.OrderByDescending(mark => mark.CreatedUtc).Take(MaximumMarks)];
+                // [#983] By when each was placed as this clock reads now: a mark stamped while the
+                // PC's clock ran ahead (the owner's ran four hours fast until 2026-09-29) counts as
+                // placed now, not in the future, and ties go to the one placed last. Sorted by the
+                // raw stamp, five hundred future-stamped marks pushed every new ping out on the spot.
+                next = [.. next
+                    .Select((mark, index) => (Mark: mark, Index: index))
+                    .OrderByDescending(item => item.Mark.CreatedUtc > now ? now : item.Mark.CreatedUtc)
+                    .ThenByDescending(item => item.Index)
+                    .Take(MaximumMarks)
+                    .OrderBy(item => item.Index)
+                    .Select(item => item.Mark)];
             }
 
             Volatile.Write(ref _marks, [.. next]);

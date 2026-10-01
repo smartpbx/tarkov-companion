@@ -48,7 +48,20 @@ internal sealed class MapLayerVisibilitySetting
         "spawns",
     };
 
-    internal const string CurrentSchema = "2";
+    /// <summary>
+    /// [#983, #985] What a press of Loot focus saved as the player's own choice before #933 fixed
+    /// it: My marks, Nearby spawns and Spawn lines, off for good. On build 91 the owner's pings
+    /// and opening-window spawns stayed hidden behind switches he had never touched. Dropped once,
+    /// so each is back at its default (on).
+    /// </summary>
+    internal static readonly IReadOnlySet<string> ResetAtSchema3 = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "my-marks",
+        "nearby-spawns",
+        "spawn-lines",
+    };
+
+    internal const string CurrentSchema = "3";
 
     private readonly IWorkspaceLayoutStore? _store;
     private readonly List<(string Id, bool IsVisible)> _choices = [];
@@ -72,7 +85,13 @@ internal sealed class MapLayerVisibilitySetting
         }
 
         // Idempotent: a second run finds the schema written and nothing to drop.
-        _choices.RemoveAll(choice => ResetAtSchema2.Contains(choice.Id));
+        var schema = _store.Get(WorkspaceLayoutKeys.RaidLayerSchema);
+        if (!string.Equals(schema, "2", StringComparison.Ordinal))
+        {
+            _choices.RemoveAll(choice => ResetAtSchema2.Contains(choice.Id));
+        }
+
+        _choices.RemoveAll(choice => ResetAtSchema3.Contains(choice.Id));
         _store.Set(WorkspaceLayoutKeys.RaidLayerVisibility, Format(_choices));
         _store.Set(WorkspaceLayoutKeys.RaidLayerSchema, CurrentSchema);
     }

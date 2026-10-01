@@ -53,6 +53,28 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         Assert.Equal(RaidMarkKind.Ping, kept.Kind);
     }
 
+    /// <summary>
+    /// #983: a full store kept its newest five hundred by the raw stamp, so marks stamped while the
+    /// PC's clock ran four hours fast outranked a ping placed now and it was dropped as it was
+    /// placed. Fails on main: the new ping is not in the store.
+    /// </summary>
+    [Fact]
+    public async Task A_new_ping_is_kept_when_the_store_is_full_of_marks_stamped_by_a_fast_clock()
+    {
+        var fast = new FakeTimeProvider(new(2026, 9, 28, 20, 0, 0, TimeSpan.Zero));
+        var store = new JsonFileRaidMarkStore(StorePath, fast);
+        for (var index = 0; index < 500; index++)
+        {
+            await store.PlaceAsync("woods", null, index, index, null, RaidMarkScope.Private, RaidMarkLifetime.UntilRemoved);
+        }
+
+        var reloaded = new JsonFileRaidMarkStore(StorePath, new FakeTimeProvider(new(2026, 9, 28, 16, 0, 0, TimeSpan.Zero)));
+        var ping = await reloaded.PlaceAsync("woods", null, 1000, 1000, null, RaidMarkScope.Squad, RaidMarkLifetime.Ping);
+
+        Assert.Contains(reloaded.Marks, mark => mark.Id == ping.Id);
+        Assert.Equal(500, reloaded.Marks.Count);
+    }
+
     [Fact]
     public async Task MarksIsASnapshotThatALaterWriteNeverChanges()
     {
