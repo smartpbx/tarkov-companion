@@ -78,6 +78,16 @@ public sealed class OpeningSpawnsOnTheRaidPageTests
             Assert.All(lines, line => Assert.StartsWith("possible PMC spawn · ", line.Label, StringComparison.Ordinal));
             Assert.Equal("Possible PMC spawns within 150 m of your first screenshot · first 5 min", Status(window));
 
+            // [#985 follow-up] A first screenshot with nothing inside the radius: the nearest two anyway, said so.
+            // The raid's side unknown too, as on two of the owner's Lighthouse raids.
+            const string Beyond = "Nearest possible PMC spawns · 335 m, 392 m (beyond your 150 m radius) · side unknown, shown as PMC";
+            ScreenshotPosition far = new(now, new(-350, 0, 150), default, 90, null, null, "far.png");
+            Enter(store, side: null, startedAgo: TimeSpan.FromSeconds(40), trail: [far]);
+            Pump(() => Status(window) == Beyond);
+            Assert.True(Status(window) == Beyond, $"The map says '{Status(window)}'.");
+            Assert.Equal(2, Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length);
+            Assert.Equal(2, Objects(cockpit, RaidCockpitViewModel.SpawnLinesLayerId).Count(item => item.Kind == MapSceneObjectKind.Route));
+
             // Five minutes on: gone, and so is the line.
             Enter(store, side: "PMC", startedAgo: TimeSpan.FromMinutes(6), trail: [shot]);
             Pump(() => Objects(cockpit, RaidCockpitViewModel.NearbySpawnsLayerId).Length == 0 && Status(window).Length == 0);

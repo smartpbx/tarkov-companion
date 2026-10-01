@@ -396,7 +396,8 @@ and the lines, measured from the raid's first screenshot, and is kept per map
 
 Since #985 the possible PMC spawns need nothing from the player. Once the raid's map is known, every
 PMC spawn area of the map shows ("possible PMC spawn"), before any screenshot; the first screenshot
-narrows them to the radius and adds the lines. The five minutes run from the log's `GameStarted`
+narrows them to the radius and adds the lines; with none inside the radius the nearest two are
+shown anyway and the status says they are beyond it (5 of the owner's first screenshots, 165 to 234 m off). The five minutes run from the log's `GameStarted`
 when it has been seen, else from the raid's start, which is put on the PC's clock by whole quarter
 hours (`RaidStartClock`: a PC four hours fast had closed the window before the loading screen did).
 A raid whose side no line names is shown as PMC and says so; a scav raid shows none. One line over

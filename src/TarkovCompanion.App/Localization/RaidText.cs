@@ -98,6 +98,7 @@ public static partial class RaidText
     public static string PossiblePmcSpawn => UiText.Get("Raid.PossiblePmcSpawn");
     public static string OpeningSpawnsBeforeScreenshot => UiText.Get("Raid.OpeningSpawnsBeforeScreenshot");
     public static string OpeningSpawnsNearby(int metres) => UiText.Format("Raid.OpeningSpawnsNearby", metres);
+    public static string OpeningSpawnsNearestBeyond(string distances, int metres) => UiText.Format("Raid.OpeningSpawnsNearestBeyond", distances, metres);
     public static string OpeningSpawnsNoneNearby(int metres) => UiText.Format("Raid.OpeningSpawnsNoneNearby", metres);
     public static string OpeningSpawnsSideAssumed(string line) => UiText.Format("Raid.OpeningSpawnsSideAssumed", line);
     public static string SpawnRadius => UiText.Get("Raid.SpawnRadius");

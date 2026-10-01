@@ -61,6 +61,30 @@ public static class SpawnLines
         return [.. areas.Where(area => area.MetresFromStart <= radiusMetres)];
     }
 
+    /// <summary>How many areas are shown when none is inside the radius.</summary>
+    public const int NearestWhenNoneWithin = 2;
+
+    /// <summary>
+    /// [#985] The areas inside the radius, or the nearest two beyond it when there are none.
+    /// </summary>
+    /// <remarks>
+    /// Replayed on the owner's 26 PMC raids of 2026-09-27 to 10-01, 5 first screenshots had no
+    /// PMC spawn area within 150 m: two on Woods, one on Interchange and two on Lighthouse, where
+    /// the nearest was 195 to 412 m off. An empty map there read as the feature being broken
+    /// again, so the nearest two are drawn anyway and the status says they are beyond the radius.
+    /// </remarks>
+    /// <param name="areas">Measured from the first screenshot, nearest first.</param>
+    public static (IReadOnlyList<NearbySpawn> Areas, bool BeyondRadius) WithinOrNearest(
+        IReadOnlyList<NearbySpawn> areas,
+        double radiusMetres)
+    {
+        ArgumentNullException.ThrowIfNull(areas);
+        var within = Within(areas, radiusMetres);
+        return within.Count > 0 || areas.Count == 0
+            ? (within, false)
+            : ([.. areas.OrderBy(area => area.MetresFromStart).Take(NearestWhenNoneWithin)], true);
+    }
+
     /// <summary>How strongly the lines are drawn, from 1 (full) to 0 (not drawn).</summary>
     /// <param name="sinceStart">Time since the raid started, by the raid workspace's clock.</param>
     public static double Strength(TimeSpan sinceStart)
