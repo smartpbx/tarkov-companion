@@ -1245,6 +1245,14 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return;
         }
 
+        // [#983] Outside the plan's rectangle nothing is drawn (MAPS.md: never clamped into a false
+        // edge marker), so a ping there was sent to the squad and never seen here. Said instead.
+        if (Renderer is { } renderer && !renderer.Scene.Bounds.Contains(point))
+        {
+            ShowPingStatus(RaidText.PingOffMap);
+            return;
+        }
+
         // The floor the mark belongs on is whichever one the V2 renderer is showing, not
         // whatever the V1 map last had selected — the two floor selections are independent.
         var floorId = Renderer?.Scene.View.SelectedFloorId ?? model.SelectedFloor?.Id;
@@ -2545,6 +2553,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // [#983] Fire-and-forget: a fault here was unobserved, and the plan kept the last scene
+            // that built, without a new ping, the raid's spawns or anything else, and said nothing.
+            // Logged with the stage it reached; the next change asks for another rebuild.
+            TarkovCompanion.App.Services.Diagnostics.CrashBreadcrumbs.Drop(
+                "raid-rebuild",
+                $"the Raid map's rebuild failed: {exception.GetType().Name}: {exception.Message}");
+        }
     }
 
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
@@ -2757,7 +2774,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [#985] With none inside the radius, the nearest two beyond it, said so in the status.
         var (withinRadius, beyondRadius) = SpawnLines.WithinOrNearest(spawnSelection.Areas, SpawnRadiusFollowingMap(model));
         var nearbyAreas = spawnSelection.IsNearby ? withinRadius : spawnSelection.Areas;
-        PublishOpeningSpawnStatus(spawnSelection, nearbyAreas, spawnSelection.IsNearby && beyondRadius, SpawnRadiusFor(model.Location.Id));
+        PublishOpeningSpawnStatus(raidSnapshot, spawnSelection, nearbyAreas, spawnSelection.IsNearby && beyondRadius, SpawnRadiusFor(model.Location.Id));
         // [#902 P3] All spawns keeps every spawn for the whole raid, off unless asked for, so its
         // switch never locks when the window closes. The window's nearby ones are copies on the
         // Nearby spawns layer, whose switch (on unless turned off) applies whenever the raid is

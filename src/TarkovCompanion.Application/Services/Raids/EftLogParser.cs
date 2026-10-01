@@ -51,6 +51,7 @@ public sealed partial class EftLogParser
             ["factory"] = "factory",
             ["interchange"] = "interchange",
             ["laboratory"] = "the-lab",
+            ["labyrinth"] = "the-labyrinth",
             ["lighthouse"] = "lighthouse",
             ["rezervbase"] = "reserve",
             ["reserve"] = "reserve",
