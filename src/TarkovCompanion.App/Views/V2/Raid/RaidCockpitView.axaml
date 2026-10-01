@@ -476,6 +476,26 @@
             </StackPanel>
           </Border>
 
+          <!-- [#985] What the possible PMC spawns on the map are and why they show, in the raid's
+               first five minutes. Only while navigating (each tool has its own bar here), and the
+               press goes through to the plan under it. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
+                  Margin="12,12,12,12" IsHitTestVisible="False"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.AutomationId="v2-raid-opening-spawns"
+                  AutomationProperties.Name="{Binding OpeningSpawnStatus}">
+            <Border.IsVisible>
+              <MultiBinding Converter="{x:Static BoolConverters.And}">
+                <Binding Path="HasOpeningSpawnStatus" />
+                <Binding Path="IsNavigateMode" />
+              </MultiBinding>
+            </Border.IsVisible>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Width="10" Height="10" VerticalAlignment="Center" Fill="{DynamicResource V2.Brush.Danger}" />
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding OpeningSpawnStatus}" />
+            </StackPanel>
+          </Border>
+
           <!-- [#286] Inspect mode before anything is clicked: one line saying what a click does. -->
           <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
                   Margin="12,12,12,12" IsVisible="{Binding ShowsInspectHint}"

@@ -201,8 +201,9 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
                         : Current.LastActivityUtc,
             State = targetState,
             MapId = mapId,
+            // [#985] On this PC's clock, which everything that measures from the start reads.
             StartedUtc = enteringRaid
-                ? evidence.RaidStartedUtc ?? observedUtc
+                ? RaidStartClock.For(evidence.RaidStartedUtc, evidence.ResumesSession, observedUtc)
                 : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
             // Shown to the player as how recently the raid was seen, so it never runs
             // backwards even when the clock behind it does.

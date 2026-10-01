@@ -154,6 +154,28 @@ public static class SpawnProximity
     }
 
     /// <summary>
+    /// [#985] Every area where a PMC can start on this map, before any screenshot says where the
+    /// player is.
+    /// </summary>
+    /// <remarks>
+    /// The same grouping and the same player/side test as <see cref="Near"/>, without an anchor:
+    /// no distance is known, so <see cref="NearbySpawn.MetresFromStart"/> is NaN and nothing is
+    /// left out as "your own". Counted on the 2026-09-14 catalog: 37 areas on Streets, 28 on
+    /// Woods, 26 on Interchange and Shoreline, 25 on Customs, 16 on Reserve and Ground Zero, 13
+    /// on Lighthouse, 10 on The Lab, 9 on Factory, 4 on The Labyrinth and 1 on Terminal.
+    /// </remarks>
+    public static IReadOnlyList<NearbySpawn> PmcAreas(IReadOnlyList<MapFeature> features)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+        return [.. SpawnGrouping.Collapse(features)
+            .Where(feature =>
+                feature.Kind == MapFeatureKind.Spawn &&
+                IsPlayerSpawn(feature) &&
+                Matches(feature.Side, MapFeatureFaction.Pmc))
+            .Select(area => new NearbySpawn(area.Name, area.Side, area.Position, double.NaN, null, null))];
+    }
+
+    /// <summary>
     /// Whether this point is somewhere a player starts, as opposed to a bot.
     /// </summary>
     /// <remarks>

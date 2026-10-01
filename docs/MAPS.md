@@ -389,7 +389,17 @@ read for the open map only while it is on.
 "Spawn lines · first 5 min" (#914, on) draws V1's threat lines on the V2 map: one dashed red line
 from each nearby PMC spawn area (a `SpawnGrouping` area, never a single point) to the player's
 latest position, labelled "possible PMC spawn · 120 m". Full strength for three minutes, fading
-to nothing at five (`SpawnLines.Strength`); scav and unknown-side raids get none. A radius picker
+to nothing at five (`SpawnLines.Strength`); scav raids get none. A radius picker
 under the Map group (50 / 100 / 150 / 300 m, default 150) limits both the Nearby spawns markers
 and the lines, measured from the raid's first screenshot, and is kept per map
 (`raid.spawn-radius.<map id>`).
+
+Since #985 the possible PMC spawns need nothing from the player. Once the raid's map is known, every
+PMC spawn area of the map shows ("possible PMC spawn"), before any screenshot; the first screenshot
+narrows them to the radius and adds the lines. The five minutes run from the log's `GameStarted`
+when it has been seen, else from the raid's start, which is put on the PC's clock by whole quarter
+hours (`RaidStartClock`: a PC four hours fast had closed the window before the loading screen did).
+A raid whose side no line names is shown as PMC and says so; a scav raid shows none. One line over
+the map says what is shown and why. PMC spawn areas per map on the 2026-09-14 catalog: Streets 37,
+Woods 28, Interchange 26, Shoreline 26, Customs 25, Reserve 16, Ground Zero 16, Lighthouse 13,
+The Lab 10, Factory 9, The Labyrinth 4, Terminal 1.
