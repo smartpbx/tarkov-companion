@@ -1241,6 +1241,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         if (_map.RenderModel is not { } model)
         {
+            ShowPingStatus(RaidText.PingNoMap); // [#983] never silent
             return;
         }
 
@@ -1354,6 +1355,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [#963] Both tick every second through the interface thread; left running, they outlive
         // the cockpit (every test that built one kept posting to the dispatcher for the whole run).
         _nowHost?.Panel?.Dispose();
+        DisposePingTool();
         _markClock?.Dispose();
         _markClock = null;
         // Retired, not disposed: the tablet publisher may be half way through encoding one of
@@ -1842,10 +1844,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _ = _marks.PlaceAsync(model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label, NewMarkScope, RaidMarkLifetime.UntilRemoved, colour: NewMarkColour);
     }
 
-    private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
-    {
-        await PlaceWithScopeAsync(kind, mapId, floorId, x, y).ConfigureAwait(true);
-    }
+    private Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y) =>
+        PlaceAndReportAsync(() => PlaceWithScopeAsync(kind, mapId, floorId, x, y)); // [#983] never silent
 
     // internal rather than private: a paired tablet holding the control lease switches the
     // desktop's map the same way the manual picker above does (#407) — see

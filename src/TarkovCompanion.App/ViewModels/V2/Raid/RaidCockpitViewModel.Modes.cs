@@ -49,7 +49,7 @@ public sealed partial class RaidCockpitViewModel
     public bool IsRouteMode => _interactionMode == MapInteractionMode.Route;
 
     /// <summary>A plain click belongs to the mode (Inspect, Route), not to selection.</summary>
-    public bool IsClickMode => IsInspectMode || IsRouteMode;
+    public bool IsClickMode => IsInspectMode || IsRouteMode || IsPingMode;
 
     /// <summary>Any mode but Navigate: Escape has somewhere to go back from.</summary>
     public bool LeavesModeOnEscape => !IsNavigateMode;
@@ -398,6 +398,9 @@ public sealed partial class RaidCockpitViewModel
             case MapInteractionMode.Route:
                 AddRouteStop(point);
                 break;
+            case MapInteractionMode.Ping:
+                PingClicked(point);
+                break;
         }
     }
 
@@ -415,6 +418,7 @@ public sealed partial class RaidCockpitViewModel
         OnPropertyChanged(nameof(LeavesModeOnEscape));
         OnPropertyChanged(nameof(ShowsInspectHint));
         OnPropertyChanged(nameof(PlannedRouteSummary));
+        PingModeChanged(); // [#983]
     }
 
     /// <summary>The Marks card's scope switch also names what the next route stop will be.</summary>

@@ -48,6 +48,7 @@ public sealed partial class RaidCockpitViewModel
                 session.SendMarkAsync(mapId, position, label: null, isPing, cancellationToken, colour),
         };
         _groupForwarder.Changed += MarksChanged;
+        _groupForwarder.Delivered += GroupMarkDelivered; // [#983]
     }
 
     private void DetachGroupMarks()
@@ -55,6 +56,7 @@ public sealed partial class RaidCockpitViewModel
         if (_groupForwarder is { } forwarder)
         {
             forwarder.Changed -= MarksChanged;
+            forwarder.Delivered -= GroupMarkDelivered;
             forwarder.Dispose();
         }
     }

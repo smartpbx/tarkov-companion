@@ -2153,6 +2153,18 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#983] --ping-demo: the Ping tool on and one ping placed with it, so its bar and the
+            // map's line saying where the ping went can be looked at.
+            if (shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel pingCockpit &&
+                args.Contains("--ping-demo") && pingCockpit.Renderer is { } pingRenderer)
+            {
+                pingCockpit.SetInteractionMode(TarkovCompanion.App.ViewModels.V2.Raid.MapInteractionMode.Ping);
+                var pingBounds = pingRenderer.Scene.Bounds;
+                pingCockpit.ModeClicked(new((pingBounds.MinimumX + pingBounds.MaximumX) / 2, (pingBounds.MinimumY + pingBounds.MaximumY) / 2));
+                Pump(40);
+                Console.WriteLine($"Ping status: {pingCockpit.PingStatus}");
+            }
+
             // [#712 2-5] --ask "<question>": Ctrl+K with a question typed, after any --raid-demo so an
             // extract question sees the demo raid's exits; the frame waits for the answer card.
             if (shell is not null && StringOption(args, "--ask") is { } askQuestion)

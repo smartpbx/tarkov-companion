@@ -38,7 +38,10 @@ public sealed partial class RaidCockpitViewModel
 
     /// <summary>The scope a new mark gets: the player's pick, else Squad while sharing is on.</summary>
     public RaidMarkScope NewMarkScope => _chosenNewMarkScope ??
-        (_groupSession is not null && _stateStore.Current.Group.IsSharing ? RaidMarkScope.Squad : RaidMarkScope.Private);
+        // #983: a squad that is set up but between answers is still the squad. Deciding on
+        // IsSharing alone made a ping placed during one dropped exchange "Just me" for good,
+        // so it never left this PC even once the relay was back; now it waits in the queue.
+        (CurrentPingReach is PingReach.Squad or PingReach.RelayOffline ? RaidMarkScope.Squad : RaidMarkScope.Private);
 
     public bool NewMarksAreSquad => NewMarkScope == RaidMarkScope.Squad;
 
@@ -81,11 +84,11 @@ public sealed partial class RaidCockpitViewModel
         }
 
         var floorId = Renderer?.Scene.View.SelectedFloorId ?? model.SelectedFloor?.Id;
-        _ = _marks.PlaceAsync(model.Location.Id, floorId, point.X, point.Y, null, NewMarkScope, lifetime, colour: NewMarkColour);
+        _ = PlaceAndReportAsync(() => _marks.PlaceAsync(model.Location.Id, floorId, point.X, point.Y, null, NewMarkScope, lifetime, colour: NewMarkColour));
     }
 
     /// <summary>The gestures' own placement: the gesture picks the kind, the Marks card the scope.</summary>
-    private Task PlaceWithScopeAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y) =>
+    private Task<RaidMark> PlaceWithScopeAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y) =>
         _marks.PlaceAsync(mapId, floorId, x, y, null, NewMarkScope, RaidMarkLifetimes.DefaultFor(kind), colour: NewMarkColour);
 
     internal Task SetMarkOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime)
