@@ -52,6 +52,7 @@ public sealed class QuestListMatcher
     private const double CandidateThreshold = 0.50;
     private const double AmbiguityMargin = 0.06;
     private const int CandidateLimit = 5;
+    private const int MaximumTagLength = 32;
 
     public QuestListMatchResult Match(
         IEnumerable<string> ocrLines,
@@ -66,42 +67,80 @@ public sealed class QuestListMatcher
             .Where(candidate => candidate.Normalized.Length > 0)
             .ToArray();
 
+        var lines = ocrLines
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => line.Trim())
+            .ToArray();
         var results = new List<QuestListLineMatch>();
-        foreach (var rawLine in ocrLines)
+        for (var index = 0; index < lines.Length; index++)
         {
-            if (string.IsNullOrWhiteSpace(rawLine))
+            var line = lines[index];
+            var single = Score(line, catalog);
+            if (index + 1 < lines.Length)
             {
-                continue;
+                var next = lines[index + 1];
+                var joined = $"{line} {next}";
+                if (IsWrappedTail(line, next))
+                {
+                    results.Add(Score(joined, catalog));
+                    index++;
+                    continue;
+                }
+
+                // A title wrapped somewhere other than before "Part N": join only when neither
+                // half is a quest on its own and together they are one, clearly.
+                if (single.Kind != QuestListLineKind.Matched)
+                {
+                    var together = Score(joined, catalog);
+                    if (together.Kind == QuestListLineKind.Matched &&
+                        Score(next, catalog).Kind != QuestListLineKind.Matched &&
+                        together.Candidates[0].Confidence > TopConfidence(single))
+                    {
+                        results.Add(together);
+                        index++;
+                        continue;
+                    }
+                }
             }
 
-            var line = rawLine.Trim();
-            var normalized = Normalize(line);
-            var ranked = catalog
-                .Select(candidate => new QuestListCandidate(
-                    candidate.Task.Id,
-                    candidate.Task.Name,
-                    Similarity(normalized, candidate.Normalized)))
-                .OrderByDescending(candidate => candidate.Confidence)
-                .ThenBy(candidate => candidate.QuestName, StringComparer.Ordinal)
-                .ThenBy(candidate => candidate.TaskId, StringComparer.Ordinal)
-                .Take(CandidateLimit)
-                .ToArray();
-
-            if (ranked.Length == 0 || ranked[0].Confidence < CandidateThreshold)
-            {
-                results.Add(new(line, QuestListLineKind.Unmatched, ranked));
-                continue;
-            }
-
-            var top = ranked[0].Confidence;
-            var margin = ranked.Length == 1 ? 1 : top - ranked[1].Confidence;
-            var kind = top >= MatchThreshold && margin >= AmbiguityMargin
-                ? QuestListLineKind.Matched
-                : QuestListLineKind.Ambiguous;
-            results.Add(new(line, kind, ranked));
+            results.Add(single);
         }
 
         return new(results);
+    }
+
+    private static double TopConfidence(QuestListLineMatch match) =>
+        match.Candidates.Count == 0 ? 0 : match.Candidates[0].Confidence;
+
+    private static QuestListLineMatch Score(string line, IReadOnlyList<CatalogName> catalog)
+    {
+        var normalized = Normalize(line);
+        var ranked = catalog
+            .Select(candidate => new QuestListCandidate(
+                candidate.Task.Id,
+                candidate.Task.Name,
+                Similarity(normalized, candidate.Normalized)))
+            .OrderByDescending(candidate => candidate.Confidence)
+            .ThenBy(candidate => candidate.QuestName, StringComparer.Ordinal)
+            .ThenBy(candidate => candidate.TaskId, StringComparer.Ordinal)
+            .Take(CandidateLimit)
+            .ToArray();
+
+        if (ranked.Length == 0 || ranked[0].Confidence < CandidateThreshold)
+        {
+            return new(line, QuestListLineKind.Unmatched, ranked);
+        }
+
+        var top = ranked[0].Confidence;
+        var margin = ranked.Length == 1 ? 1 : top - ranked[1].Confidence;
+        // A line equal to exactly one name, once normalized, is that quest even when a sibling
+        // differs by one character. Without this, "Uninvited Guests - Part 1" read perfectly
+        // still tied with Part 2 on the margin and was put to the player as a guess (#989).
+        var exact = top >= 1 && (ranked.Length == 1 || ranked[1].Confidence < 1);
+        var kind = exact || (top >= MatchThreshold && margin >= AmbiguityMargin)
+            ? QuestListLineKind.Matched
+            : QuestListLineKind.Ambiguous;
+        return new(line, kind, ranked);
     }
 
     internal static string Normalize(string value)
@@ -116,6 +155,8 @@ public sealed class QuestListMatcher
             // identity; the changing event label is not a spelling difference.
             value = value[..bracket];
         }
+
+        value = WithoutLeadingTag(value);
 
         var decomposed = value.Normalize(NormalizationForm.FormD);
         var builder = new StringBuilder(decomposed.Length);
@@ -152,6 +193,47 @@ public sealed class QuestListMatcher
         // difference would cost two edits even though it is one visual confusion.
         return builder.ToString().Replace("rn", "m", StringComparison.Ordinal);
     }
+
+    /// <summary>Drops a leading event tag such as "[KORD BREACH] ".</summary>
+    /// <remarks>
+    /// Season quests carry their tag in front, and OCR damages it in ways edit distance cannot
+    /// forgive on a short name: "[KORD BREACH] Unanswered Calls" came back as
+    /// "KORD BREACH] Unanswered Calls" and "KORO BREACH] Uninvited Guests" (#989), the "[" lost
+    /// and D read as O. The closing bracket survives, so everything up to it is the tag. The tag
+    /// is a label for the season, not part of the quest's identity, exactly like the trailing
+    /// [PVP ZONE] tag above; it is removed from catalog names the same way.
+    /// </remarks>
+    private static string WithoutLeadingTag(string value)
+    {
+        var close = value.IndexOf(']');
+        if (close <= 0 || close > MaximumTagLength)
+        {
+            return value;
+        }
+
+        var tag = value[..close];
+        var rest = value[(close + 1)..];
+        if (tag.LastIndexOf('[') > 0 || string.IsNullOrWhiteSpace(rest) || !tag.Any(char.IsLetter))
+        {
+            return value;
+        }
+
+        return rest;
+    }
+
+    /// <summary>Whether an OCR line is the tail of a title the quest list wrapped.</summary>
+    /// <remarks>
+    /// A long title wraps in the TASKS list, so "KORD BREACH] Uninvited Guests" and "- Part 1"
+    /// arrive as two lines (#989). On its own the first is a tie between Part 1 and Part 2 and the
+    /// second matches nothing.
+    /// </remarks>
+    private static bool IsWrappedTail(string previous, string line) =>
+        PartTail.IsMatch(line) ||
+        previous.EndsWith('-') || previous.EndsWith('\u2013') || previous.EndsWith('\u2014');
+
+    private static readonly System.Text.RegularExpressions.Regex PartTail = new(
+        @"^[-\u2013\u2014]?\s*part\s*[0-9lio]{1,2}\.?$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static double Similarity(string left, string right)
     {

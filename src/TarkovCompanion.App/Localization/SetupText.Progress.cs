@@ -24,6 +24,10 @@ public static partial class SetupText
     public static string QuestSyncSynced(object? changes) => UiText.Format("Setup.QuestSync.Synced", changes);
     public static string QuestSyncNotSynced(object? reason) => UiText.Format("Setup.QuestSync.NotSynced", reason);
     public static string QuestSyncCancelled => UiText.Get("Setup.QuestSync.Cancelled");
+    public static string QuestSyncFailureNoQuestData => UiText.Get("Setup.QuestSync.Failure.NoQuestData");
+    public static string QuestSyncFailureUnknownQuest => UiText.Get("Setup.QuestSync.Failure.UnknownQuest");
+    public static string QuestSyncFailureNoTextReading => UiText.Get("Setup.QuestSync.Failure.NoTextReading");
+    public static string QuestSyncFailureOther => UiText.Get("Setup.QuestSync.Failure.Other");
     public static string CoverageNotMeasured => UiText.Get("Setup.Coverage.NotMeasured");
     public static string CoverageQuestTitle => UiText.Get("Setup.Coverage.QuestTitle");
     public static string CoverageQuestNoMode => UiText.Get("Setup.Coverage.QuestNoMode");

@@ -26,6 +26,13 @@ public sealed record QuestScreenshotImageLoad(
     int Skipped,
     string? Error = null);
 
+/// <summary>The screen reader this machine has could not read text (OCR is unavailable).</summary>
+/// <remarks>Typed so the page can say so in plain words; the message stays for the log.</remarks>
+public sealed class QuestScreenshotTextUnavailableException(string message) : InvalidOperationException(message);
+
+/// <summary>No quest catalog is loaded for the profile's mode and language yet.</summary>
+public sealed class QuestScreenshotCatalogNotReadyException(string message) : InvalidOperationException(message);
+
 public interface IQuestScreenshotImageSource
 {
     Task<QuestScreenshotImageLoad> LoadFilesAsync(
@@ -56,7 +63,8 @@ public interface IQuestTaskColumnRegionDetector
 
 /// <summary>Reads quest-list screenshots, previews their consequences, then applies confirmation.</summary>
 /// <remarks>
-/// OCR and matching do not write progress. Confirmation re-reads the current progress before it
+/// OCR and matching do not write progress. What the player confirms is written as the player's
+/// own command with <see cref="QuestProgressSources.Screenshot"/> as its source. Confirmation re-reads the current progress before it
 /// applies, so a game-log event arriving while the preview was open is not overwritten by an old
 /// snapshot. Finished and failed states remain protected by <see cref="QuestHistoryInference"/>.
 /// </remarks>
@@ -102,7 +110,7 @@ public sealed class QuestScreenshotSyncService(
                 .ConfigureAwait(false);
             if (!result.IsAvailable)
             {
-                throw new InvalidOperationException(
+                throw new QuestScreenshotTextUnavailableException(
                     $"Text recognition is unavailable ({result.DiagnosticCode ?? result.Engine}).");
             }
 
@@ -171,8 +179,8 @@ public sealed class QuestScreenshotSyncService(
                     scope,
                     change.TaskId,
                     change.NewState,
-                    QuestProgressActor.Import,
-                    "ScreenshotSync",
+                    QuestProgressActor.User,
+                    QuestProgressSources.Screenshot,
                     cancellationToken)
                 .ConfigureAwait(false);
             if (result.Changed)
@@ -193,7 +201,7 @@ public sealed class QuestScreenshotSyncService(
         var questCatalog = await catalog
             .GetAsync(profile.GameMode, options.NormalizedLanguage, cancellationToken)
             .ConfigureAwait(false)
-            ?? throw new InvalidOperationException("Quest data is not ready yet.");
+            ?? throw new QuestScreenshotCatalogNotReadyException("Quest data is not ready yet.");
         return (scope, snapshot, questCatalog);
     }
 }

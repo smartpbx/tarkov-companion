@@ -74,8 +74,8 @@ public sealed class QuestScreenshotSyncServiceTests
             call => Assert.Equal(("shortage", RecordedTaskState.Active), (call.TaskId, call.State)));
         Assert.All(fixture.Commands.Calls, call =>
         {
-            Assert.Equal(QuestProgressActor.Import, call.Actor);
-            Assert.Equal("ScreenshotSync", call.Source);
+            Assert.Equal(QuestProgressActor.User, call.Actor);
+            Assert.Equal(QuestProgressSources.Screenshot, call.Source);
         });
     }
 

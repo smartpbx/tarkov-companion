@@ -208,7 +208,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = SetupText.QuestSyncNotReady(exception.Message);
+            Status = SetupText.QuestSyncNotReady(QuestScreenshotSyncFailure.Reason(exception, "check recorded progress"));
         }
     }
 
@@ -313,7 +313,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = SetupText.QuestSyncReadFailed(exception.Message);
+            Status = SetupText.QuestSyncReadFailed(QuestScreenshotSyncFailure.Reason(exception, "read screenshots"));
         }
     }
 
@@ -352,7 +352,7 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = SetupText.QuestSyncNotSynced(exception.Message);
+            Status = SetupText.QuestSyncNotSynced(QuestScreenshotSyncFailure.Reason(exception, "confirm sync"));
         }
     }
 
