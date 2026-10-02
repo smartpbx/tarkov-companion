@@ -269,7 +269,8 @@ against it: the plan stops with its edge on the card's edge, and an axis whose v
 wider than the plan is centred rather than pinned to one side. The clamp during a drag is the
 clamp the drag commits, so releasing the pointer never moves the plan somewhere else.
 
-Follow on/off is remembered across restarts, map switches and raids; a manual pan still turns it off.
+Follow is remembered per map (#992), across restarts and raids, and only the Follow button changes it.
+A drag pauses following until a tap on "Follow paused", the next raid or another map; it saves nothing.
 
 ### Draw mode (#286)
 
