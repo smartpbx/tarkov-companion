@@ -704,12 +704,13 @@
                  loose buttons of different widths were what the issue's screenshot pointed at. -->
             <Border Classes="v2-segmented">
             <StackPanel Orientation="Horizontal">
-            <ToggleButton Classes="v2-segmented-item" Content="{x:Static l:RaidText.Follow}"
+            <!-- [#992] Follow is saved per map; a drag only pauses it, and the button says so. -->
+            <ToggleButton Classes="v2-segmented-item" Content="{Binding FollowButtonText}"
                           IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
                           Command="{Binding ToggleFollowCommand}"
                           AutomationProperties.AutomationId="v2-raid-follow"
                           AutomationProperties.Name="{Binding FollowLabel}"
-                          ToolTip.Tip="{x:Static l:RaidText.FollowTip}" />
+                          ToolTip.Tip="{Binding FollowButtonTip}" />
             <Button Classes="v2-segmented-item" Content="{Binding FollowZoomLabel}"
                     AutomationProperties.AutomationId="v2-raid-follow-zoom"
                     AutomationProperties.Name="{Binding FollowLabel}"

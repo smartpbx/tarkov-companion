@@ -1442,7 +1442,8 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     private AvaloniaList<Point> _playerTrail = [];
     private AvaloniaList<Point> _plannedReplayRoute = [];
     private string? _followedPositionFilename;
-    private bool _followsPlayer = true;
+    private bool _followsPlayer;
+    private bool _isFollowPaused;
     private bool _prefersDrawing;
     /// <summary>#938: the map whose drawing is on screen only because the floor stack needs it.</summary>
     private string? _stackDrawingLocationId;
@@ -1527,7 +1528,7 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
         _questReadService = questReadService;
         _questProjectionService = questProjectionService;
         _followSetting = new(layout);
-        _followsPlayer = _followSetting.Value;
+        _followsPlayer = _followSetting.For(null);
         _followFloorSetting = new(layout, WorkspaceLayoutKeys.RaidFollowFloor, defaultValue: true);
         _autoSelectsFloor = _followFloorSetting.Read();
     }
@@ -1539,7 +1540,8 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     internal void ReloadStoredChoices()
     {
         _followSetting.Reload();
-        Set(ref _followsPlayer, _followSetting.Value, nameof(FollowsPlayer));
+        Set(ref _followsPlayer, _followSetting.For(SelectedLocation?.Id), nameof(FollowsPlayer));
+        IsFollowPaused = false;
         Set(ref _autoSelectsFloor, _followFloorSetting.Read(), nameof(AutoSelectsFloor));
     }
 
@@ -1759,31 +1761,101 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     /// Whether the view moves to the player when a new screenshot arrives.
     /// </summary>
     /// <remarks>
-    /// On by default, because the whole point of this panel is to be looked at without being
-    /// operated. The remembered choice changes only for the Follow control or a deliberate
-    /// camera move; loading a map, starting a raid and fitting new artwork leave it alone.
+    /// [#992] The player's choice for the map on screen, kept per map (<see cref="FollowSetting"/>).
+    /// Only the Follow control changes it; loading a map, starting or ending a raid, fitting new
+    /// artwork, a drag and a zoom leave it alone. A drag pauses following instead
+    /// (<see cref="IsFollowPaused"/>).
     /// </remarks>
     public bool FollowsPlayer
     {
         get => _followsPlayer;
         private set
         {
-            if (Set(ref _followsPlayer, value))
+            Set(ref _followsPlayer, value);
+            _followSetting.Set(SelectedLocation?.Id, value);
+        }
+    }
+
+    /// <summary>
+    /// [#992] Follow is on for this map, and the player moved the map themselves since: the next
+    /// screenshot leaves the map where they put it.
+    /// </summary>
+    /// <remarks>
+    /// Never saved. Ends with a tap on Follow, a new raid (<see cref="ResumeFollow"/>) or another map.
+    /// Before #992 a drag saved Follow as off, for every map and every later raid.
+    /// </remarks>
+    public bool IsFollowPaused
+    {
+        get => _isFollowPaused;
+        private set
+        {
+            if (Set(ref _isFollowPaused, value))
             {
-                _followSetting.Set(value);
+                OnPropertyChanged(nameof(IsFollowingNow));
             }
         }
     }
 
+    /// <summary>Whether a new screenshot moves the map to the player now.</summary>
+    public bool IsFollowingNow => FollowsPlayer && !IsFollowPaused;
+
     /// <summary>Asks the view to put the player in the middle of the panel.</summary>
     public event EventHandler? PlayerFollowRequested;
 
-    public void ToggleFollowPlayer() => FollowsPlayer = !FollowsPlayer;
+    /// <summary>
+    /// The Follow control: while paused, a tap resumes following; otherwise it turns Follow on or
+    /// off for this map. Turning it on, or resuming, moves the map to the player at once.
+    /// </summary>
+    public void ToggleFollowPlayer()
+    {
+        if (FollowsPlayer && IsFollowPaused)
+        {
+            IsFollowPaused = false;
+        }
+        else
+        {
+            FollowsPlayer = !FollowsPlayer;
+            IsFollowPaused = false;
+        }
+
+        if (IsFollowingNow && HasPlayerMarker)
+        {
+            _followedPositionFilename = _playerPosition?.Filename;
+            PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>Ends a pause without moving the map: a new raid, or a fit that asked for the whole map.</summary>
+    public void ResumeFollow() => IsFollowPaused = false;
+
+    /// <summary>
+    /// Stops following until <see cref="ResumeFollow"/>, without changing the saved choice.
+    /// </summary>
+    public void PauseFollow()
+    {
+        if (FollowsPlayer)
+        {
+            IsFollowPaused = true;
+        }
+    }
+
+    /// <summary>[#992] A map opened reads its own Follow choice; a pause belongs to the map it was made on.</summary>
+    private void ReadFollowForLocation()
+    {
+        Set(ref _followsPlayer, _followSetting.For(SelectedLocation?.Id), nameof(FollowsPlayer));
+        IsFollowPaused = false;
+    }
 
     public MapLocation? SelectedLocation
     {
         get => _selectedLocation;
-        private set => Set(ref _selectedLocation, value);
+        private set
+        {
+            if (Set(ref _selectedLocation, value))
+            {
+                ReadFollowForLocation();
+            }
+        }
     }
 
     public MapVariant? SelectedVariant
@@ -2601,7 +2673,7 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
     public void SetZoom(double scale)
     {
         IsAutoFit = false;
-        FollowsPlayer = false;
+        PauseFollow();
         ZoomScale = ClampZoom(scale);
     }
 
@@ -2620,13 +2692,14 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Records that the player moved the map themselves.</summary>
     /// <remarks>
-    /// Panning is a deliberate act, and the next screenshot should not undo it. Fit and the
-    /// follow control both turn following back on, so this is recoverable with one click.
+    /// Panning is a deliberate act, and the next screenshot should not undo it. [#992] It pauses
+    /// following and saves nothing: before, it saved Follow as off for every later raid. A tap on
+    /// "Follow paused", a new raid or another map resume it.
     /// </remarks>
     public void ReportManualPan()
     {
         IsAutoFit = false;
-        FollowsPlayer = false;
+        PauseFollow();
     }
 
     /// <summary>
@@ -6022,7 +6095,8 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private void CentreOnReplay()
     {
-        FollowsPlayer = true;
+        // [#992] Centres once; the saved Follow choice is the player's, not the replay's.
+        IsFollowPaused = false;
         PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -6060,17 +6134,16 @@ public sealed partial class MapViewModel : INotifyPropertyChanged, IDisposable
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
-        if (position is null || !FollowsPlayer ||
+        // [#992] Remembered only once the request is made, so a screenshot seen while the map had
+        // no marker yet is not marked as followed, and a later pass with a marker still follows it.
+        if (position is null || !IsFollowingNow || !HasPlayerMarker ||
             string.Equals(_followedPositionFilename, position.Filename, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         _followedPositionFilename = position.Filename;
-        if (HasPlayerMarker)
-        {
-            PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
-        }
+        PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
     }
 
     internal static bool SameTrail(IReadOnlyList<ScreenshotPosition> current, IReadOnlyList<ScreenshotPosition> incoming)

@@ -569,10 +569,8 @@ internal sealed class GallerySceneRunner(IServiceProvider services, MainWindowVi
     /// <summary>The whole plan in view and not following the player, so a click lands where it is aimed.</summary>
     private static MapSceneRendererViewModel FitForModes(RaidCockpitViewModel raid)
     {
-        if (raid.FollowsPlayer)
-        {
-            raid.ToggleFollowCommand.Execute(null);
-        }
+        // [#992] Paused, not switched off: the gallery must not save a Follow choice.
+        raid.PauseFollow();
 
         var renderer = raid.Renderer ?? throw new InvalidOperationException("the map is not open");
         renderer.FitPlanCommand.Execute(null);

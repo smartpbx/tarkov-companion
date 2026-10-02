@@ -1873,7 +1873,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </remarks>
     private static readonly IReadOnlyDictionary<string, string[]> MapEchoes = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
-        [nameof(MapViewModel.FollowsPlayer)] = [nameof(FollowsPlayer)],
+        [nameof(MapViewModel.FollowsPlayer)] = [nameof(FollowsPlayer), nameof(FollowButtonText), nameof(FollowButtonTip)],
+        [nameof(MapViewModel.IsFollowPaused)] = [nameof(IsFollowPaused), nameof(FollowButtonText), nameof(FollowButtonTip)],
         [nameof(MapViewModel.RotationDegrees)] = [nameof(RotationLabel), nameof(IsRotated)],
         [nameof(MapViewModel.ShowsGroupNames)] = [nameof(ShowsGroupNames)],
         [nameof(MapViewModel.AutoSelectsFloor)] = [nameof(AutoSelectsFloor)],
@@ -2017,7 +2018,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </remarks>
     private void CameraZoomedByPlayer(object? sender, EventArgs e)
     {
-        if (!_map.FollowsPlayer || Renderer is null)
+        if (!_map.IsFollowingNow || Renderer is null)
         {
             _map.ReportManualPan();
             return;
@@ -2034,7 +2035,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _followZoom.ChangeBy(steps);
         OnPropertyChanged(nameof(FollowZoomLabel));
         OnPropertyChanged(nameof(FollowLabel));
-        if (_map.FollowsPlayer)
+        if (_map.IsFollowingNow)
         {
             FollowPlayer();
         }
@@ -2306,6 +2307,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var raid = snapshot.Raid;
         var group = snapshot.Group;
         ResetLettersForNewRaid(raid);
+        ResumeFollowForNewRaid(raid);
         // [#893] Always asked, so the group's signature is current even when the raid changed.
         var sameGroup = SameGroupScene(group);
         if (ReferenceEquals(raid, _seenRaid) && sameGroup)

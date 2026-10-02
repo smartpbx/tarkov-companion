@@ -36,6 +36,8 @@ public static partial class RaidText
     public static string ClearMyDrawings => UiText.Get("Raid.ClearMyDrawings");
     public static string Follow => UiText.Get("Raid.Follow");
     public static string FollowTip => UiText.Get("Raid.FollowTip");
+    public static string FollowPaused => UiText.Get("Raid.FollowPaused");
+    public static string FollowPausedTip => UiText.Get("Raid.FollowPausedTip");
     public static string FollowZoomTip => UiText.Get("Raid.FollowZoomTip");
     public static string ZoomFollowOut => UiText.Get("Raid.ZoomFollowOut");
     public static string ZoomFollowIn => UiText.Get("Raid.ZoomFollowIn");

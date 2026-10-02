@@ -2412,6 +2412,8 @@
   "Raid.ClearMyDrawings": "Clear my drawings",
   "Raid.Follow": "Follow",
   "Raid.FollowTip": "Move the map to you when you take a screenshot",
+  "Raid.FollowPaused": "Follow paused",
+  "Raid.FollowPausedTip": "You moved the map. Tap to follow again",
   "Raid.FollowZoomTip": "Change Follow zoom",
   "Raid.ZoomFollowOut": "Zoom Follow out",
   "Raid.ZoomFollowIn": "Zoom Follow in",

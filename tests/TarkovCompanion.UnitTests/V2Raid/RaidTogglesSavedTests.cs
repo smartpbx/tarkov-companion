@@ -43,7 +43,7 @@ public sealed class RaidTogglesSavedTests : IDisposable
             Assert.True(cockpit.ShowSquadObjectives);
             Assert.False(cockpit.RouteSquadStops);
             Assert.True(cockpit.AutoSelectsFloor);
-            Assert.True(cockpit.FollowsPlayer);
+            Assert.False(cockpit.FollowsPlayer); // [#992] off until turned on for a map
 
             cockpit.ToggleShowCompletedObjectivesCommand.Execute(null);
             cockpit.ToggleSquadObjectivesCommand.Execute(null);
@@ -64,7 +64,7 @@ public sealed class RaidTogglesSavedTests : IDisposable
             Assert.True(cockpit.RouteSquadStops);
             Assert.Equal(RaidMarkScope.Squad, cockpit.NewMarkScope);
             Assert.False(cockpit.AutoSelectsFloor);
-            Assert.False(cockpit.FollowsPlayer);
+            Assert.True(cockpit.FollowsPlayer);
             Assert.Equal(520, cockpit.ContextPanelWidth);
             Assert.False(cockpit.Cards.Objectives.IsExpanded);
             var zoomed = cockpit.FollowZoomLabel;
@@ -80,7 +80,7 @@ public sealed class RaidTogglesSavedTests : IDisposable
             Assert.False(cockpit.RouteSquadStops);
             Assert.NotEqual(RaidMarkScope.Squad, cockpit.NewMarkScope);
             Assert.True(cockpit.AutoSelectsFloor);
-            Assert.True(cockpit.FollowsPlayer);
+            Assert.False(cockpit.FollowsPlayer);
             Assert.Equal(RaidCockpitViewModel.DefaultContextPanelWidth, cockpit.ContextPanelWidth);
             Assert.True(cockpit.Cards.Objectives.IsExpanded);
             Assert.NotEqual(zoomed, cockpit.FollowZoomLabel);
