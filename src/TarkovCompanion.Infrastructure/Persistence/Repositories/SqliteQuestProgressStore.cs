@@ -707,17 +707,21 @@ public sealed class SqliteQuestProgressStore(
         // one. The game announcing a quest in its own logs is the other, and it was previously
         // writing as though it were the player: the only way past this check was to claim to be
         // a manual edit, which left the page unable to say where a state had come from. An
-        // import still cannot mutate this; it has its own staged path.
+        // import still cannot mutate this; it has its own staged path. Screenshot sync is the
+        // player's own command (they confirm every change in a preview), so it writes as the
+        // player with the screenshot named as its source. It was written as an Import and
+        // refused, which made Confirm sync fail outright (#989).
         var declared = (mutation.Actor, mutation.Source) switch
         {
             (QuestProgressActor.User, QuestProgressSources.Manual) => true,
+            (QuestProgressActor.User, QuestProgressSources.Screenshot) => true,
             (QuestProgressActor.GameLog, QuestProgressSources.GameLog) => true,
             _ => false,
         };
         if (!declared)
         {
             throw new InvalidOperationException(
-                "Stage 2 progress accepts manual commands and the game's own log observations only; " +
+                "Stage 2 progress accepts the player's commands (typed, or confirmed from screenshots) and the game's own log observations only; " +
                 "imports cannot mutate it, and an actor must match its source.");
         }
     }

@@ -282,6 +282,7 @@ public sealed class QuestTaskViewModel
             {
                 QuestProgressSources.GameLog => "From the game",
                 QuestProgressSources.Manual => "Recorded by you",
+                QuestProgressSources.Screenshot => "From your screenshots",
                 var other => other,
             };
             return Model.ProgressModifiedUtc is { } modified

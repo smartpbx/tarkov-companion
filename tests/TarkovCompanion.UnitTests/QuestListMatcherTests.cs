@@ -71,6 +71,91 @@ public sealed class QuestListMatcherTests
             pair.First.Confidence >= pair.Second.Confidence));
     }
 
+    /// <summary>The ten Not found lines from Clayton's sync (#989), as the issue quotes them.</summary>
+    /// <remarks>
+    /// None of these is in json.tarkov.dev today, in regular, pve or pvp-season (checked
+    /// 2026-10-02): they are Season 1 KORD BREACH quests the feed does not publish. Against the
+    /// real catalog they must stay Not found, never become a guess.
+    /// </remarks>
+    private static readonly string[] IssueNotFound =
+    [
+        "Honest Review", "Fog of War", "KORD BREACH] Unanswered Calls", "To the Light - Trust but Verify",
+        "Invasive Therapy", "Stimulating Demand", "KORO BREACH] Uninvited Guests - Part 1",
+    ];
+
+    [Fact]
+    public void SeasonQuestsAbsentFromTheCatalogStayNotFound()
+    {
+        var result = _matcher.Match(IssueNotFound, Catalog());
+
+        Assert.Empty(result.Matched);
+        Assert.Equal(IssueNotFound, result.Unmatched.Select(line => line.OcrLine));
+    }
+
+    [Theory]
+    [InlineData("[KORD BREACH] Unanswered Calls")]
+    [InlineData("Unanswered Calls [KORD BREACH]")]
+    [InlineData("Unanswered Calls")]
+    public void ABrokenLeadingEventTagStillMatchesTheQuest(string catalogName)
+    {
+        var catalog = SeasonCatalog(catalogName);
+
+        foreach (var line in new[] { "KORD BREACH] Unanswered Calls", "[KORD BREACH] Unanswered Calls", "KORO BREACH] Unanswered Calls" })
+        {
+            var match = Assert.Single(_matcher.Match([line], catalog).Matched);
+            Assert.Equal("unanswered-calls", match.Confirmed!.TaskId);
+        }
+    }
+
+    [Theory]
+    [InlineData("KORO BREACH] Uninvited Guests", "- Part 1", "uninvited-guests-1")]
+    [InlineData("KORO BREACH] Uninvited Guests -", "Part 1", "uninvited-guests-1")]
+    [InlineData("KORD BREACH] Uninvited Guests", "Part 2", "uninvited-guests-2")]
+    [InlineData("KORO BREACH] Uninvited Guests - Part 1", null, "uninvited-guests-1")]
+    public void ATitleWrappedOntoASecondLineIsJoined(string first, string? second, string expected)
+    {
+        var lines = second is null ? new[] { first } : [first, second];
+
+        var result = _matcher.Match(lines, SeasonCatalog());
+
+        var match = Assert.Single(result.Lines);
+        Assert.Equal(QuestListLineKind.Matched, match.Kind);
+        Assert.Equal(expected, match.Confirmed!.TaskId);
+    }
+
+    [Fact]
+    public void ATitleWrappedMidNameIsJoinedWhenNeitherHalfIsAQuest()
+    {
+        var result = _matcher.Match(
+            ["Honest Review", "To the Light - Trust", "but Verify", "Fog of War"],
+            SeasonCatalog());
+
+        Assert.Equal(
+            ["honest-review", "to-the-light-trust-but-verify", "fog-of-war"],
+            result.Lines.Select(line => line.Confirmed?.TaskId));
+    }
+
+    [Fact]
+    public void TwoQuestsOnConsecutiveLinesAreNotJoined()
+    {
+        var result = _matcher.Match(["Invasive Therapy", "Stimulating Demand"], SeasonCatalog());
+
+        Assert.Equal(["invasive-therapy", "stimulating-demand"], result.Matched.Select(line => line.Confirmed!.TaskId));
+    }
+
+    private static QuestTaskDefinition[] SeasonCatalog(string unansweredCalls = "[KORD BREACH] Unanswered Calls") =>
+    [
+        .. Catalog(),
+        Task("unanswered-calls", unansweredCalls),
+        Task("uninvited-guests-1", "[KORD BREACH] Uninvited Guests - Part 1"),
+        Task("uninvited-guests-2", "[KORD BREACH] Uninvited Guests - Part 2"),
+        Task("honest-review", "Honest Review"),
+        Task("fog-of-war", "Fog of War"),
+        Task("to-the-light-trust-but-verify", "To the Light - Trust but Verify"),
+        Task("invasive-therapy", "Invasive Therapy"),
+        Task("stimulating-demand", "Stimulating Demand"),
+    ];
+
     private static QuestTaskDefinition[] Catalog() =>
     [
         Task("debut", "Debut"),

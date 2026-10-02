@@ -38,3 +38,7 @@ The research-pinned regular maps body has SHA-256 `ff0459e7b7ff46a392eca19d90797
 Catalog and progress truth remain independent. PvP, PvE, and seasonal catalogs can coexist without ID collision, repeated identical task refreshes are idempotent, and future schema variants do not make the whole catalog unavailable. The initial legacy task tables remain compatible during staged delivery, while Stage 1 queries use the mode-scoped catalog tables.
 
 Local editing, progress journaling, project JSON exchange, TarkovTracker import, and quest UI are deliberately not implemented by Stage 1. Those capabilities require later stage-specific contracts, migrations, tests, and runtime composition. No Stage 1 catalog geometry is eligible for display as an exact marker by itself.
+
+## Amendment (2026-10-02, #989): who may write progress directly
+
+Direct progress writes have three honest forms: the player typing (`User`, `Manual`), the player confirming a screenshot sync preview (`User`, `Screenshot`), and the game's own log (`GameLog`, `GameLog`). Screenshot sync writes nothing until the player reviews each change and presses Confirm, so it is the player's command; the `Screenshot` source keeps where the state came from. The `Import` actor still cannot write directly: file and bundle imports go through the staged path of ADR 0005.

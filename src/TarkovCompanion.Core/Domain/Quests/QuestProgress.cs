@@ -82,6 +82,16 @@ public static class QuestProgressSources
 
     /// <summary>The game said so, in its own logs.</summary>
     public const string GameLog = "GameLog";
+
+    /// <summary>
+    /// The player confirmed it on the page, from their own TASKS screenshots (#989).
+    /// </summary>
+    /// <remarks>
+    /// Written by the player (<see cref="QuestProgressActor.User"/>), because nothing is applied
+    /// until they review the preview and press Confirm. Its own source rather than
+    /// <see cref="Manual"/>, so the page can still say the state was read from a screenshot.
+    /// </remarks>
+    public const string Screenshot = "Screenshot";
 }
 
 public sealed record QuestProfileScope(Guid ProfileId, GameMode GameMode, string Generation);
